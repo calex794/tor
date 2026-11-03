@@ -35,9 +35,15 @@ impl PgReadingSync {
              FROM reader_book_positions AS saved \
              JOIN chapters AS chapter ON chapter.book_id = saved.book_id AND chapter.id = $2 \
              JOIN books AS book ON book.id = chapter.book_id \
+             JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
              WHERE saved.user_id = $1 AND book.visibility = 'public' AND book.visibility_status = 'active' \
                AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND (book.access_level='basic' \
+               OR (book.access_level='adult' AND viewer.adult_enabled) \
+               OR (book.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())",
@@ -97,18 +103,25 @@ impl PgReadingSync {
             "SELECT chapter.book_id, edition.body_markdown
              FROM chapters AS chapter
              JOIN books AS book ON book.id=chapter.book_id
+             JOIN users AS viewer ON viewer.id=$3 AND viewer.account_state='active'
              JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id
              JOIN chapter_versions AS edition
                ON edition.id=publication.version_id AND edition.chapter_id=chapter.id
              WHERE chapter.id=$1 AND publication.version_id=$2
                AND book.visibility='public' AND book.visibility_status='active' AND NOT book.admin_hold AND NOT book.is_deleted
+               AND (book.access_level='basic'
+                    OR (book.access_level='adult' AND viewer.adult_enabled)
+                    OR (book.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants AS age_grant
+                        WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active)))
                AND chapter.visibility='public' AND chapter.access_level='free'
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
-             FOR SHARE OF chapter,book,publication,edition",
+             FOR SHARE OF chapter,book,publication,edition,viewer",
         )
         .bind(chapter_id)
         .bind(version_id)
+        .bind(actor)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| SyncError::Unavailable)?
@@ -135,11 +148,17 @@ impl PgReadingSync {
                     chapter.edit_revision, $3, $4, $5, 1 \
              FROM chapters AS chapter \
              JOIN books AS book ON book.id = chapter.book_id \
+             JOIN users AS viewer ON viewer.id=$1 AND viewer.account_state='active' \
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
              JOIN chapter_versions AS edition ON edition.id = published.version_id \
                  AND edition.chapter_id = chapter.id \
              WHERE chapter.id = $2 AND published.version_id = $3 \
                AND book.visibility = 'public' AND book.visibility_status = 'active' AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND (book.access_level='basic' \
+               OR (book.access_level='adult' AND viewer.adult_enabled) \
+               OR (book.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now()) \
