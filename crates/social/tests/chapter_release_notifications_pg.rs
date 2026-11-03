@@ -33,8 +33,7 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .unwrap();
         users.push(user);
     }
-    let (author, follower, opted_out, late_follower) =
-        (users[0], users[1], users[2], users[3]);
+    let (author, follower, opted_out, late_follower) = (users[0], users[1], users[2], users[3]);
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES($1,'ru',$2,'public',$3) RETURNING id",
@@ -45,15 +44,13 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO reader_book_follows(user_id,book_id) VALUES($1,$3),($2,$3)",
-    )
-    .bind(follower)
-    .bind(opted_out)
-    .bind(book)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO reader_book_follows(user_id,book_id) VALUES($1,$3),($2,$3)")
+        .bind(follower)
+        .bind(opted_out)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO user_notification_preferences(user_id,kind,enabled)
          VALUES($1,'chapter_created',false)",
@@ -83,14 +80,12 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(chapter)
-    .bind(version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO chapter_first_release_events
            (chapter_id,version_id,creator_user_id) VALUES($1,$2,$3)",
@@ -152,8 +147,14 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(received, vec![(follower, "chapter_created".to_owned(),
-        format!("/reader/{chapter}"))]);
+    assert_eq!(
+        received,
+        vec![(
+            follower,
+            "chapter_created".to_owned(),
+            format!("/reader/{chapter}")
+        )]
+    );
     let all_delivered: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
          WHERE (id=$1::uuid OR
@@ -165,7 +166,10 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(all_delivered, 3, "root and both children must have receipts");
+    assert_eq!(
+        all_delivered, 3,
+        "root and both children must have receipts"
+    );
     let receipt: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM event_deliveries
          WHERE event_id=$1::uuid AND consumer='chapter_release_fanout_v1'",
