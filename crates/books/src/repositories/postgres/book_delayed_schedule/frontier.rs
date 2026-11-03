@@ -1,7 +1,7 @@
 //! S058: NEwBOO first-reader-invisible frontier for a claimed book slot.
 //! Binding never releases a chapter or creates reader/publication events.
-use super::BookSlotClaim;
 use super::super::PgAuthoring;
+use super::BookSlotClaim;
 use crate::services::authoring::{valid_command_key, AuthorError};
 use sqlx::{Postgres, Row, Transaction};
 
@@ -96,9 +96,11 @@ async fn advance_empty(
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         (
-            first.try_get("slot_index")
+            first
+                .try_get("slot_index")
                 .map_err(|_| AuthorError::Unavailable)?,
-            first.try_get("minute_of_day")
+            first
+                .try_get("minute_of_day")
                 .map_err(|_| AuthorError::Unavailable)?,
             interval,
         )
@@ -148,7 +150,11 @@ impl PgAuthoring {
         {
             return Err(AuthorError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND NOT admin_hold AND NOT is_deleted
@@ -204,7 +210,15 @@ impl PgAuthoring {
             return Ok(BookSlotFrontier::Ready(id));
         }
         if visibility != "public" {
-            finish_terminal(&mut tx, claim, token, None, "blocked", Some("book_not_public")).await?;
+            finish_terminal(
+                &mut tx,
+                claim,
+                token,
+                None,
+                "blocked",
+                Some("book_not_public"),
+            )
+            .await?;
             tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
             return Ok(BookSlotFrontier::Blocked {
                 chapter_id: None,
@@ -242,14 +256,30 @@ impl PgAuthoring {
             return Ok(BookSlotFrontier::Empty);
         };
         let id: i64 = row.try_get("id").map_err(|_| AuthorError::Unavailable)?;
-        let held: bool = row.try_get("admin_hold").map_err(|_| AuthorError::Unavailable)?;
-        let time_allowed: bool = row.try_get("time_allowed").map_err(|_| AuthorError::Unavailable)?;
-        let chapter_visibility: String = row.try_get("visibility").map_err(|_| AuthorError::Unavailable)?;
-        let access: String = row.try_get("access_level").map_err(|_| AuthorError::Unavailable)?;
-        let price: i64 = row.try_get("price_amount").map_err(|_| AuthorError::Unavailable)?;
-        let working: Option<i64> = row.try_get("working_version").map_err(|_| AuthorError::Unavailable)?;
-        let published: bool = row.try_get("has_publication").map_err(|_| AuthorError::Unavailable)?;
-        let manual: bool = row.try_get("manually_scheduled").map_err(|_| AuthorError::Unavailable)?;
+        let held: bool = row
+            .try_get("admin_hold")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let time_allowed: bool = row
+            .try_get("time_allowed")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let chapter_visibility: String = row
+            .try_get("visibility")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let access: String = row
+            .try_get("access_level")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let price: i64 = row
+            .try_get("price_amount")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let working: Option<i64> = row
+            .try_get("working_version")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let published: bool = row
+            .try_get("has_publication")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let manual: bool = row
+            .try_get("manually_scheduled")
+            .map_err(|_| AuthorError::Unavailable)?;
         let blocked_reason = if held {
             Some("chapter_admin_hold")
         } else if !time_allowed {

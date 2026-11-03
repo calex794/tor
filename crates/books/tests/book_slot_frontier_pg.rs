@@ -2,9 +2,7 @@
 //! Only disposable /tor_ci PostgreSQL may be modified.
 use sqlx::PgPool;
 use tor_books::{
-    repositories::postgres::{
-        book_delayed_schedule::BookSlotFrontier, PgAuthoring,
-    },
+    repositories::postgres::{book_delayed_schedule::BookSlotFrontier, PgAuthoring},
     services::authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
 };
 
@@ -117,12 +115,20 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
     assert_eq!(recorded.0, "blocked");
     assert_eq!(recorded.1, Some(two.chapter_id));
     assert_eq!(recorded.2.as_deref(), Some("chapter_admin_hold"));
-    assert!(author.claim_due_book_slot(&"r".repeat(43)).await.unwrap().is_none());
+    assert!(author
+        .claim_due_book_slot(&"r".repeat(43))
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         author.bind_book_slot_frontier(&first, &token).await,
         Err(AuthorError::Conflict)
     );
-    assert!(author.scheduled_free_chapter(owner, book, three.chapter_id).await.unwrap().is_none());
+    assert!(author
+        .scheduled_free_chapter(owner, book, three.chapter_id)
+        .await
+        .unwrap()
+        .is_none());
 
     // A repaired frontier can be chosen on the NEW schedule revision only.
     sqlx::query("UPDATE chapters SET admin_hold=FALSE WHERE id=$1")
@@ -132,14 +138,22 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
         .unwrap();
     let revised = author
         .replace_book_delayed_schedule(
-            owner, book, true, 2, &["10:00".to_owned(), "18:00".to_owned()],
+            owner,
+            book,
+            true,
+            2,
+            &["10:00".to_owned(), "18:00".to_owned()],
         )
         .await
         .unwrap();
     assert_eq!(revised.schedule_revision, 2);
     force_due(&pool, book).await;
     let next_token = "s".repeat(43);
-    let next = author.claim_due_book_slot(&next_token).await.unwrap().unwrap();
+    let next = author
+        .claim_due_book_slot(&next_token)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(next.schedule_revision, 2);
     assert_eq!(
         author.bind_book_slot_frontier(&next, &next_token).await,
@@ -204,7 +218,11 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
     let (author, owner, book) = owner_and_book(&pool, "empty").await;
     author
         .replace_book_delayed_schedule(
-            owner, book, true, 1, &["09:00".to_owned(), "09:00".to_owned()],
+            owner,
+            book,
+            true,
+            1,
+            &["09:00".to_owned(), "09:00".to_owned()],
         )
         .await
         .unwrap();
@@ -245,14 +263,13 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
     .unwrap();
     let later = author
         .create_pending_free_chapter(
-            owner, &chapter(paid_book, 3, "Бесплатная после платной", &"w".repeat(43)),
+            owner,
+            &chapter(paid_book, 3, "Бесплатная после платной", &"w".repeat(43)),
         )
         .await
         .unwrap();
     author
-        .replace_book_delayed_schedule(
-            owner, paid_book, true, 1, &["09:00".to_owned()],
-        )
+        .replace_book_delayed_schedule(owner, paid_book, true, 1, &["09:00".to_owned()])
         .await
         .unwrap();
     force_due(&pool, paid_book).await;
@@ -265,13 +282,12 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
             reason: "paid_frontier_needs_private_release",
         })
     );
-    let later_publication: Option<i64> = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(later.chapter_id)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let later_publication: Option<i64> =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(later.chapter_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert_eq!(later_publication, None);
     pool.close().await;
 }

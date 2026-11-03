@@ -891,10 +891,10 @@ mod book_titles_pg;
 mod book_delayed_schedule_pg;
 #[path = "book_related_pg.rs"]
 mod book_related_pg;
-#[path = "book_slot_occurrences_pg.rs"]
-mod book_slot_occurrences_pg;
 #[path = "book_slot_frontier_pg.rs"]
 mod book_slot_frontier_pg;
+#[path = "book_slot_occurrences_pg.rs"]
+mod book_slot_occurrences_pg;
 static S058_BOOK_SLOT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[path = "origin_metadata_pg.rs"]
