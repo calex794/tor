@@ -48,8 +48,8 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
              JOIN chapters c ON c.book_id=b.id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_first_release_events first
-               ON first.chapter_id=c.id AND first.version_id=p.version_id
-             WHERE b.id=$1 AND c.id=$2 AND p.version_id=$3
+               ON first.chapter_id=c.id AND first.version_id=$3
+             WHERE b.id=$1 AND c.id=$2
                AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL
