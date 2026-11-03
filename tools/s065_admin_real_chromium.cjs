@@ -123,9 +123,24 @@ async function positive(browser, viewport, device) {
       assert(!shell.includes(secret), "admin SSR must never expose private material");
     }
 
-    await page.locator("[data-admin-status]").filter({
-      hasText: "Защищённая загрузка завершена",
-    }).waitFor({ timeout: 30000 });
+    try {
+      await page.locator("[data-admin-status]").filter({
+        hasText: "Защищённая загрузка завершена",
+      }).waitFor({ timeout: 30000 });
+    } catch {
+      const safeStatus = (await page.locator("[data-admin-status]").textContent() || "");
+      const safeOutcome = {
+        status: safeStatus.startsWith("Административный доступ недоступен.")
+          ? "private loader denied" : "protected loader incomplete",
+        textGrant: observed.textGrant,
+        imageGrant: observed.imageGrant,
+        chapterS3: observed.chapterS3,
+        imageS3: observed.imageS3,
+        progressWrites: observed.progressWrites,
+      };
+      throw new Error("S065 admin reader did not reach protected state: " +
+        JSON.stringify(safeOutcome));
+    }
     assert((await page.locator("[data-admin-status]").textContent())
       .includes("Редакция " + version_id));
     const article = page.locator("[data-admin-content]");
