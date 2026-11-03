@@ -62,6 +62,7 @@ SCOPE_CALLS = {
     "manageable_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",
     "manageable_origin_metadata", "update_origin_metadata",
+    "manageable_lifecycle", "update_lifecycle",
     "moderation_books", "moderate_book_hold",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
