@@ -124,13 +124,7 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
     for email in [&known, &unknown] {
         let reply = send(
             &app,
-            request(
-                "POST",
-                "/login",
-                &login_form(email, csrf),
-                &cookie,
-                ORIGIN,
-            ),
+            request("POST", "/login", &login_form(email, csrf), &cookie, ORIGIN),
         )
         .await;
         assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -152,13 +146,7 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
     std::env::set_var("TOR_AUTH_SPRAY_MODE", "off");
     let resumed = send(
         &app,
-        request(
-            "POST",
-            "/login",
-            &login_form(&known, csrf),
-            &cookie,
-            ORIGIN,
-        ),
+        request("POST", "/login", &login_form(&known, csrf), &cookie, ORIGIN),
     )
     .await;
     assert_eq!(resumed.status(), StatusCode::SEE_OTHER);
