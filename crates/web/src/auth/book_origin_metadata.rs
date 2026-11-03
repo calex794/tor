@@ -133,7 +133,7 @@ pub(super) async fn save(
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}/settings/origin")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Missing | AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),
