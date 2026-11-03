@@ -92,7 +92,10 @@ pub(super) async fn assert_unsealed_admin_read(
         let no_s3_shell = read_page(api_only, &shell_path, Some(&admin_session)).await;
         assert_eq!(no_s3_shell.status(), StatusCode::OK);
         assert_eq!(no_s3_shell.headers()[header::CACHE_CONTROL], "no-store");
-        assert_eq!(no_s3_shell.headers()[header::REFERRER_POLICY], "no-referrer");
+        assert_eq!(
+            no_s3_shell.headers()[header::REFERRER_POLICY],
+            "no-referrer"
+        );
         assert_eq!(
             no_s3_shell.headers()["content-security-policy"],
             "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
@@ -104,9 +107,13 @@ pub(super) async fn assert_unsealed_admin_read(
         assert!(!no_s3_html.contains(body));
         assert!(!no_s3_html.contains("ciphertext_url"));
         assert_eq!(
-            read_page(api_only, &format!("/read/paid/{chapter}"), Some(&admin_session))
-                .await
-                .status(),
+            read_page(
+                api_only,
+                &format!("/read/paid/{chapter}"),
+                Some(&admin_session)
+            )
+            .await
+            .status(),
             StatusCode::NOT_FOUND
         );
         // The canonical NEwBOO chapter URL must lead the site
@@ -299,15 +306,23 @@ pub(super) async fn assert_unsealed_admin_read(
         "revoked administrators must not navigate to the private reader"
     );
     assert_eq!(
-        read_page(api_only, &format!("/read/admin/{chapter}"), Some(&admin_session))
-            .await
-            .status(),
+        read_page(
+            api_only,
+            &format!("/read/admin/{chapter}"),
+            Some(&admin_session)
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        read_page(api_only, &format!("/reader/{chapter}"), Some(&admin_session))
-            .await
-            .status(),
+        read_page(
+            api_only,
+            &format!("/reader/{chapter}"),
+            Some(&admin_session)
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     let revoked = send(
