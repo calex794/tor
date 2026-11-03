@@ -1,10 +1,20 @@
 //! S058: a paid chapter may be presealed while remaining reader-invisible.
 //! B activates only an exact G-attached version; entitlement stays with D.
-use super::{map_write, PgPaidStorage};
-use crate::services::authoring::AuthorError;
+use super::{map_write, PgPaidStorage, PreparedPaidChapter};
+use crate::services::authoring::{AuthorError, SaveChapter};
 use sqlx::{Postgres, Transaction};
 
 impl PgPaidStorage {
+    /// Reserve the edition and delayed mode in the same idempotent author
+    /// transaction. A retry in immediate mode conflicts before any S3 write.
+    pub async fn prepare_scheduled_paid_chapter(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
+        self.prepare_new_paid_chapter_with_mode(actor, request, true).await
+    }
+
     /// Fail closed: delayed paid creation needs an enabled book-level cadence.
     /// Cancelling the cadence after this check can only leave a private draft.
     pub async fn require_active_book_schedule(
