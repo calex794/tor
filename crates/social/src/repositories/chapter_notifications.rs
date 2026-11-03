@@ -112,20 +112,19 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                        event_type,schema_version,aggregate_kind,aggregate_id,
                        dedupe_key,payload,required_consumers
                      )
-                     SELECT 'reader.chapter.released',1,'chapter',$2,
-                       'chapter-released-recipient:' || $2::text || ':' || r.user_id::text,
+                     SELECT 'reader.chapter.released',1,'chapter',$1,
+                       'chapter-released-recipient:' || $1::text || ':' || r.user_id::text,
                        jsonb_build_object(
-                           'actor_user_id',$3,
+                           'actor_user_id',$2,
                            'recipient_user_id',r.user_id,
-                           'object_id',$2,
-                           'book_id',$4,
-                           'version_id',$5
+                           'object_id',$1,
+                           'book_id',$3,
+                           'version_id',$4
                        ),
                        ARRAY['user_notifications']::text[]
-                     FROM unnest($6::bigint[]) AS r(user_id)
+                     FROM unnest($5::bigint[]) AS r(user_id)
                      ON CONFLICT(dedupe_key) DO NOTHING",
                 )
-                .bind(&event_id)
                 .bind(chapter_id)
                 .bind(owner_id)
                 .bind(book_id)
