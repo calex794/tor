@@ -33,9 +33,10 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/moderation/books", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
+        .merge(super::moderation_chapters::router())
 }
 
-fn error_code(error: ModerationBooksError) -> StatusCode {
+pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
     match error {
         ModerationBooksError::Denied => StatusCode::FORBIDDEN,
         ModerationBooksError::Missing => StatusCode::NOT_FOUND,
