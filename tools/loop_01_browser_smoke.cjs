@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
 const shots = process.env.TOR_READER_SHOTS || 'reader-shots';
@@ -70,6 +71,13 @@ async function screenshot(page, screen, step) {
         await owner.waitForURL(base + '/me/books/' + bookId);
         await owner.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await owner.waitForURL(base + '/books/' + bookId);
+        const awaitingSiteApproval = await owner.goto(base + '/books/' + bookId);
+        assert(awaitingSiteApproval && awaitingSiteApproval.status() === 404,
+          screen + ': author release bypassed mandatory site moderation');
+        approvePendingBookForIsolatedCi(bookId);
+        const approvedBook = await owner.goto(base + '/books/' + bookId);
+        assert(approvedBook && approvedBook.status() === 200,
+          screen + ': site-approved book was not publicly available');
 
         const firstLink = owner.getByRole('link', {
           name: /Глава 1.*Первый выпуск петли/,
