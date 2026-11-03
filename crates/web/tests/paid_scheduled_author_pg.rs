@@ -173,8 +173,8 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:s058-paid-author:{nonce}','ru','S058 scheduled paid book {nonce}','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s058-paid-author:{nonce}','ru','S058 scheduled paid book {nonce}','public',{owner},'basic')
              RETURNING id"
         ),
     )
@@ -277,11 +277,12 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let book_row = pg(
         &url,
         &format!(
-            "SELECT visibility || '|' || admin_hold::text || '|' || is_deleted::text
+            "SELECT visibility || '|' || visibility_status || '|' || access_level ||
+                    '|' || admin_hold::text || '|' || is_deleted::text
              FROM books WHERE id={book}"
         ),
     );
-    assert_eq!(book_row, "public|false|false");
+    assert_eq!(book_row, "public|active|basic|false|false");
     assert_eq!(
         pg(
             &url,
