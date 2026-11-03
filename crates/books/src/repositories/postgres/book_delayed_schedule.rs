@@ -2,6 +2,7 @@
 //! A saved schedule is not itself a release or a promise of an active worker.
 mod frontier;
 mod occurrences;
+mod release;
 use super::PgAuthoring;
 use crate::services::{
     authoring::AuthorError,
@@ -11,6 +12,7 @@ use crate::services::{
 };
 pub use frontier::BookSlotFrontier;
 pub use occurrences::BookSlotClaim;
+pub use release::BookSlotReleaseOutcome;
 use sqlx::{Postgres, Row, Transaction};
 
 async fn require_manager(
