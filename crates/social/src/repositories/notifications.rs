@@ -162,28 +162,10 @@ impl PgNotifications {
                 .map_err(unavailable)?;
                 status.as_deref() == Some("active")
             } else if kind == "reader.chapter.released" {
-                // C-16 is the canonical per-reader public-release gate.
-                // Unfollow, hold, stale edition or deletion suppresses the
-                // alert even after an asynchronous fanout was enqueued.
-                sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(
-                        SELECT 1 FROM reader_followed_release_candidates r
-                        JOIN books b ON b.id=r.book_id
-                        JOIN chapter_first_release_events first
-                          ON first.chapter_id=r.chapter_id
-                        JOIN outbox_events e ON e.id=$4::uuid
-                        WHERE r.user_id=$2 AND r.chapter_id=$1
-                          AND b.owner_user_id=$3
-                          AND first.version_id=(e.payload->>'version_id')::bigint
-                    )",
+                super::chapter_notifications::eligible_recipient(
+                    &mut tx, object_id, actor, recipient, &event_id,
                 )
-                .bind(object_id)
-                .bind(recipient)
-                .bind(actor)
-                .bind(&event_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(unavailable)?
+                .await?
             } else if kind == "social.group_creator_transfer.proposed" {
                 // Lock the group in a separate statement BEFORE checking
                 // the offer. With READ COMMITTED, joining a locked group in
