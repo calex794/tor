@@ -32,6 +32,7 @@ pub(super) struct HoldForm {
     expected_visibility: Option<String>,
     expected_revision: Option<i64>,
     expected_version: Option<i64>,
+    expected_decision_id: Option<i64>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -93,12 +94,14 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
                 <input type="hidden" name="expected_state" value="{expected_state}">
                 <input type="hidden" name="expected_visibility" value="{visibility}">
                 <input type="hidden" name="expected_revision" value="{revision}">
+                <input type="hidden" name="expected_decision_id" value="{decision_id}">
                 {version_field}
                 <input type="hidden" name="next_state" value="{next_state}">
                 <button type="submit">{label}</button></form>"#,
                 id = row.id,
                 expected_state = pages::escape_html(&row.moderation_state),
                 revision = row.edit_revision,
+                decision_id = row.last_decision_id,
             ));
         }
         cards.push_str(&format!(
@@ -228,6 +231,7 @@ pub(super) async fn submit(
         form.new_hold,
         form.expected_visibility.as_deref(),
         form.expected_revision,
+        form.expected_decision_id,
     ) {
         (
             Some(expected),
@@ -236,6 +240,7 @@ pub(super) async fn submit(
             None,
             Some(visibility),
             Some(revision),
+            Some(decision_id),
         ) => {
             state
                 .accounts
@@ -246,17 +251,22 @@ pub(super) async fn submit(
                     visibility,
                     revision,
                     form.expected_version,
+                    decision_id,
                     next,
                 )
                 .await
         }
-        (Some(expected), Some(next), None, None, None, None) if form.expected_version.is_none() => {
+        (Some(expected), Some(next), None, None, None, None, None)
+            if form.expected_version.is_none() =>
+        {
             state
                 .accounts
                 .moderate_chapter_decision(&digest, id, expected, next)
                 .await
         }
-        (None, None, Some(expected), Some(next), None, None) if form.expected_version.is_none() => {
+        (None, None, Some(expected), Some(next), None, None, None)
+            if form.expected_version.is_none() =>
+        {
             state
                 .accounts
                 .moderate_chapter_hold(&digest, id, expected, next)
@@ -290,6 +300,7 @@ mod tests {
             has_version: true,
             edit_revision: 1,
             current_version_id: Some(42),
+            last_decision_id: 0,
         }];
         let html = render(&rows, "csrf", "draft");
         assert!(html.contains("&lt;book&gt;"));
@@ -304,5 +315,6 @@ mod tests {
         assert!(!html.contains("name=\"new_hold\""));
         assert!(html.contains("name=\"next_state\" value=\"published\""));
         assert!(html.contains("name=\"expected_version\" value=\"42\""));
+        assert!(html.contains("name=\"expected_decision_id\" value=\"0\""));
     }
 }
