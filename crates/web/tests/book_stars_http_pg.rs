@@ -256,5 +256,104 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
+    // AB-08: the already accepted rating must remain unchanged when a
+    // thirteenth distinct write attempt exceeds the shared PostgreSQL cap.
+    // An unrelated actor's rate bucket must remain independent.
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
+    let second_session = generate_session_token();
+    let second_actor = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            &format!("ab08-stars-{nonce}@tor-ci.example"),
+            "Independent Rater",
+            &hash_password("AB08BookRatingTest2026!").unwrap(),
+            &session_token_digest(&second_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
+                (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES({second_actor},{book},{chapter},{version},gen_random_uuid())",
+        ),
+    );
+    let other_cookie = format!("tor-dev-session={second_session}; tor-dev-csrf={csrf}");
+
+    // A second router with its own PostgreSQL pool represents another web
+    // worker. Neither process may allocate an extra twelve rating actions.
+    let second_catalog = PgCatalog::connect(&url).await.unwrap();
+    let second_pool = second_catalog.pool().clone();
+    let second_app = tor_web::router_with_postgres_reading_auth(
+        second_catalog,
+        PgReader::new(second_pool.clone()),
+        PgAccounts::from_pool(second_pool.clone()),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let forged = format!("csrf_token=bad&rating_kind=work&rating=3");
+    assert_eq!(
+        call(&second_app, "POST", &rate, &other_cookie, ORIGIN, &forged)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+    );
+
+    // One actor spends 12 writes, alternating between two independent pools.
+    // The donor's book_rating limit is separate from likes/comments/auth.
+    for attempt in 0..12 {
+        let value = if attempt % 2 == 0 { 3 } else { 4 };
+        let data = format!("csrf_token={csrf}&rating_kind=work&rating={value}");
+        let target = if attempt % 2 == 0 { &app } else { &second_app };
+        assert_eq!(
+            call(target, "POST", &rate, &other_cookie, ORIGIN, &data)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER,
+            "rating attempt {attempt}",
+        );
+    }
+    let selected_rating = format!(
+        "SELECT rating FROM user_book_star_ratings
+         WHERE user_id={second_actor} AND book_id={book} AND rating_kind='work'",
+    );
+    assert_eq!(pg(&url, &selected_rating), "4");
+
+    let denied = call(
+        &second_app,
+        "POST",
+        &rate,
+        &other_cookie,
+        ORIGIN,
+        &format!("csrf_token={csrf}&rating_kind=work&rating=1"),
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(denied.headers()[header::RETRY_AFTER], "60");
+    assert_eq!(pg(&url, &selected_rating), "4");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM user_book_star_ratings
+                 WHERE user_id={second_actor} AND book_id={book}"
+            ),
+        ),
+        "1",
+    );
+
+    // Legitimate other users remain able to rate the same visible book.
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER,
+    );
+    second_pool.close().await;
+
     pool.close().await;
 }
