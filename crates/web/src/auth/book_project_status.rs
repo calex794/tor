@@ -57,7 +57,7 @@ fn render(id: i64, book: &OwnedProjectStatus, csrf: &str) -> Html<String> {
         <label for="project-status">Состояние работы</label>
         <select id="project-status" name="project_status">{choices}</select>
         <button class="button" type="submit">Сохранить</button>
-        </form><p><a href="/me/books/{id}">Вернуться к книге</a></p>
+        </form><p><a href="/me/books/{id}/settings">Все настройки книги</a></p>
         </div></div></section>"#,
         pages::escape_html(&book.title),
         pages::escape_html(csrf),
@@ -112,7 +112,7 @@ pub(super) async fn save(
         .update_project_status(actor, id, form.expected_revision, &form.project_status)
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}/settings")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Missing | AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),

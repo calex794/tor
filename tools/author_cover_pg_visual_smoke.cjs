@@ -132,7 +132,7 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Альтернативное название 1 (например, английское)')
           .fill(englishAlias);
         await page.getByRole('button', { name: 'Сохранить названия' }).click();
-        await page.waitForURL(base + '/me/books/' + bookId);
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings');
         await page.goto(base + '/me/books/' + bookId + '/settings/titles');
         assert(await page.getByLabel('Оригинальное название').inputValue() === chineseAlias,
           'S020: edited Chinese original title must persist');
@@ -154,14 +154,34 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Год выпуска').fill('2024');
         await page.getByLabel('Раздел каталога').selectOption('novels/chinese');
         await page.getByRole('button', { name: 'Сохранить сведения' }).click();
-        await page.waitForURL(base + '/me/books/' + bookId + '/settings/origin');
-        await page.reload();
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+        await page.goto(base + '/me/books/' + bookId + '/settings/origin');
         assert(await page.getByLabel('Язык оригинала (например, zh, en)').inputValue() === 'zh',
           'S020: original language persists');
         assert(await page.getByLabel('Год выпуска').inputValue() === '2024',
           'S020: release year persists');
         assert(await page.getByLabel('Раздел каталога').inputValue() === 'novels/chinese',
           'S020: catalog section persists');
+        // S020: a real member-scoped settings index, annotation and status roundtrip.
+        await page.goto(base + '/me/books/' + bookId + '/settings');
+        assert(await page.getByRole('link', { name: 'Аннотация книги' }).count() === 1,
+          'S020: settings index lists the annotation editor');
+        await page.getByRole('link', { name: 'Аннотация книги' }).click();
+        const annotation = 'Редакторская аннотация ' + viewport + ' ' + scheme;
+        await page.getByLabel('Аннотация (до 4000 символов)').fill(annotation);
+        await page.getByRole('button', { name: 'Сохранить аннотацию' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+        await page.getByRole('link', { name: 'Аннотация книги' }).click();
+        assert(await page.getByLabel('Аннотация (до 4000 символов)').inputValue() === annotation,
+          'S020: annotation persists and scoped redirect works');
+        await page.goto(base + '/me/books/' + bookId + '/settings');
+        await page.getByRole('link', { name: 'Состояние работы' }).click();
+        await page.getByLabel('Состояние работы').selectOption('paused');
+        await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+        await page.getByRole('link', { name: 'Состояние работы' }).click();
+        assert(await page.getByLabel('Состояние работы').inputValue() === 'paused',
+          'S020: project status persists after member-scoped redirect');
         // S019: the same normalized URL from any site must not create a duplicate.
         // Keep query and path semantics; no external URL fetch.
         const providerId = (viewport === 'desktop' ? 910100 : 910200)
@@ -210,8 +230,8 @@ async function readyCover(page, bookId, viewport, scheme) {
             '/settings/sources' && r.request().method() === 'POST'),
           page.getByRole('button', { name: 'Сохранить ссылки' }).click(),
         ]);
-        assert(linksSaved.status() === 303, 'S019: owner must be able to save URLs');
-        await page.waitForURL(base + '/me/books/' + sourceBookId);
+        assert(linksSaved.status() === 303, 'S019: member may save URLs');
+        await page.waitForURL(base + '/me/books/' + sourceBookId + '/settings');
         await page.goto(base + '/me/books/' + sourceBookId + '/settings/sources');
         assert(await page.getByLabel('Дополнительная ссылка на произведение')
           .inputValue() === editedMirror, 'S019: saved mirror must survive reload');

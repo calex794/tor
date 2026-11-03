@@ -1,4 +1,4 @@
-//! Owner-only editor of the original URL and two optional source links.
+//! S020: active Book member editor of original and optional source links.
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -7,7 +7,7 @@ use axum::{
     response::{Html, Redirect, Response},
 };
 use serde::Deserialize;
-use tor_books::{repositories::postgres::OwnedBookSourceLinks, services::authoring::AuthorError};
+use tor_books::{repositories::postgres::ManagedBookSourceLinks, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 pub(super) struct EditSourcesForm {
@@ -18,7 +18,7 @@ pub(super) struct EditSourcesForm {
     csrf_token: Option<String>,
 }
 
-fn render(book_id: i64, book: &OwnedBookSourceLinks, csrf: &str) -> Html<String> {
+fn render(book_id: i64, book: &ManagedBookSourceLinks, csrf: &str) -> Html<String> {
     let extra1 = book.extra.first().map(String::as_str).unwrap_or("");
     let extra2 = book.extra.get(1).map(String::as_str).unwrap_or("");
     let content = format!(
@@ -38,7 +38,7 @@ fn render(book_id: i64, book: &OwnedBookSourceLinks, csrf: &str) -> Html<String>
         <p>Чтобы удалить дополнительную ссылку, очистите её поле. При конфликте с другой книгой изменения не сохраняются.</p>
         <button class="button" type="submit">Сохранить ссылки</button>
         </form>
-        <p><a href="/me/books/{book_id}">Вернуться к книге</a></p>
+        <p><a href="/me/books/{book_id}/settings">Все настройки книги</a></p>
         </div></div></section>"#,
         pages::escape_html(&book.title),
         pages::escape_html(csrf),
@@ -96,7 +96,7 @@ pub(super) async fn edit(
     };
     let book = match state
         .authoring
-        .owned_book_source_links(actor, book_id)
+        .manageable_book_source_links(actor, book_id)
         .await
     {
         Ok(Some(book)) => book,
@@ -135,7 +135,7 @@ pub(super) async fn save(
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}/settings")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Conflict) => problem(book_id, StatusCode::CONFLICT),
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn s019_source_editor_escapes_existing_urls_and_titles() {
-        let book = OwnedBookSourceLinks {
+        let book = ManagedBookSourceLinks {
             title: "<img src=x onerror=alert(1)>".to_owned(),
             primary: "https://example.org/a?x=\" onfocus=\"evil".to_owned(),
             extra: vec!["https://example.cn/?a=1&b=2".to_owned()],

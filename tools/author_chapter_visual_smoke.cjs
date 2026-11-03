@@ -60,12 +60,14 @@ async function inspect(page, viewport, name) {
       await page.getByLabel('Аннотация (до 4000 символов)').fill(description);
       await inspect(page, viewport, 'description-editor');
       await page.getByRole('button', { name: 'Сохранить аннотацию', exact: true }).click();
-      await page.waitForURL(base + '/me/books/' + bookId);
-      await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+      await page.getByRole('link', { name: 'Аннотация книги', exact: true }).click();
       assert(await page.getByLabel('Аннотация (до 4000 символов)').inputValue() === description,
         viewport + ': description did not survive save and reload');
-      await page.getByRole('link', { name: 'Вернуться к книге', exact: true }).click();
-      await page.waitForURL(base + '/me/books/' + bookId);
+      await page.getByRole('link', { name: 'Все настройки книги', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+      // This actor owns the Book. Chapter controls remain owner-only.
+      await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
       const chapterNumber = page.getByLabel('Номер главы');
