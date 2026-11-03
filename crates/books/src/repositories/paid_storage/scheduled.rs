@@ -12,7 +12,8 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
-        self.prepare_new_paid_chapter_with_mode(actor, request, true).await
+        self.prepare_new_paid_chapter_with_mode(actor, request, true)
+            .await
     }
 
     /// Fail closed: delayed paid creation needs an enabled book-level cadence.
