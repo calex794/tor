@@ -181,9 +181,16 @@ pub(super) async fn check(
     );
     // The first publish form is stale even after visibility returns to draft.
     assert_eq!(
-        request(&app, "POST", &pending_action, &admin_cookie, ORIGIN, &publish_pending)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &pending_action,
+            &admin_cookie,
+            ORIGIN,
+            &publish_pending
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     let second_decision_id = last_decision(&url, pending_free);
