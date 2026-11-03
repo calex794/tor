@@ -625,3 +625,7 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
     // User-specific purchased-version read paths are not changed by SEO.
 }
+
+// S020: public related-book cards are part of the mandatory real HTTP + PG suite.
+#[path = "public_related_http_pg.rs"]
+mod public_related_http_pg;
