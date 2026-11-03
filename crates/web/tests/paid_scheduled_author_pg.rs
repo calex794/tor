@@ -91,7 +91,7 @@ async fn post_paid(
         ""
     };
     let form = format!(
-        "number=1&title=S058%20scheduled%20paid&body={SECRET}&access=paid&price_amount=175&command_key={command}&csrf_token={csrf}{delayed_field}"
+        "number=1&title=S058%20queued%20paid%20chapter&body={SECRET}&access=paid&price_amount=175&command_key={command}&csrf_token={csrf}{delayed_field}"
     );
     app.clone()
         .oneshot(
@@ -276,7 +276,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "plaintext must never be in book HTML"
     );
     assert!(
-        !before.contains("S058 scheduled paid"),
+        !before.contains("S058 queued paid chapter"),
         "draft TOC must not expose chapter title"
     );
 
@@ -367,6 +367,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "root and recipient event are acknowledged"
     );
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
+    assert!(after.contains("S058 queued paid chapter"), "released paid title appears in TOC");
     assert!(
         !after.contains(SECRET),
         "published paid HTML must not reveal plaintext"
