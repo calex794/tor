@@ -1,8 +1,8 @@
 //! Site-administrator current unsealed reading in normal PG/auth modes.
 //! This does not depend on a private G adapter or enable paid checkout.
 use super::{
-    auth, auth_cookies, book_follow_page, make_router_with_paid_checkout,
-    paid_grants_http, ril, ReaderModes,
+    auth, auth_cookies, book_follow_page, make_router_with_paid_checkout, paid_grants_http, ril,
+    ReaderModes,
 };
 use axum::Router;
 use std::sync::Arc;
@@ -22,11 +22,8 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
     enable_cover_uploads: bool,
 ) -> Router {
     let auth_reader = reader.clone();
-    let follows = book_follow_page::FollowBookControl::new(
-        accounts.clone(),
-        secure,
-        public_origin.clone(),
-    );
+    let follows =
+        book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone());
     let admin = paid_grants_http::administrator_only_router(
         accounts.clone(),
         auth_cookies::CookiePolicy {
@@ -61,4 +58,3 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
         .merge(admin),
     )
 }
-
