@@ -48,7 +48,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                      AND c.access_level='paid' AND c.price_amount>0
                      AND viewer.account_state='active'
                      AND b.visibility_status<>'blocked'
-                     AND (
+                     AND COALESCE((
                          b.access_level='basic'
                          OR (b.access_level='adult' AND viewer.adult_enabled)
                          OR (b.access_level='pro_adult' AND EXISTS (
@@ -57,7 +57,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                                AND age_grant.level='pro_adult'
                                AND age_grant.is_active
                          ))
-                     )
+                     ), FALSE)
                      AND NOT b.admin_hold AND NOT b.is_deleted
                      AND NOT c.admin_hold AND NOT c.is_deleted
                      AND (c.reader_released_at IS NULL
