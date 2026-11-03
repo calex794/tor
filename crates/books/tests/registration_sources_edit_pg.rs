@@ -259,8 +259,7 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         "legacy link collision must not change existing book"
     );
 
-    // Editing to another Rulate spelling cannot collide with a second book's
-    // historical Rulate URL in the same language.
+    // A historical source link is protected by canonical URL, not a Rulate work ID.
     let another_historical = format!("https://tl.rulate.ru/book/{}?ref=old", rulate_id + 1);
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,source_url)
@@ -272,13 +271,13 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
     .execute(&pool)
     .await
     .unwrap();
-    let alias = format!("http://rulate.ru/book/000{}/?tracking=other", rulate_id + 1);
+    let alias = format!("http://www.tl.rulate.ru/book/{}/?ref=old", rulate_id + 1);
     assert_eq!(
         author
             .update_book_source_links(owner, id, 3, [&updated_original, &alias, ""])
             .await,
         Err(AuthorError::Conflict),
-        "legacy provider work IDs remain protected"
+        "historical canonical links from any site remain protected"
     );
     pool.close().await;
 }
