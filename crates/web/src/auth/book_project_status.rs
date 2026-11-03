@@ -9,10 +9,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_books::{
-    repositories::postgres::OwnedProjectStatus,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::OwnedProjectStatus, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,7 +35,11 @@ fn render(id: i64, book: &OwnedProjectStatus, csrf: &str) -> Html<String> {
         ("paused", "Приостановлено"),
         ("completed", "Завершено"),
     ] {
-        let selected = if book.status == value { " selected" } else { "" };
+        let selected = if book.status == value {
+            " selected"
+        } else {
+            ""
+        };
         choices.push_str(&format!(
             "<option value=\"{value}\"{selected}>{label}</option>"
         ));
@@ -62,7 +63,11 @@ fn render(id: i64, book: &OwnedProjectStatus, csrf: &str) -> Html<String> {
         pages::escape_html(csrf),
         book.revision,
     );
-    pages::layout("Состояние работы над книгой", "Редакторские настройки.", &content)
+    pages::layout(
+        "Состояние работы над книгой",
+        "Редакторские настройки.",
+        &content,
+    )
 }
 
 pub(super) async fn edit(
