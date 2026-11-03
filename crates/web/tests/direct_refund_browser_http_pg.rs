@@ -414,7 +414,9 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     assert!(admin_html.contains("Buyer request"));
     assert!(admin_html.contains("&lt;script&gt;"));
     assert!(!admin_html.contains("<script>x</script>"));
-    assert!(!admin_html.contains("<form"));
+    // The global site header has its own forms. The refund review section
+    // must never provide a financial decision form or endpoint.
+    assert!(!admin_html.contains("action=\"/admin/finance/refunds\""));
     assert!(!admin_html.contains("name=\"decision\""));
     assert_eq!(
         pg(
