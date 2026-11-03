@@ -25,6 +25,7 @@ use tor_books::repositories::{
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 use tor_storage::{
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
     services::crypto::{ContentKek, ContentKeyring},
@@ -156,6 +157,17 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         )
         .await
         .unwrap();
+    let subscriber_session = generate_session_token();
+    let subscriber = accounts
+        .register_with_session(
+            &format!("s058-paid-follower-{nonce}@example.invalid"),
+            "S058 paid follower",
+            &pass,
+            &session_token_digest(&subscriber_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let book: i64 = pg(
         &url,
         &format!(
@@ -167,6 +179,16 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     .parse()
     .unwrap();
 
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "INSERT INTO reader_book_follows(user_id,book_id)
+                 VALUES({subscriber},{book}) RETURNING user_id"
+            ),
+        ),
+        subscriber.to_string(),
+    );
     let author = PgAuthoring::new(pool.clone());
     author
         .replace_book_delayed_schedule(owner, book, true, 1, &["09:00".to_owned()])
@@ -317,6 +339,30 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         ),
     );
     assert_eq!(counts, "1|1|1");
+    let notifications = PgNotifications::new(pool.clone());
+    notifications.fanout_chapter_releases(4).await.unwrap();
+    notifications.deliver_pending(4).await.unwrap();
+    notifications.fanout_chapter_releases(4).await.unwrap();
+    notifications.deliver_pending(4).await.unwrap();
+    let alert = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*)::text || '|' || MIN(kind) || '|' || MIN(url)
+             FROM user_notifications
+             WHERE recipient_user_id={subscriber}
+               AND kind='chapter_created'"
+        ),
+    );
+    assert_eq!(alert, format!("1|chapter_created|/reader/{chapter}"));
+    let event_state = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE event_type IN ('ChapterPublished','reader.chapter.released')
+               AND aggregate_id={chapter} AND delivered_at IS NOT NULL"
+        ),
+    );
+    assert_eq!(event_state, "2", "root and recipient event are acknowledged");
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
     assert!(
         !after.contains(SECRET),
