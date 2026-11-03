@@ -314,7 +314,7 @@
       "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
-      "handler": "new_author_book",
+      "handler": "book_registration_http::new_page",
       "policy": "session"
     },
     {
