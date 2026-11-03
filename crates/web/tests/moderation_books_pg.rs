@@ -21,6 +21,31 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    let output = std::process::Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("psql installed");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 async fn request(
     app: &Router,
     method: &str,
@@ -103,13 +128,13 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         .await
         .unwrap();
     // The fixture alone bootstraps one administrator, never a user endpoint.
-    sqlx::query(
-        "INSERT INTO account_roles(user_id,role,is_active) VALUES($1,'administrator',TRUE)",
-    )
-    .bind(admin)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) \
+             VALUES({admin},'administrator',TRUE)"
+        ),
+    );
     accounts
         .change_account_role(
             &session_token_digest(&admin_token),
@@ -119,13 +144,15 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         )
         .await
         .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','<script>private moderation title</script>','public') RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:moderation:book:{nonce}','ru',
+             '<script>private moderation title</script>','public') RETURNING id"
+        ),
     )
-    .bind(format!("ci:moderation:book:{nonce}"))
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -213,13 +240,11 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     );
     let applied = request(&app, "POST", &action, &mod_cookie, ORIGIN, &form).await;
     assert_eq!(applied.status(), StatusCode::SEE_OTHER);
-    let current: (String, bool) =
-        sqlx::query_as("SELECT visibility,admin_hold FROM books WHERE id=$1")
-            .bind(book)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(current, ("public".to_owned(), true));
+    let current = pg(
+        &url,
+        &format!("SELECT visibility || ':' || admin_hold::int FROM books WHERE id={book}"),
+    );
+    assert_eq!(current, "public:1");
     assert_eq!(
         request(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "")
             .await
@@ -232,12 +257,12 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             .status(),
         StatusCode::CONFLICT
     );
-    let audit_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM moderation_book_hold_events WHERE book_id=$1")
-            .bind(book)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let audit_count: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM moderation_book_hold_events WHERE book_id={book}"),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(audit_count, 1, "stale submit must not duplicate audit");
 
     accounts
@@ -268,20 +293,17 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             .status(),
         StatusCode::SEE_OTHER
     );
-    let current: (String, bool) =
-        sqlx::query_as("SELECT visibility,admin_hold FROM books WHERE id=$1")
-            .bind(book)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(current, ("public".to_owned(), false));
-    let events: Vec<(i64, bool, bool)> = sqlx::query_as(
-        "SELECT actor_user_id,before_hold,after_hold
-         FROM moderation_book_hold_events WHERE book_id=$1 ORDER BY id",
-    )
-    .bind(book)
-    .fetch_all(&pool)
-    .await
-    .unwrap();
-    assert_eq!(events, vec![(moderator, false, true), (admin, true, false)]);
+    let current = pg(
+        &url,
+        &format!("SELECT visibility || ':' || admin_hold::int FROM books WHERE id={book}"),
+    );
+    assert_eq!(current, "public:0");
+    let events = pg(
+        &url,
+        &format!(
+            "SELECT actor_user_id || ':' || before_hold::int || ':' || after_hold::int
+             FROM moderation_book_hold_events WHERE book_id={book} ORDER BY id"
+        ),
+    );
+    assert_eq!(events, format!("{moderator}:0:1\n{admin}:1:0"));
 }
