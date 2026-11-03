@@ -280,7 +280,7 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         request(
             &app,
             "GET",
-            "/moderation/chapters?status=blocked",
+            "/moderation/chapters?status=invalid",
             &mod_cookie,
             ORIGIN,
             ""
@@ -458,4 +458,106 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         ),
     );
     assert_eq!(events, format!("{moderator}:0:1\n{admin}:1:0"));
+    // NEwBOO distinguishes hide and block. Both deny public paid preview,
+    // but neither rewrites author visibility, edition, price or buyer rights.
+    let hide_form = format!("csrf_token={csrf}&expected_state=none&next_state=hidden");
+    assert_eq!(
+        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &hide_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let hidden = pg(
+        &url,
+        &format!(
+            "SELECT c.moderation_state || ':' || c.admin_hold::int || ':' ||
+                c.visibility || ':' || c.access_level || ':' ||
+                c.price_amount || ':' || p.version_id
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             WHERE c.id={paid_chapter}"
+        ),
+    );
+    assert_eq!(hidden, format!("hidden:1:public:paid:199:{paid_version}"));
+    assert!(reader
+        .public_paid_chapter_preview(paid_chapter as u64)
+        .await
+        .unwrap()
+        .is_none());
+    let hidden_page = request(
+        &app,
+        "GET",
+        "/moderation/chapters?status=hidden",
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(hidden_page.status(), StatusCode::OK);
+    assert!(html(hidden_page).await.contains("Paid chapter metadata"));
+    assert_eq!(
+        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &hide_form)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let block_form = format!("csrf_token={csrf}&expected_state=hidden&next_state=blocked");
+    assert_eq!(
+        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &block_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT moderation_state || ':' || admin_hold::int
+                 FROM chapters WHERE id={paid_chapter}"
+            )
+        ),
+        "blocked:1"
+    );
+    let blocked_page = request(
+        &app,
+        "GET",
+        "/moderation/chapters?status=blocked",
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(blocked_page.status(), StatusCode::OK);
+    assert!(html(blocked_page).await.contains("Paid chapter metadata"));
+    let invalid_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=published");
+    assert_eq!(
+        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &invalid_form)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let unblock_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=none");
+    assert_eq!(
+        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &unblock_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(reader
+        .public_paid_chapter_preview(paid_chapter as u64)
+        .await
+        .unwrap()
+        .is_some());
+    let decisions = pg(
+        &url,
+        &format!(
+            "SELECT actor_user_id || ':' || before_state || ':' || after_state
+             FROM moderation_chapter_decision_events
+             WHERE chapter_id={paid_chapter} ORDER BY id"
+        ),
+    );
+    assert_eq!(
+        decisions,
+        format!("{admin}:none:hidden\\n{admin}:hidden:blocked\\n{admin}:blocked:none")
+    );
+
 }

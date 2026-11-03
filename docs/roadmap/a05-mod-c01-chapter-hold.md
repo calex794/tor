@@ -18,3 +18,23 @@ TOR retains the NEwBOO intent while respecting its different storage contract: `
 Distinct `hidden/blocked` review states, moderator `publish/draft` transitions, report triage, moderation reasons and appeals, automatic notifications and moderator editor/reader preview. Do not mark entire A-05, S065 or chapter moderation parity complete from this narrow slice.
 
 No deploy. No application to persistent databases. Scope limited to repository, CI and isolated `tor_ci`.
+
+## MOD-C02 — distinct hide/block decisions (separate Draft PR)
+
+Direct source-of-truth review: `HeisLuka/newboo/backend/app/services/chapter_service.py`
+applies `publish -> published`, `hide -> hidden`, `block -> blocked`,
+`draft -> draft`. `hidden` and `blocked` both enable `admin_hold`,
+whereas `published` and `draft` clear it. Original `publish` requires a
+current version. The original status field is mutable.
+
+TOR now preserves the distinction between a moderator's `hidden` and
+`blocked` actions as `chapters.moderation_state`. Both enforce the existing
+`admin_hold`; the earlier generic `hold` remains available. A dedicated
+immutable audit records every decision, including `hidden -> blocked` (when
+the boolean hold does not change). The existing hold audit is retained.
+
+This is NOT yet the full four-action parity: `publish/draft` require a separate
+design around author-controlled draft/public visibility, immutable
+`chapter_publications`, paid rights, and available versions. Neither is
+fabricated by clearing a hold. Report triage, appeals and notifications are
+still not implemented. No production deployment.
