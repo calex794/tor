@@ -112,8 +112,8 @@ pub(super) async fn assert_unsealed_admin_read(
             assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
             let bytes = to_bytes(denied.into_body(), 8192).await.unwrap();
             assert!(!bytes
-            .windows(body.len())
-            .any(|window| window == body.as_bytes()));
+                .windows(body.len())
+                .any(|window| window == body.as_bytes()));
         }
         for (session, token, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
