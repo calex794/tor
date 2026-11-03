@@ -231,7 +231,7 @@ impl PgAuthoring {
                      OR c.reader_released_at<=clock_timestamp()) AS time_allowed,
                     d.version_id AS working_version,
                     (SELECT v.id FROM chapter_versions v
-                     WHERE v.chapter_id=c.id ORDER BY v.version_no DESC LIMIT 1)
+                     WHERE v.chapter_id=c.id AND v.version_no=c.edit_revision LIMIT 1)
                         AS paid_version,
                     (SELECT EXISTS (
                         SELECT 1 FROM chapter_versions v
