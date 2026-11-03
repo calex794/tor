@@ -5,7 +5,7 @@ use super::{
     PgAccounts,
 };
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct ModerationChapter {
     pub id: i64,
     pub book_id: i64,
@@ -42,12 +42,13 @@ impl PgAccounts {
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         current_moderator(&mut tx, session).await?;
-        let rows: Vec<(i64, i64, String, i32, String, String, String, bool, bool, bool)> =
+        let rows: Vec<ModerationChapter> =
             sqlx::query_as(
-                "SELECT c.id, c.book_id, b.title, c.chapter_no, c.title,
+                "SELECT c.id, c.book_id, b.title AS book_title, c.chapter_no, c.title,
                         c.visibility, c.access_level, c.admin_hold,
-                        (p.chapter_id IS NOT NULL),
+                        (p.chapter_id IS NOT NULL) AS has_publication,
                         EXISTS (SELECT 1 FROM chapter_versions v WHERE v.chapter_id=c.id)
+                            AS has_version
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
                  LEFT JOIN chapter_publications p ON p.chapter_id=c.id
@@ -69,34 +70,7 @@ impl PgAccounts {
         tx.commit()
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    book_id,
-                    book_title,
-                    chapter_no,
-                    title,
-                    visibility,
-                    access_level,
-                    admin_hold,
-                    has_publication,
-                    has_version,
-                )| ModerationChapter {
-                    id,
-                    book_id,
-                    book_title,
-                    chapter_no,
-                    title,
-                    visibility,
-                    access_level,
-                    admin_hold,
-                    has_publication,
-                    has_version,
-                },
-            )
-            .collect())
+        Ok(rows)
     }
 
     /// Compare-and-set is inside a transaction with live role locks.
