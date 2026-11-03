@@ -125,8 +125,18 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
          RETURNING id;"
     );
     let output = std::process::Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-               "--dbname", &url, "--command", &sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            &url,
+            "--command",
+            &sql,
+        ])
         .output()
         .expect("psql installed on disposable CI");
     assert!(
@@ -135,7 +145,9 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
-        String::from_utf8(output.stdout).expect("psql output").trim(),
+        String::from_utf8(output.stdout)
+            .expect("psql output")
+            .trim(),
         book_id.to_string(),
         "exactly one pending book must be approved"
     );
