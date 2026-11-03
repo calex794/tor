@@ -68,8 +68,11 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
-      assert(await page.getByLabel('Номер главы').inputValue() === '1',
+      const chapterNumber = page.getByLabel('Номер главы');
+      assert(await chapterNumber.inputValue() === '1',
         viewport + ': first auto-number preview must be 1');
+      assert(await chapterNumber.getAttribute('readonly') !== null,
+        viewport + ': automatic chapter number must be read-only');
       await page.getByLabel('Название главы').fill('Глава для проверки');
       await page.getByLabel('Текст главы').fill('Проверочный текст: **важная строка**.');
       await inspect(page, viewport, 'editor');
