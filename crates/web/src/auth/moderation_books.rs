@@ -54,12 +54,15 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         } else {
             "Без удержания"
         };
-        let action = if row.admin_hold { "Снять удержание" } else { "Удержать" };
+        let action = if row.admin_hold {
+            "Снять удержание"
+        } else {
+            "Удержать"
+        };
         let next = !row.admin_hold;
-        let owner = row.owner_user_id.map_or_else(
-            || "—".to_owned(),
-            |id| id.to_string(),
-        );
+        let owner = row
+            .owner_user_id
+            .map_or_else(|| "—".to_owned(), |id| id.to_string());
         list.push_str(&format!(
             r#"<article class="me-now-card">
                <h2>{title}</h2><p>Книга #{id} · Владелец #{owner} ·
@@ -120,9 +123,10 @@ pub(super) async fn page(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(render(&rows, &pages::escape_html(&csrf)), &cookies);
-    response
-        .headers_mut()
-        .insert("x-robots-tag", HeaderValue::from_static("noindex, nofollow"));
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
     response
 }
 
@@ -132,8 +136,7 @@ pub(super) async fn submit(
     headers: HeaderMap,
     Form(form): Form<HoldForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
