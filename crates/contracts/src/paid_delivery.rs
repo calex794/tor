@@ -302,4 +302,16 @@ pub trait PrivateObjectDeliveryPort: Send + Sync {
         object: &EncryptedObjectRef,
         ttl: Duration,
     ) -> Result<GrantedContent, DeliveryError>;
+
+    /// An exceptional G operation for an already A-session-authorized site
+    /// administrator inspecting a B-attached private image during a hold.
+    /// C must revalidate the same live administrator entitlement AFTER signing.
+    /// Never call this for a direct purchase or a Layer subscriber.
+    async fn grant_verified_admin_asset(
+        &self,
+        _object: &EncryptedObjectRef,
+        _ttl: Duration,
+    ) -> Result<GrantedContent, DeliveryError> {
+        Err(DeliveryError::Denied)
+    }
 }
