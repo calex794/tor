@@ -58,9 +58,7 @@ impl PgAuthoring {
             .map(|row| {
                 Ok(RelatedBookCard {
                     id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    title: row
-                        .try_get("title")
-                        .map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                 })
             })
             .collect::<Result<Vec<_>, AuthorError>>()?;
@@ -97,9 +95,7 @@ impl PgAuthoring {
             .map(|row| {
                 Ok(RelatedBookCard {
                     id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    title: row
-                        .try_get("title")
-                        .map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                 })
             })
             .collect()
