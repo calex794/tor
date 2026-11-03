@@ -101,7 +101,7 @@ impl PgAuthoring {
                RETURNING o.book_id,o.schedule_revision,o.slot_index,
                          to_char(o.local_date,'YYYY-MM-DD') AS local_date,
                          to_char(o.target_at AT TIME ZONE 'UTC',
-                                'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS target_utc,
+                                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS target_utc,
                          o.attempt_count"#,
         )
         .bind(book)
@@ -137,9 +137,9 @@ impl PgAuthoring {
         Ok(claim)
     }
 
-    /// Verify that a processing lease still owns the exact book schedule
-    /// revision and cursor. Future frontier/release code must call this under
-    /// a Book transaction lock before mutating a chapter or publishing outbox.
+    /// Read-only diagnostic for an exact token, lease and schedule cursor.
+    /// This result must NOT authorize a later release by itself: any future
+    /// publication must recheck the fence under the Book transaction lock.
     pub async fn book_slot_claim_is_current(
         &self,
         claim: &BookSlotClaim,
