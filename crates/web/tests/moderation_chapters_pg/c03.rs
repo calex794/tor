@@ -41,7 +41,7 @@ pub(super) async fn check(context: Context<'_>) {
     // MOD-C03: publish a first FREE working edition atomically, then draft
     // and republish exactly that edition. Never synthesize a paid publication.
     let pending_free: i64 = pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES({book},4,'Moderator first release','draft','free',0,1) RETURNING id"
@@ -50,7 +50,7 @@ pub(super) async fn check(context: Context<'_>) {
     .parse()
     .unwrap();
     let pending_version: i64 = pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES({pending_free},1,'MOD-C03 first released immutable body') RETURNING id"
@@ -59,7 +59,7 @@ pub(super) async fn check(context: Context<'_>) {
     .parse()
     .unwrap();
     pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapter_working_drafts(chapter_id,version_id)
              VALUES({pending_free},{pending_version})"
@@ -71,10 +71,10 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &mod_cookie,
+            mod_cookie,
             ORIGIN,
             &publish_pending
         )
@@ -85,10 +85,10 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             "https://invalid.example",
             &publish_pending
         )
@@ -98,10 +98,10 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &publish_pending
         )
@@ -111,7 +111,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT c.visibility || ':' || c.admin_hold::int || ':' ||
                         p.version_id || ':' ||
@@ -125,14 +125,14 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id={pending_free}")
         ),
         "0"
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "GET",
             &format!("/reader/{pending_free}"),
             "",
@@ -145,10 +145,10 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &publish_pending
         )
@@ -156,16 +156,16 @@ pub(super) async fn check(context: Context<'_>) {
         .status(),
         StatusCode::CONFLICT
     );
-    let first_decision_id = last_decision(&url, pending_free);
+    let first_decision_id = last_decision(url, pending_free);
     let pending_draft = format!(
         "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=1&expected_version={pending_version}&expected_decision_id={first_decision_id}"
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &pending_draft
         )
@@ -175,7 +175,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "GET",
             &format!("/reader/{pending_free}"),
             "",
@@ -188,7 +188,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!("SELECT visibility || ':' || moderation_state FROM chapters WHERE id={pending_free}")
         ),
         "draft:none"
@@ -196,10 +196,10 @@ pub(super) async fn check(context: Context<'_>) {
     // The first publish form is stale even after visibility returns to draft.
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &publish_pending
         )
@@ -207,16 +207,16 @@ pub(super) async fn check(context: Context<'_>) {
         .status(),
         StatusCode::CONFLICT
     );
-    let second_decision_id = last_decision(&url, pending_free);
+    let second_decision_id = last_decision(url, pending_free);
     let pending_republish = format!(
         "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={pending_version}&expected_decision_id={second_decision_id}"
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &pending_action,
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &pending_republish
         )
@@ -226,7 +226,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={pending_free}"
             )
@@ -236,7 +236,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT before_state || ':' || after_state
                  FROM moderation_chapter_decision_events
@@ -248,16 +248,16 @@ pub(super) async fn check(context: Context<'_>) {
 
     // MOD-C03 paid draft/republication preserves exactly the existing
     // B-owned pointer, price, and all historical entitlements.
-    let paid_decision_id = last_decision(&url, paid_chapter);
+    let paid_decision_id = last_decision(url, paid_chapter);
     let paid_to_draft = format!(
         "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=0&expected_version={paid_version}&expected_decision_id={paid_decision_id}"
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
-            &paid_action,
-            &admin_cookie,
+            paid_action,
+            admin_cookie,
             ORIGIN,
             &paid_to_draft
         )
@@ -270,16 +270,16 @@ pub(super) async fn check(context: Context<'_>) {
         .await
         .unwrap()
         .is_none());
-    let paid_draft_decision_id = last_decision(&url, paid_chapter);
+    let paid_draft_decision_id = last_decision(url, paid_chapter);
     let paid_to_public = format!(
         "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0&expected_version={paid_version}&expected_decision_id={paid_draft_decision_id}"
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
-            &paid_action,
-            &admin_cookie,
+            paid_action,
+            admin_cookie,
             ORIGIN,
             &paid_to_public
         )
@@ -289,7 +289,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT c.visibility || ':' || c.price_amount || ':' || p.version_id
                  FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
@@ -306,7 +306,7 @@ pub(super) async fn check(context: Context<'_>) {
 
     // A version with no B publication pointer is not safe to expose as paid.
     let unverified_paid: i64 = pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES({book},5,'Unverified paid draft','draft','paid',150,1) RETURNING id"
@@ -315,7 +315,7 @@ pub(super) async fn check(context: Context<'_>) {
     .parse()
     .unwrap();
     let unverified_version: i64 = pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES({unverified_paid},1,'Unverified private edition') RETURNING id"
@@ -324,7 +324,7 @@ pub(super) async fn check(context: Context<'_>) {
     .parse()
     .unwrap();
     pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapter_working_drafts(chapter_id,version_id)
              VALUES({unverified_paid},{unverified_version})"
@@ -335,10 +335,10 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &format!("/moderation/chapters/{unverified_paid}/hold"),
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &unverified_form
         )
@@ -353,7 +353,7 @@ pub(super) async fn check(context: Context<'_>) {
         .is_none());
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM chapter_publications WHERE chapter_id={unverified_paid}"
             )
@@ -363,7 +363,7 @@ pub(super) async fn check(context: Context<'_>) {
 
     // No current edition: publishing a draft must fail without an audit row.
     let empty_chapter: i64 = pg(
-        &url,
+        url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
              VALUES({book},6,'No current version','draft','free',0) RETURNING id"
@@ -373,10 +373,10 @@ pub(super) async fn check(context: Context<'_>) {
     .unwrap();
     assert_eq!(
         request(
-            &app,
+            app,
             "POST",
             &format!("/moderation/chapters/{empty_chapter}/hold"),
-            &admin_cookie,
+            admin_cookie,
             ORIGIN,
             &format!(
                 "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0&expected_decision_id=0"
@@ -388,7 +388,7 @@ pub(super) async fn check(context: Context<'_>) {
     );
     assert_eq!(
         pg(
-            &url,
+            url,
             &format!(
                 "SELECT count(*) FROM moderation_chapter_decision_events
                  WHERE chapter_id={empty_chapter}"
