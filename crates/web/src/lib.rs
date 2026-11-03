@@ -73,6 +73,7 @@ struct AppState {
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
     paid_checkout_browser: bool,
+    private_admin_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -571,6 +572,8 @@ fn make_router_with_paid_checkout(
             paid_checkout_browser: active_auth
                 && paid_browser_enabled
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            // Administrator private reading is independent of paid checkout.
+            private_admin_reader_enabled: active_auth && paid_browser_enabled,
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
