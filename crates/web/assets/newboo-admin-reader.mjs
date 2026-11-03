@@ -24,20 +24,44 @@ async function adminGrant(chapter, csrf, imageId = null) {
   return response.json();
 }
 
+async function adminUnsealed(chapter, csrf) {
+  const response = await fetch(
+    "/api/v1/reader/chapters/" + chapter + "/admin-unsealed", {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrf },
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+    }
+  );
+  requireValue(response.ok && response.status === 200);
+  const payload = await response.json();
+  requireValue(payload.schema === "tor.admin_unsealed.v1" &&
+    payload.chapter_id === chapter &&
+    /^[1-9][0-9]{0,18}$/.test(payload.version_id || "") &&
+    typeof payload.body_markdown === "string" &&
+    payload.body_markdown.length > 0 && payload.body_markdown.length <= 200000);
+  return { versionId: payload.version_id, text: payload.body_markdown };
+}
+
 export async function startAdministratorReader(root) {
   const chapter = root.dataset.chapterId;
   const csrf = root.dataset.csrfToken;
   const s3Origin = root.dataset.s3Origin;
+  const unsealed = root.dataset.adminUnsealed === "true";
   const status = root.querySelector("[data-admin-status]");
   const article = root.querySelector("[data-admin-content]");
   requireValue(
     /^[1-9][0-9]{0,18}$/.test(chapter || "") &&
     /^[A-Za-z0-9_-]{43}$/.test(csrf || "") &&
     typeof s3Origin === "string" && s3Origin.length > 0 &&
+    ["true", "false"].includes(root.dataset.adminUnsealed) &&
     status && article
   );
-  const grant = await adminGrant(chapter, csrf);
-  const { versionId, text } = await decryptPaidGrant(grant, chapter, s3Origin);
+  const { versionId, text } = unsealed
+    ? await adminUnsealed(chapter, csrf)
+    : await decryptPaidGrant(await adminGrant(chapter, csrf), chapter, s3Origin);
   const liveUrls = new Map();
   let closed = false;
   let active = 0;
@@ -123,12 +147,15 @@ export async function startAdministratorReader(root) {
 
   // Reuse the exact private-image marker parser. Remove the direct reader's
   // "save place" buttons: admin inspection is not a purchased reading fact.
-  renderPaidBlocks(article, text, () => {}, (frame, id, alt) => {
+  // Unsealed drafts may contain asset markers without B/G attachments:
+  // render those markers as inert text rather than guessing private assets.
+  const onImage = unsealed ? null : (frame, id, alt) => {
     requireValue(known.size < 64);
     known.set(frame, { frame, id, alt });
     if (observer) observer.observe(frame);
     else schedule(frame);
-  });
+  };
+  renderPaidBlocks(article, text, () => {}, onImage);
   for (const button of article.querySelectorAll(".reader-save-button")) {
     button.remove();
   }
