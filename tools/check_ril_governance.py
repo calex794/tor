@@ -410,7 +410,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             # and checks session + role again inside the same PG transaction.
             operation = "moderation_books" if entry["method"] == "GET" else "moderate_book_hold"
             scoped = (
-                bool(re.search(rf"\\b{operation}\\s*\\(\\s*&digest\\s*,", evidence))
+                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
                 and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
             )
