@@ -125,9 +125,26 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             assert!(to_bytes(r.into_body(), 8192).await.unwrap().is_empty());
         }
     }
-    let preview = read_page(reader, &old_preview, Some(&admin_session)).await;
-    assert_eq!(preview.status(), StatusCode::OK);
-    let body = to_bytes(preview.into_body(), 256 * 1024).await.unwrap();
+    // The original NEwBOO reader link must lead an active administrator to
+    // the private reader, regardless of a forged preview/purchase query.
+    let canonical = format!("/reader/{chapter}");
+    for target in [&canonical, &old_preview] {
+        let redirect = read_page(reader, target, Some(&admin_session)).await;
+        assert_eq!(redirect.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            redirect.headers()[header::LOCATION],
+            format!("/read/admin/{chapter}")
+        );
+        assert_eq!(redirect.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
+        let body = to_bytes(redirect.into_body(), 8192).await.unwrap();
+        assert!(!body.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
+        assert!(!body.windows(b"X-Amz-Signature".len()).any(|part| part == b"X-Amz-Signature"));
+    }
+    // An unrelated account still sees only the public paid metadata paywall.
+    let outsider_page = read_page(reader, &old_preview, Some(&outsider)).await;
+    assert_eq!(outsider_page.status(), StatusCode::OK);
+    let body = to_bytes(outsider_page.into_body(), 256 * 1024).await.unwrap();
     assert!(!body.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
 
     // Only the private admin shell can start the authenticated WebCrypto flow.
@@ -234,6 +251,18 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         serde_json::from_slice(&to_bytes(held.into_body(), 8192).await.unwrap()).unwrap();
     assert_eq!(held_body["version_id"], version.to_string());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    // Even held/draft sealed content remains reachable from the same
+    // canonical URL, without disclosing its identity to a guest.
+    let held_redirect = read_page(reader, &canonical, Some(&admin_session)).await;
+    assert_eq!(held_redirect.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        held_redirect.headers()[header::LOCATION],
+        format!("/read/admin/{chapter}")
+    );
+    assert_eq!(
+        read_page(reader, &canonical, Some(&outsider)).await.status(),
+        StatusCode::NOT_FOUND
+    );
 
     // Revocation must invalidate the next admin GET/POST, including a held
     // chapter; no new S3 bearer or a decrypted edition may be delivered.
@@ -249,6 +278,13 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    // A revoked role cannot keep navigating through the canonical URL.
+    assert_eq!(
+        read_page(reader, &canonical, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
     );
     for target in [&path, &asset_path] {
         let r = send(
