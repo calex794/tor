@@ -38,6 +38,7 @@ use tor_reading::{
 mod access_audit;
 mod admin_mail;
 mod admin_mail_routes;
+mod admin_refund_review;
 mod auth_observation;
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
@@ -259,6 +260,7 @@ fn router_inner(
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
+        .merge(admin_refund_review::router())
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
