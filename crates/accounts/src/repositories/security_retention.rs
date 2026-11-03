@@ -46,6 +46,19 @@ impl PgAccounts {
         )
         .execute(self.pool())
         .await?;
+        // AB-08: old actor windows cascade-delete their admitted command keys.
+        // Bounded batch and SKIP LOCKED preserve live writers and short locks.
+        sqlx::query(
+            "WITH batch AS (
+                 SELECT scope,actor_id FROM scoped_action_windows
+                 WHERE touched_at < clock_timestamp()-INTERVAL '1 day'
+                 ORDER BY touched_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM scoped_action_windows w USING batch b
+             WHERE w.scope=b.scope AND w.actor_id=b.actor_id",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }
