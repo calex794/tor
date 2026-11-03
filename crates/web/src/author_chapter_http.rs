@@ -32,7 +32,6 @@ mod schedule;
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
 
-    /// Keep the encrypted paid edition private for the book-level scheduler.
     async fn stage_new(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
         Err(AuthorError::Unavailable)
     }
@@ -258,11 +257,7 @@ async fn create_chapter(
                 &[],
             );
         };
-        let paid_result = if delayed_publication {
-            publisher.stage_new(actor, &request).await
-        } else {
-            publisher.publish_new(actor, &request).await
-        };
+        let paid_result = if delayed_publication { publisher.stage_new(actor, &request).await } else { publisher.publish_new(actor, &request).await };
         return match paid_result {
             Ok(()) => private_response(
                 Redirect::to(&format!("/me/books/{id}")),
