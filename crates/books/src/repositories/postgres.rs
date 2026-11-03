@@ -1,5 +1,7 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
+mod book_lifecycle;
+pub use book_lifecycle::ManagedBookLifecycle;
 mod book_related;
 pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
 mod book_source_links;
@@ -222,7 +224,6 @@ impl PgAuthoring {
                 .map_err(|_| AuthorError::Unavailable)?;
             return previous_id.ok_or(AuthorError::Unavailable);
         }
-
         let source_claims = registration_links::check(&mut tx, book).await?;
         if legacy_title_guard::exists(&mut tx, &book.target_language, &title_claims).await? {
             return Err(AuthorError::Conflict);
@@ -401,7 +402,6 @@ impl PgAuthoring {
         {
             return Err(AuthorError::Invalid);
         }
-
         let mut hasher = Sha256::new();
         for value in [
             request.book_id.to_string(),
