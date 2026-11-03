@@ -186,6 +186,67 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::UNPROCESSABLE_ENTITY,
     );
 
+    // S020/#486: the actual S3 grant and Layer reader shell must recheck
+    // the currently granted age tier, not trust the historical paid Layer term.
+    pg(url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
+    let age_denied = post_grant(
+        app,
+        chapter,
+        Some(cookie),
+        Some(csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(age_denied.status(), StatusCode::NOT_FOUND);
+    assert_eq!(age_denied.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(
+        to_bytes(age_denied.into_body(), 8192).await.unwrap().is_empty(),
+        "no DEK or S3 signed URL on revoked 18+ opt-in"
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={subscriber}"));
+    assert_eq!(
+        post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, r#"{"source":"layer"}"#)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"));
+    assert_eq!(
+        post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, r#"{"source":"layer"}"#)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({subscriber},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    assert_eq!(
+        post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, r#"{"source":"layer"}"#)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={subscriber}"),
+    );
+    assert_eq!(
+        post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, r#"{"source":"layer"}"#)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(url, &format!("UPDATE books SET access_level='basic' WHERE id={book}"));
+
     // A blocked storefront disallows new sales without confiscating
     // existing rights. The term, not the storefront, is the entitlement.
     pg(
