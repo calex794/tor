@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_books::{
-    repositories::postgres::{OwnedRelatedBooks, RelatedBookCard},
+    repositories::postgres::{ManagedRelatedBooks, RelatedBookCard},
     services::authoring::AuthorError,
 };
 
@@ -48,7 +48,7 @@ fn error_response(error: AuthorError) -> Response {
 
 fn render(
     id: i64,
-    book: &OwnedRelatedBooks,
+    book: &ManagedRelatedBooks,
     csrf: &str,
     candidates: &[RelatedBookCard],
     info: &str,
@@ -120,7 +120,7 @@ pub(super) async fn page(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.owned_related_books(actor, id).await {
+    let book = match state.authoring.manageable_related_books(actor, id).await {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return error_response(error),
@@ -147,7 +147,7 @@ pub(super) async fn search(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.owned_related_books(actor, id).await {
+    let book = match state.authoring.manageable_related_books(actor, id).await {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return error_response(error),
@@ -249,7 +249,7 @@ mod tests {
     use super::*;
     #[test]
     fn s020_related_book_page_never_interpolates_private_html() {
-        let example = OwnedRelatedBooks {
+        let example = ManagedRelatedBooks {
             title: "<script>unsafe</script>".to_owned(),
             linked: vec![RelatedBookCard {
                 id: 52,
