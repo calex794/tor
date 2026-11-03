@@ -102,10 +102,7 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
             .await
             .map_err(unavailable)?;
             more = readers.len() > RECIPIENTS_PER_BATCH;
-            let recipients: Vec<i64> = readers
-                .into_iter()
-                .take(RECIPIENTS_PER_BATCH)
-                .collect();
+            let recipients: Vec<i64> = readers.into_iter().take(RECIPIENTS_PER_BATCH).collect();
             if !recipients.is_empty() {
                 sqlx::query(
                     "INSERT INTO outbox_events (
