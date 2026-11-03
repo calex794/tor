@@ -99,7 +99,10 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(decision(&resolver, buyer, chapter, None).await, allow(chapter, published_v1));
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v1)
+    );
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
@@ -120,7 +123,10 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(decision(&resolver, buyer, chapter, None).await, allow(chapter, published_v1));
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v1)
+    );
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(buyer)
         .execute(&pool)
@@ -143,11 +149,13 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
             reason: DenialReason::Hidden
         }
     );
-    sqlx::query("UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         decision(&resolver, buyer, chapter, None).await,
         allow(chapter, published_v1),
@@ -164,11 +172,13 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
             reason: DenialReason::Hidden
         }
     );
-    sqlx::query("UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // Future publication and unpublished content are never revealed by
     // the book-level Layer right.
