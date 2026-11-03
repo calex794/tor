@@ -21,7 +21,13 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .as_nanos();
 
     let mut users = Vec::new();
-    for role in ["author", "follower", "opted-out", "late-follower", "library-only"] {
+    for role in [
+        "author",
+        "follower",
+        "opted-out",
+        "late-follower",
+        "library-only",
+    ] {
         let user: i64 = sqlx::query_scalar(
             "INSERT INTO users(email_normalized,display_name,password_hash)
              VALUES($1,$2,'$argon2id$test') RETURNING id",
@@ -164,8 +170,16 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     assert_eq!(
         received,
         vec![
-            (follower, "chapter_created".to_owned(), format!("/reader/{chapter}")),
-            (library_only, "chapter_created".to_owned(), format!("/reader/{chapter}")),
+            (
+                follower,
+                "chapter_created".to_owned(),
+                format!("/reader/{chapter}")
+            ),
+            (
+                library_only,
+                "chapter_created".to_owned(),
+                format!("/reader/{chapter}")
+            ),
         ]
     );
     let all_delivered: i64 = sqlx::query_scalar(
