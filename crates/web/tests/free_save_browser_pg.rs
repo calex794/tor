@@ -58,7 +58,17 @@ async fn send(
         .method(method)
         .uri(path)
         .header(header::ORIGIN, origin)
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+        .header(
+            header::CONTENT_TYPE,
+            if method == "PUT" {
+                "application/json"
+            } else {
+                "application/x-www-form-urlencoded"
+            },
+        );
+    if method == "PUT" {
+        request = request.header("x-csrf-token", csrf);
+    }
     if let Some(session) = session {
         request = request.header(header::COOKIE, cookies(session, csrf));
     }
@@ -89,6 +99,17 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
             "Free browser author",
             &password,
             &session_token_digest(&token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let reader_token = generate_session_token();
+    let reader_user = accounts
+        .register_with_session(
+            "free-browser-sync-reader@example.invalid",
+            "Free browser sync reader",
+            &password,
+            &session_token_digest(&reader_token),
             NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -321,5 +342,192 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         &format!("SELECT count(*) FROM chapter_versions WHERE chapter_id={chapter_id}"),
     );
     assert_eq!(version_count, "2");
+
+    // S020/#486: a signed-in reader with the current 18+/21+ permission can
+    // sync a free chapter. Anonymous public_chapter() would incorrectly 404.
+    let sync_get = format!("/api/v1/me/progress/free?chapter_id={chapter_id}");
+    let sync_put = "/api/v1/me/progress/free";
+    let current_version: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
+    )
+    .parse()
+    .unwrap();
+    let sync_body = |revision: i64, offset: i32| {
+        format!(
+            r#"{{"chapter_id":"{chapter_id}","version_id":"{current_version}","block_id":1,"char_offset":{offset},"expected_revision":{revision}}}"#
+        )
+    };
+    assert_eq!(
+        send(&app, "GET", &sync_get, "", None, &csrf, ORIGIN)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={reader_user}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::OK,
+        "an eligible adult must be able to retrieve free sync state"
+    );
+    let (status, saved) = send(
+        &app,
+        "PUT",
+        sync_put,
+        &sync_body(0, 1),
+        Some(&reader_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(saved.contains("\"revision\":1"));
+
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({reader_user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    let (status, saved) = send(
+        &app,
+        "PUT",
+        sync_put,
+        &sync_body(1, 2),
+        Some(&reader_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(saved.contains("\"revision\":2"));
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={reader_user}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND,
+        "legacy NULL tier never inherits an adult session"
+    );
+
+    // NEwBOO parity: unlisting by pending_deletion does not itself revoke
+    // existing direct free-reading access. Site blocking does.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
     pool.close().await;
 }
