@@ -135,6 +135,16 @@ impl PrivateObjectDeliveryPort for FakeG {
             dek_b64u: SecretValue::new(URL_SAFE_NO_PAD.encode([0x11_u8; 32])).unwrap(),
         })
     }
+
+    async fn grant_verified_admin_asset(
+        &self,
+        object: &EncryptedObjectRef,
+        ttl: Duration,
+    ) -> Result<GrantedContent, DeliveryError> {
+        // The disposable fake G has no storage-layer moderation policy.
+        // Production G must still independently verify B/G membership.
+        self.grant_verified_object(object, ttl).await
+    }
 }
 
 fn route(chapter: i64) -> String {
