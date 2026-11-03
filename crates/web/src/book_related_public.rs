@@ -34,9 +34,10 @@ pub(super) async fn attach(
         .public_related_books(book_id_sql)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let likes_html = pages::book_likes_strip(book_id, likes);
     Ok(Html(
         html.0
-            .replace("<!--BOOK_LIKES-->", &pages::book_likes_strip(book_id, likes))
+            .replace("<!--BOOK_LIKES-->", &likes_html)
             .replace("<!--BOOK_RELATED-->", &render(&related)),
     ))
 }
