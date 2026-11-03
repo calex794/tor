@@ -12,8 +12,8 @@ impl PgMentions {
         Self { pool }
     }
 
-    /// Only people who participated in this visible book discussion may be
-    /// resolved. Friend discovery needs the later A-line relationship contract.
+    /// Resolve current account profile handles, never an abandoned parallel
+    /// handle registry. Only visible participants of this book may be resolved. Friend discovery needs the later A-line relationship contract.
     pub async fn verified_candidates(
         &self,
         book_id: i64,
@@ -40,7 +40,7 @@ impl PgMentions {
                 }
                 MentionKey::Handle(handle) => {
                     sqlx::query_scalar::<_, i64>(
-                        "SELECT u.id FROM discussion_mention_handles h
+                        "SELECT u.id FROM account_settings h
                          JOIN users u ON u.id=h.user_id
                          WHERE h.handle=$1 AND EXISTS (
                            SELECT 1 FROM discussion_comments c
@@ -76,7 +76,7 @@ impl PgMentions {
         }
         sqlx::query_as::<_, (i64, String)>(
             "SELECT DISTINCT h.user_id,h.handle
-             FROM discussion_mention_handles h
+             FROM account_settings h
              JOIN discussion_comments c ON c.author_user_id=h.user_id
              JOIN books b ON b.id=c.book_id
              WHERE c.book_id=$1 AND c.visibility='visible'
