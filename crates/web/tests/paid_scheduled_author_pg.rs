@@ -271,7 +271,11 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "private ciphertext is not reader publication"
     );
     let (before_status, before) = request_body(&app, &format!("/books/{book}")).await;
-    assert_eq!(before_status, StatusCode::OK, "book page must load before release");
+    assert_eq!(
+        before_status,
+        StatusCode::OK,
+        "book page must load before release"
+    );
     let (toc_before_status, toc_before) =
         request_body(&app, &format!("/api/v1/books/{book}/toc")).await;
     assert_eq!(toc_before_status, StatusCode::OK);
@@ -375,7 +379,10 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "root and recipient event are acknowledged"
     );
     assert_eq!(
-        pg(&url, &format!("SELECT title FROM chapters WHERE id={chapter}")),
+        pg(
+            &url,
+            &format!("SELECT title FROM chapters WHERE id={chapter}")
+        ),
         "S058 queued paid chapter",
         "author-supplied title must be stored unchanged"
     );
@@ -387,7 +394,11 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "scheduled paid release must enter the public JSON TOC"
     );
     let (after_status, after) = request_body(&app, &format!("/books/{book}")).await;
-    assert_eq!(after_status, StatusCode::OK, "book page must load after release");
+    assert_eq!(
+        after_status,
+        StatusCode::OK,
+        "book page must load after release"
+    );
     assert!(
         after.contains("S058 queued paid chapter"),
         "scheduled paid release must enter the rendered book TOC"
