@@ -105,9 +105,9 @@ pub(super) async fn draft_edit_case(
     edit_path
 }
 
-// Test-only site approval: public author release must not bypass moderation.
-// Role, CSRF, CAS and audit authorization are verified in moderation_books_pg.
-pub(super) async fn approve_pending_book_ci(app: &Router, pool: &sqlx::PgPool, book_id: i64) {
+// Test-only site approval: author release cannot bypass moderation.
+// HTTP site-role, CSRF, CAS and audit are verified in moderation_books_pg.
+pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     let path = format!("/books/{book_id}");
     assert_eq!(
         send(app, request("GET", &path, "", "", ORIGIN))
@@ -116,15 +116,27 @@ pub(super) async fn approve_pending_book_ci(app: &Router, pool: &sqlx::PgPool, b
         StatusCode::NOT_FOUND,
         "author release must remain private until site approval"
     );
-    let result = sqlx::query(
-        "UPDATE books
-         SET visibility_status='active',
-             visibility_status_revision=visibility_status_revision+1
-         WHERE id=$1 AND visibility='public' AND visibility_status='pending_moderation'",
-    )
-    .bind(book_id)
-    .execute(pool)
-    .await
-    .expect("approve disposable site-review fixture");
-    assert_eq!(result.rows_affected(), 1, "exactly one pending book was approved");
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PostgreSQL test URL");
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    let sql = format!(
+        "UPDATE books SET visibility_status='active',
+         visibility_status_revision=visibility_status_revision+1
+         WHERE id={book_id} AND visibility='public' AND visibility_status='pending_moderation'
+         RETURNING id;"
+    );
+    let output = std::process::Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+               "--dbname", &url, "--command", &sql])
+        .output()
+        .expect("psql installed on disposable CI");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("psql output").trim(),
+        book_id.to_string(),
+        "exactly one pending book must be approved"
+    );
 }

@@ -442,7 +442,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         released.headers()[header::LOCATION],
         format!("/books/{book_id}")
     );
-    b04_cases::approve_pending_book_ci(&app, &pool, book_id).await;
+    b04_cases::approve_pending_book_ci(&app, book_id).await;
     let public_book = send(
         &app,
         request("GET", &format!("/books/{book_id}"), "", "", ORIGIN),
