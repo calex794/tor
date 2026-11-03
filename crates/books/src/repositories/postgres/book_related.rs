@@ -214,7 +214,5 @@ mod tests {
     #[test]
     fn s020_self_link_does_not_create_an_edge() {
         assert_eq!(normalized_title(" Ёж — и   кот "), "еж и кот");
-        assert_eq!((17_i64.min(42), 17_i64.max(42)), (17, 42));
-        assert_eq!((42_i64.min(17), 42_i64.max(17)), (17, 42));
     }
 }
