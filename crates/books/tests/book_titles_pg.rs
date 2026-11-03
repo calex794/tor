@@ -1,5 +1,5 @@
 //! S020: owner edits all translated/original aliases without leaking drafts.
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use tor_books::repositories::postgres::PgAuthoring;
 use tor_books::services::authoring::AuthorError;
 
