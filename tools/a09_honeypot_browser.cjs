@@ -23,7 +23,7 @@ module.exports = async function honeypotBrowser(browser, base, email, password) 
     await page.locator('[name=display_name]').fill('Rejected decoy');
     await page.locator('[name=email]').fill(email);
     await page.locator('[name=password]').fill(password);
-    await page.locator('input[name=website]').evaluate(el => { el.value = 'bot-filled'; });
+    await page.locator('form[action="/register"] input[name=website]').evaluate(el => { el.value = 'bot-filled'; });
     const [rejected] = await Promise.all([
       page.waitForResponse(r => r.request().method() === 'POST' && r.url() === `${base}/register`),
       page.locator('form[action="/register"] button').click(),
@@ -50,7 +50,7 @@ module.exports.rejectedLogin = async function rejectedLogin(browser, base, email
     await assertDecoy(page, '/login');
     await page.locator('[name=email]').fill(email);
     await page.locator('[name=password]').fill(password);
-    await page.locator('input[name=website]').evaluate(el => { el.value = 'bot-filled'; });
+    await page.locator('form[action="/login"] input[name=website]').evaluate(el => { el.value = 'bot-filled'; });
     const [rejected] = await Promise.all([
       page.waitForResponse(r => r.request().method() === 'POST' && r.url() === `${base}/login`),
       page.locator('form[action="/login"] button').click(),
