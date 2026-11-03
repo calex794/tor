@@ -13,6 +13,9 @@ pub enum ModerationBooksError {
 }
 
 #[derive(Debug)]
+// Row shape remains private to the bounded site-moderation queue.
+type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
+
 pub struct ModerationBook {
     pub visibility_status: String,
     pub visibility_status_revision: i64,
@@ -62,7 +65,7 @@ impl PgAccounts {
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         current_moderator(&mut tx, session).await?;
-        let rows: Vec<(i64, String, String, String, i64, bool, Option<i64>)> = sqlx::query_as(
+        let rows: Vec<ModerationBookRow> = sqlx::query_as(
             "SELECT id,title,visibility,visibility_status,visibility_status_revision,
                     admin_hold,owner_user_id
              FROM books WHERE NOT is_deleted
@@ -79,7 +82,15 @@ impl PgAccounts {
         Ok(rows
             .into_iter()
             .map(
-                |(id, title, visibility, visibility_status, visibility_status_revision, admin_hold, owner_user_id)| ModerationBook {
+                |(
+                    id,
+                    title,
+                    visibility,
+                    visibility_status,
+                    visibility_status_revision,
+                    admin_hold,
+                    owner_user_id,
+                )| ModerationBook {
                     id,
                     title,
                     visibility,
@@ -218,5 +229,4 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(next)
     }
-
 }

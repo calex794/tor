@@ -202,87 +202,149 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     // four-state visibility independent of author draft/public and hold.
     let visibility_action = format!("/moderation/books/{book}/visibility");
     assert!(content.contains(&visibility_action));
-    let before_total: i64 =
-        pg(&url, "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton")
-            .parse()
-            .unwrap();
-    let hidden_form = format!(
-        "csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=hidden"
-    );
+    let before_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    let hidden_form =
+        format!("csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=hidden");
     assert_eq!(
-        request(&app, "POST", &visibility_action, &outsider_cookie, ORIGIN, &hidden_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &outsider_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, "https://evil.invalid", &hidden_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            "https://evil.invalid",
+            &hidden_form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, ORIGIN,
-            &format!("csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=bad"))
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=bad")
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, ORIGIN, &hidden_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT visibility||':'||visibility_status||':'||admin_hold::int
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility||':'||visibility_status||':'||admin_hold::int
              FROM books WHERE id={book}"
-        )),
+            )
+        ),
         "public:hidden:0"
     );
-    assert!(catalog.get_public(book as u64).await.unwrap().is_none());
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         request(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "")
             .await
             .status(),
         StatusCode::NOT_FOUND
     );
-    let hidden_total: i64 =
-        pg(&url, "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton")
-            .parse()
-            .unwrap();
+    let hidden_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
     assert_eq!(hidden_total, before_total - 1);
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, ORIGIN, &hidden_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
-    let active_form = format!(
-        "csrf_token={csrf}&expected_status=hidden&expected_revision=2&new_status=active"
-    );
+    let active_form =
+        format!("csrf_token={csrf}&expected_status=hidden&expected_revision=2&new_status=active");
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, ORIGIN, &active_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &active_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
-    assert!(catalog.get_public(book as u64).await.unwrap().is_some());
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_some());
     assert_eq!(
-        pg(&url, &format!("SELECT visibility_status_revision FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT visibility_status_revision FROM books WHERE id={book}")
+        ),
         "3"
     );
-    let after_total: i64 =
-        pg(&url, "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton")
-            .parse()
-            .unwrap();
+    let after_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
     assert_eq!(after_total, before_total);
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT actor_user_id || ':' || before_status || '>' || after_status
+        pg(
+            &url,
+            &format!(
+                "SELECT actor_user_id || ':' || before_status || '>' || after_status
              FROM moderation_book_visibility_events WHERE book_id={book} ORDER BY id"
-        )),
+            )
+        ),
         format!("{moderator}:active>hidden\n{moderator}:hidden>active")
     );
     assert_eq!(
@@ -368,28 +430,48 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             .status(),
         StatusCode::FORBIDDEN
     );
-    let blocked_form = format!(
-        "csrf_token={csrf}&expected_status=active&expected_revision=3&new_status=blocked"
-    );
+    let blocked_form =
+        format!("csrf_token={csrf}&expected_status=active&expected_revision=3&new_status=blocked");
     assert_eq!(
-        request(&app, "POST", &visibility_action, &mod_cookie, ORIGIN, &blocked_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &blocked_form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "revoked site role has no moderation visibility rights"
     );
     assert_eq!(
-        request(&app, "POST", &visibility_action, &admin_cookie, ORIGIN, &blocked_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &admin_cookie,
+            ORIGIN,
+            &blocked_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
-    assert!(catalog.get_public(book as u64).await.unwrap().is_none());
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT visibility||':'||visibility_status||':'||admin_hold::int
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility||':'||visibility_status||':'||admin_hold::int
              FROM books WHERE id={book}"
-        )),
+            )
+        ),
         "public:blocked:1"
     );
     assert!(

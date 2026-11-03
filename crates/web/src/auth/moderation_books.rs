@@ -95,7 +95,11 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
             ("pending_moderation", "На модерации"),
             ("blocked", "Заблокирована"),
         ] {
-            let selected = if row.visibility_status == value { " selected" } else { "" };
+            let selected = if row.visibility_status == value {
+                " selected"
+            } else {
+                ""
+            };
             choices.push_str(&format!(
                 r#"<option value="{value}"{selected}>{label}</option>"#
             ));
