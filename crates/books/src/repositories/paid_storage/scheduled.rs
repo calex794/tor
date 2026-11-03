@@ -103,7 +103,7 @@ pub(crate) async fn release_staged_paid_chapter_tx(
 
     // Lock exact edition and encrypted object after the Chapter. Any
     // missing metadata, future time gate or published pointer fails closed.
-    let object: Option<String> = sqlx::query_scalar(
+    let object: String = sqlx::query_scalar(
         "SELECT o.id::text FROM chapters c
          JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=$3
          JOIN storage_objects o ON o.id=v.storage_object_id
