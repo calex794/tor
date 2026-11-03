@@ -44,10 +44,16 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
 
     assert_eq!(library.add_book(user, ids[0]).await, Ok(()));
     for id in ids.iter().skip(1) {
-        assert_eq!(library.add_book(user, *id).await, Err(LibraryError::NotFound));
+        assert_eq!(
+            library.add_book(user, *id).await,
+            Err(LibraryError::NotFound)
+        );
     }
     let first = library.list_books(user, 10, None).await.unwrap();
-    assert_eq!(first.items.iter().map(|b| b.book_id).collect::<Vec<_>>(), vec![ids[0]]);
+    assert_eq!(
+        first.items.iter().map(|b| b.book_id).collect::<Vec<_>>(),
+        vec![ids[0]]
+    );
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(user)
@@ -55,8 +61,14 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .await
         .unwrap();
     assert_eq!(library.add_book(user, ids[1]).await, Ok(()));
-    assert_eq!(library.add_book(user, ids[2]).await, Err(LibraryError::NotFound));
-    assert_eq!(library.add_book(user, ids[3]).await, Err(LibraryError::NotFound));
+    assert_eq!(
+        library.add_book(user, ids[2]).await,
+        Err(LibraryError::NotFound)
+    );
+    assert_eq!(
+        library.add_book(user, ids[3]).await,
+        Err(LibraryError::NotFound)
+    );
 
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
@@ -80,7 +92,10 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
     let revoked = library.list_books(user, 10, None).await.unwrap();
     assert_eq!(revoked.items.len(), 2);
     assert!(!revoked.items.iter().any(|b| b.book_id == ids[2]));
-    assert_eq!(library.add_book(user, ids[2]).await, Err(LibraryError::NotFound));
+    assert_eq!(
+        library.add_book(user, ids[2]).await,
+        Err(LibraryError::NotFound)
+    );
 
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(user)
@@ -90,7 +105,10 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
     let no_opt_in = library.list_books(user, 10, None).await.unwrap();
     assert_eq!(no_opt_in.items.len(), 1);
     assert_eq!(no_opt_in.items[0].book_id, ids[0]);
-    assert_eq!(library.add_book(user, ids[1]).await, Err(LibraryError::NotFound));
+    assert_eq!(
+        library.add_book(user, ids[1]).await,
+        Err(LibraryError::NotFound)
+    );
 
     sqlx::query("UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1")
         .bind(user)
@@ -102,14 +120,22 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
     assert!(restored_pro.items.iter().any(|b| b.book_id == ids[2]));
 
     // An authorized viewer still cannot see an unclassified legacy Book.
-    assert_eq!(library.add_book(user, ids[3]).await, Err(LibraryError::NotFound));
+    assert_eq!(
+        library.add_book(user, ids[3]).await,
+        Err(LibraryError::NotFound)
+    );
     sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
         .bind(ids[2])
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!library.list_books(user, 10, None).await.unwrap()
-        .items.iter().any(|b| b.book_id == ids[2]));
+    assert!(!library
+        .list_books(user, 10, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|b| b.book_id == ids[2]));
 
     // Deleting a saved link remains permitted after eligibility is revoked.
     assert_eq!(library.remove_book(user, ids[2]).await, Ok(()));
@@ -118,8 +144,13 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!library.list_books(user, 10, None).await.unwrap()
-        .items.iter().any(|b| b.book_id == ids[2]));
+    assert!(!library
+        .list_books(user, 10, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|b| b.book_id == ids[2]));
 
     // The Book tier is rechecked too: basic -> adult immediately hides the
     // previously saved book from a reader who has not opted in.
@@ -128,15 +159,32 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(library.list_books(user, 10, None).await.unwrap().items.is_empty());
+    assert!(library
+        .list_books(user, 10, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
 
     sqlx::query("DELETE FROM reader_library_items WHERE user_id=$1")
-        .bind(user).execute(&pool).await.unwrap();
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM books WHERE id=ANY($1::bigint[])")
-        .bind(&ids).execute(&pool).await.unwrap();
+        .bind(&ids)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
-        .bind(user).execute(&pool).await.unwrap();
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE id=$1")
-        .bind(user).execute(&pool).await.unwrap();
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
