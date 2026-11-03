@@ -37,8 +37,7 @@ impl PgAuthoring {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        i32::try_from(next.ok_or(AuthorError::Missing)?)
-            .map_err(|_| AuthorError::Conflict)
+        i32::try_from(next.ok_or(AuthorError::Missing)?).map_err(|_| AuthorError::Conflict)
     }
 
     /// Author UI requests one bounded page; no offset scan for long novels.

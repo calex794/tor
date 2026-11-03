@@ -194,7 +194,12 @@ async fn new_chapter(
     let key = generate_session_token();
     private_response(
         crate::author_chapter_pages::new_chapter(
-            id, &csrf, &key, paid_enabled, is_public, next_number,
+            id,
+            &csrf,
+            &key,
+            paid_enabled,
+            is_public,
+            next_number,
         ),
         &cookies,
     )
