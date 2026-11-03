@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
@@ -108,6 +109,13 @@ async function inspect(page, viewport, name) {
       await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
       await page.waitForURL(base + '/books/' + bookId);
+      const awaitingApproval = await page.goto(base + '/books/' + bookId);
+      assert(awaitingApproval && awaitingApproval.status() === 404,
+        viewport + ': new book bypassed pending site review');
+      approvePendingBookForIsolatedCi(bookId);
+      const newlyApproved = await page.goto(base + '/books/' + bookId);
+      assert(newlyApproved && newlyApproved.status() === 200,
+        viewport + ': site-approved book is not publicly visible');
       assert(await page.getByRole('heading', { name: 'Новая книга ' + viewport }).isVisible(),
         viewport + ': public book missing after release');
       await inspect(page, viewport, 'published');
