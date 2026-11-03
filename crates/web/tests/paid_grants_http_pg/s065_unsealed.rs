@@ -1,7 +1,7 @@
 //! C-12/S065: a live site administrator may inspect an unsealed working
 //! chapter without a purchase, even when the book or chapter is unpublished.
 //! The ordinary reader and paid S3 grant must not inherit this authority.
-use super::super::{account, pg, read_page, scalar, send, FakeG, ORIGIN};
+use super::{account, pg, read_page, scalar, send, FakeG, ORIGIN};
 use axum::{
     body::to_bytes,
     http::{header, StatusCode},
