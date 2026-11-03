@@ -116,7 +116,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     assert_eq!(releases.unread_count_capped(reader).await.unwrap(), 0);
     assert!(!releases
         .set_read_state(reader, chapter_ids[1], true)
@@ -133,7 +138,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
@@ -148,19 +158,36 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
-    sqlx::query("UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
+    assert!(releases
+        .latest(reader, None)
         .await
-        .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -713,8 +740,14 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
         .await
         .unwrap();
     let denied = feed.latest(reader, None).await.unwrap();
-    assert!(!denied.items.iter().any(|item| item.book_id == author_only_book));
-    assert!(denied.items.iter().any(|item| item.chapter_id == overlapping_release));
+    assert!(!denied
+        .items
+        .iter()
+        .any(|item| item.book_id == author_only_book));
+    assert!(denied
+        .items
+        .iter()
+        .any(|item| item.chapter_id == overlapping_release));
     assert!(!feed
         .set_read_state(reader, author_only_release, true)
         .await

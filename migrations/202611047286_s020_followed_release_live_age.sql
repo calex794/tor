@@ -29,9 +29,9 @@ WHERE release.created_at>=follow.created_at
        OR (
            book.access_level='pro_adult'
            AND EXISTS (
-               SELECT 1 FROM user_level_grants AS grant
-               WHERE grant.user_id=recipient.id
-                 AND grant.level='pro_adult' AND grant.is_active
+               SELECT 1 FROM user_level_grants AS age_grant
+               WHERE age_grant.user_id=recipient.id
+                 AND age_grant.level='pro_adult' AND age_grant.is_active
            )
        )
   )
@@ -87,9 +87,9 @@ WHERE book.visibility='public' AND book.visibility_status='active'
        OR (
            book.access_level='pro_adult'
            AND EXISTS (
-               SELECT 1 FROM user_level_grants AS grant
-               WHERE grant.user_id=recipient.id
-                 AND grant.level='pro_adult' AND grant.is_active
+               SELECT 1 FROM user_level_grants AS age_grant
+               WHERE age_grant.user_id=recipient.id
+                 AND age_grant.level='pro_adult' AND age_grant.is_active
            )
        )
   )
