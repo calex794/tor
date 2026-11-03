@@ -33,6 +33,19 @@ impl PgAccounts {
             WHERE period_started<now()-INTERVAL '1 day' ORDER BY period_started LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM auth_attempts t USING batch b WHERE t.key_hash=b.key_hash")
             .execute(self.pool()).await?;
+        // Expired spray sources cascade-delete their distinct target set.
+        // Limit each cleanup batch and skip rows held by live login transactions.
+        sqlx::query(
+            "WITH batch AS (
+               SELECT scope,source_key FROM auth_spray_windows
+               WHERE touched_at < clock_timestamp()-INTERVAL '1 day'
+               ORDER BY touched_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM auth_spray_windows w USING batch b
+             WHERE w.scope=b.scope AND w.source_key=b.source_key",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }

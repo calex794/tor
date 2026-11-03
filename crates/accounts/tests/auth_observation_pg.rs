@@ -285,3 +285,6 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
 
 #[path = "auth_observation_pg/risk_load.rs"]
 mod risk_load;
+
+#[path = "auth_spray_pg.rs"]
+mod auth_spray;

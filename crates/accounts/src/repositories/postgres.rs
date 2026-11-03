@@ -86,6 +86,9 @@ impl PgAccounts {
         sqlx::query("SELECT key_hash FROM auth_attempts LIMIT 0")
             .execute(&self.pool)
             .await?;
+        sqlx::query("SELECT source_key FROM auth_spray_windows LIMIT 0")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
