@@ -264,11 +264,8 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
-        .merge(
-            book_project_status::router()
-                .merge(book_titles::router())
-                .merge(book_related::router()),
-        )
+        .merge(book_project_status::router().merge(book_titles::router()))
+        .merge(book_related::router())
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
