@@ -6,6 +6,12 @@ use tor_books::{
     services::authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
 };
 
+// Browser commands are scoped by (user, key), not by book. Repeated
+// disposable fixtures for the same owner therefore need distinct keys.
+fn fixture_key(book: i64, chapter_no: i32) -> String {
+    format!("{:043x}", ((book as u128) << 32) | (chapter_no as u128))
+}
+
 fn chapter<'a>(
     book: i64,
     number: i32,
@@ -50,7 +56,7 @@ async fn owner_and_book(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) 
     )
     .unwrap();
     let book_id = author.create_owned_book(owner, &book).await.unwrap();
-    let first = chapter(book_id, 1, "Опубликованная глава", &"n".repeat(43));
+    let first = chapter(book_id, 1, "Опубликованная глава", &fixture_key(book_id, 1));
     author.create_free_chapter(owner, &first).await.unwrap();
     author.release_book(owner, book_id).await.unwrap();
     (author, owner, book_id)
@@ -83,11 +89,11 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
     let pool = PgPool::connect(&url).await.unwrap();
     let (author, owner, book) = owner_and_book(&pool, "blocked").await;
     let two = author
-        .create_pending_free_chapter(owner, &chapter(book, 2, "Вторая", &"o".repeat(43)))
+        .create_pending_free_chapter(owner, &chapter(book, 2, "Вторая", &fixture_key(book, 2)))
         .await
         .unwrap();
     let three = author
-        .create_pending_free_chapter(owner, &chapter(book, 3, "Третья", &"p".repeat(43)))
+        .create_pending_free_chapter(owner, &chapter(book, 3, "Третья", &fixture_key(book, 3)))
         .await
         .unwrap();
     let times = ["09:00".to_owned(), "18:00".to_owned()];
@@ -288,7 +294,7 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
     let later = author
         .create_pending_free_chapter(
             owner,
-            &chapter(paid_book, 3, "Бесплатная после платной", &"w".repeat(43)),
+            &chapter(paid_book, 3, "Бесплатная после платной", &fixture_key(paid_book, 3)),
         )
         .await
         .unwrap();
