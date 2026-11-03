@@ -1,3 +1,4 @@
+mod book_schedule_worker;
 mod social_notification_consumer;
 mod support_cleanup;
 
@@ -249,6 +250,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .probe_scheduled_releases()
                         .await
                         .map_err(|_| "S058 scheduled release migration is not applied")?;
+                    author
+                        .probe_book_schedule_worker()
+                        .await
+                        .map_err(|_| "S058 book-level slot migrations are not applied")?;
                     pending_scheduled_release_worker = Some(author);
                 }
                 if chapter_import_worker_enabled {
@@ -421,6 +426,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             break;
                         }
                     }
+                }
+                if let Err(error) = book_schedule_worker::drain_due_book_slots(&author).await {
+                    tracing::warn!(?error, "S058 book-slot worker failed; lease retry pending");
                 }
             }
         })
