@@ -938,31 +938,42 @@ async fn b_auto_number_serializes_free_delayed_and_paid_writers() {
     };
     let first = make("First", &"b".repeat(43), "free", 0);
     let saved = author.create_free_chapter(owner, &first).await.unwrap();
-    assert_eq!(author.create_free_chapter(owner, &first).await.unwrap(), saved);
+    assert_eq!(
+        author.create_free_chapter(owner, &first).await.unwrap(),
+        saved
+    );
     let second = make("Second", &"c".repeat(43), "free", 0);
     let third = make("Third", &"d".repeat(43), "free", 0);
     let (second_out, third_out) = tokio::join!(
         author.create_free_chapter(owner, &second),
         author.create_free_chapter(owner, &third)
     );
-    assert_ne!(second_out.unwrap().chapter_id, third_out.unwrap().chapter_id);
+    assert_ne!(
+        second_out.unwrap().chapter_id,
+        third_out.unwrap().chapter_id
+    );
     author.release_book(owner, book_id).await.unwrap();
     let published = make("Published", &"e".repeat(43), "free", 0);
-    author.create_published_free_chapter(owner, &published).await.unwrap();
+    author
+        .create_published_free_chapter(owner, &published)
+        .await
+        .unwrap();
     let delayed = make("Delayed", &"f".repeat(43), "free", 0);
-    author.create_pending_free_chapter(owner, &delayed).await.unwrap();
+    author
+        .create_pending_free_chapter(owner, &delayed)
+        .await
+        .unwrap();
     let paid = make("Paid", &"g".repeat(43), "paid", 175);
     PgPaidStorage::new(pool.clone())
         .prepare_new_paid_chapter(owner, &paid)
         .await
         .unwrap();
-    let assigned: Vec<i32> = sqlx::query_scalar(
-        "SELECT chapter_no FROM chapters WHERE book_id=$1 ORDER BY chapter_no",
-    )
-    .bind(book_id)
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let assigned: Vec<i32> =
+        sqlx::query_scalar("SELECT chapter_no FROM chapters WHERE book_id=$1 ORDER BY chapter_no")
+            .bind(book_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(assigned, vec![1, 2, 3, 4, 5, 6]);
     pool.close().await;
 }

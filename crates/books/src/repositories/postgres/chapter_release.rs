@@ -1,11 +1,11 @@
 //! B-06: unpublished new chapters inside an already public book.
 //! No reader-visible pointer is created until an explicit owner release.
 use super::PgAuthoring;
+use crate::repositories::chapter_number;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, PendingChapter, SaveChapter, SavedChapter,
 };
 use sha2::{Digest, Sha256};
-use crate::repositories::chapter_number;
 use sqlx::Row;
 
 impl PgAuthoring {

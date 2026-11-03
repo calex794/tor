@@ -422,8 +422,7 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
 
-        // Row lock serializes publication against deletion, owner changes and
-        // concurrent chapter creation. Unowned and missing books are identical.
+        // Book row lock serializes owner changes and competing chapter saves.
         let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
@@ -484,7 +483,8 @@ impl PgAuthoring {
             });
         }
 
-        let number = super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",

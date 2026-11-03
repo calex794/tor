@@ -2,11 +2,11 @@
 //! atomic owner-only transaction. The historical private/draft commands remain
 //! separate for books that are not yet published.
 use super::PgAuthoring;
+use crate::repositories::chapter_number;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, SaveChapter, SavedChapter,
 };
 use sha2::{Digest, Sha256};
-use crate::repositories::chapter_number;
 use sqlx::Row;
 
 impl PgAuthoring {

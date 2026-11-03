@@ -169,7 +169,8 @@ impl PgPaidStorage {
 
         // The chapter must not enter catalog/reader until B verifies an
         // attached G object. Failed S3 leaves only an owner-visible draft.
-        let number = super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(
                  book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision
