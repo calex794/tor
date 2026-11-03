@@ -575,13 +575,29 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     assert_eq!(blocked_page.status(), StatusCode::OK);
     assert!(html(blocked_page).await.contains("Paid chapter metadata"));
     // Direct old-style boolean SQL cannot remove a categorical block.
-    let bypass = sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
-        .bind(paid_chapter)
-        .execute(&pool)
-        .await;
+    let bypass_sql = format!("UPDATE chapters SET admin_hold=false WHERE id={paid_chapter}");
+    let bypass = std::process::Command::new("psql")
+        .args([
+            "-X",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url.as_str(),
+            "--command",
+            bypass_sql.as_str(),
+        ])
+        .output()
+        .expect("psql installed");
     assert!(
-        bypass.is_err(),
+        !bypass.status.success(),
         "legacy boolean writes must not bypass a categorical block"
+    );
+    assert!(
+        String::from_utf8_lossy(&bypass.stderr)
+            .contains("cannot bypass specific chapter moderation decision"),
+        "unexpected legacy SQL error: {}",
+        String::from_utf8_lossy(&bypass.stderr)
     );
 
     let invalid_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=published");
