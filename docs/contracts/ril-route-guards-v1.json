@@ -1842,6 +1842,20 @@
       "source": "crates/web/src/auth/book_origin_metadata.rs",
       "handler": "save",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/lifecycle",
+      "source": "crates/web/src/auth/book_lifecycle.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/lifecycle",
+      "source": "crates/web/src/auth/book_lifecycle.rs",
+      "handler": "save",
+      "policy": "scoped"
     }
   ]
 }

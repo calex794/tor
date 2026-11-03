@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-
 use crate::{
     auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
@@ -48,6 +47,7 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod book_lifecycle;
 mod book_likes;
 mod book_origin_metadata;
 mod book_project_status;
@@ -251,10 +251,7 @@ fn router_inner(
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
         .route("/me/creators", get(creator_follows::page))
-        .route(
-            "/me/creators/{id}/unfollow",
-            post(creator_follows::unfollow),
-        )
+        .route("/me/creators/{id}/unfollow", post(creator_follows::unfollow))
         .route(
             "/me/books/{id}/follow-creator",
             post(book_follow_actions::follow_creator),

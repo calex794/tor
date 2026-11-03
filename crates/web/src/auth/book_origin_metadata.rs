@@ -22,7 +22,9 @@ pub(super) struct OriginForm {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/me/books/{id}/settings/origin", get(edit).post(save))
+    Router::new()
+        .route("/me/books/{id}/settings/origin", get(edit).post(save))
+        .merge(super::book_lifecycle::router())
 }
 
 fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String> {
