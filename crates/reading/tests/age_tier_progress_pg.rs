@@ -84,7 +84,10 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .await
         .unwrap();
     assert_eq!(
-        progress.saved_state(progress_actor, chapter, version).await.unwrap(),
+        progress
+            .saved_state(progress_actor, chapter, version)
+            .await
+            .unwrap(),
         SavedPlaceState::Current(first)
     );
     assert!(progress
@@ -100,23 +103,40 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
             .revision,
         1
     );
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_some());
 
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
+    assert!(progress
+        .continue_reading(progress_actor)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
-        progress.saved_state(progress_actor, chapter, version).await.unwrap(),
+        progress
+            .saved_state(progress_actor, chapter, version)
+            .await
+            .unwrap(),
         SavedPlaceState::NotSaved
     );
     assert_eq!(
-        progress.save_position(progress_actor, chapter, version, later).await,
+        progress
+            .save_position(progress_actor, chapter, version, later)
+            .await,
         Err(ProgressError::NotFound)
     );
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         sync.save_free(sync_actor, chapter, version, later, 1).await,
         Err(SyncError::Conflict)
@@ -129,7 +149,10 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(preserved, 2, "revocation hides, never deletes saved progress");
+    assert_eq!(
+        preserved, 2,
+        "revocation hides, never deletes saved progress"
+    );
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(progress_actor)
@@ -142,21 +165,37 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .unwrap()
         .iter()
         .any(|item| item.book_id == book));
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(sync_actor)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_some());
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    assert!(progress
+        .continue_reading(progress_actor)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
     for actor in actors.iter().copied() {
         sqlx::query(
             "INSERT INTO user_level_grants(user_id,level,source,is_active)
@@ -173,24 +212,23 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .unwrap()
         .iter()
         .any(|item| item.book_id == book));
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_some());
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(sync_actor)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
-    // NEwBOO parity: pending deletion unlists the Book, but direct reading and
-    // already-owned cursors remain valid until hard deletion or site blocking.
-    sqlx::query("UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
@@ -199,16 +237,47 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .continue_reading(progress_actor)
         .await
         .unwrap()
+        .is_empty());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
+    // NEwBOO parity: pending deletion unlists the Book, but direct reading and
+    // already-owned cursors remain valid until hard deletion or site blocking.
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(progress
+        .continue_reading(progress_actor)
+        .await
+        .unwrap()
         .iter()
         .any(|item| item.book_id == book));
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_some());
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    assert!(progress
+        .continue_reading(progress_actor)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -225,5 +294,9 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .unwrap()
         .iter()
         .any(|item| item.book_id == book));
-    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    assert!(sync
+        .free_state(sync_actor, chapter)
+        .await
+        .unwrap()
+        .is_some());
 }
