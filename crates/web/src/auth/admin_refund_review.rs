@@ -6,7 +6,7 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{Response, IntoResponse},
+    response::{IntoResponse, Response},
     routing::get,
     Router,
 };
@@ -84,7 +84,8 @@ fn page_shell(content: &str) -> Response {
             ),
         ),
         &[],
-    ).into_response();
+    )
+    .into_response();
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -132,7 +133,8 @@ pub(super) async fn page(
                 body,
                 r#"<p><a href="/admin/finance/refunds?before={}">Предыдущие заявки</a></p>"#,
                 last.id
-            ).expect("html cursor");
+            )
+            .expect("html cursor");
         }
     }
     page_shell(&body)

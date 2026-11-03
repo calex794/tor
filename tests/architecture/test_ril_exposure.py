@@ -120,6 +120,18 @@ class RilExposureTests(unittest.TestCase):
         target.write_text(json.dumps(rows))
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
+    def test_exact_refund_admin_exception_cannot_be_extended(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["routes"].append({
+            "method": "GET", "template": "/admin/finance/refunds/export",
+            "source": "crates/web/src/auth/admin_refund_review.rs",
+            "handler": "page", "policy": "admin_refund",
+        })
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
     def test_expected_https_nginx_server_is_safe(self):
         self.assertEqual(check_nginx(GOOD_NGINX), [])
         audit, issues = run(self.root, GOOD_NGINX)

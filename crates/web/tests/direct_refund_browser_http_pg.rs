@@ -381,7 +381,9 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        admin_get(&site, &outsider_cookie, admin_path).await.status(),
+        admin_get(&site, &outsider_cookie, admin_path)
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -443,7 +445,9 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         &format!("UPDATE account_roles SET is_active=false WHERE user_id={outsider} AND role='administrator'"),
     );
     assert_eq!(
-        admin_get(&site, &outsider_cookie, admin_path).await.status(),
+        admin_get(&site, &outsider_cookie, admin_path)
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(

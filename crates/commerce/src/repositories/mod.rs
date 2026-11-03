@@ -1,5 +1,4 @@
 pub mod admin_reader_entitlements;
-pub mod refund_admin_review;
 pub mod checkout;
 pub mod direct_exposure;
 pub mod direct_swaps;
@@ -13,6 +12,7 @@ pub mod layer_picker;
 pub mod layer_provenance;
 pub mod layer_storefront;
 pub mod layers;
+pub mod refund_admin_review;
 pub mod refund_approvals;
 pub mod refund_buyer_view;
 pub mod refund_decisions;

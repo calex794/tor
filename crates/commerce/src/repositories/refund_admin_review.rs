@@ -51,7 +51,11 @@ impl PgRefundAdminReview {
         if before.is_some_and(|id| id <= 0) {
             return Err(RefundAdminViewError::InvalidCursor);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| RefundAdminViewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RefundAdminViewError::Unavailable)?;
         let administrator: Option<i64> = sqlx::query_scalar(
             "SELECT u.id FROM sessions s
              JOIN users u ON u.id=s.user_id
@@ -100,21 +104,51 @@ impl PgRefundAdminReview {
             .into_iter()
             .map(|row| {
                 Ok(AdminRefundRequest {
-                    id: row.try_get("id").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    purchase_id: row.try_get("purchase_id").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    buyer_user_id: row.try_get("buyer_user_id").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    buyer_name: row.try_get("buyer_name").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    book_title: row.try_get("book_title").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    chapter_title: row.try_get("chapter_title").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    amount_minor: row.try_get("amount_minor").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    reason: row.try_get("reason").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    state: row.try_get("state").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    revision: row.try_get("revision").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    policy_version: row.try_get("refund_policy_version").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    deadline_utc: row.try_get("deadline_utc").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    created_utc: row.try_get("created_utc").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    first_exposed: row.try_get("first_exposed").map_err(|_| RefundAdminViewError::Unavailable)?,
-                    revoked: row.try_get("revoked").map_err(|_| RefundAdminViewError::Unavailable)?,
+                    id: row
+                        .try_get("id")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    purchase_id: row
+                        .try_get("purchase_id")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    buyer_user_id: row
+                        .try_get("buyer_user_id")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    buyer_name: row
+                        .try_get("buyer_name")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    book_title: row
+                        .try_get("book_title")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    chapter_title: row
+                        .try_get("chapter_title")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    amount_minor: row
+                        .try_get("amount_minor")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    reason: row
+                        .try_get("reason")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    state: row
+                        .try_get("state")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    revision: row
+                        .try_get("revision")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    policy_version: row
+                        .try_get("refund_policy_version")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    deadline_utc: row
+                        .try_get("deadline_utc")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    created_utc: row
+                        .try_get("created_utc")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    first_exposed: row
+                        .try_get("first_exposed")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
+                    revoked: row
+                        .try_get("revoked")
+                        .map_err(|_| RefundAdminViewError::Unavailable)?,
                 })
             })
             .collect::<Result<_, _>>()?;
@@ -130,7 +164,9 @@ impl PgRefundAdminReview {
         .execute(&mut *tx)
         .await
         .map_err(|_| RefundAdminViewError::Unavailable)?;
-        tx.commit().await.map_err(|_| RefundAdminViewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| RefundAdminViewError::Unavailable)?;
         Ok(requests)
     }
 }
