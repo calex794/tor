@@ -4,17 +4,11 @@
 //! not yet enforce per-user adult/pro_adult eligibility. An exposed settings
 //! control would otherwise claim to protect content while leaving it readable.
 use super::{book_related::lock_manageable_member, PgAuthoring};
-use crate::services::{
-    authoring::AuthorError,
-    owner_transfer_policy::AccessTier,
-};
+use crate::services::{authoring::AuthorError, owner_transfer_policy::AccessTier};
 
 /// Unknown imported Book tiers are never silently relabeled basic.
 /// The result means the transition needs an active pro_adult user grant.
-fn transition_requires_grant(
-    current: Option<&str>,
-    requested: &str,
-) -> Result<bool, AuthorError> {
+fn transition_requires_grant(current: Option<&str>, requested: &str) -> Result<bool, AuthorError> {
     let target = AccessTier::from_persisted(requested).ok_or(AuthorError::Invalid)?;
     let prior = current
         .and_then(AccessTier::from_persisted)
@@ -39,7 +33,11 @@ impl PgAuthoring {
         if actor <= 0 || book_id <= 0 {
             return Err(AuthorError::Missing);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         // Lock Book first, then BookMember: same order as S020 and B-09.
         let stored: Option<Option<String>> = sqlx::query_scalar(
             "SELECT access_level FROM books
@@ -106,14 +104,35 @@ mod tests {
     #[test]
     fn s020_access_level_transition_never_downgrades_or_infers_legacy() {
         assert_eq!(transition_requires_grant(Some("basic"), "adult"), Ok(false));
-        assert_eq!(transition_requires_grant(Some("basic"), "pro_adult"), Ok(true));
-        assert_eq!(transition_requires_grant(Some("adult"), "pro_adult"), Ok(true));
-        assert_eq!(transition_requires_grant(Some("pro_adult"), "pro_adult"), Ok(false));
+        assert_eq!(
+            transition_requires_grant(Some("basic"), "pro_adult"),
+            Ok(true)
+        );
+        assert_eq!(
+            transition_requires_grant(Some("adult"), "pro_adult"),
+            Ok(true)
+        );
+        assert_eq!(
+            transition_requires_grant(Some("pro_adult"), "pro_adult"),
+            Ok(false)
+        );
         assert_eq!(transition_requires_grant(Some("adult"), "adult"), Ok(false));
-        assert_eq!(transition_requires_grant(Some("adult"), "basic"), Err(AuthorError::Forbidden));
-        assert_eq!(transition_requires_grant(None, "basic"), Err(AuthorError::Forbidden));
-        assert_eq!(transition_requires_grant(None, "pro_adult"), Err(AuthorError::Forbidden));
-        assert_eq!(transition_requires_grant(Some("basic"), "not_a_level"), Err(AuthorError::Invalid));
+        assert_eq!(
+            transition_requires_grant(Some("adult"), "basic"),
+            Err(AuthorError::Forbidden)
+        );
+        assert_eq!(
+            transition_requires_grant(None, "basic"),
+            Err(AuthorError::Forbidden)
+        );
+        assert_eq!(
+            transition_requires_grant(None, "pro_adult"),
+            Err(AuthorError::Forbidden)
+        );
+        assert_eq!(
+            transition_requires_grant(Some("basic"), "not_a_level"),
+            Err(AuthorError::Invalid)
+        );
     }
 
     #[tokio::test]
@@ -173,27 +192,33 @@ mod tests {
             .unwrap();
         let repo = PgAuthoring::new(pool.clone());
         assert_eq!(
-            repo.verified_upgrade_book_access_level(outsider, book, "basic", "adult").await,
+            repo.verified_upgrade_book_access_level(outsider, book, "basic", "adult")
+                .await,
             Err(AuthorError::Missing),
         );
         assert_eq!(
-            repo.verified_upgrade_book_access_level(owner, unknown, "basic", "adult").await,
+            repo.verified_upgrade_book_access_level(owner, unknown, "basic", "adult")
+                .await,
             Err(AuthorError::Forbidden),
         );
         assert_eq!(
-            repo.verified_upgrade_book_access_level(translator, book, "basic", "adult").await,
+            repo.verified_upgrade_book_access_level(translator, book, "basic", "adult")
+                .await,
             Ok(()),
         );
         assert_eq!(
-            repo.verified_upgrade_book_access_level(owner, book, "basic", "pro_adult").await,
+            repo.verified_upgrade_book_access_level(owner, book, "basic", "pro_adult")
+                .await,
             Err(AuthorError::Conflict),
         );
         assert_eq!(
-            repo.verified_upgrade_book_access_level(owner, book, "adult", "basic").await,
+            repo.verified_upgrade_book_access_level(owner, book, "adult", "basic")
+                .await,
             Err(AuthorError::Forbidden),
         );
         assert_eq!(
-            repo.verified_upgrade_book_access_level(moderator, book, "adult", "pro_adult").await,
+            repo.verified_upgrade_book_access_level(moderator, book, "adult", "pro_adult")
+                .await,
             Err(AuthorError::Forbidden),
         );
         sqlx::query(
@@ -205,7 +230,8 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            repo.verified_upgrade_book_access_level(moderator, book, "adult", "pro_adult").await,
+            repo.verified_upgrade_book_access_level(moderator, book, "adult", "pro_adult")
+                .await,
             Ok(()),
         );
         sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
@@ -214,21 +240,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            repo.verified_upgrade_book_access_level(translator, book, "pro_adult", "adult").await,
+            repo.verified_upgrade_book_access_level(translator, book, "pro_adult", "adult")
+                .await,
             Err(AuthorError::Forbidden),
         );
-        let (level, visibility, project): (String, String, String) = sqlx::query_as(
-            "SELECT access_level,visibility,project_status FROM books WHERE id=$1",
-        )
-        .bind(book)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!((level.as_str(), visibility.as_str(), project.as_str()),
-                   ("pro_adult", "draft", "planned"));
-        members.revoke_collaborator(owner, book, translator).await.unwrap();
+        let (level, visibility, project): (String, String, String) =
+            sqlx::query_as("SELECT access_level,visibility,project_status FROM books WHERE id=$1")
+                .bind(book)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(
-            repo.verified_upgrade_book_access_level(translator, book, "pro_adult", "pro_adult").await,
+            (level.as_str(), visibility.as_str(), project.as_str()),
+            ("pro_adult", "draft", "planned")
+        );
+        members
+            .revoke_collaborator(owner, book, translator)
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.verified_upgrade_book_access_level(translator, book, "pro_adult", "pro_adult")
+                .await,
             Err(AuthorError::Missing),
         );
         sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
@@ -237,7 +269,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            repo.verified_upgrade_book_access_level(owner, book, "pro_adult", "pro_adult").await,
+            repo.verified_upgrade_book_access_level(owner, book, "pro_adult", "pro_adult")
+                .await,
             Err(AuthorError::Missing),
         );
         pool.close().await;
