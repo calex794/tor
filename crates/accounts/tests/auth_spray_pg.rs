@@ -1,10 +1,7 @@
 //! AB-02: real PostgreSQL locks and distinct-target accounting across pools.
 //! Requires a freshly migrated disposable tor_ci, never production.
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::auth_observation::AuthObservationSigner,
-};
+use tor_accounts::{repositories::PgAccounts, services::auth_observation::AuthObservationSigner};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires migrated disposable PostgreSQL 18 tor_ci"]
@@ -80,7 +77,11 @@ async fn a09_spray_shared_atomic_locks_and_nat_safety() {
             .await
             .unwrap();
     }
-    assert!(second.spray_retry_after(&observe_ip).await.unwrap().is_none());
+    assert!(second
+        .spray_retry_after(&observe_ip)
+        .await
+        .unwrap()
+        .is_none());
 
     // Two independent PgPools race on the same source; target increments
     // are not lost or double-counted (the source row is locked in PostgreSQL).

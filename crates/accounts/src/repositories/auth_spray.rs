@@ -22,7 +22,9 @@ impl PgAccounts {
         .bind(source_key.as_slice())
         .fetch_optional(self.pool())
         .await?;
-        Ok(remaining.filter(|seconds| *seconds > 0).map(|seconds| seconds as u32))
+        Ok(remaining
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| seconds as u32))
     }
 
     /// Persist only a confirmed failed password verification. The caller supplies
@@ -63,13 +65,11 @@ impl PgAccounts {
             .fetch_one(&mut *tx)
             .await?;
             if expired {
-                sqlx::query(
-                    "DELETE FROM auth_spray_targets WHERE scope=$1 AND source_key=$2",
-                )
-                .bind(scope)
-                .bind(key.as_slice())
-                .execute(&mut *tx)
-                .await?;
+                sqlx::query("DELETE FROM auth_spray_targets WHERE scope=$1 AND source_key=$2")
+                    .bind(scope)
+                    .bind(key.as_slice())
+                    .execute(&mut *tx)
+                    .await?;
                 sqlx::query(
                     "UPDATE auth_spray_windows
                      SET period_started=clock_timestamp(), failed_attempts=0,

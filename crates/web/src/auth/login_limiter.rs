@@ -5,8 +5,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use std::net::{IpAddr, SocketAddr};
-use tor_accounts::services::security::session_token_digest;
 use tor_accounts::services::auth_observation::AuthObservationSigner;
+use tor_accounts::services::security::session_token_digest;
 
 /// Only use X-Real-IP from a verified loopback reverse proxy when the
 /// operator has configured Nginx to overwrite it with $remote_addr.
@@ -159,12 +159,7 @@ pub(super) async fn spray_start(
 pub(super) async fn spray_failure(state: &AuthState, guard: &SprayGuard) -> bool {
     state
         .accounts
-        .record_spray_failure(
-            &guard.ip,
-            &guard.subnet,
-            &guard.target,
-            guard.enforcing(),
-        )
+        .record_spray_failure(&guard.ip, &guard.subnet, &guard.target, guard.enforcing())
         .await
         .is_ok()
 }
