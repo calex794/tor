@@ -67,6 +67,15 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
+        self.prepare_new_paid_chapter_with_mode(actor, request, false).await
+    }
+
+    async fn prepare_new_paid_chapter_with_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        delayed: bool,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
         if actor <= 0
             || request.book_id <= 0
             || request.chapter_id.is_some()
@@ -94,6 +103,14 @@ impl PgPaidStorage {
         ] {
             hasher.update((field.len() as u64).to_be_bytes());
             hasher.update(field.as_bytes());
+        }
+        // Keep the immediate-mode hash unchanged for old idempotent retries.
+        // The same browser command cannot turn a queued paid edition into
+        // an immediate publication by toggling the delayed checkbox.
+        if delayed {
+            let marker = "book-scheduled-paid-chapter-v1";
+            hasher.update((marker.len() as u64).to_be_bytes());
+            hasher.update(marker.as_bytes());
         }
         let payload_hash: [u8; 32] = hasher.finalize().into();
         let content_hash: [u8; 32] = Sha256::digest(request.body.as_bytes()).into();
