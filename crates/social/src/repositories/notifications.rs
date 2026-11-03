@@ -91,7 +91,8 @@ impl PgNotifications {
                      ('social.mail.created','social.friendship.requested',
                       'social.friendship.accepted','social.friendship.removed',
                       'social.group_mail.created',
-                      'social.group_creator_transfer.proposed')
+                      'social.group_creator_transfer.proposed',
+                      'reader.chapter.released')
                    AND NOT EXISTS (
                      SELECT 1 FROM event_deliveries d
                      WHERE d.event_id=e.id AND d.consumer='user_notifications')
@@ -160,6 +161,28 @@ impl PgNotifications {
                 .await
                 .map_err(unavailable)?;
                 status.as_deref() == Some("active")
+            } else if kind == "reader.chapter.released" {
+                // C-16 is the canonical per-reader public-release gate.
+                // Unfollow, hold, stale edition or deletion suppresses the
+                // alert even after an asynchronous fanout was enqueued.
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM reader_followed_release_candidates r
+                        JOIN books b ON b.id=r.book_id
+                        JOIN chapter_publications p ON p.chapter_id=r.chapter_id
+                        JOIN outbox_events e ON e.id=$4::uuid
+                        WHERE r.user_id=$2 AND r.chapter_id=$1
+                          AND b.owner_user_id=$3
+                          AND p.version_id=(e.payload->>'version_id')::bigint
+                    )",
+                )
+                .bind(object_id)
+                .bind(recipient)
+                .bind(actor)
+                .bind(&event_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(unavailable)?
             } else if kind == "social.group_creator_transfer.proposed" {
                 // Lock the group in a separate statement BEFORE checking
                 // the offer. With READ COMMITTED, joining a locked group in
@@ -219,6 +242,12 @@ impl PgNotifications {
                     .await
                     .map_err(unavailable)?;
                 let (category, title, body, url) = match kind.as_str() {
+                    "reader.chapter.released" => (
+                        "chapter_created",
+                        "Новая глава",
+                        format!("{name} опубликовал новую главу"),
+                        format!("/reader/{object_id}"),
+                    ),
                     "social.mail.created" => (
                         "mail",
                         "Новое сообщение",
