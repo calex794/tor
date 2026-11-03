@@ -688,17 +688,17 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         ),
         "none:0"
     );
-    c03::check(
-        &url,
-        &app,
-        &reader,
+    c03::check(c03::Context {
+        url: &url,
+        app: &app,
+        reader: &reader,
         book,
         paid_chapter,
         paid_version,
-        &paid_action,
-        &mod_cookie,
-        &admin_cookie,
-        &csrf,
-    )
+        paid_action: &paid_action,
+        mod_cookie: &mod_cookie,
+        admin_cookie: &admin_cookie,
+        csrf: &csrf,
+    })
     .await;
 }
