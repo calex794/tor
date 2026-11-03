@@ -152,6 +152,7 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     let (status, page) = send(&app, "GET", &page_url, "", &cookie, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("name=\"is_delayed_publication\""));
+    assert!(page.contains("name=\"auto_number\" value=\"1\""));
     assert!(page.contains("name=\"number\" type=\"number\" min=\"1\" max=\"1000000\" value=\"2\""));
     assert_eq!(
         author
@@ -165,7 +166,7 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         .await
         .is_err());
     let body = format!(
-        "number=2&title=Scheduled+chapter&body=PRIVATE+S058+before+due&access=free&price_amount=0&is_delayed_publication=1&command_key={}&csrf_token={csrf}",
+        "number=1&auto_number=1&title=Scheduled+chapter&body=PRIVATE+S058+before+due&access=free&price_amount=0&is_delayed_publication=1&command_key={}&csrf_token={csrf}",
         generate_session_token()
     );
     assert_eq!(

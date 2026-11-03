@@ -68,7 +68,11 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
-      await page.getByLabel('Номер главы').fill('1');
+      const chapterNumber = page.getByLabel('Номер главы');
+      assert(await chapterNumber.inputValue() === '1',
+        viewport + ': first auto-number preview must be 1');
+      assert(await chapterNumber.getAttribute('readonly') !== null,
+        viewport + ': automatic chapter number must be read-only');
       await page.getByLabel('Название главы').fill('Глава для проверки');
       await page.getByLabel('Текст главы').fill('Проверочный текст: **важная строка**.');
       await inspect(page, viewport, 'editor');
@@ -123,7 +127,8 @@ async function inspect(page, viewport, name) {
       await page.waitForURL('**/chapters/new');
       assert(await page.getByText(/сразу после сохранения/).isVisible(),
         viewport + ': immediate release help text missing');
-      await page.getByLabel('Номер главы').fill('2');
+      assert(await page.getByLabel('Номер главы').inputValue() === '2',
+        viewport + ': second auto-number preview must be 2');
       await page.getByLabel('Название главы').fill('Вторая глава опубликована');
       await page.getByLabel('Текст главы').fill('PUBLIC B06 new');
       await inspect(page, viewport, 'second-editor');
@@ -161,7 +166,8 @@ async function inspect(page, viewport, name) {
       const privateChoice = page.getByLabel('Отложенная публикация');
       assert(await privateChoice.isVisible(),
         viewport + ': missing S058 delayed-publication option on public book');
-      await page.getByLabel('Номер главы').fill('50');
+      assert(await page.getByLabel('Номер главы').inputValue() === '3',
+        viewport + ': delayed draft auto-number preview must be 3');
       await page.getByLabel('Название главы').fill('S058 scheduled draft');
       await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
       await privateChoice.check();
@@ -341,7 +347,8 @@ async function inspect(page, viewport, name) {
         await page.goto(base + '/me/books/' + bookId);
         await page.getByRole('link', { name: 'Добавить главу' }).click();
         await page.waitForURL('**/chapters/new');
-        await page.getByLabel('Номер главы').fill('3');
+        assert(await page.getByLabel('Номер главы').inputValue() === '4',
+          viewport + ': follower update auto-number preview must be 4');
         await page.getByLabel('Название главы').fill('Глава после подписки');
         await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
         await page.getByRole('button', { name: 'Сохранить главу' }).click();

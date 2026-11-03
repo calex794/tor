@@ -43,14 +43,15 @@ fn paid_controls_only_appear_in_enabled_author_pages() {
     assert!(!disabled.contains("name=\"is_delayed_publication\""));
     assert!(!disabled.contains("<option value=\"paid\">"));
     assert!(disabled.contains("name=\"access\" value=\"free\""));
-    assert!(disabled.contains("value=\"1\" required"));
+    assert!(disabled.contains("value=\"1\" readonly required"));
     let enabled = new_chapter(42, "csrf", "command", true, true, 7).0;
     assert!(enabled.contains("name=\"is_delayed_publication\""));
     assert!(!enabled.contains("name=\"save_as_draft\""));
-    assert!(enabled.contains("value=\"7\" required"));
+    assert!(enabled.contains("value=\"7\" readonly required"));
+    assert!(enabled.contains("name=\"auto_number\" value=\"1\""));
     let free_public = new_chapter(42, "csrf", "command", false, true, 3).0;
     assert!(free_public.contains("name=\"is_delayed_publication\""));
-    assert!(free_public.contains("value=\"3\" required"));
+    assert!(free_public.contains("value=\"3\" readonly required"));
     assert!(!free_public.contains("<option value=\"paid\">"));
     assert!(enabled.contains("<option value=\"paid\">"));
     assert!(enabled.contains("name=\"price_amount\""));
