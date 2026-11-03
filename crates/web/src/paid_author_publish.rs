@@ -146,7 +146,10 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         {
             self.paid
                 .rearm_prepared_paid_frontier(
-                    actor, request.book_id, pending.chapter_id, pending.version_id,
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
                 )
                 .await?;
             return Ok(());
@@ -196,7 +199,10 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         {
             self.paid
                 .rearm_prepared_paid_frontier(
-                    actor, request.book_id, pending.chapter_id, pending.version_id,
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
                 )
                 .await?;
             return Ok(());
@@ -204,7 +210,10 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         attached?;
         self.paid
             .rearm_prepared_paid_frontier(
-                actor, request.book_id, pending.chapter_id, pending.version_id,
+                actor,
+                request.book_id,
+                pending.chapter_id,
+                pending.version_id,
             )
             .await?;
         Ok(())
