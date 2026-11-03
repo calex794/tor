@@ -43,7 +43,18 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     let output = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql client required by isolated PG test");
     assert!(
@@ -230,7 +241,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let count_before: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     assert_eq!(
         count_before, 0,
         "private ciphertext is not reader publication"
@@ -266,7 +279,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let still_private: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     assert_eq!(still_private, 0);
     assert_eq!(
         author.release_bound_book_slot(&claim, &token).await,
