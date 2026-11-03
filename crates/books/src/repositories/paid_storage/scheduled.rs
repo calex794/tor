@@ -102,6 +102,27 @@ impl PgPaidStorage {
         .await
         .map_err(map_write)?;
         if !prepared {
+            // Another worker may have committed this exact paid edition
+            // between G attachment and this rearm attempt. That is a valid
+            // successful release, not a reason to retry or publish again.
+            let published: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM chapters c
+                    JOIN chapter_publications p ON p.chapter_id=c.id
+                    WHERE c.id=$2 AND c.book_id=$1 AND c.visibility='public'
+                      AND c.access_level='paid' AND c.price_amount>0
+                      AND p.version_id=$3
+                )",
+            )
+            .bind(book)
+            .bind(chapter)
+            .bind(version)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_write)?;
+            if published {
+                return Ok(false);
+            }
             return Err(AuthorError::Conflict);
         }
         let changed = sqlx::query(
