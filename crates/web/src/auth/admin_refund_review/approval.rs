@@ -9,9 +9,7 @@ use axum::{
     response::Response,
 };
 use serde::Deserialize;
-use tor_accounts::services::security::{
-    session_token_digest, verify_password_for_step_up,
-};
+use tor_accounts::services::security::{session_token_digest, verify_password_for_step_up};
 use tor_commerce::repositories::refund_approvals::{
     approval_step_up_payload_digest, DirectRefundApproveError, PgDirectRefundApprovals,
 };
@@ -88,15 +86,11 @@ fn approval_error(err: DirectRefundApproveError) -> (StatusCode, &'static str) {
             StatusCode::FORBIDDEN,
             "Недостаточно полномочий для финансового решения.",
         ),
-        DirectRefundApproveError::StepUpRequired
-        | DirectRefundApproveError::InvalidStepUp => (
+        DirectRefundApproveError::StepUpRequired | DirectRefundApproveError::InvalidStepUp => (
             StatusCode::UNAUTHORIZED,
             "Повторное подтверждение личности не прошло.",
         ),
-        DirectRefundApproveError::NotFound => (
-            StatusCode::NOT_FOUND,
-            "Заявка не найдена.",
-        ),
+        DirectRefundApproveError::NotFound => (StatusCode::NOT_FOUND, "Заявка не найдена."),
         DirectRefundApproveError::RevisionConflict
         | DirectRefundApproveError::Conflict
         | DirectRefundApproveError::PolicyUnavailable
@@ -133,8 +127,7 @@ pub(super) async fn submit(
         Ok(form) => form,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -142,7 +135,10 @@ pub(super) async fn submit(
         positive(&form.request_id),
         positive(&form.expected_revision),
     ) else {
-        return fail(StatusCode::UNPROCESSABLE_ENTITY, "Неверный идентификатор заявки.");
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Неверный идентификатор заявки.",
+        );
     };
     let reason = form.reason.trim();
     if reason.is_empty()
@@ -150,7 +146,10 @@ pub(super) async fn submit(
         || form.current_password.is_empty()
         || form.current_password.len() > 512
     {
-        return fail(StatusCode::UNPROCESSABLE_ENTITY, "Заполните причину и пароль.");
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Заполните причину и пароль.",
+        );
     }
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
@@ -158,7 +157,11 @@ pub(super) async fn submit(
     let session_digest = session_token_digest(&session);
     // Shared per-administrator attempt budget; no unbounded Argon2 worker queue.
     let attempt_key = session_token_digest(&format!("finance:refund:stepup:{actor}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 6, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return fail(StatusCode::TOO_MANY_REQUESTS, "Превышен лимит попыток."),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -169,18 +172,27 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let password = form.current_password;
-    let verified = match state.password_jobs.run(move || {
-        verify_password_for_step_up(&password, &password_hash)
-    }).await {
+    let verified = match state
+        .password_jobs
+        .run(move || verify_password_for_step_up(&password, &password_hash))
+        .await
+    {
         Ok(Some(proof)) => proof,
         Ok(None) => return fail(StatusCode::UNAUTHORIZED, "Пароль не подтверждён."),
         Err(status) => return deny(status),
     };
     let digest = approval_step_up_payload_digest(actor, request, revision, reason);
-    let proof_token = match state.accounts
+    let proof_token = match state
+        .accounts
         .issue_administrator_refund_step_up(
-            actor, &session_digest, &verified, request, revision, &digest,
-        ).await
+            actor,
+            &session_digest,
+            &verified,
+            request,
+            revision,
+            &digest,
+        )
+        .await
     {
         Ok(token) => token,
         Err(tor_accounts::repositories::step_up::StepUpIssueError::Forbidden) => {
@@ -200,7 +212,14 @@ pub(super) async fn submit(
     // Approval consumes the one-use session proof in the same PostgreSQL
     // transaction that credits the wallet and revokes the reading entitlement.
     let result = PgDirectRefundApprovals::new(state.accounts.pool().clone())
-        .approve_once(actor, &session_digest, &proof_token, request, revision, reason)
+        .approve_once(
+            actor,
+            &session_digest,
+            &proof_token,
+            request,
+            revision,
+            reason,
+        )
         .await;
     match result {
         Ok(receipt) => {
@@ -212,7 +231,11 @@ pub(super) async fn submit(
                        {}.</p><p><a href="/admin/finance/refunds">К заявкам</a></p>"#,
                     receipt.request_id,
                     receipt.credited_minor,
-                    if receipt.replayed { "Повторное подтверждение" } else { "Один перевод в кошелёк" },
+                    if receipt.replayed {
+                        "Повторное подтверждение"
+                    } else {
+                        "Один перевод в кошелёк"
+                    },
                 ),
                 &[],
             )
@@ -230,14 +253,21 @@ mod tests {
     #[test]
     fn s036_approval_form_is_eligible_only_and_omits_sensitive_authority_fields() {
         let row = AdminRefundRequest {
-            id: 7, purchase_id: 9, buyer_user_id: 12,
-            buyer_name: "Name".into(), book_title: "Book".into(),
-            chapter_title: "Chapter".into(), amount_minor: 300,
-            reason: "Buyer reason".into(), state: "pending".into(),
-            revision: 3, policy_version: Some("policy".into()),
+            id: 7,
+            purchase_id: 9,
+            buyer_user_id: 12,
+            buyer_name: "Name".into(),
+            book_title: "Book".into(),
+            chapter_title: "Chapter".into(),
+            amount_minor: 300,
+            reason: "Buyer reason".into(),
+            state: "pending".into(),
+            revision: 3,
+            policy_version: Some("policy".into()),
             deadline_utc: Some("2026-11-03".into()),
             created_utc: "2026-11-03".into(),
-            first_exposed: false, revoked: false,
+            first_exposed: false,
+            revoked: false,
         };
         let markup = form(&row, "csrf");
         assert!(markup.contains("name=\"request_id\" value=\"7\""));
