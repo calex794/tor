@@ -14,7 +14,6 @@ use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::services::{
     progress::{is_completed_place, reader_blocks, valid_text_place, ReadingPlace},
     sync::{positive_id, StoredProgress, SyncError, SyncReceipt},
-    PublicReadingRepository,
 };
 
 #[derive(Deserialize)]
@@ -126,7 +125,18 @@ pub(super) async fn get_free(
         Ok(id) => id,
         Err(error) => return deny(error),
     };
-    let chapter = match state.reader.public_chapter(chapter_id as u64).await {
+    // The authenticated sync route must use the exact active session, just
+    // like /read/{id}. An anonymous/basic-only chapter lookup falsely denies
+    // adults with verified live age permission.
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(chapter_id as u64, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) => chapter,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -161,7 +171,18 @@ pub(super) async fn put_free(
         (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
         (Err(error), _) | (_, Err(error)) => return deny(error),
     };
-    let chapter = match state.reader.public_chapter(chapter_id as u64).await {
+    // The authenticated sync route must use the exact active session, just
+    // like /read/{id}. An anonymous/basic-only chapter lookup falsely denies
+    // adults with verified live age permission.
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(chapter_id as u64, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) => chapter,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
