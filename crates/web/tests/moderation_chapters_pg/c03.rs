@@ -1,6 +1,17 @@
 //! MOD-C03 additional PostgreSQL/HTTP contract checks.
 use super::*;
 
+fn last_decision(url: &str, chapter: i64) -> i64 {
+    pg(
+        url,
+        &format!(
+            "SELECT COALESCE(MAX(id),0) FROM moderation_chapter_decision_events WHERE chapter_id={chapter}"
+        ),
+    )
+    .parse()
+    .unwrap()
+}
+
 pub(super) async fn check(
     url: &str,
     app: &Router,
@@ -42,7 +53,7 @@ pub(super) async fn check(
     );
     let pending_action = format!("/moderation/chapters/{pending_free}/hold");
     let publish_pending = format!(
-        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={pending_version}"
+        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={pending_version}&expected_decision_id=0"
     );
     assert_eq!(
         request(
@@ -131,8 +142,9 @@ pub(super) async fn check(
         .status(),
         StatusCode::CONFLICT
     );
+    let first_decision_id = last_decision(&url, pending_free);
     let pending_draft = format!(
-        "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=1&expected_version={pending_version}"
+        "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=1&expected_version={pending_version}&expected_decision_id={first_decision_id}"
     );
     assert_eq!(
         request(
@@ -167,6 +179,17 @@ pub(super) async fn check(
         ),
         "draft:none"
     );
+    // The first publish form is stale even after visibility returns to draft.
+    assert_eq!(
+        request(&app, "POST", &pending_action, &admin_cookie, ORIGIN, &publish_pending)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let second_decision_id = last_decision(&url, pending_free);
+    let pending_republish = format!(
+        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={pending_version}&expected_decision_id={second_decision_id}"
+    );
     assert_eq!(
         request(
             &app,
@@ -174,7 +197,7 @@ pub(super) async fn check(
             &pending_action,
             &admin_cookie,
             ORIGIN,
-            &publish_pending
+            &pending_republish
         )
         .await
         .status(),
@@ -204,8 +227,9 @@ pub(super) async fn check(
 
     // MOD-C03 paid draft/republication preserves exactly the existing
     // B-owned pointer, price, and all historical entitlements.
+    let paid_decision_id = last_decision(&url, paid_chapter);
     let paid_to_draft = format!(
-        "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=0&expected_version={paid_version}"
+        "csrf_token={csrf}&expected_state=none&next_state=draft&expected_visibility=public&expected_revision=0&expected_version={paid_version}&expected_decision_id={paid_decision_id}"
     );
     assert_eq!(
         request(
@@ -225,8 +249,9 @@ pub(super) async fn check(
         .await
         .unwrap()
         .is_none());
+    let paid_draft_decision_id = last_decision(&url, paid_chapter);
     let paid_to_public = format!(
-        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0&expected_version={paid_version}"
+        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0&expected_version={paid_version}&expected_decision_id={paid_draft_decision_id}"
     );
     assert_eq!(
         request(
@@ -285,7 +310,7 @@ pub(super) async fn check(
         ),
     );
     let unverified_form = format!(
-        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={unverified_version}"
+        "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=1&expected_version={unverified_version}&expected_decision_id=0"
     );
     assert_eq!(
         request(
@@ -333,7 +358,7 @@ pub(super) async fn check(
             &admin_cookie,
             ORIGIN,
             &format!(
-                "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0"
+                "csrf_token={csrf}&expected_state=none&next_state=published&expected_visibility=draft&expected_revision=0&expected_decision_id=0"
             )
         )
         .await
