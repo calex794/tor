@@ -132,7 +132,12 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         }
         if self
             .paid
-            .staged_paid_object_attached(actor, request.book_id, pending.chapter_id, pending.version_id)
+            .staged_paid_object_attached(
+                actor,
+                request.book_id,
+                pending.chapter_id,
+                pending.version_id,
+            )
             .await?
         {
             return Ok(());
@@ -147,23 +152,38 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         let sealed =
             seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
                 .map_err(|_| AuthorError::Unavailable)?;
-        let object = self.registry
+        let object = self
+            .registry
             .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         let receipt = upload_and_verify(&self.store, &object, &sealed.ciphertext)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        self.registry.mark_ready(&receipt)
+        self.registry
+            .mark_ready(&receipt)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        let attached = self.paid.attach_verified_and_publish(
-            actor, request.book_id, version, &object_id, PaidPublication::KeepCurrent,
-        ).await;
+        let attached = self
+            .paid
+            .attach_verified_and_publish(
+                actor,
+                request.book_id,
+                version,
+                &object_id,
+                PaidPublication::KeepCurrent,
+            )
+            .await;
         if attached == Err(AuthorError::Conflict)
-            && self.paid.staged_paid_object_attached(
-                actor, request.book_id, pending.chapter_id, pending.version_id,
-            ).await?
+            && self
+                .paid
+                .staged_paid_object_attached(
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
+                )
+                .await?
         {
             return Ok(());
         }
