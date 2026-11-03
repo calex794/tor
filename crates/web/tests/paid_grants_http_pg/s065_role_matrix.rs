@@ -350,6 +350,32 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         StatusCode::NOT_FOUND
     );
 
+    // NEwBOO's administrator bypass is bound to the CURRENT version.
+    // A sealed object from the history is not a reader fallback when neither
+    // a working draft nor a published pointer currently selects it.
+    pg(
+        url,
+        &format!("DELETE FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
+    let before_orphan = fake.signed.load(Ordering::SeqCst);
+    let orphan = send(
+        grants,
+        &path,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        r#"{"source":"administrator"}"#,
+    )
+    .await;
+    assert_ne!(orphan.status(), StatusCode::OK);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), before_orphan);
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+
     // Revocation must invalidate the next admin GET/POST, including a held
     // chapter; no new S3 bearer or a decrypted edition may be delivered.
     pg(
