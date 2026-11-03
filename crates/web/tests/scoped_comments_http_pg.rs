@@ -87,6 +87,16 @@ async fn e_02_scoped_comment_limit_preserves_csrf_replay_and_other_actor() {
             .status(),
         StatusCode::SEE_OTHER
     );
+    // Reusing an admitted key with a changed payload is not permission to
+    // create or retarget a second comment.
+    let conflicting = first_form.replace("AB08%20comment%200", "Changed%20payload");
+    assert_ne!(conflicting, first_form);
+    assert_eq!(
+        call(&app, "POST", &path, &cookie, ORIGIN, &conflicting)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
     assert_eq!(
         pg(
             &url,
