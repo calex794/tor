@@ -32,8 +32,8 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     let reader = actors[1];
     let outsider = actors[2];
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books (source_identity,target_language,title,visibility,owner_user_id)
-         VALUES ($1,'ru','C16 Book','public',$2) RETURNING id",
+        "INSERT INTO books (source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES ($1,'ru','C16 Book','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:c16:{nonce}"))
     .bind(author)
@@ -110,6 +110,91 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .items
         .iter()
         .any(|item| item.chapter_id == chapter_ids[0]));
+    // P0 #486: a followed Book does not confer current 18+/21+ access.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(releases.unread_count_capped(reader).await.unwrap(), 0);
+    assert!(!releases
+        .set_read_state(reader, chapter_ids[1], true)
+        .await
+        .unwrap());
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(releases.latest(reader, None).await.unwrap().items.len(), 30);
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(reader)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(releases.latest(reader, None).await.unwrap().items.len(), 30);
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(releases.latest(reader, None).await.unwrap().items.len(), 30);
+
     assert!(releases
         .latest(outsider, None)
         .await
@@ -415,8 +500,8 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
         ("both", "E05 book and author follow"),
     ] {
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES($1,'ru',$2,'public',$3) RETURNING id",
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES($1,'ru',$2,'public',$3,'basic') RETURNING id",
         )
         .bind(format!("ci:e05-feed:{nonce}:{suffix}"))
         .bind(title)
@@ -648,6 +733,71 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
     assert!(!paid.is_read);
     let unread_before = feed.unread_count_capped(reader).await.unwrap();
     assert_eq!(unread_before, 4);
+    // The creator-follow branch is equally age-scoped, including paid metadata.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(author_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let denied = feed.latest(reader, None).await.unwrap();
+    assert!(!denied
+        .items
+        .iter()
+        .any(|item| item.book_id == author_only_book));
+    assert!(denied
+        .items
+        .iter()
+        .any(|item| item.chapter_id == overlapping_release));
+    assert!(!feed
+        .set_read_state(reader, author_only_release, true)
+        .await
+        .unwrap());
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(feed.latest(reader, None).await.unwrap().items.len(), 4);
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(author_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!feed
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|item| item.chapter_id == author_only_release));
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(reader)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(feed.latest(reader, None).await.unwrap().items.len(), 4);
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!feed
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|item| item.chapter_id == after_refollow));
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(author_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(feed.latest(reader, None).await.unwrap().items.len(), 4);
+
     assert!(feed
         .set_read_state(reader, author_only_release, true)
         .await
