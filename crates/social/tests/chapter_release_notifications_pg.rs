@@ -21,7 +21,7 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .as_nanos();
 
     let mut users = Vec::new();
-    for role in ["author", "follower", "opted-out", "late-follower"] {
+    for role in ["author", "follower", "opted-out", "late-follower", "library-only"] {
         let user: i64 = sqlx::query_scalar(
             "INSERT INTO users(email_normalized,display_name,password_hash)
              VALUES($1,$2,'$argon2id$test') RETURNING id",
@@ -33,7 +33,8 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .unwrap();
         users.push(user);
     }
-    let (author, follower, opted_out, late_follower) = (users[0], users[1], users[2], users[3]);
+    let (author, follower, opted_out, late_follower, library_only) =
+        (users[0], users[1], users[2], users[3], users[4]);
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES($1,'ru',$2,'public',$3) RETURNING id",
@@ -51,6 +52,18 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .execute(&pool)
         .await
         .unwrap();
+    // NEwBOO sends chapter-created notifications to library readers.
+    // Also save the same book for a follower to verify union deduplication.
+    sqlx::query(
+        "INSERT INTO reader_library_items(user_id,book_id)
+         VALUES($1,$3),($2,$3)",
+    )
+    .bind(follower)
+    .bind(library_only)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO user_notification_preferences(user_id,kind,enabled)
          VALUES($1,'chapter_created',false)",
@@ -134,14 +147,15 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(child_count, 2, "one child for each existing follower");
+    assert_eq!(child_count, 3, "follows and library dedupe by reader");
     assert_eq!(repo.fanout_chapter_releases(8).await.unwrap(), 0);
-    assert_eq!(repo.deliver_pending(8).await.unwrap(), 2);
+    assert_eq!(repo.deliver_pending(8).await.unwrap(), 3);
     assert_eq!(repo.deliver_pending(8).await.unwrap(), 0);
 
     let received: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT recipient_user_id,kind,url FROM user_notifications
-         WHERE kind='chapter_created' AND recipient_user_id = ANY($1)",
+         WHERE kind='chapter_created' AND recipient_user_id = ANY($1)
+         ORDER BY recipient_user_id",
     )
     .bind(&users[1..])
     .fetch_all(&pool)
@@ -149,11 +163,10 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .unwrap();
     assert_eq!(
         received,
-        vec![(
-            follower,
-            "chapter_created".to_owned(),
-            format!("/reader/{chapter}")
-        )]
+        vec![
+            (follower, "chapter_created".to_owned(), format!("/reader/{chapter}")),
+            (library_only, "chapter_created".to_owned(), format!("/reader/{chapter}")),
+        ]
     );
     let all_delivered: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
@@ -167,8 +180,8 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .await
     .unwrap();
     assert_eq!(
-        all_delivered, 3,
-        "root and both children must have receipts"
+        all_delivered, 4,
+        "root and all three children must have receipts"
     );
     let receipt: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM event_deliveries
