@@ -330,10 +330,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and 'format!("/login?next=/read/{id}")' in evidence
             and "return private_response(Redirect::to(&destination), &[])" in evidence
         )
-        if not (
+        # An additional cookie fallback must not mask removal of the reader's
+        # required fixed login return. The first session failure is explicit.
+        if entry["template"] == "/read/{id}" and entry["handler"] == "private_reader::page":
+            if not fixed_reader_return:
+                errors.append(f"{label}: session failure does not explicitly deny/redirect")
+        elif not (
             "StatusCode::UNAUTHORIZED" in evidence
             or 'Redirect::to("/login")' in evidence
-            or fixed_reader_return
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:

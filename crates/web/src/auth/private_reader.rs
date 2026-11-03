@@ -34,7 +34,11 @@ pub(super) async fn page(
         return deny(StatusCode::UNAUTHORIZED);
     };
     let digest = tor_accounts::services::security::session_token_digest(&token);
-    let chapter = match state.reader.public_chapter_for_session(id, Some(&digest)).await {
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),

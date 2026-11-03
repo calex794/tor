@@ -34,7 +34,12 @@ async fn age_gate_pg_visitor_adult_grant_revocation_and_legacy_unknown() {
     .await
     .unwrap();
 
-    async fn new_book(pool: &PgPool, stamp: u128, name: &str, tier: Option<&str>) -> (u64, u64, u64) {
+    async fn new_book(
+        pool: &PgPool,
+        stamp: u128,
+        name: &str,
+        tier: Option<&str>,
+    ) -> (u64, u64, u64) {
         let book_id: i64 = sqlx::query_scalar(
             "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
              VALUES($1,'ru',$2,'public',$3) RETURNING id",
@@ -61,7 +66,7 @@ async fn age_gate_pg_visitor_adult_grant_revocation_and_legacy_unknown() {
         .fetch_one(pool)
         .await
         .unwrap();
-        for (chapter,body) in [(free,"S020 FREE BODY"),(paid,"S020 SECRET PAID BODY")] {
+        for (chapter, body) in [(free, "S020 FREE BODY"), (paid, "S020 SECRET PAID BODY")] {
             let ver: i64 = sqlx::query_scalar(
                 "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
                  VALUES($1,1,$2) RETURNING id",
@@ -71,73 +76,161 @@ async fn age_gate_pg_visitor_adult_grant_revocation_and_legacy_unknown() {
             .fetch_one(pool)
             .await
             .unwrap();
-            sqlx::query(
-                "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-            )
-            .bind(chapter)
-            .bind(ver)
-            .execute(pool)
-            .await
-            .unwrap();
+            sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+                .bind(chapter)
+                .bind(ver)
+                .execute(pool)
+                .await
+                .unwrap();
         }
-        (book_id as u64,free as u64,paid as u64)
+        (book_id as u64, free as u64, paid as u64)
     }
     let reader = PgReader::new(pool.clone());
-    let (basic, basic_free, _) = new_book(&pool,now,"basic",Some("basic")).await;
-    let (adult, adult_free, adult_paid) = new_book(&pool,now,"adult",Some("adult")).await;
-    let (pro, pro_free, pro_paid) = new_book(&pool,now,"pro",Some("pro_adult")).await;
-    let (unknown,unknown_free,_) = new_book(&pool,now,"legacy",None).await;
+    let (basic, basic_free, _) = new_book(&pool, now, "basic", Some("basic")).await;
+    let (adult, adult_free, adult_paid) = new_book(&pool, now, "adult", Some("adult")).await;
+    let (pro, pro_free, pro_paid) = new_book(&pool, now, "pro", Some("pro_adult")).await;
+    let (unknown, unknown_free, _) = new_book(&pool, now, "legacy", None).await;
 
     assert!(reader.public_book(basic).await.unwrap().is_some());
     assert!(reader.public_chapter(basic_free).await.unwrap().is_some());
-    for (book,free,paid) in [(adult,adult_free,adult_paid),(pro,pro_free,pro_paid)] {
+    for (book, free, paid) in [(adult, adult_free, adult_paid), (pro, pro_free, pro_paid)] {
         assert!(reader.public_book(book).await.unwrap().is_none());
         assert!(reader.public_chapter(free).await.unwrap().is_none());
-        assert!(reader.public_paid_chapter_preview(paid).await.unwrap().is_none());
-        assert!(reader.public_book_page_for_session(book,100,None,None).await.unwrap().is_none());
-        assert!(reader.public_book_page_for_session(book,100,None,Some(&[7u8;32])).await.unwrap().is_none());
-        assert!(reader.public_chapter_for_session(free,Some(&[7u8;32])).await.unwrap().is_none());
+        assert!(reader
+            .public_paid_chapter_preview(paid)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(reader
+            .public_book_page_for_session(book, 100, None, None)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(reader
+            .public_book_page_for_session(book, 100, None, Some(&[7u8; 32]))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(reader
+            .public_chapter_for_session(free, Some(&[7u8; 32]))
+            .await
+            .unwrap()
+            .is_none());
     }
     assert!(reader.public_book(unknown).await.unwrap().is_none());
     assert!(reader.public_chapter(unknown_free).await.unwrap().is_none());
     // An authenticated but basic account cannot use a session cookie to
     // change either restricted Book's server-side effective reader tier.
-    assert!(reader.public_chapter_for_session(adult_free,Some(&digest)).await.unwrap().is_none());
-    assert!(reader.public_chapter_for_session(pro_free,Some(&digest)).await.unwrap().is_none());
+    assert!(reader
+        .public_chapter_for_session(adult_free, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
+    assert!(reader
+        .public_chapter_for_session(pro_free, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
-        .bind(user).execute(&pool).await.unwrap();
-    let adult_page = reader.public_book_page_for_session(adult,100,None,Some(&digest)).await.unwrap().unwrap();
-    assert_eq!(adult_page.chapters.len(),2);
-    assert_eq!(reader.public_chapter_for_session(adult_free,Some(&digest))
-        .await.unwrap().unwrap().body_markdown,"S020 FREE BODY");
-    assert!(reader.public_paid_chapter_preview_for_session(adult_paid,Some(&digest))
-        .await.unwrap().is_some());
-    assert!(reader.public_book_page_for_session(pro,100,None,Some(&digest)).await.unwrap().is_none());
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let adult_page = reader
+        .public_book_page_for_session(adult, 100, None, Some(&digest))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(adult_page.chapters.len(), 2);
+    assert_eq!(
+        reader
+            .public_chapter_for_session(adult_free, Some(&digest))
+            .await
+            .unwrap()
+            .unwrap()
+            .body_markdown,
+        "S020 FREE BODY"
+    );
+    assert!(reader
+        .public_paid_chapter_preview_for_session(adult_paid, Some(&digest))
+        .await
+        .unwrap()
+        .is_some());
+    assert!(reader
+        .public_book_page_for_session(pro, 100, None, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
     )
-    .bind(user).execute(&pool).await.unwrap();
-    assert_eq!(reader.public_chapter_for_session(pro_free,Some(&digest))
-        .await.unwrap().unwrap().body_markdown,"S020 FREE BODY");
-    assert!(reader.public_paid_chapter_preview_for_session(pro_paid,Some(&digest))
-        .await.unwrap().is_some());
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        reader
+            .public_chapter_for_session(pro_free, Some(&digest))
+            .await
+            .unwrap()
+            .unwrap()
+            .body_markdown,
+        "S020 FREE BODY"
+    );
+    assert!(reader
+        .public_paid_chapter_preview_for_session(pro_paid, Some(&digest))
+        .await
+        .unwrap()
+        .is_some());
     // Revoking a verified grant removes the 21+ capability on the next read.
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
-        .bind(user).execute(&pool).await.unwrap();
-    assert!(reader.public_chapter_for_session(pro_free,Some(&digest)).await.unwrap().is_none());
-    assert!(reader.public_book_page_for_session(pro,100,None,Some(&digest)).await.unwrap().is_none());
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(reader
+        .public_chapter_for_session(pro_free, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
+    assert!(reader
+        .public_book_page_for_session(pro, 100, None, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     // Same response as a nonexistent Book, not a leaky restricted header.
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
-        .bind(adult as i64).execute(&pool).await.unwrap();
-    assert!(reader.public_chapter_for_session(adult_free,Some(&digest)).await.unwrap().is_none());
+        .bind(adult as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(reader
+        .public_chapter_for_session(adult_free, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
-        .bind(adult as i64).execute(&pool).await.unwrap();
+        .bind(adult as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
-        .bind(digest.as_slice()).execute(&pool).await.unwrap();
-    assert!(reader.public_chapter_for_session(adult_free,Some(&digest)).await.unwrap().is_none());
-    assert!(reader.public_book_page_for_session(adult,100,None,Some(&digest)).await.unwrap().is_none());
+        .bind(digest.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(reader
+        .public_chapter_for_session(adult_free, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
+    assert!(reader
+        .public_book_page_for_session(adult, 100, None, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }

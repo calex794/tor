@@ -123,7 +123,10 @@ pub(super) async fn reader_page(
                 Ok(None) => {}
                 Err(status) => return auth_cookies::private_response(status, &[]),
             }
-            match reader.public_paid_chapter_preview_for_session(id, digest.as_ref()).await {
+            match reader
+                .public_paid_chapter_preview_for_session(id, digest.as_ref())
+                .await
+            {
                 Ok(Some(preview)) => {
                     // Publicly visible paid metadata has a paywall, never plaintext.
                     // Hidden, held, deleted and unreleased chapters still yield 404.

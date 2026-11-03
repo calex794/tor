@@ -132,7 +132,8 @@ impl PgReader {
         limit: u16,
         after: Option<&str>,
     ) -> Result<Option<PublicBookPage>, ReadingError> {
-        self.public_book_page_for_session(id, limit, after, None).await
+        self.public_book_page_for_session(id, limit, after, None)
+            .await
     }
 
     pub async fn public_book_page_for_session(
@@ -246,7 +247,11 @@ impl PgReader {
 }
 
 impl PgReader {
-    pub async fn public_chapter_for_session(&self, id: u64, session_digest: Option<&[u8; 32]>) -> Result<Option<PublicChapterPage>, ReadingError> {
+    pub async fn public_chapter_for_session(
+        &self,
+        id: u64,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<PublicChapterPage>, ReadingError> {
         let Ok(id) = i64::try_from(id) else {
             return Ok(None);
         };
