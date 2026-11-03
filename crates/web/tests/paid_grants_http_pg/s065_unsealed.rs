@@ -101,7 +101,9 @@ pub(super) async fn assert_unsealed_admin_read(
             assert_eq!(redirect.headers()[header::CACHE_CONTROL], "no-store");
             assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
             let body_bytes = to_bytes(redirect.into_body(), 8192).await.unwrap();
-            assert!(!body_bytes.windows(body.len()).any(|part| part == body.as_bytes()));
+            assert!(!body_bytes
+                .windows(body.len())
+                .any(|part| part == body.as_bytes()));
         }
         for (label, session) in [("guest", None), ("non-admin", Some(outsider.as_str()))] {
             assert_eq!(
