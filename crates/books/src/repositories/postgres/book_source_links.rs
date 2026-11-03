@@ -4,7 +4,7 @@
 use super::PgAuthoring;
 use crate::services::{
     authoring::AuthorError,
-    book_registration::{edited_link_claims, rulate_work_id},
+    book_registration::{edited_link_claims, normalized_source_url},
 };
 use sqlx::Row;
 
@@ -143,24 +143,19 @@ impl PgAuthoring {
                 return Err(AuthorError::Conflict);
             }
 
-            let rulate_ids: Vec<String> =
-                urls.iter().filter_map(|url| rulate_work_id(url)).collect();
-            if !rulate_ids.is_empty() {
-                let matches: Option<i64> = sqlx::query_scalar(
-                    "SELECT id FROM books WHERE target_language=$1 AND id<>$2
-                     AND NOT is_deleted AND source_url<>''
-                     AND book_registration_rulate_work_id(source_url)=ANY($3::text[])
-                     LIMIT 1",
-                )
-                .bind(&language)
-                .bind(book_id)
-                .bind(&rulate_ids)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|_| AuthorError::Unavailable)?;
-                if matches.is_some() {
-                    return Err(AuthorError::Conflict);
-                }
+            let canonical_urls = urls
+                .iter()
+                .map(|url| normalized_source_url(url))
+                .collect::<Result<Vec<_>, _>>()?;
+            if super::source_alias_guard::source_url_exists(
+                &mut tx,
+                &language,
+                &canonical_urls,
+                Some(book_id),
+            )
+            .await?
+            {
+                return Err(AuthorError::Conflict);
             }
         }
 
