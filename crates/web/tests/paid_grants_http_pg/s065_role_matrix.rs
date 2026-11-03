@@ -139,12 +139,16 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
         let body = to_bytes(redirect.into_body(), 8192).await.unwrap();
         assert!(!body.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
-        assert!(!body.windows(b"X-Amz-Signature".len()).any(|part| part == b"X-Amz-Signature"));
+        assert!(!body
+            .windows(b"X-Amz-Signature".len())
+            .any(|part| part == b"X-Amz-Signature"));
     }
     // An unrelated account still sees only the public paid metadata paywall.
     let outsider_page = read_page(reader, &old_preview, Some(&outsider)).await;
     assert_eq!(outsider_page.status(), StatusCode::OK);
-    let body = to_bytes(outsider_page.into_body(), 256 * 1024).await.unwrap();
+    let body = to_bytes(outsider_page.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     assert!(!body.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
 
     // Only the private admin shell can start the authenticated WebCrypto flow.
@@ -260,7 +264,9 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         format!("/read/admin/{chapter}")
     );
     assert_eq!(
-        read_page(reader, &canonical, Some(&outsider)).await.status(),
+        read_page(reader, &canonical, Some(&outsider))
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 
