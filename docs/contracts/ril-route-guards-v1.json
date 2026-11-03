@@ -378,14 +378,14 @@
       "template": "/me/books/{id}/settings/sources",
       "source": "crates/web/src/auth.rs",
       "handler": "book_sources::edit",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "GET",
       "template": "/me/books/{id}/description",
       "source": "crates/web/src/auth.rs",
       "handler": "book_description::edit",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -819,14 +819,14 @@
       "template": "/me/books/{id}/settings/sources",
       "source": "crates/web/src/auth.rs",
       "handler": "book_sources::save",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/me/books/{id}/description",
       "source": "crates/web/src/auth.rs",
       "handler": "book_description::save",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
@@ -1855,6 +1855,13 @@
       "template": "/me/books/{id}/settings/lifecycle",
       "source": "crates/web/src/auth/book_lifecycle.rs",
       "handler": "save",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "index",
       "policy": "scoped"
     }
   ]

@@ -1,5 +1,6 @@
-//! Public catalog SQLx adapter, ported from bokarust@d11b27b.
+mod book_access_level;
 mod book_description;
+pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
 pub use book_lifecycle::ManagedBookLifecycle;
 mod book_related;
@@ -9,7 +10,7 @@ mod book_titles;
 pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
-pub use book_source_links::OwnedBookSourceLinks;
+pub use book_source_links::ManagedBookSourceLinks;
 pub mod book_delayed_schedule;
 mod chapter_batch_import;
 mod chapter_edit;
@@ -421,7 +422,6 @@ impl PgAuthoring {
             .begin()
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-
         // Book row lock serializes owner changes and competing chapter saves.
         let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books

@@ -1,4 +1,4 @@
-//! S020 owner-only names editor: primary, original and three alternatives.
+//! S020 active Book-member names editor: primary, original and three alternatives.
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -55,7 +55,7 @@ fn render(id: i64, book: &OwnedBookTitles, csrf: &str) -> Html<String> {
         <input id="s020-alt3" name="alt_title_3" maxlength="200" value="{}">
         <p>Здесь меняются только названия, не публикация, покупки или ссылки на источник.</p>
         <button class="button" type="submit">Сохранить названия</button>
-        </form><p><a href="/me/books/{id}">Вернуться к книге</a></p>
+        </form><p><a href="/me/books/{id}/settings">Все настройки книги</a></p>
         </div></div></section>"#,
         pages::escape_html(&book.title),
         pages::escape_html(csrf),
@@ -118,7 +118,7 @@ pub(super) async fn save(
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}/settings")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Missing | AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),

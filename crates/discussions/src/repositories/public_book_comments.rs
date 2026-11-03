@@ -67,18 +67,22 @@ impl PgPublicBookComments {
             || q.chars().count() < 2
             || q.chars().count() > 64
             || q.contains('%')
-            || q.contains('_')
         {
             return Err(ListCommentsError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String)>(
             "SELECT u.id, u.display_name FROM users u
+             LEFT JOIN account_settings s ON s.user_id=u.id
              JOIN discussion_comments c ON c.author_user_id=u.id
              JOIN books b ON b.id=c.book_id
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
                AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-               AND u.id<>$2 AND lower(u.display_name) LIKE lower($3) || '%'
+               AND u.id<>$2
+               AND (
+                 left(lower(u.display_name),char_length($3::text))=lower($3)
+                 OR left(s.handle,char_length($3::text))=lower($3)
+               )
              GROUP BY u.id,u.display_name ORDER BY lower(u.display_name),u.id LIMIT 20",
         )
         .bind(book_id)
@@ -185,8 +189,8 @@ impl PgPublicBookComments {
                 mentions::MentionKey::User(id) => verified.push((token.key.clone(), *id)),
                 mentions::MentionKey::Handle(handle) => {
                     let matched = sqlx::query_scalar::<_, i64>(
-                        "SELECT h.user_id FROM discussion_mention_handles h
-                         WHERE h.handle=$1",
+                        "SELECT s.user_id FROM account_settings s
+                         WHERE s.handle=$1",
                     )
                     .bind(handle)
                     .fetch_optional(&mut *tx)

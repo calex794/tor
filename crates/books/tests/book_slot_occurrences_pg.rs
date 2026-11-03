@@ -1,6 +1,6 @@
 //! S058: book-slot claims must be durable, exclusive, and revision-fenced.
 //! Writes are allowed only against disposable tor_ci.
-use sqlx::PgPool;
+use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book, AuthorError},
@@ -15,6 +15,13 @@ fn slots() -> Vec<String> {
 async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
+    // A database-scoped fixture lock coordinates separate Cargo test binaries.
+    // Dropping this connection releases the lock, including on panic.
+    let mut slot_fixture_lock = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(580058)")
+        .execute(&mut slot_fixture_lock)
+        .await
+        .unwrap();
     let pool = PgPool::connect(&url).await.expect("disposable postgres");
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)

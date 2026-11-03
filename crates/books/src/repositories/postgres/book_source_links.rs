@@ -1,6 +1,6 @@
-//! Owner-only source-link editor. A link is an attribution, not a book ID.
+//! Active Book member source-link editor. A link is attribution, not a book ID.
 //! Historical source_identity is immutable; chapter, purchase and access rights
-//! never change when the owner updates these URLs.
+//! never change when an active Book member updates these URLs.
 use super::PgAuthoring;
 use crate::services::{
     authoring::AuthorError,
@@ -8,7 +8,7 @@ use crate::services::{
 };
 use sqlx::Row;
 
-pub struct OwnedBookSourceLinks {
+pub struct ManagedBookSourceLinks {
     pub title: String,
     pub primary: String,
     pub extra: Vec<String>,
@@ -16,19 +16,24 @@ pub struct OwnedBookSourceLinks {
 }
 
 impl PgAuthoring {
-    /// Do not reveal even the existence of an unpublished book to non-owners.
-    pub async fn owned_book_source_links(
+    /// Do not reveal an unpublished book to actors outside its active Book membership.
+    pub async fn manageable_book_source_links(
         &self,
         actor: i64,
         book_id: i64,
-    ) -> Result<Option<OwnedBookSourceLinks>, AuthorError> {
+    ) -> Result<Option<ManagedBookSourceLinks>, AuthorError> {
         if actor <= 0 || book_id <= 0 {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT title, source_url, registration_links_revision
-             FROM books WHERE id=$1 AND owner_user_id=$2
-             AND NOT is_deleted AND NOT admin_hold",
+            "SELECT b.title, b.source_url, b.registration_links_revision
+             FROM books b WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+               AND EXISTS (
+                 SELECT 1 FROM book_members m WHERE m.book_id=b.id
+                   AND m.user_id=$2 AND m.is_active
+                   AND (m.role IN ('translator','moderator')
+                        OR (m.role='owner' AND b.owner_user_id=$2))
+               )",
         )
         .bind(book_id)
         .bind(actor)
@@ -54,7 +59,7 @@ impl PgAuthoring {
         if extra.len() > 2 {
             return Err(AuthorError::Unavailable);
         }
-        Ok(Some(OwnedBookSourceLinks {
+        Ok(Some(ManagedBookSourceLinks {
             title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
             primary,
             extra,
@@ -64,7 +69,7 @@ impl PgAuthoring {
         }))
     }
 
-    /// All checks, ownership and changes are in the same transaction. A stale
+    /// Member check, source claims and changes share one transaction. A stale
     /// form receives a conflict instead of overwriting another tab's changes.
     pub async fn update_book_source_links(
         &self,
@@ -85,16 +90,16 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         let book = sqlx::query(
-            "SELECT target_language, registration_links_revision
-             FROM books WHERE id=$1 AND owner_user_id=$2
-             AND NOT is_deleted AND NOT admin_hold FOR UPDATE",
+            "SELECT b.target_language, b.registration_links_revision
+             FROM books b WHERE b.id=$1
+             AND NOT b.is_deleted AND NOT b.admin_hold FOR UPDATE OF b",
         )
         .bind(book_id)
-        .bind(actor)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Missing)?;
+        super::book_related::lock_manageable_member(&mut tx, actor, book_id).await?;
 
         let language: String = book
             .try_get("target_language")
@@ -105,7 +110,7 @@ impl PgAuthoring {
         if revision != expected_revision {
             return Err(AuthorError::Conflict);
         }
-        // Check URL validity only after proving ownership of the row.
+        // Validate URLs only after proving active membership of this Book.
         let claims = edited_link_claims(raw_links)?;
         let identities: Vec<String> = claims.iter().map(|(id, _)| id.clone()).collect();
         let urls: Vec<String> = claims.iter().map(|(_, url)| url.clone()).collect();
@@ -190,12 +195,11 @@ impl PgAuthoring {
         let new_revision = revision.checked_add(1).ok_or(AuthorError::Unavailable)?;
         sqlx::query(
             "UPDATE books SET source_url=$1, registration_links_revision=$2
-             WHERE id=$3 AND owner_user_id=$4",
+             WHERE id=$3",
         )
         .bind(raw_links[0].trim())
         .bind(new_revision)
         .bind(book_id)
-        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
