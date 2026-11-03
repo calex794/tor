@@ -219,13 +219,11 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     let path = "/moderation/chapters";
     let action = format!("/moderation/chapters/{chapter}/hold");
     let paid_action = format!("/moderation/chapters/{paid_chapter}/hold");
-    assert!(
-        reader
-            .public_paid_chapter_preview(paid_chapter as u64)
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(reader
+        .public_paid_chapter_preview(paid_chapter as u64)
+        .await
+        .unwrap()
+        .is_some());
     let mod_cookie = format!("tor-dev-session={moderator_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let outsider_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
@@ -372,13 +370,11 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         ),
     );
     assert_eq!(paid_current, format!("public:1:paid:199:{paid_version}"));
-    assert!(
-        reader
-            .public_paid_chapter_preview(paid_chapter as u64)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(reader
+        .public_paid_chapter_preview(paid_chapter as u64)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         request(&app, "POST", &action, &mod_cookie, ORIGIN, &form)
             .await
@@ -449,13 +445,11 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         ),
     );
     assert_eq!(paid_current, format!("public:0:paid:199:{paid_version}"));
-    assert!(
-        reader
-            .public_paid_chapter_preview(paid_chapter as u64)
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(reader
+        .public_paid_chapter_preview(paid_chapter as u64)
+        .await
+        .unwrap()
+        .is_some());
     let events = pg(
         &url,
         &format!(
