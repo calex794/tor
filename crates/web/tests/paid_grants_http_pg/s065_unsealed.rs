@@ -64,8 +64,7 @@ pub(super) async fn assert_unsealed_admin_read(
     book: i64,
 ) {
     let (admin_id, admin_session) = account(accounts, "s065-admin-unsealed@tor-ci.example").await;
-    let (moderator_id, outsider) =
-        account(accounts, "s065-unsealed-outsider@tor-ci.example").await;
+    let (moderator_id, outsider) = account(accounts, "s065-unsealed-outsider@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -92,7 +91,9 @@ pub(super) async fn assert_unsealed_admin_read(
         user_id: moderator_id,
     };
     let mod_actor = accounts
-        .session_actor(&tor_accounts::services::security::session_token_digest(&outsider))
+        .session_actor(&tor_accounts::services::security::session_token_digest(
+            &outsider,
+        ))
         .await
         .unwrap()
         .unwrap();
