@@ -422,9 +422,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = cover_routes
-        .into_iter()
-        .fold(app, |app, cover| app.merge(cover));
+    let app = cover_routes.into_iter().fold(app, |app, cover| app.merge(cover));
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
@@ -457,9 +455,7 @@ async fn create_book(
     Form(form): Form<NewBookForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -533,9 +529,7 @@ async fn save_place(
     Form(form): Form<SavePlaceForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -586,9 +580,7 @@ async fn logout(
     Form(form): Form<LogoutForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
