@@ -133,12 +133,7 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
             .unwrap();
     assert_eq!(prior, 0, "attached ciphertext cannot appear in reader TOC");
     let author = PgAuthoring::new(pool.clone());
-    assert_eq!(
-        paid.require_active_book_schedule(owner, book)
-            .await
-            .is_err(),
-        true
-    );
+    assert!(paid.require_active_book_schedule(owner, book).await.is_err());
     author
         .replace_book_delayed_schedule(owner, book, true, 1, &["09:00".to_owned()])
         .await
