@@ -21,6 +21,9 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "moderation_chapters_pg/c03.rs"]
+mod c03;
+
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     let output = std::process::Command::new("psql")
@@ -685,4 +688,17 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         ),
         "none:0"
     );
+    c03::check(c03::Context {
+        url: &url,
+        app: &app,
+        reader: &reader,
+        book,
+        paid_chapter,
+        paid_version,
+        paid_action: &paid_action,
+        mod_cookie: &mod_cookie,
+        admin_cookie: &admin_cookie,
+        csrf: &csrf,
+    })
+    .await;
 }
