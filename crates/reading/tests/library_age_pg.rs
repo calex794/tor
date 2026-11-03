@@ -174,7 +174,15 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(library.list_books(user, 10, None).await.unwrap().items.len(), 1);
+    assert_eq!(
+        library
+            .list_books(user, 10, None)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
 
     // The Book tier is rechecked too: basic -> adult immediately hides the
     // previously saved book from a reader who has not opted in.
