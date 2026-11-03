@@ -474,13 +474,25 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         ),
         "public:blocked:1"
     );
-    assert!(
-        sqlx::query("DELETE FROM moderation_book_visibility_events WHERE book_id=$1")
-            .bind(book)
-            .execute(pool)
-            .await
-            .is_err(),
-        "moderation visibility evidence must be immutable"
+    // PostgreSQL trigger must reject deleting audit evidence. Keep the
+    // check within tor-web's existing psql-backed integration harness.
+    pg(
+        &url,
+        &format!(
+            "DO $
+             BEGIN
+                 BEGIN
+                     DELETE FROM moderation_book_visibility_events WHERE book_id={book};
+                     RAISE EXCEPTION 'visibility audit was mutable';
+                 EXCEPTION WHEN check_violation THEN
+                     IF NOT EXISTS (
+                         SELECT 1 FROM moderation_book_visibility_events WHERE book_id={book}
+                     ) THEN
+                         RAISE EXCEPTION 'visibility audit unexpectedly absent';
+                     END IF;
+                 END;
+             END $;"
+        ),
     );
     let release = format!("csrf_token={csrf}&expected_hold=true&new_hold=false");
     assert_eq!(
