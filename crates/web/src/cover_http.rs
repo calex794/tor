@@ -59,7 +59,7 @@ pub fn router_with_postgres_reading_auth_covers(
     public_origin: String,
     objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
 ) -> Router {
-    super::authenticated_postgres_reader_without_paid_g(
+    super::admin_reader_router::authenticated_postgres_reader_without_paid_g(
         catalog,
         reader,
         accounts,
@@ -80,7 +80,7 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
     public_origin: String,
     objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
 ) -> Router {
-    super::authenticated_postgres_reader_without_paid_g(
+    super::admin_reader_router::authenticated_postgres_reader_without_paid_g(
         catalog,
         reader,
         accounts,
