@@ -46,7 +46,7 @@ async fn owner_and_book(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) 
         &format!("tor-ci:s058-frontier:{suffix}:{owner}:{nonce}"),
         "ru",
         &format!("Проверка очереди {suffix} {nonce}"),
-        &"m".repeat(43),
+        &format!("{nonce:043x}"),
     )
     .unwrap();
     let book_id = author.create_owned_book(owner, &book).await.unwrap();
