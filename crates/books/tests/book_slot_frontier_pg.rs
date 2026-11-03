@@ -294,7 +294,12 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
     let later = author
         .create_pending_free_chapter(
             owner,
-            &chapter(paid_book, 3, "Бесплатная после платной", &fixture_key(paid_book, 3)),
+            &chapter(
+                paid_book,
+                3,
+                "Бесплатная после платной",
+                &fixture_key(paid_book, 3),
+            ),
         )
         .await
         .unwrap();
