@@ -534,8 +534,8 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     let book: i64 = sql(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public','basic') RETURNING id"
         ),
     ).parse().expect("book id");
     let chapter: i64 = sql(

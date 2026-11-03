@@ -25,17 +25,17 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
 
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility,
-                           admin_hold,is_deleted,genres,tags,fandoms)
+                           admin_hold,is_deleted,genres,tags,fandoms,access_level)
          VALUES
          ('ci:perf233:count:a','ru','PERF233 A','public',false,false,
           ARRAY['perf233-exact','perf233-exact'],
-          ARRAY['perf233-tag'],ARRAY['perf233-fandom']),
+          ARRAY['perf233-tag'],ARRAY['perf233-fandom'],'basic'),
          ('ci:perf233:count:b','ru','PERF233 B','draft',false,false,
-          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom']),
+          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom'],'basic'),
          ('ci:perf233:count:c','ru','PERF233 C','public',true,false,
-          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom']),
+          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom'],'basic'),
          ('ci:perf233:count:d','ru','PERF233 D','public',false,true,
-          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom'])",
+          ARRAY['perf233-exact'],ARRAY['perf233-tag'],ARRAY['perf233-fandom'],'basic')",
     )
     .execute(&pool)
     .await
@@ -150,7 +150,7 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
         .unwrap();
     let database_total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM books
-         WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted",
+         WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted",
     )
     .fetch_one(&pool)
     .await
@@ -178,7 +178,7 @@ async fn assert_public_catalog_projection_count(pool: &PgPool) {
     let (stored, actual): (i64, i64) = sqlx::query_as(
         "SELECT s.visible_book_count,
                 (SELECT COUNT(*) FROM books
-                 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted)
+                 WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted)
          FROM public_catalog_statistics s WHERE singleton",
     )
     .fetch_one(pool)

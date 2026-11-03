@@ -203,8 +203,8 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let public: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:c15:follow:{nonce}','ru','Public','public',{first}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:c15:follow:{nonce}','ru','Public','public',{first},'basic') RETURNING id"
         ),
     )
     .parse()

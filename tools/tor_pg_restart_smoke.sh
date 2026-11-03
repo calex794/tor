@@ -141,8 +141,8 @@ fi
 # Cold boot: check PostgreSQL-backed routes, then create durable user-visible data.
 start_web first-start
 psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -q <<'SQL'
-INSERT INTO books (source_identity, target_language, title, visibility)
-SELECT 'ci:startup-restart', 'ru', 'TOR Restart Persistence Sentinel', 'public'
+INSERT INTO books (source_identity, target_language, title, visibility, access_level)
+SELECT 'ci:startup-restart', 'ru', 'TOR Restart Persistence Sentinel', 'public', 'basic'
 WHERE NOT EXISTS (
   SELECT 1 FROM books
   WHERE source_identity = 'ci:startup-restart' AND target_language = 'ru'

@@ -55,10 +55,10 @@ async function screenshot(page, name) {
       await screenshot(page, viewport + '-empty');
 
       const uid = positive(pg("SELECT id FROM users WHERE email_normalized='" + email + "'"));
-      const a = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility) " +
-        "VALUES('ci:f05:visual:" + viewport + ":a','ru','Знакомая книга','public') RETURNING id"));
-      const b = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility) " +
-        "VALUES('ci:f05:visual:" + viewport + ":b','ru','Любимая книга','public') RETURNING id"));
+      const a = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility,access_level) " +
+        "VALUES('ci:f05:visual:" + viewport + ":a','ru','Знакомая книга','public','basic') RETURNING id"));
+      const b = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility,access_level) " +
+        "VALUES('ci:f05:visual:" + viewport + ":b','ru','Любимая книга','public','basic') RETURNING id"));
       // The public book records are fixtures, but chapter completion and
       // ranking eligibility must travel through real browser + C + outbox + F.
       const chapterA = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
@@ -131,8 +131,8 @@ async function screenshot(page, name) {
 
       // Defer is a durable reader choice, not an automatic negative signal.
       // The deferred book may return only after a NEW verified C completion.
-      const deferred = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility) " +
-        "VALUES('ci:f05:visual:" + viewport + ":deferred','ru','Книга после отсрочки','public') RETURNING id"));
+      const deferred = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility,access_level) " +
+        "VALUES('ci:f05:visual:" + viewport + ":deferred','ru','Книга после отсрочки','public','basic') RETURNING id"));
       const deferredChapter = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
         "VALUES(" + deferred + ",1,'Первая проверенная глава','public','free',0) RETURNING id"));
       const deferredVersion = positive(pg("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) " +

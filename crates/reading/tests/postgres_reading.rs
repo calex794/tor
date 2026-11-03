@@ -67,8 +67,8 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
     let reader = PgReader::new(pool.clone());
     let book_id = 9_000_501_i64;
     sqlx::query(
-        "INSERT INTO books (id, source_identity, target_language, title, visibility) \
-         VALUES ($1, 'ci:toc:501', 'ru', 'Длинная книга', 'public')",
+        "INSERT INTO books (id, source_identity, target_language, title, visibility, access_level) \
+         VALUES ($1, 'ci:toc:501', 'ru', 'Длинная книга', 'public', 'basic')",
     )
     .bind(book_id)
     .execute(&pool)

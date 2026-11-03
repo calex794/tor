@@ -112,8 +112,8 @@ jobs:
           INSERT INTO users(id,email_normalized,display_name,password_hash)
           OVERRIDING SYSTEM VALUE VALUES
           (950,'obs09-owner@example.invalid','Test cover owner','$argon2id$test');
-          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
-          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950);
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
+          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950,'basic');
           SQL
       - name: Run signed MinIO and restricted PG whole-cover user scenario
         env:

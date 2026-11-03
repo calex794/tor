@@ -300,26 +300,26 @@ async fn s020_public_books_api_excludes_adult_pro_and_unknown() {
     assert!(catalog.get_public(ids[0] as u64).await.unwrap().is_some());
     for id in ids.iter().skip(1) {
         assert!(catalog.get_public(*id as u64).await.unwrap().is_none());
-        sqlx::query(
-            "INSERT INTO book_related_links(smaller_book_id,larger_book_id) VALUES($1,$2)",
-        )
-        .bind(ids[0].min(*id))
-        .bind(ids[0].max(*id))
+        sqlx::query("INSERT INTO book_related_links(smaller_book_id,larger_book_id) VALUES($1,$2)")
+            .bind(ids[0].min(*id))
+            .bind(ids[0].max(*id))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    assert!(
+        catalog
+            .public_related_books(ids[0])
+            .await
+            .unwrap()
+            .is_empty(),
+        "anonymous related-book links must not leak age-restricted titles"
+    );
+    sqlx::query("DELETE FROM book_related_links WHERE smaller_book_id=$1 OR larger_book_id=$1")
+        .bind(ids[0])
         .execute(&pool)
         .await
         .unwrap();
-    }
-    assert!(
-        catalog.public_related_books(ids[0]).await.unwrap().is_empty(),
-        "anonymous related-book links must not leak age-restricted titles"
-    );
-    sqlx::query(
-        "DELETE FROM book_related_links WHERE smaller_book_id=$1 OR larger_book_id=$1",
-    )
-    .bind(ids[0])
-    .execute(&pool)
-    .await
-    .unwrap();
     sqlx::query("DELETE FROM books WHERE id=ANY($1::bigint[])")
         .bind(&ids)
         .execute(&pool)

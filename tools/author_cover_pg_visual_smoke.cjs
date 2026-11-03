@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
 const output = process.env.TOR_COVER_BROWSER_SHOTS || 'cover-browser-shots';
@@ -259,6 +260,13 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.waitForURL(base + '/me/books/' + bookId);
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + bookId);
+        const awaitingApproval = await page.goto(base + '/books/' + bookId);
+        assert(awaitingApproval && awaitingApproval.status() === 404,
+          'Unapproved Book unexpectedly has a public cover page');
+        approvePendingBookForIsolatedCi(bookId);
+        const approved = await page.goto(base + '/books/' + bookId);
+        assert(approved && approved.status() === 200,
+          'Test-approved Book must become visible without changing author release');
 
         let response = await page.goto(base + '/me/books/' + bookId + '/settings/covers');
         assert(response && response.status() === 200,

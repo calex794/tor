@@ -191,8 +191,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:real-paid-author-save','ru','Paid author creation','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:real-paid-author-save','ru','Paid author creation','public',{owner},'basic')
              RETURNING id"
         ),
     )
@@ -509,8 +509,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let outage_book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:paid-author-outage','ru','Private outage','public',{owner}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:paid-author-outage','ru','Private outage','public',{owner},'basic') RETURNING id"
         ),
     )
     .parse()
