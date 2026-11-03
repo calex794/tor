@@ -367,7 +367,10 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "root and recipient event are acknowledged"
     );
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
-    assert!(after.contains("S058 queued paid chapter"), "released paid title appears in TOC");
+    assert!(
+        after.contains("S058 queued paid chapter"),
+        "released paid title appears in TOC"
+    );
     assert!(
         !after.contains(SECRET),
         "published paid HTML must not reveal plaintext"
