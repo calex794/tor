@@ -18,7 +18,7 @@ ALTER TABLE chapters
 -- generic hold toggles to the corresponding state, but reject any attempt
 -- to remove a specifically hidden/blocked moderator decision that way.
 CREATE FUNCTION chapters_sync_legacy_moderation_hold()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         IF NEW.admin_hold AND NEW.moderation_state = 'none' THEN
@@ -34,7 +34,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER chapters_sync_legacy_moderation_hold
     BEFORE INSERT OR UPDATE OF admin_hold ON chapters
     FOR EACH ROW EXECUTE FUNCTION chapters_sync_legacy_moderation_hold();
