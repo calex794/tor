@@ -1,8 +1,8 @@
 //! Authenticated, bounded public title suggestions on the new-book form.
 use super::{deny, session_user, AuthState};
+use crate::auth_cookies::private_response;
 use crate::author_pages;
 use axum::http::HeaderValue;
-use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
