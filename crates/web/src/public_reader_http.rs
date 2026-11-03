@@ -7,9 +7,7 @@ use axum::{
 };
 use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
-use tor_contracts::paid_delivery::{
-    Actor, EntitlementDecision, EntitlementPort, PositiveId,
-};
+use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
 use tor_reading::services::PublicReadingRepository;
 
@@ -53,18 +51,16 @@ async fn administrator_paid_redirect(
     let Some(chapter_id) = chapter_id else {
         return Ok(None);
     };
-    let actor_id = PositiveId::new(actor.actor.user_id.get())
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let actor_id =
+        PositiveId::new(actor.actor.user_id.get()).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let authority = PgAdministratorReaderEntitlements::new(accounts.pool().clone(), digest);
     match authority
         .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
         .await
     {
         Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {
-            let mut response = auth_cookies::private_response(
-                Redirect::to(&format!("/read/admin/{id}")),
-                &[],
-            );
+            let mut response =
+                auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
             response.headers_mut().insert(
                 header::REFERRER_POLICY,
                 HeaderValue::from_static("no-referrer"),
@@ -104,23 +100,25 @@ pub(super) async fn reader_page(
                 Err(status) => return auth_cookies::private_response(status, &[]),
             }
             match reader.public_paid_chapter_preview(id).await {
-            Ok(Some(preview)) => {
-                // Publicly visible paid metadata has a paywall, never plaintext.
-                // Hidden, held, deleted and unreleased chapters still yield 404.
-                let page = if state.paid_checkout_browser {
-                    pages::paid_chapter_paywall_checkout(&preview, Some(id))
-                } else {
-                    pages::paid_chapter_paywall(&preview)
-                };
-                let mut response = auth_cookies::private_response(page, &[]);
-                response.headers_mut().insert(
-                    "x-robots-tag",
-                    axum::http::HeaderValue::from_static("noindex, nofollow"),
-                );
-                return response;
-            }
-            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-            Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+                Ok(Some(preview)) => {
+                    // Publicly visible paid metadata has a paywall, never plaintext.
+                    // Hidden, held, deleted and unreleased chapters still yield 404.
+                    let page = if state.paid_checkout_browser {
+                        pages::paid_chapter_paywall_checkout(&preview, Some(id))
+                    } else {
+                        pages::paid_chapter_paywall(&preview)
+                    };
+                    let mut response = auth_cookies::private_response(page, &[]);
+                    response.headers_mut().insert(
+                        "x-robots-tag",
+                        axum::http::HeaderValue::from_static("noindex, nofollow"),
+                    );
+                    return response;
+                }
+                Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+                Err(_) => {
+                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+                }
             }
         }
         Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
