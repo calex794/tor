@@ -312,6 +312,79 @@ async fn a_04_a_05_roles_are_live_audited_and_never_granted_by_identity_claims()
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_05_moderator_is_live_revocable_and_never_an_administrator() {
+    let (accounts, admin, admin_session) = fixture("a05-mod-admin").await;
+    let (_, moderator, moderator_session) = fixture("a05-moderator").await;
+    let (_, outsider, outsider_session) = fixture("a05-mod-outsider").await;
+    let target = UserId::new(moderator).unwrap();
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
+        .bind(admin)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+
+    // A normal authenticated account cannot assign the moderator role.
+    assert!(matches!(
+        accounts
+            .change_account_role(&outsider_session, target, AccountRole::Moderator, true)
+            .await,
+        Err(AuthorityError::Denied)
+    ));
+    let before = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!before.moderator && !before.administrator && !before.author);
+
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Moderator, true)
+        .await
+        .unwrap();
+    let live = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(live.moderator);
+    assert!(!live.administrator && !live.author);
+    assert_eq!(live.actor.user_id, target);
+
+    // The new role is not a site administrator and cannot grant other roles.
+    assert!(matches!(
+        accounts
+            .change_account_role(
+                &moderator_session,
+                UserId::new(outsider).unwrap(),
+                AccountRole::Administrator,
+                true
+            )
+            .await,
+        Err(AuthorityError::Denied)
+    ));
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Moderator, false)
+        .await
+        .unwrap();
+    let revoked = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!revoked.moderator && !revoked.administrator);
+    let values: Vec<String> = sqlx::query_scalar(
+        "SELECT value FROM account_role_events
+         WHERE user_id=$1 AND role='moderator' ORDER BY id",
+    )
+    .bind(moderator)
+    .fetch_all(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(values, vec!["granted", "revoked"]);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privilege() {
     let (accounts, admin, admin_session) = fixture("a05-grant-admin").await;
     let (_, recipient, _) = fixture("a05-grant-recipient").await;
@@ -330,7 +403,11 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
             .execute(accounts.pool())
             .await
             .unwrap();
-        for role in [AccountRole::Administrator, AccountRole::Author] {
+        for role in [
+            AccountRole::Administrator,
+            AccountRole::Moderator,
+            AccountRole::Author,
+        ] {
             assert!(matches!(
                 accounts
                     .change_account_role(&admin_session, target, role, true)

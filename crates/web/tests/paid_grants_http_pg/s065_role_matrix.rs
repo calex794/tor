@@ -31,6 +31,23 @@ impl Drop for AdminRoleCleanup<'_> {
     }
 }
 
+struct ModeratorRoleCleanup<'a> {
+    url: &'a str,
+    user_id: i64,
+}
+impl Drop for ModeratorRoleCleanup<'_> {
+    fn drop(&mut self) {
+        pg(
+            self.url,
+            &format!(
+                "UPDATE account_roles SET is_active=FALSE \
+                 WHERE user_id={} AND role='moderator'",
+                self.user_id
+            ),
+        );
+    }
+}
+
 struct ChapterStateCleanup<'a> {
     url: &'a str,
     book: i64,
@@ -61,7 +78,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
 ) {
     let (book, chapter, version, purchase) = edition;
     let (admin_id, admin_session) = account(accounts, "s065-c12-admin@tor-ci.example").await;
-    let (_, outsider) = account(accounts, "s065-c12-no-role@tor-ci.example").await;
+    let (moderator_id, outsider) = account(accounts, "s065-c12-no-role@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -74,6 +91,28 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         url,
         user_id: admin_id,
     };
+    // Moderation is a real independent A role, not an admin/wallet grant.
+    pg(
+        url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) \
+             VALUES({moderator_id},'moderator',TRUE) \
+             ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
+        ),
+    );
+    let _moderator_cleanup = ModeratorRoleCleanup {
+        url,
+        user_id: moderator_id,
+    };
+    let mod_actor = accounts
+        .session_actor(&session_token_digest(&outsider))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(mod_actor.moderator);
+    assert!(!mod_actor.administrator);
+    // Every outsider denial below now tests an *active moderator*, not just
+    // an unprivileged registered user.
     let actor = accounts
         .session_actor(&session_token_digest(&admin_session))
         .await
@@ -142,6 +181,11 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_page(reader, &normal, Some(&outsider)).await.status(),
+        StatusCode::FORBIDDEN,
+        "moderator must not inherit another user's direct paid purchase"
     );
     for (label, session, token, denial) in [
         ("guest", None, None, StatusCode::UNAUTHORIZED),

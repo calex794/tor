@@ -18,17 +18,19 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Option<SessionActor>, sqlx::Error> {
-        let row: Option<(i64,bool,bool)> = sqlx::query_as(
+        let row: Option<(i64,bool,bool,bool)> = sqlx::query_as(
             "SELECT u.id,
                EXISTS(SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.role='author' AND r.is_active),
+               EXISTS(SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.role='moderator' AND r.is_active),
                EXISTS(SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.role='administrator' AND r.is_active)
              FROM users u JOIN sessions s ON s.user_id=u.id
              WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.account_state='active'",
         ).bind(digest.as_slice()).fetch_optional(self.pool()).await?;
-        Ok(row.and_then(|(id, author, administrator)| {
+        Ok(row.and_then(|(id, author, moderator, administrator)| {
             UserId::new(id).ok().map(|user_id| SessionActor {
                 actor: Actor { user_id },
                 author,
+                moderator,
                 administrator,
             })
         }))
