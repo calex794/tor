@@ -89,7 +89,6 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
             } else {
                 "нет"
             },
-
         ));
     }
     if rows.is_empty() {
@@ -199,10 +198,16 @@ pub(super) async fn submit(
         form.new_hold,
     ) {
         (Some(expected), Some(next), None, None) => {
-            state.accounts.moderate_chapter_decision(&digest, id, expected, next).await
+            state
+                .accounts
+                .moderate_chapter_decision(&digest, id, expected, next)
+                .await
         }
         (None, None, Some(expected), Some(next)) => {
-            state.accounts.moderate_chapter_hold(&digest, id, expected, next).await
+            state
+                .accounts
+                .moderate_chapter_hold(&digest, id, expected, next)
+                .await
         }
         _ => return deny(StatusCode::BAD_REQUEST),
     };
