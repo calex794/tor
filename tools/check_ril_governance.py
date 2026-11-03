@@ -414,26 +414,43 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "admin_reader":
-        # A single, read-only admin shell; never authorize an ordinary
-        # purchase grant, wallet operation or an unreviewed admin URL.
-        allowed_admin_reader = (
+        # Only the exact read-only shell and one session-bound CSRF POST for
+        # current unsealed bodies. Never permit a generic paid grant, wallet
+        # command, export or arbitrary privileged route through this policy.
+        allowed_shell = (
             entry["method"] == "GET"
             and entry["template"] == "/read/admin/{chapter_id}"
             and entry["source"] == "crates/web/src/paid_grants_http.rs"
             and entry["handler"] == "admin_reader::admin_reader"
         )
-        if not allowed_admin_reader:
+        allowed_unsealed = (
+            entry["method"] == "POST"
+            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/admin-unsealed"
+            and entry["source"] == "crates/web/src/paid_grants_http.rs"
+            and entry["handler"] == "admin_unsealed::read"
+        )
+        if not (allowed_shell or allowed_unsealed):
             errors.append(f"{label}: unreviewed site administrator reader route")
-        if not all(marker in evidence for marker in (
+        common = (
             "session_token_digest(&session)",
             "session_actor(&digest)",
             "if actor.administrator",
             "PgAdministratorReaderEntitlements::new",
-            ".resolve_entitlement(",
             "StatusCode::FORBIDDEN",
             "StatusCode::UNAUTHORIZED",
-        )):
+        )
+        if not all(marker in evidence for marker in common):
             errors.append(f"{label}: missing live administrator read-entitlement proof")
+        if allowed_shell and ".resolve_entitlement(" not in evidence:
+            errors.append(f"{label}: admin shell lacks sealed D entitlement")
+        if allowed_unsealed and not (
+            evidence.count(".unsealed_version(") >= 2
+            and "state.admin_unsealed.read(pinned)" in evidence
+            and "state.cookies.same_origin(&headers)" in evidence
+            and "state.cookies.valid_csrf(&headers" in evidence
+            and "StatusCode::CONFLICT" in evidence
+        ):
+            errors.append(f"{label}: unsealed admin text lacks double D check and CSRF")
     if policy == "administrator":
         if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
             errors.append(f"{label}: administrator exception is not allowed here")
