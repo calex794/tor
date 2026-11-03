@@ -75,13 +75,15 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, title, visibility, admin_hold, owner_user_id)| ModerationBook {
-                id,
-                title,
-                visibility,
-                admin_hold,
-                owner_user_id,
-            })
+            .map(
+                |(id, title, visibility, admin_hold, owner_user_id)| ModerationBook {
+                    id,
+                    title,
+                    visibility,
+                    admin_hold,
+                    owner_user_id,
+                },
+            )
             .collect())
     }
 
