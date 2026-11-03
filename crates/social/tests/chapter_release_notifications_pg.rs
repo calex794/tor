@@ -42,8 +42,8 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     let (author, follower, opted_out, late_follower, library_only) =
         (users[0], users[1], users[2], users[3], users[4]);
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru',$2,'public',$3) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru',$2,'public',$3,'basic') RETURNING id",
     )
     .bind(format!("ci:s058-fanout:{nonce}"))
     .bind(format!("Chapter fanout {nonce}"))
