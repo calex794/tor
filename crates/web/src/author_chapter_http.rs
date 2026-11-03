@@ -170,7 +170,19 @@ async fn new_chapter(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    new_chapter_page::render(state, id, headers).await
+    // Keep the live session and actor-scoped book proof at the registered
+    // HTTP handler boundary; RIL governance audits this exact route.
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    new_chapter_page::render_authenticated(state, actor, id, headers).await
 }
 
 async fn create_chapter(

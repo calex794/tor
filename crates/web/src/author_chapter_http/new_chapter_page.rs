@@ -1,29 +1,20 @@
 //! Owner-only NEwBOO-style new chapter form.
 //! The suggested number is a read-only hint, not an allocation or permission.
-use super::{deny, session_actor, AuthorChapterState};
+use super::{deny, AuthorChapterState};
 use crate::auth_cookies::private_response;
 use axum::{
     http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    response::Response,
 };
 use tor_accounts::services::security::generate_session_token;
 use tor_books::services::authoring::AuthorError;
 
-pub(super) async fn render(
+pub(super) async fn render_authenticated(
     state: AuthorChapterState,
+    actor: i64,
     id: i64,
     headers: HeaderMap,
 ) -> Response {
-    let actor = match session_actor(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    match state.authoring.owned_book(actor, id).await {
-        Ok(Some(_)) => (),
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
     let is_public = match state.authoring.owned_book_is_public(actor, id).await {
         Ok(value) => value,
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
