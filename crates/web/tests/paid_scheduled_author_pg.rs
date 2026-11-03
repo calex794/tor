@@ -364,6 +364,14 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         !toc_before.contains("S058 queued paid chapter"),
         "draft must not appear in public JSON TOC"
     );
+    let (locked_status, locked) =
+        request_body(&app, &format!("/reader/{chapter}")).await;
+    assert_eq!(
+        locked_status,
+        StatusCode::NOT_FOUND,
+        "unreleased paid edition must not expose a reader or paywall"
+    );
+    assert!(!locked.contains(SECRET));
     assert!(
         !before.contains(SECRET),
         "plaintext must never be in book HTML"
@@ -484,6 +492,18 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         after.contains("S058 queued paid chapter"),
         "scheduled paid release must enter the rendered book TOC"
     );
+    let (paywall_status, paywall) =
+        request_body(&app, &format!("/reader/{chapter}")).await;
+    assert_eq!(
+        paywall_status,
+        StatusCode::OK,
+        "released paid chapter is advertised by paywall, never free plaintext"
+    );
+    assert!(
+        paywall.contains("Платная глава"),
+        "anonymous reader must encounter the existing paid paywall"
+    );
+    assert!(!paywall.contains(SECRET));
     assert!(
         !after.contains(SECRET),
         "published paid HTML must not reveal plaintext"
