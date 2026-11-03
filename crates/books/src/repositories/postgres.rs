@@ -15,6 +15,8 @@ mod chapter_schedule;
 pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
 mod legacy_title_guard;
 mod mail_aliases;
+mod origin_metadata;
+pub use origin_metadata::OwnedOriginMetadata;
 mod owned_book_hash;
 mod owned_chapter_pages;
 mod registration_links;
