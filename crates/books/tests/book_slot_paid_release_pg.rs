@@ -80,8 +80,8 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
         .unwrap()
         .as_nanos();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Scheduled paid chapter','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','Scheduled paid chapter','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:s058-paid:{nonce}"))
     .bind(owner)
@@ -255,8 +255,8 @@ async fn s058_unprepared_paid_never_advances_past_frontier() {
         .unwrap()
         .as_nanos();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Blocked paid slot','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','Blocked paid slot','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:s058-paid-block:{nonce}"))
     .bind(owner)
