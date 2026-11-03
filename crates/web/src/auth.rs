@@ -23,25 +23,22 @@ use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
+use tor_reading::repositories::PgReader;
 use tor_reading::repositories::{
     PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
     PgReadingSync,
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::{
-        progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
-        PublicReadingRepository,
-    },
+use tor_reading::services::{
+    progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
+    PublicReadingRepository,
 };
 mod access_audit;
+mod account_form_http;
+mod account_home;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
-mod auth_observation;
-pub(crate) use auth_observation::dropped_count as auth_observation_dropped;
-mod account_form_http;
-mod account_home;
+pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -72,6 +69,7 @@ mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
 mod group_mail;
+pub(crate) mod honeypot;
 mod inbox;
 mod layer_checkout_api;
 mod layer_routes;
@@ -248,6 +246,7 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
         .route("/me/creators", get(creator_follows::page))
         .route(
