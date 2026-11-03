@@ -96,7 +96,11 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .await;
     let repo = PgAuthoring::new(pool.clone());
 
-    assert!(repo.owned_related_books(another, a).await.unwrap().is_none());
+    assert!(repo
+        .owned_related_books(another, a)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.find_related_candidates(another, a, &b_title).await,
         Err(AuthorError::Missing)
