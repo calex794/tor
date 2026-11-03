@@ -389,8 +389,8 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     let book = scalar(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
-             VALUES('ci:s034-http-grant','ru','Платная глава','public',{author}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) \
+             VALUES('ci:s034-http-grant','ru','Платная глава','public',{author},'basic') RETURNING id"
         ),
     );
     let chapter = scalar(

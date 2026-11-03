@@ -140,8 +140,8 @@ def enabled() -> None:
     require(buyer_id != author_id, "Accounts must not share a wallet")
     pg("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) "
        f"VALUES ({buyer_id},600,'RUB'),({author_id},600,'RUB')")
-    book = scalar("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
-                  f"VALUES ('ci:d04:http-smoke','ru','Книга с покупкой','public',{author_id}) RETURNING id")
+    book = scalar("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) "
+                  f"VALUES ('ci:d04:http-smoke','ru','Книга с покупкой','public',{author_id},'basic') RETURNING id")
     chapter = scalar("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) "
                      f"VALUES ({book},1,'Платная глава','public','paid',175) RETURNING id")
     version = scalar("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) "
@@ -251,8 +251,8 @@ def enabled() -> None:
     # S035: real HTTP and PG batch checkout; the two offers must share one
     # transaction and one command key but keep separate pinned purchases.
     batch_book = scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
-        f"VALUES ('ci:d04:batch-http','ru','Пакет глав','public',{author_id}) RETURNING id")
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) "
+        f"VALUES ('ci:d04:batch-http','ru','Пакет глав','public',{author_id},'basic') RETURNING id")
     batch_offers = []
     for number, price in ((1, 90), (2, 110)):
         part = scalar(
@@ -342,8 +342,8 @@ def enabled() -> None:
 
     # S035 native browser: real form selection -> explicit total -> wallet commit.
     browser_book = scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
-        f"VALUES ('ci:s035:native-form','ru','Пакет в браузере','public',{author_id}) RETURNING id")
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) "
+        f"VALUES ('ci:s035:native-form','ru','Пакет в браузере','public',{author_id},'basic') RETURNING id")
     browser_chapters = []
     for number, price in ((1, 50), (2, 75)):
         part = scalar(

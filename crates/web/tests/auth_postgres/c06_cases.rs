@@ -60,8 +60,8 @@ pub(super) async fn purchased_version_http_journey(
            INSERT INTO users(id,email_normalized,display_name,password_hash)
              OVERRIDING SYSTEM VALUE VALUES
              (95801,'c06-other@example.invalid','Other','$argon2id$fixture');
-           INSERT INTO books(id,source_identity,target_language,title,visibility)
-             VALUES(95810,'ci:c06:pinned','ru','Private test book','public');
+           INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+             VALUES(95810,'ci:c06:pinned','ru','Private test book','public','basic');
            INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
              VALUES(95820,95810,1,'Paid chapter','public','paid',100);
            INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)

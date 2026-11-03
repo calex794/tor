@@ -37,9 +37,9 @@ async function register(page, name, email) {
 }
 function makeBook(seller, suffix) {
   const book = id(
-    "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) " +
+    "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) " +
     "VALUES ('ci:s035:chromium:" + suffix + "','ru','Пакет для Chromium','public'," +
-    seller + ') RETURNING id'
+    seller + ",'basic') RETURNING id"
   );
   const chapters = [];
   for (const [number, amount] of [[1, 50], [2, 75]]) {

@@ -155,8 +155,8 @@ async fn c_09_c_06_purchased_v1_survives_v2_but_not_revoke_or_hold() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
-         VALUES(93610,'ci:c09:paid','ru','Закреплённая версия','public')",
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) \
+         VALUES(93610,'ci:c09:paid','ru','Закреплённая версия','public','basic')",
     )
     .execute(&pool)
     .await
@@ -374,8 +374,8 @@ async fn c_10_large_safe_reader_and_protected_versions() {
     );
     assert!(valid_reader_length(&source));
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
-         VALUES (96500,'ci:c10:long-reader','ru','Длинная книга','public')",
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) \
+         VALUES (96500,'ci:c10:long-reader','ru','Длинная книга','public','basic')",
     )
     .execute(&pool)
     .await
@@ -445,8 +445,8 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
-         VALUES (93710,'ci:c09:free-v2','ru','Free version switch','public')",
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) \
+         VALUES (93710,'ci:c09:free-v2','ru','Free version switch','public','basic')",
     )
     .execute(&pool)
     .await

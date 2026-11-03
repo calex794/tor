@@ -116,8 +116,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public','basic') RETURNING id"
         ),
     )
     .await

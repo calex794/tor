@@ -283,8 +283,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let book = scalar(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
-             VALUES('ci:s034-private-e2e','ru','{book_title_sql}','public',{author}) \
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) \
+             VALUES('ci:s034-private-e2e','ru','{book_title_sql}','public',{author},'basic') \
              RETURNING id"
         ),
     );

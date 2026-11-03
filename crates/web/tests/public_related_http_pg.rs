@@ -75,8 +75,8 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
         let id: i64 = sql(
             &url,
             &format!(
-                "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
-                 VALUES('ci:s020:public:{suffix}:{stamp}','ru','{title_sql}','{visibility}',{held})
+                "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold,access_level)
+                 VALUES('ci:s020:public:{suffix}:{stamp}','ru','{title_sql}','{visibility}',{held},'basic')
                  RETURNING id"
             ),
         )
