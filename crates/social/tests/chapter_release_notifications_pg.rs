@@ -206,5 +206,66 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .await
     .unwrap();
     assert_eq!(receipt, 1);
+
+    // A book may become age-restricted after its first release. E-08 must
+    // re-check recipient eligibility, rather than trust the old fanout.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for (suffix, permitted) in [("blocked", false), ("consenting", true)] {
+        if permitted {
+            sqlx::query("UPDATE users SET adult_enabled=true WHERE id=$1")
+                .bind(follower)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let child: String = sqlx::query_scalar(
+            "INSERT INTO outbox_events(
+                event_type,schema_version,aggregate_kind,aggregate_id,
+                dedupe_key,payload,required_consumers)
+             VALUES('reader.chapter.released',1,'chapter',$1,$2,
+                    jsonb_build_object('actor_user_id',$3,
+                                       'recipient_user_id',$4,
+                                       'object_id',$1,'book_id',$5,
+                                       'version_id',$6),
+                    ARRAY['user_notifications']::text[])
+             RETURNING id::text",
+        )
+        .bind(chapter)
+        .bind(format!("ci:s058:age:{suffix}:{chapter}:{nonce}"))
+        .bind(author)
+        .bind(follower)
+        .bind(book)
+        .bind(version)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(repo.deliver_pending(8).await.unwrap(), 1);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM user_notifications
+             WHERE recipient_user_id=$1 AND kind='chapter_created'",
+        )
+        .bind(follower)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            count,
+            if permitted { 2 } else { 1 },
+            "age-restricted chapter metadata is delivered only to eligible readers"
+        );
+        let receipt_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM event_deliveries
+             WHERE event_id=$1::uuid AND consumer='user_notifications'",
+        )
+        .bind(&child)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(receipt_count, 1, "denied events still get a durable receipt");
+    }
     pool.close().await;
 }
