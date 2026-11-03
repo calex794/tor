@@ -86,12 +86,30 @@ pub(super) async fn assert_unsealed_admin_read(
         assert!(html.contains("data-admin-unsealed=\"true\""));
         assert!(!html.contains(body));
         assert!(!html.contains("dek_b64u"));
-        assert_eq!(
-            read_page(app, &format!("/reader/{chapter}"), None)
-                .await
-                .status(),
-            StatusCode::NOT_FOUND
-        );
+        // The ordinary NEwBOO reader link must also reach an active admin's
+        // draft, including both free and paid chapters. Forged preview and
+        // historical version identifiers cannot select another edition.
+        let canonical = format!("/reader/{chapter}");
+        let forged = format!("/reader/{chapter}?preview=1&version_id=1&purchase_id=1");
+        for target in [&canonical, &forged] {
+            let redirect = read_page(app, target, Some(&admin_session)).await;
+            assert_eq!(redirect.status(), StatusCode::SEE_OTHER);
+            assert_eq!(
+                redirect.headers()[header::LOCATION],
+                format!("/read/admin/{chapter}")
+            );
+            assert_eq!(redirect.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
+            let body_bytes = to_bytes(redirect.into_body(), 8192).await.unwrap();
+            assert!(!body_bytes.windows(body.len()).any(|part| part == body.as_bytes()));
+        }
+        for (label, session) in [("guest", None), ("non-admin", Some(outsider.as_str()))] {
+            assert_eq!(
+                read_page(app, &canonical, session).await.status(),
+                StatusCode::NOT_FOUND,
+                "{label} must not discover a private chapter"
+            );
+        }
         for (session, token, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
             (
@@ -196,6 +214,13 @@ pub(super) async fn assert_unsealed_admin_read(
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_page(app, &format!("/reader/{chapter}"), Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "a revoked admin must lose canonical private navigation too"
     );
     let revoked = send(
         app,
