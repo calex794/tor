@@ -2,6 +2,7 @@
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_accounts::repositories::{scoped_actions::ScopedActionAdmission, PgAccounts};
+use tor_accounts::services::security::hash_password;
 
 fn digest(label: &str) -> [u8; 32] {
     Sha256::digest(label.as_bytes()).into()
@@ -20,11 +21,12 @@ async fn a09_pg_scoped_comment_budget_is_atomic_across_pools_and_replay_safe() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let hashed_password = hash_password("AB08TestPassword2026!").unwrap();
     let actor = a
         .insert_user(
             &format!("ab08-{nonce}@example.invalid"),
             "AB08 Reader",
-            "test-only-disabled-password",
+            &hashed_password,
         )
         .await
         .unwrap();
@@ -32,7 +34,7 @@ async fn a09_pg_scoped_comment_budget_is_atomic_across_pools_and_replay_safe() {
         .insert_user(
             &format!("ab08-other-{nonce}@example.invalid"),
             "AB08 Second",
-            "test-only-disabled-password",
+            &hashed_password,
         )
         .await
         .unwrap();
