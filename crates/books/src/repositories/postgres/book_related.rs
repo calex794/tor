@@ -3,7 +3,7 @@
 //! public target books, never private names or hidden administration holds.
 use super::{PgAuthoring, PgCatalog};
 use crate::services::{authoring::AuthorError, book_registration::normalized_title};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelatedBookCard {
@@ -15,6 +15,32 @@ pub struct RelatedBookCard {
 pub struct ManagedRelatedBooks {
     pub title: String,
     pub linked: Vec<RelatedBookCard>,
+}
+
+/// Read the actor's active Book membership only after the source Book row is
+/// locked. This closes the TOCTOU window with an owner's collaborator revoke:
+/// both operations lock Book first, then BookMember. FOR SHARE also serializes
+/// direct membership changes against this transaction.
+async fn lock_manageable_member(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: i64,
+    book_id: i64,
+) -> Result<(), AuthorError> {
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT m.role FROM book_members m
+         JOIN books b ON b.id=m.book_id
+         WHERE m.book_id=$1 AND m.user_id=$2 AND m.is_active
+           AND (m.role IN ('translator','moderator')
+                OR (m.role='owner' AND b.owner_user_id=$2))
+         FOR SHARE OF m",
+    )
+    .bind(book_id)
+    .bind(actor)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
+    role.ok_or(AuthorError::Missing)?;
+    Ok(())
 }
 
 impl PgAuthoring {
@@ -128,18 +154,11 @@ impl PgAuthoring {
         // Deterministic row lock order avoids A->B / B->A link deadlocks.
         // A concurrent visibility/hold change must not race this insertion.
         let rows = sqlx::query(
-            "SELECT b.id, b.visibility, b.admin_hold, b.is_deleted,
-                    EXISTS (
-                      SELECT 1 FROM book_members m
-                      WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
-                        AND (m.role IN ('translator','moderator')
-                             OR (m.role='owner' AND b.owner_user_id=$2))
-                    ) AS can_manage
-             FROM books b WHERE b.id=ANY($1::bigint[])
-             ORDER BY b.id FOR UPDATE OF b",
+            "SELECT id, visibility, admin_hold, is_deleted
+             FROM books WHERE id=ANY($1::bigint[])
+             ORDER BY id FOR UPDATE",
         )
         .bind(vec![book_id, target_id])
-        .bind(actor)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
@@ -157,10 +176,7 @@ impl PgAuthoring {
                 .try_get("is_deleted")
                 .map_err(|_| AuthorError::Unavailable)?;
             if id == book_id {
-                let can_manage: bool = row
-                    .try_get("can_manage")
-                    .map_err(|_| AuthorError::Unavailable)?;
-                source_ok = can_manage && !held && !deleted;
+                source_ok = !held && !deleted;
             } else if id == target_id {
                 let visibility: String = row
                     .try_get("visibility")
@@ -172,6 +188,7 @@ impl PgAuthoring {
         if !source_ok || !target_ok {
             return Err(AuthorError::Missing);
         }
+        lock_manageable_member(&mut tx, actor, book_id).await?;
         sqlx::query(
             "INSERT INTO book_related_links(smaller_book_id,larger_book_id)
              VALUES($1,$2) ON CONFLICT DO NOTHING",
@@ -202,22 +219,16 @@ impl PgAuthoring {
         let allowed: Option<i64> = sqlx::query_scalar(
             "SELECT b.id FROM books b WHERE b.id=$1
                AND NOT b.admin_hold AND NOT b.is_deleted
-               AND EXISTS (
-                 SELECT 1 FROM book_members m
-                 WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
-                   AND (m.role IN ('translator','moderator')
-                        OR (m.role='owner' AND b.owner_user_id=$2))
-               )
              FOR UPDATE OF b",
         )
         .bind(book_id)
-        .bind(actor)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         if allowed.is_none() {
             return Err(AuthorError::Missing);
         }
+        lock_manageable_member(&mut tx, actor, book_id).await?;
         let deleted = sqlx::query(
             "DELETE FROM book_related_links
              WHERE smaller_book_id=$1 AND larger_book_id=$2",
