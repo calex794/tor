@@ -800,3 +800,6 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
+
+#[path = "scoped_comments_http_pg.rs"]
+mod scoped_comments;
