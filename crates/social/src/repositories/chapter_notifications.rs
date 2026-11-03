@@ -2,7 +2,7 @@
 //! per-recipient outbox pipeline. No plaintext and no external transport.
 use super::mail::unavailable;
 use crate::domain::MailError;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 const RECIPIENTS_PER_BATCH: usize = 250;
 const CONSUMER: &str = "chapter_release_fanout_v1";
@@ -183,4 +183,69 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
         processed += 1;
     }
     Ok(processed)
+}
+
+/// E-08 must check real-time C-16 visibility at delivery, including reader
+/// library saves as well as explicit follows. An event never grants purchase.
+pub(super) async fn eligible_recipient(
+    tx: &mut Transaction<'_, Postgres>,
+    chapter: i64,
+    actor: i64,
+    recipient: i64,
+    event_id: &str,
+) -> Result<bool, MailError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM chapters c
+            JOIN books b ON b.id=c.book_id
+            JOIN chapter_publications p ON p.chapter_id=c.id
+            JOIN chapter_first_release_events first
+              ON first.chapter_id=c.id
+            JOIN outbox_events e ON e.id=$4::uuid
+              AND e.event_type='reader.chapter.released'
+              AND e.aggregate_id=c.id
+            WHERE c.id=$1 AND b.owner_user_id=$2
+              AND e.payload->>'recipient_user_id'=$3::text
+              AND e.payload->>'book_id'=b.id::text
+              AND e.payload->>'version_id'=first.version_id::text
+              AND b.visibility='public' AND b.visibility_status='active'
+              AND NOT b.admin_hold AND NOT b.is_deleted
+              AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
+              AND (c.reader_released_at IS NULL
+                   OR c.reader_released_at<=clock_timestamp())
+              AND (
+                 EXISTS(
+                   SELECT 1 FROM reader_book_follows follow
+                   WHERE follow.book_id=b.id AND follow.user_id=$3
+                     AND follow.created_at<=first.created_at
+                 ) OR EXISTS(
+                   SELECT 1 FROM reader_library_items library
+                   WHERE library.book_id=b.id AND library.user_id=$3
+                     AND library.created_at<=first.created_at
+                 )
+              )
+              AND (
+                 (c.access_level='free' AND c.price_amount=0)
+                 OR (c.access_level='paid' AND c.price_amount>0
+                     AND EXISTS(
+                       SELECT 1 FROM chapter_encrypted_release_events encrypted
+                       JOIN chapter_versions v ON v.id=encrypted.version_id
+                         AND v.chapter_id=c.id
+                       JOIN storage_objects o ON o.id=encrypted.storage_object_id
+                         AND o.id=v.storage_object_id
+                       WHERE encrypted.chapter_id=c.id
+                         AND encrypted.version_id=p.version_id
+                         AND o.state='attached' AND o.object_kind='chapter'
+                         AND o.verified_at IS NOT NULL
+                     ))
+              )
+        )",
+    )
+    .bind(chapter)
+    .bind(actor)
+    .bind(recipient)
+    .bind(event_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(unavailable)
 }
