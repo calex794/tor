@@ -158,3 +158,9 @@ img.book-cover-xl { display: block; height: auto; object-fit: cover; }
 .batch-purchase__row strong { white-space: nowrap; }
 .batch-purchase__total { font-weight: 900; font-size: 22px; }
 @media (max-width: 520px) { .batch-purchase__row { grid-template-columns: 22px minmax(0, 1fr); } .batch-purchase__row strong { grid-column: 2; } }
+
+/* S020: explicitly linked books on the public book page, not recommendations. */
+.book-related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.book-related-grid__item { min-width: 0; }
+.book-related-grid__link { display: block; height: 100%; padding: 14px; border: 1px solid var(--border-color, #d9dee8); border-radius: 10px; color: var(--text-main); text-decoration: none; font-weight: 700; overflow-wrap: anywhere; }
+.book-related-grid__link:hover, .book-related-grid__link:focus-visible { border-color: var(--primary-color); text-decoration: underline; }
