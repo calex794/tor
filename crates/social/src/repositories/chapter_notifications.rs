@@ -83,15 +83,23 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
             .await
             .map_err(unavailable)?
             .unwrap_or(0);
-            // The first-release timestamp is the subscription cutoff:
-            // a user who follows later cannot receive a retroactive alert.
+            // NEwBOO targets active library readers; TOR additionally has
+            // explicit book follows. Union both intents, dedupe dual members
+            // and never backfill follows or library saves made after release.
             let readers: Vec<i64> = sqlx::query_scalar(
-                "SELECT f.user_id FROM reader_book_follows f
-                 JOIN users u ON u.id=f.user_id AND u.account_state='active'
+                "SELECT intents.user_id FROM (
+                    SELECT user_id,created_at FROM reader_book_follows
+                    WHERE book_id=$2
+                    UNION ALL
+                    SELECT user_id,created_at FROM reader_library_items
+                    WHERE book_id=$2
+                 ) intents
+                 JOIN users u ON u.id=intents.user_id AND u.account_state='active'
                  JOIN outbox_events root ON root.id=$1::uuid
-                 WHERE f.book_id=$2 AND f.user_id>$3 AND f.user_id<>$4
-                   AND f.created_at<=root.created_at
-                 ORDER BY f.user_id
+                 WHERE intents.user_id>$3 AND intents.user_id<>$4
+                   AND intents.created_at<=root.created_at
+                 GROUP BY intents.user_id
+                 ORDER BY intents.user_id
                  LIMIT 251",
             )
             .bind(&event_id)
