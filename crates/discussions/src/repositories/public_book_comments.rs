@@ -67,18 +67,22 @@ impl PgPublicBookComments {
             || q.chars().count() < 2
             || q.chars().count() > 64
             || q.contains('%')
-            || q.contains('_')
         {
             return Err(ListCommentsError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String)>(
             "SELECT u.id, u.display_name FROM users u
+             LEFT JOIN account_settings s ON s.user_id=u.id
              JOIN discussion_comments c ON c.author_user_id=u.id
              JOIN books b ON b.id=c.book_id
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-               AND u.id<>$2 AND lower(u.display_name) LIKE lower($3) || '%'
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND u.id<>$2
+               AND (
+                 left(lower(u.display_name),char_length($3::text))=lower($3)
+                 OR left(s.handle,char_length($3::text))=lower($3)
+               )
              GROUP BY u.id,u.display_name ORDER BY lower(u.display_name),u.id LIMIT 20",
         )
         .bind(book_id)
@@ -147,7 +151,7 @@ impl PgPublicBookComments {
         // comment insert. Hidden/held/deleted objects never permit a new write.
         let allowed = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM books
-             WHERE id=$1 AND visibility='public'
+             WHERE id=$1 AND visibility='public' AND visibility_status='active'
                AND NOT admin_hold AND NOT is_deleted FOR SHARE",
         )
         .bind(book_id)
@@ -185,8 +189,8 @@ impl PgPublicBookComments {
                 mentions::MentionKey::User(id) => verified.push((token.key.clone(), *id)),
                 mentions::MentionKey::Handle(handle) => {
                     let matched = sqlx::query_scalar::<_, i64>(
-                        "SELECT h.user_id FROM discussion_mention_handles h
-                         WHERE h.handle=$1",
+                        "SELECT s.user_id FROM account_settings s
+                         WHERE s.handle=$1",
                     )
                     .bind(handle)
                     .fetch_optional(&mut *tx)
@@ -327,7 +331,7 @@ impl PgPublicBookComments {
                AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
                AND parent.version_id IS NULL AND reply.version_id IS NULL
                AND parent.visibility='visible' AND reply.visibility='visible'
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              ORDER BY reply.id DESC LIMIT $2",
         )
         .bind(actor_id)
@@ -376,7 +380,7 @@ impl PgPublicBookComments {
                  AND parent.visibility='visible'))
                AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                AND reply.visibility='visible'
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              FOR SHARE OF reply, b",
         )
         .bind(actor_id)
@@ -425,7 +429,7 @@ impl PgPublicBookComments {
         }
         let visible = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM books WHERE id=$1
-               AND visibility='public' AND NOT admin_hold AND NOT is_deleted",
+               AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(book_id)
         .fetch_optional(&self.pool)
@@ -438,7 +442,7 @@ impl PgPublicBookComments {
         let rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>)>(
             "SELECT c.id,c.author_user_id,c.body,c.parent_id
              FROM discussion_comments c JOIN books b ON b.id=c.book_id
-             WHERE b.id=$1 AND b.visibility='public'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='visible'
                AND ($2::BIGINT IS NULL OR c.id < $2)

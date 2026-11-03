@@ -94,7 +94,7 @@ impl PgCatalog {
         require_latest_migration(applied)?;
         sqlx::query(
             "SELECT id, source_identity, target_language, title, visibility \
-             FROM books WHERE visibility='public' AND NOT admin_hold \
+             FROM books WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold \
              AND NOT is_deleted LIMIT 0",
         )
         .execute(&self.pool)
@@ -136,7 +136,7 @@ impl PublicBookRepository for PgCatalog {
         let limit = i64::try_from(limit).map_err(|_| CatalogError::InvalidLimit)?;
         let rows = sqlx::query(
             "SELECT id,source_identity,target_language,title,visibility \
-             FROM books WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted \
+             FROM books WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted \
              ORDER BY id ASC LIMIT $1",
         )
         .bind(limit)
@@ -152,7 +152,7 @@ impl PublicBookRepository for PgCatalog {
         };
         sqlx::query(
             "SELECT id,source_identity,target_language,title,visibility \
-             FROM books WHERE id=$1 AND visibility='public' AND NOT admin_hold AND NOT is_deleted",
+             FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(id)
         .fetch_optional(&self.pool)

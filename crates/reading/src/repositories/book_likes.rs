@@ -37,7 +37,7 @@ impl PgBookLikes {
         }
         sqlx::query_scalar(
             "SELECT (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT
-             FROM books b WHERE b.id=$1 AND b.visibility='public'
+             FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(book_id)
@@ -58,7 +58,7 @@ impl PgBookLikes {
                     (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT AS count,
                     EXISTS (SELECT 1 FROM book_likes l
                             WHERE l.book_id=b.id AND l.user_id=$2) AS liked
-             FROM books b WHERE b.id=$1 AND b.visibility='public'
+             FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(book_id)
@@ -91,7 +91,7 @@ impl PgBookLikes {
             sqlx::query(
                 "WITH visible AS (
                      SELECT id FROM books
-                     WHERE id=$1 AND visibility='public'
+                     WHERE id=$1 AND visibility='public' AND visibility_status='active'
                        AND NOT admin_hold AND NOT is_deleted
                  ), added AS (
                      INSERT INTO book_likes (book_id,user_id)
@@ -110,7 +110,7 @@ impl PgBookLikes {
             sqlx::query(
                 "WITH visible AS (
                      SELECT id FROM books
-                     WHERE id=$1 AND visibility='public'
+                     WHERE id=$1 AND visibility='public' AND visibility_status='active'
                        AND NOT admin_hold AND NOT is_deleted
                  ), removed AS (
                      DELETE FROM book_likes

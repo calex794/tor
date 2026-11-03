@@ -65,7 +65,7 @@ SCOPE_CALLS = {
     "manageable_book_description", "update_book_description",
     "manageable_book_source_links", "update_book_source_links",
     "manageable_lifecycle", "update_lifecycle",
-    "moderation_books", "moderate_book_hold",
+    "moderation_books", "moderate_book_hold", "moderate_book_visibility",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }

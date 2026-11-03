@@ -103,7 +103,7 @@ impl PgRanking {
             "SELECT b.id,b.title,r.tier,r.comparisons_count
              FROM user_book_rank AS r JOIN books AS b ON b.id=r.book_id
              WHERE r.user_id=$1
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              ORDER BY r.tier ASC,b.id::text ASC LIMIT 500",
         )
         .bind(user_id)
@@ -183,7 +183,7 @@ impl PgRanking {
             // with an accepted comparison on a hidden/held/deleted book.
             let allowed: Vec<i64> = sqlx::query_scalar(
                 "SELECT id FROM books WHERE id IN ($1,$2)
-                 AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+                 AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
                  FOR SHARE",
             )
             .bind(question.book_a_id)
