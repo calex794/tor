@@ -261,7 +261,7 @@ impl PgAuthoring {
                   'published_at',clock_timestamp(),
                   'first_release',true
                 ),
-                ARRAY['search-index-v1','subscription-inbox-v1']::text[])
+                ARRAY['chapter_release_fanout_v1']::text[])
              ON CONFLICT(dedupe_key) DO NOTHING",
         )
         .bind(chapter_id)
