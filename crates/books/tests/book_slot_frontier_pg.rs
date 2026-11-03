@@ -261,6 +261,18 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
     .await
     .unwrap();
     assert_eq!(terminal, "empty");
+    // The next duplicate-time slot may already be due; prevent a second
+    // fixture from taking this book's slot through the global worker claim.
+    author
+        .replace_book_delayed_schedule(
+            owner,
+            book,
+            false,
+            1,
+            &["09:00".to_owned(), "09:00".to_owned()],
+        )
+        .await
+        .unwrap();
 
     let (author, owner, paid_book) = owner_and_book(&pool, "paid").await;
     let paid: i64 = sqlx::query_scalar(
