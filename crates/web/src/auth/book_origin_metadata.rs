@@ -90,7 +90,11 @@ pub(super) async fn edit(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.manageable_origin_metadata(actor, book_id).await {
+    let book = match state
+        .authoring
+        .manageable_origin_metadata(actor, book_id)
+        .await
+    {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
