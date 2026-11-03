@@ -133,7 +133,10 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
             .unwrap();
     assert_eq!(prior, 0, "attached ciphertext cannot appear in reader TOC");
     let author = PgAuthoring::new(pool.clone());
-    assert!(paid.require_active_book_schedule(owner, book).await.is_err());
+    assert!(paid
+        .require_active_book_schedule(owner, book)
+        .await
+        .is_err());
     author
         .replace_book_delayed_schedule(owner, book, true, 1, &["09:00".to_owned()])
         .await
@@ -335,7 +338,11 @@ async fn s058_unprepared_paid_never_advances_past_frontier() {
         "rearming is idempotent"
     );
     let retry_token = "y".repeat(43);
-    let retry = author.claim_due_book_slot(&retry_token).await.unwrap().unwrap();
+    let retry = author
+        .claim_due_book_slot(&retry_token)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(retry.attempt_count, 2);
     assert_eq!(
         author.bind_book_slot_frontier(&retry, &retry_token).await,
