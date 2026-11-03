@@ -692,12 +692,12 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         pg(
             &url,
             &format!(
-                "SELECT visibility || ':' || admin_hold::int
+                "SELECT visibility || ':' || admin_hold::int || ':' || moderation_state
                  FROM chapters WHERE id={}",
                 saved.chapter_id
             )
         ),
-        "public:0"
+        "public:0:none"
     );
     assert_eq!(
         request(
@@ -711,5 +711,46 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         .await
         .status(),
         StatusCode::OK
+    );
+
+    // Only a test fixture may toggle the pre-existing legacy hold. The
+    // chapter moderation routes were removed; this checks fail-closed reads
+    // without restoring any chapter-by-chapter approval workflow.
+    pg(
+        &url,
+        &format!("UPDATE chapters SET admin_hold=TRUE WHERE id={}", saved.chapter_id),
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility || ':' || admin_hold::int || ':' || moderation_state
+                 FROM chapters WHERE id={}",
+                saved.chapter_id
+            )
+        ),
+        "public:1:hold"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &format!("/reader/{}", saved.chapter_id),
+            "",
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "legacy-held chapters must not become readable just because review routes are gone"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility || ':' || visibility_status FROM books WHERE id={fresh}")
+        ),
+        "public:active",
+        "legacy chapter hold must not silently change book moderation"
     );
 }
