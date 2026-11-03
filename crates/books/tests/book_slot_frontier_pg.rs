@@ -303,7 +303,7 @@ async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Blocked {
             chapter_id: Some(paid),
-            reason: "paid_frontier_needs_private_release",
+            reason: "paid_version_not_prepared",
         })
     );
     let later_publication: Option<i64> =
