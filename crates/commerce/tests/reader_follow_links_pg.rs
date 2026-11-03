@@ -29,8 +29,8 @@ async fn c_16_owned_links_follow_exact_authorized_purchase_and_refund() {
     let buyer = readers[0];
     let outsider = readers[1];
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','C16 paid book','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','C16 paid book','public','basic') RETURNING id",
     )
     .bind(format!("ci:c16:owned:{nonce}"))
     .fetch_one(&pool)
