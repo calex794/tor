@@ -219,9 +219,9 @@ pub(super) async fn eligible_recipient(
                    b.access_level='basic'
                    OR (b.access_level='adult' AND recipient.adult_enabled)
                    OR (b.access_level='pro_adult' AND EXISTS (
-                       SELECT 1 FROM user_level_grants grant
-                       WHERE grant.user_id=recipient.id
-                         AND grant.level='pro_adult' AND grant.is_active))
+                       SELECT 1 FROM user_level_grants age_grant
+                       WHERE age_grant.user_id=recipient.id
+                         AND age_grant.level='pro_adult' AND age_grant.is_active))
               )
               AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
               AND (c.reader_released_at IS NULL
