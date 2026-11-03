@@ -1,4 +1,5 @@
 pub mod admin_mail;
+mod chapter_notifications;
 pub mod book_rooms;
 pub mod creator_follows;
 pub mod friendships;
