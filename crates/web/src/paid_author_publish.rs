@@ -129,9 +129,10 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             .prepare_scheduled_paid_chapter(actor, request)
             .await?;
         if pending.published {
-            // A command that previously published immediately cannot become
-            // a private scheduled command on replay.
-            return Err(AuthorError::Conflict);
+            // The delayed command hash is distinct from the immediate path.
+            // This exact scheduled edition may already have been released
+            // by a worker before a retried HTTP response reaches the author.
+            return Ok(());
         }
         if self
             .paid
