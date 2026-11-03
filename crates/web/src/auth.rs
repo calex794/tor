@@ -52,6 +52,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_likes;
+mod book_origin_metadata;
 mod book_project_status;
 mod book_registration_http;
 mod book_rooms;
