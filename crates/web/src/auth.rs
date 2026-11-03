@@ -52,6 +52,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_likes;
+mod book_project_status;
 mod book_registration_http;
 mod book_rooms;
 mod book_sources;
@@ -261,6 +262,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
+        .merge(book_project_status::router())
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))

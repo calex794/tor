@@ -70,6 +70,7 @@ OWNER_CALLS = {
     "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
     "owned_book_source_links", "update_book_source_links",
+    "owned_project_status", "update_project_status",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",

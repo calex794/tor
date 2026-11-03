@@ -1730,6 +1730,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_unsealed::read",
       "policy": "admin_reader"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/project-status",
+      "source": "crates/web/src/auth/book_project_status.rs",
+      "handler": "edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/project-status",
+      "source": "crates/web/src/auth/book_project_status.rs",
+      "handler": "save",
+      "policy": "owner"
     }
   ]
 }

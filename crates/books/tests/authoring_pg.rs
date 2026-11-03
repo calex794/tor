@@ -880,3 +880,6 @@ mod title_suggestions_pg;
 
 #[path = "registration_sources_edit_pg.rs"]
 mod registration_sources_edit_pg;
+
+#[path = "project_status_pg.rs"]
+mod project_status_pg;
