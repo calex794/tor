@@ -25,8 +25,8 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','История <stats>','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','История <stats>','public','basic') RETURNING id",
     )
     .bind(format!("ci:bookstats:{nonce}"))
     .fetch_one(&pool)
