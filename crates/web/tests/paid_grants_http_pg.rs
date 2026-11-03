@@ -42,6 +42,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_http_pg/s065_role_matrix.rs"]
 mod s065_role_matrix;
+#[path = "paid_grants_http_pg/s065_unsealed.rs"]
+mod s065_unsealed;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
@@ -637,6 +639,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         3,
         "only three verified administrator read/image grants may reach G"
     );
+    s065_unsealed::assert_unsealed_admin_read(&url, &accounts, &browser, &fake, book).await;
     // Preserve the independent fake-signer counter expected by the existing
     // direct buyer tests below. No production signer state is ever reset.
     fake.signed.store(0, Ordering::SeqCst);
