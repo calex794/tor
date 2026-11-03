@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 245)  # Includes S019 public title suggestions.
-        self.assertEqual(report["route_pairs"], 241)  # S019, S065 and S036 route-method pairs.
+        self.assertEqual(report["route_pairs"], 243)  # Includes the two S019 title-hint routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
