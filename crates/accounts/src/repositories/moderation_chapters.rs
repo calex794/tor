@@ -18,6 +18,8 @@ pub struct ModerationChapter {
     pub moderation_state: String,
     pub has_publication: bool,
     pub has_version: bool,
+    pub edit_revision: i64,
+    pub current_version_id: Option<i64>,
 }
 
 impl PgAccounts {
@@ -49,10 +51,12 @@ impl PgAccounts {
                         c.visibility, c.access_level, c.admin_hold, c.moderation_state,
                         (p.chapter_id IS NOT NULL) AS has_publication,
                         EXISTS (SELECT 1 FROM chapter_versions v WHERE v.chapter_id=c.id)
-                            AS has_version
+                            AS has_version,
+                        c.edit_revision,COALESCE(p.version_id,d.version_id) AS current_version_id
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
                  LEFT JOIN chapter_publications p ON p.chapter_id=c.id
+                 LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
                  WHERE NOT c.is_deleted AND NOT b.is_deleted
                    AND ($1::bigint IS NULL OR c.id < $1)
                    AND ($2='all'
@@ -175,4 +179,186 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
     }
+    /// NEwBOO moderator publish/draft: publication state is separate from
+    /// moderation holds. Never substitute a moderator for the book owner.
+    pub async fn moderate_chapter_publication(
+        &self,
+        session: &[u8; 32],
+        chapter_id: i64,
+        expected_moderation_state: &str,
+        expected_visibility: &str,
+        expected_revision: i64,
+        expected_version: Option<i64>,
+        action: &str,
+    ) -> Result<(), ModerationBooksError> {
+        if chapter_id <= 0
+            || expected_revision < 0
+            || expected_version.is_some_and(|id| id <= 0)
+            || !matches!(expected_moderation_state, "none" | "hold" | "hidden" | "blocked")
+            || !matches!(expected_visibility, "draft" | "public")
+            || !matches!(action, "published" | "draft")
+        {
+            return Err(ModerationBooksError::Invalid);
+        }
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        let actor = current_moderator(&mut tx, session).await?;
+        // Same lock ordering as B authoring: book before chapter.
+        let book_id: Option<i64> = sqlx::query_scalar(
+            "SELECT book_id FROM chapters WHERE id=$1 AND NOT is_deleted",
+        )
+        .bind(chapter_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        let book_id = book_id.ok_or(ModerationBooksError::Missing)?;
+        let book: Option<(String, String, bool, Option<i64>)> = sqlx::query_as(
+            "SELECT visibility,visibility_status,admin_hold,owner_user_id
+             FROM books WHERE id=$1 AND NOT is_deleted FOR UPDATE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        let (book_visibility, book_status, book_hold, owner) =
+            book.ok_or(ModerationBooksError::Missing)?;
+        let row: Option<(
+            String, String, bool, i64, String, i64,
+            Option<i64>, Option<i64>, bool,
+        )> = sqlx::query_as(
+            "SELECT c.visibility,c.moderation_state,c.admin_hold,c.edit_revision,
+                    c.access_level,c.price_amount,p.version_id,d.version_id,
+                    (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+             FROM chapters c
+             LEFT JOIN chapter_publications p ON p.chapter_id=c.id
+             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
+             WHERE c.id=$1 AND c.book_id=$2 AND NOT c.is_deleted
+             FOR UPDATE OF c",
+        )
+        .bind(chapter_id)
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        let Some((visibility,mod_state,held,revision,access,price,publication,working,release_due)) = row else {
+            return Err(ModerationBooksError::Missing);
+        };
+        if visibility != expected_visibility
+            || mod_state != expected_moderation_state
+            || held != (mod_state != "none")
+            || revision != expected_revision
+            || publication.or(working) != expected_version
+        {
+            return Err(ModerationBooksError::Stale);
+        }
+        let before = if mod_state != "none" {
+            mod_state.as_str()
+        } else if visibility == "public" {
+            "published"
+        } else {
+            "draft"
+        };
+        if before == action {
+            return Err(ModerationBooksError::Stale);
+        }
+        if action == "published" {
+            if !release_due {
+                return Err(ModerationBooksError::Stale);
+            }
+            if publication.is_none() {
+                // New paid chapters require B/G's verified object attachment.
+                // Only a current FREE working draft can be first-released here.
+                if access != "free"
+                    || price != 0
+                    || book_visibility != "public"
+                    || book_status != "active"
+                    || book_hold
+                {
+                    return Err(ModerationBooksError::Stale);
+                }
+                let version = working.ok_or(ModerationBooksError::Stale)?;
+                let inserted = sqlx::query(
+                    "INSERT INTO chapter_publications(chapter_id,version_id)
+                     VALUES($1,$2) ON CONFLICT(chapter_id) DO NOTHING",
+                )
+                .bind(chapter_id)
+                .bind(version)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| ModerationBooksError::Unavailable)?;
+                if inserted.rows_affected() != 1 {
+                    return Err(ModerationBooksError::Stale);
+                }
+                sqlx::query("DELETE FROM chapter_working_drafts WHERE chapter_id=$1")
+                    .bind(chapter_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|_| ModerationBooksError::Unavailable)?;
+                let release = sqlx::query(
+                    "INSERT INTO chapter_first_release_events
+                       (chapter_id,version_id,creator_user_id)
+                     VALUES($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
+                )
+                .bind(chapter_id)
+                .bind(version)
+                .bind(owner)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| ModerationBooksError::Unavailable)?;
+                if release.rows_affected() != 1 {
+                    return Err(ModerationBooksError::Stale);
+                }
+            } else if (access == "paid" && price <= 0)
+                || (access == "free" && price != 0)
+            {
+                return Err(ModerationBooksError::Stale);
+            }
+            // Existing paid pointer is B-owned: never attach another version,
+            // edit an encrypted object or change a purchase grant here.
+        }
+        let next_visibility = if action == "published" { "public" } else { "draft" };
+        sqlx::query(
+            "UPDATE chapters SET visibility=$2,admin_hold=false,
+                moderation_state='none' WHERE id=$1",
+        )
+        .bind(chapter_id)
+        .bind(next_visibility)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO moderation_chapter_decision_events
+                (actor_user_id,book_id,chapter_id,before_state,after_state)
+             VALUES($1,$2,$3,$4,$5)",
+        )
+        .bind(actor)
+        .bind(book_id)
+        .bind(chapter_id)
+        .bind(before)
+        .bind(action)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        if held {
+            sqlx::query(
+                "INSERT INTO moderation_chapter_hold_events
+                    (actor_user_id,book_id,chapter_id,before_hold,after_hold)
+                 VALUES($1,$2,$3,true,false)",
+            )
+            .bind(actor)
+            .bind(book_id)
+            .bind(chapter_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        }
+        tx.commit()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        Ok(())
+    }
+
 }
