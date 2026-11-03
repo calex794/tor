@@ -152,6 +152,25 @@ async fn next_slot(
 }
 
 impl PgAuthoring {
+    /// Startup proof for the book-slot worker. An operator-enabled worker
+    /// must refuse to start against a schema missing any S058 occurrence,
+    /// cursor, or schedule table, without changing DB state.
+    pub async fn probe_book_schedule_worker(&self) -> Result<(), AuthorError> {
+        sqlx::query(
+            "SELECT s.book_id,s.schedule_revision,s.next_slot_at,s.next_slot_index,
+                    o.processing_token,o.attempt_count,o.processing_lease_expires_at,
+                    sl.minute_of_day
+             FROM book_delayed_publication_settings s
+             LEFT JOIN book_delayed_publication_occurrences o ON o.book_id=s.book_id
+             LEFT JOIN book_delayed_publication_slots sl ON sl.book_id=s.book_id
+             LIMIT 0",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        Ok(())
+    }
+
     pub async fn get_book_delayed_schedule(
         &self,
         actor: i64,
