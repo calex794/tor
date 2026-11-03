@@ -55,6 +55,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     accounts: &PgAccounts,
     reader: &Router,
     grants: &Router,
+    storage_free: &Router,
     fake: &Arc<FakeG>,
     edition: (i64, i64, i64, i64),
 ) {
@@ -100,6 +101,37 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     );
     let old_preview =
         format!("/reader/{chapter}?preview=1&version_id={version}&purchase_id={purchase}");
+
+    // A standard PG/auth server without any private G storage must not
+    // redirect sealed paid content to a reader that cannot deliver it.
+    for path in [&page, &normal] {
+        assert_eq!(
+            read_page(storage_free, path, Some(&admin_session))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    for path in [format!("/reader/{chapter}"), old_preview.clone()] {
+        let paywall = read_page(storage_free, &path, Some(&admin_session)).await;
+        assert_eq!(paywall.status(), StatusCode::OK);
+        let html = to_bytes(paywall.into_body(), 256 * 1024).await.unwrap();
+        assert!(!html.windows(BODY.len()).any(|bytes| bytes == BODY.as_bytes()));
+    }
+    assert_eq!(
+        send(
+            storage_free,
+            &path,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            r#"{"source":"administrator"}"#
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "PG-only reader must not expose any private paid G delivery grant"
+    );
 
     // The administrator's inspection is isolated from purchase APIs; old
     // direct buyer endpoints still refuse someone else's purchase identity.
