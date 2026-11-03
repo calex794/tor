@@ -4,6 +4,17 @@
 
 Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce7), [C-12 task](tasks.tsv), [reader API](api-v1.md), [paid delivery contract](../contracts/paid-delivery-v1.md). Reference implementation: NEwBOO `backend/app/web/routes/reader_page.py` and related history/preview routes; absent legacy endpoints in TOR are **not** equivalent to implemented feature parity.
 
+## 03.11.2026 — administrator drafts when paid G storage is entirely disabled
+
+The default authenticated PostgreSQL runtime (`router_with_postgres_reading_auth`) and both authenticated cover-only variants now mount an **independent administrator-only reader**. It requires no private G delivery port, `TOR_PAID_GRANTS_ENABLED`, paid S3 bucket, object KEK or paid S3 origin. This is a current-unsealed B body inspection capability bound to a live administrator role and session, not an override for ordinary buyer paid entitlements.
+
+- `/reader/{id}` redirects the active site administrator only if the current unsealed edition exists. Sealed paid editions **do not redirect** when no S3 browser is mounted; their regular paywall/non-disclosure behavior remains.
+- The private shell has no plaintext/keys/S3 URLs, uses same-origin CSP, and the body POST demands Origin/CSRF, enforces rate limits and checks the current version and role again.
+- The no-G router does **not** expose the paid chapter delivery grant, protected PNG grant or paid buyer reader. No fake signer, synthetic purchases, Layer grants or wallet entries are created.
+- PostgreSQL/Axum acceptance exercises the actual no-G auth constructor alongside the existing API-only G and paid-browser modes, including free/paid unsealed drafts, forged access, account revocation and current-version switch.
+
+Historical admin version browsing, media, moderator parity and explicit administration-reading audit remain independent S065 gates. Repository-only; not a deployment acceptance claim.
+
 ## 03.11.2026 — current unsealed administrator draft without private S3 browser
 
 The existing API-only authenticated PostgreSQL router now mounts the strict administrator shell and the current unsealed draft POST, without enabling buyer paid HTML, paid checkout, Layer, signed S3 content, or any legacy history/preview/CDN alias. The public /reader/{id} redirects only an authenticated active site administrator when D confirms a current non-attached plaintext working draft. In this mode the HTML has an empty S3 origin, a same-origin-only CSP, no plaintext, and the JavaScript retrieves the current version through A session + Origin/CSRF + revalidated A/D and B. A sealed paid edition still returns 404 without the S3 browser. A revoked admin or outsider cannot use the route. The same PostgreSQL/Axum acceptance exercise runs both opt-in browser and API-only variants.
