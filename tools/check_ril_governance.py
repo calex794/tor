@@ -59,6 +59,7 @@ SCOPE_CALLS = {
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free", "create_paid",
     "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
+    "moderation_books", "moderate_book_hold",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
@@ -294,6 +295,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "valid_token(t)" in identity
                 and '"tor-support:{token}"' in identity):
             errors.append(f"{label}: missing support requester capability boundary")
+    if entry["template"].startswith("/moderation/"):
+        allowed_moderation = {
+            ("GET", "/moderation/books", "page"),
+            ("POST", "/moderation/books/{id}/hold", "submit"),
+        }
+        if (entry["source"] != "crates/web/src/auth/moderation_books.rs"
+                or admin_key not in allowed_moderation or policy != "scoped"):
+            errors.append(f"{label}: unreviewed moderator capability surface")
+        if not ("session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "StatusCode::UNAUTHORIZED" in evidence):
+            errors.append(f"{label}: moderator route lacks live A role guard")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
@@ -390,6 +404,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
+            )
+        elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
+            # Unlike owner methods, this narrow capability accepts a digest
+            # and checks session + role again inside the same PG transaction.
+            operation = "moderation_books" if entry["method"] == "GET" else "moderate_book_hold"
+            scoped = (
+                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
+                and "session_token_digest(&token)" in evidence
+                and "session_actor(&digest)" in evidence
             )
         else:
             scoped = _contains_scoped_call(evidence, proof)
