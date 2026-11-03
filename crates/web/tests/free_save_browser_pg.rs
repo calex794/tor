@@ -349,9 +349,7 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     let sync_put = "/api/v1/me/progress/free";
     let current_version: i64 = pg(
         &url,
-        &format!(
-            "SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"
-        ),
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
     )
     .parse()
     .unwrap();
