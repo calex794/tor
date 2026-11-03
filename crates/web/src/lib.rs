@@ -38,6 +38,7 @@ pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
 };
+mod admin_reader_router;
 pub mod cover_worker;
 mod observability;
 mod operator_overview;
@@ -47,7 +48,6 @@ mod pages;
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
-mod admin_reader_router;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
