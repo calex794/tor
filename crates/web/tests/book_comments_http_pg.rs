@@ -704,9 +704,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let handle = format!("e03reader{writer_id}");
     pg(
         &url,
-        &format!(
-            "INSERT INTO account_settings(user_id,handle) VALUES({writer_id},'{handle}')"
-        ),
+        &format!("INSERT INTO account_settings(user_id,handle) VALUES({writer_id},'{handle}')"),
     )
     .await;
     let handle_discovery = format!("/api/v1/social/mentions/discover?book_id={book}&q=e03");
