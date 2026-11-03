@@ -5,9 +5,7 @@
 //! sole authority for book ACL, exact edition, release and retry fencing.
 use tor_accounts::services::security::generate_session_token;
 use tor_books::{
-    repositories::postgres::{
-        book_delayed_schedule::BookSlotFrontier, PgAuthoring,
-    },
+    repositories::postgres::{book_delayed_schedule::BookSlotFrontier, PgAuthoring},
     services::authoring::AuthorError,
 };
 
