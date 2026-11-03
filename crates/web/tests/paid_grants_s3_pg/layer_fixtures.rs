@@ -343,30 +343,14 @@ pub(super) async fn assert_layer_s3_grants(
         );
 
         pg(url, &clear);
-        if scope == "book" {
-            // The signed-grant and reader-shell paths use the same Layer D policy.
-            // Avoid exhausting the real per-actor quota in a single E2E sequence.
-            assert_eq!(
-                private_get(app, &layer_page, Some(cookie)).await.status(),
-                StatusCode::OK,
-                "lifting Book hold restores the existing Layer reader shell"
-            );
-        } else {
-            assert_eq!(
-                post_grant(
-                    app,
-                    chapter,
-                    Some(cookie),
-                    Some(csrf),
-                    ORIGIN,
-                    r#"{"source":"layer"}"#,
-                )
-                .await
-                .status(),
-                StatusCode::OK,
-                "lifting Chapter hold restores the existing Layer signed grant"
-            );
-        }
+        // Both holds must restore the existing Layer term. The earlier valid
+        // S3 grant is already exercised; use the shell here to stay under the
+        // production per-actor 12/min signed-grant limit.
+        assert_eq!(
+            private_get(app, &layer_page, Some(cookie)).await.status(),
+            StatusCode::OK,
+            "lifting {scope} hold restores the existing Layer reader shell"
+        );
     }
 
     pg(
