@@ -1723,6 +1723,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_title_suggestions::find",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_unsealed::read",
+      "policy": "admin_reader"
     }
   ]
 }

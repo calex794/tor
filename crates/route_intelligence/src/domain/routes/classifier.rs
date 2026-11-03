@@ -254,6 +254,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/finance/refunds"), "GET") => Some(241),
         (Some("/assets/book-title-suggestions.js"), "GET") => Some(242),
         (Some("/me/books/title-suggestions"), "GET") => Some(243),
+        (Some("/api/v1/reader/chapters/{chapter_id}/admin-unsealed"), "POST") => Some(244),
         _ => None,
     };
     index
