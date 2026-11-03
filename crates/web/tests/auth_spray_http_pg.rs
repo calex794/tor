@@ -147,16 +147,9 @@ async fn a09_http_spray_guard_responds_without_account_enumeration_or_session() 
         assert!(!body.contains("password_hash"));
     }
 
-    // Expired temporary locks cannot strand a legitimate account.
-    sqlx::query(
-        "UPDATE auth_spray_windows
-         SET locked_until=clock_timestamp()-INTERVAL '1 second'
-         WHERE scope='ip' AND source_key=$1",
-    )
-    .bind(ip.as_slice())
-    .execute(&pool)
-    .await
-    .unwrap();
+    // An operator can turn off enforcement without changing a password or
+    // erasing the source counter; original per-IP/account limits still apply.
+    std::env::set_var("TOR_AUTH_SPRAY_MODE", "off");
     let resumed = send(
         &app,
         request(

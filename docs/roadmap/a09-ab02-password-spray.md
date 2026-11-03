@@ -55,7 +55,8 @@ Its distributed enforcement is **not** the donor's default runtime.
   separation, passive observation, expiry, maintenance, and pseudonym privacy.
 - `cargo test -p tor-web --test auth_spray_http_pg -- --ignored --test-threads=1`
   checks 429/Retry-After, indistinguishable known/unknown accounts, CSRF,
-  no session cookie, and valid login after a short lock expires.
+  no session cookie, and valid login after the operator disables enforcement.
+  The PostgreSQL acceptance separately checks that a lock expires.
 - **Not in scope:** AB-05 CAPTCHA; global/domain risk friction; automatic
   permanent IP bans; manual admin blocklist; AB-08/09 scoped write limits;
   and production Nginx/deployment. Observe-only acceptance on live traffic
