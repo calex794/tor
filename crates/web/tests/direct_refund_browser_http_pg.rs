@@ -69,6 +69,16 @@ async fn send(app: &Router, method: &str, cookie: &str, origin: &str, form: &str
     app.clone().oneshot(req).await.unwrap()
 }
 
+async fn admin_get(app: &Router, cookie: &str, path: &str) -> Response {
+    let request = Request::builder()
+        .uri(path)
+        .method("GET")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
+}
+
 async fn html(response: Response) -> String {
     let bytes = to_bytes(response.into_body(), 128 * 1024).await.unwrap();
     String::from_utf8(bytes.to_vec()).unwrap()
@@ -357,5 +367,103 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
             ),
         ),
         "0"
+    );
+
+    // Read-only S036 moderator queue: no PII or request reason for a
+    // non-admin session, even when the purchase belongs to the caller.
+    let admin_path = "/admin/finance/refunds";
+    assert_eq!(
+        admin_get(&site, "", admin_path).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        admin_get(&site, &buyer_cookie, admin_path).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        admin_get(&site, &outsider_cookie, admin_path)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM finance_direct_refund_admin_access_audit WHERE admin_user_id={outsider}"),
+        ),
+        "0"
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({outsider},'administrator',true)
+             ON CONFLICT (user_id,role) DO UPDATE SET is_active=EXCLUDED.is_active"
+        ),
+    );
+    let response = admin_get(&site, &outsider_cookie, admin_path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["x-robots-tag"], "noindex, nofollow");
+    let admin_html = html(response).await;
+    let refund_id = pg(
+        &url,
+        &format!("SELECT id FROM finance_direct_refund_requests WHERE purchase_id={purchase}"),
+    );
+    assert!(admin_html.contains(&format!("Заявка №{refund_id}")));
+    assert!(admin_html.contains("Buyer request"));
+    assert!(admin_html.contains("&lt;script&gt;"));
+    assert!(!admin_html.contains("<script>x</script>"));
+    // The global site header has its own forms. The refund review section
+    // must never provide a financial decision form or endpoint.
+    assert!(!admin_html.contains("action=\"/admin/finance/refunds\""));
+    assert!(!admin_html.contains("name=\"decision\""));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM finance_direct_refund_admin_access_audit WHERE admin_user_id={outsider}"),
+        ),
+        "1"
+    );
+    let older = html(
+        admin_get(
+            &site,
+            &outsider_cookie,
+            &format!("/admin/finance/refunds?before={refund_id}"),
+        )
+        .await,
+    )
+    .await;
+    assert!(!older.contains(&format!("Заявка №{refund_id}")));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM finance_direct_refund_admin_access_audit WHERE admin_user_id={outsider}"),
+        ),
+        "2"
+    );
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=false WHERE user_id={outsider} AND role='administrator'"),
+    );
+    assert_eq!(
+        admin_get(&site, &outsider_cookie, admin_path)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM finance_direct_refund_admin_access_audit WHERE admin_user_id={outsider}"),
+        ),
+        "2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}"),
+        ),
+        "700"
     );
 }

@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 243)  # S019, S065 and S036 protected routes.
-        self.assertEqual(report["route_pairs"], 241)  # S019, S065 and S036 route-method pairs.
+        self.assertEqual(report["route_bindings"], 244)  # Includes S036 audited administrator review.
+        self.assertEqual(report["route_pairs"], 242)  # Includes S036 review GET route.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -118,6 +118,18 @@ class RilExposureTests(unittest.TestCase):
             "handler": "admin_mail::index", "policy": "admin_mail",
         })
         target.write_text(json.dumps(rows))
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+    def test_exact_refund_admin_exception_cannot_be_extended(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["routes"].append({
+            "method": "GET", "template": "/admin/finance/refunds/export",
+            "source": "crates/web/src/auth/admin_refund_review.rs",
+            "handler": "page", "policy": "admin_refund",
+        })
+        path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
     def test_expected_https_nginx_server_is_safe(self):
