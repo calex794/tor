@@ -120,7 +120,7 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
 
     // Schedule edits invalidate the old occurrence without deleting evidence.
     let changed = author
-        .replace_book_delayed_schedule(owner, book_id, true, 1, &vec!["10:00".to_owned()])
+        .replace_book_delayed_schedule(owner, book_id, true, 1, &["10:00".to_owned()])
         .await
         .unwrap();
     assert_eq!(changed.schedule_revision, 2);
