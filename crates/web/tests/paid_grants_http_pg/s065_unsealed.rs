@@ -1,7 +1,7 @@
 //! C-12/S065: a live site administrator may inspect an unsealed working
 //! chapter without a purchase, even when the book or chapter is unpublished.
 //! The ordinary reader and paid S3 grant must not inherit this authority.
-use super::{account, pg, read_page, scalar, send, FakeG, ORIGIN};
+use super::super::{account, pg, read_page, scalar, send, FakeG, ORIGIN};
 use axum::{
     body::to_bytes,
     http::{header, StatusCode},
@@ -48,16 +48,17 @@ pub(super) async fn assert_unsealed_admin_read(
         user_id: admin_id,
     };
     let csrf = tor_accounts::services::security::generate_session_token();
+    let signed_before = fake.signed.load(Ordering::SeqCst);
     // These two drafts have no published pointer or B/G-attached object.
     // Their body is never legal on a normal public/paywall or paid-grant path.
-    for (number, access, body) in [
-        (501, "free", "S065-PRIVATE-FREE-DRAFT-NEVER-IN-SSR"),
-        (502, "paid", "S065-PRIVATE-PAID-DRAFT-NEVER-IN-SSR"),
+    for (number, access, price, body) in [
+        (501, "free", 0, "S065-PRIVATE-FREE-DRAFT-NEVER-IN-SSR"),
+        (502, "paid", 175, "S065-PRIVATE-PAID-DRAFT-NEVER-IN-SSR"),
     ] {
         let chapter = scalar(
             url,
             &format!(
-                "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)                  VALUES({book},{number},'S065 draft','draft','{access}',0) RETURNING id"
+                "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)                  VALUES({book},{number},'S065 draft','draft','{access}',{price}) RETURNING id"
             ),
         );
         let version = scalar(
@@ -123,7 +124,7 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(payload["chapter_id"], chapter.to_string());
         assert_eq!(payload["version_id"], version.to_string());
         assert_eq!(payload["body_markdown"], body);
-        assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
+        assert_eq!(fake.signed.load(Ordering::SeqCst), signed_before);
         // The new draft becomes current; old bodies must never be selectable
         // through a forged query or a guessed historical version ID.
         let next = scalar(
