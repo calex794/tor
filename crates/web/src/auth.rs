@@ -27,12 +27,10 @@ use tor_reading::repositories::{
     PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
     PgReadingSync,
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::{
-        progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
-        PublicReadingRepository,
-    },
+use tor_reading::repositories::PgReader;
+use tor_reading::services::{
+    progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
+    PublicReadingRepository,
 };
 mod access_audit;
 mod account_form_http;
@@ -251,7 +249,10 @@ fn router_inner(
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
         .route("/me/creators", get(creator_follows::page))
-        .route("/me/creators/{id}/unfollow", post(creator_follows::unfollow))
+        .route(
+            "/me/creators/{id}/unfollow",
+            post(creator_follows::unfollow),
+        )
         .route(
             "/me/books/{id}/follow-creator",
             post(book_follow_actions::follow_creator),
