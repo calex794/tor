@@ -84,9 +84,7 @@ pub(crate) async fn release_staged_paid_chapter_tx(
     expected_revision: i64,
     version: i64,
 ) -> Result<(), AuthorError> {
-    if actor <= 0 || book <= 0 || chapter <= 0
-        || expected_revision <= 0 || version <= 0
-    {
+    if actor <= 0 || book <= 0 || chapter <= 0 || expected_revision <= 0 || version <= 0 {
         return Err(AuthorError::Invalid);
     }
     let owner: Option<i64> = sqlx::query_scalar(
