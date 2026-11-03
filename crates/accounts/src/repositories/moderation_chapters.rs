@@ -20,6 +20,7 @@ pub struct ModerationChapter {
     pub has_version: bool,
     pub edit_revision: i64,
     pub current_version_id: Option<i64>,
+    pub last_decision_id: i64,
 }
 
 impl PgAccounts {
@@ -52,7 +53,9 @@ impl PgAccounts {
                         (p.chapter_id IS NOT NULL) AS has_publication,
                         EXISTS (SELECT 1 FROM chapter_versions v WHERE v.chapter_id=c.id)
                             AS has_version,
-                        c.edit_revision,COALESCE(p.version_id,d.version_id) AS current_version_id
+                        c.edit_revision,COALESCE(p.version_id,d.version_id) AS current_version_id,
+                        (SELECT COALESCE(MAX(e.id),0) FROM moderation_chapter_decision_events e
+                         WHERE e.chapter_id=c.id) AS last_decision_id
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
                  LEFT JOIN chapter_publications p ON p.chapter_id=c.id
@@ -189,10 +192,12 @@ impl PgAccounts {
         expected_visibility: &str,
         expected_revision: i64,
         expected_version: Option<i64>,
+        expected_decision_id: i64,
         action: &str,
     ) -> Result<(), ModerationBooksError> {
         if chapter_id <= 0
             || expected_revision < 0
+            || expected_decision_id < 0
             || expected_version.is_some_and(|id| id <= 0)
             || !matches!(
                 expected_moderation_state,
@@ -266,6 +271,18 @@ impl PgAccounts {
         else {
             return Err(ModerationBooksError::Missing);
         };
+        // The append-only audit sequence also fences ABA: an old publish
+        // form cannot republish after someone else published and drafted it.
+        let last_decision_id: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(id),0) FROM moderation_chapter_decision_events WHERE chapter_id=$1",
+        )
+        .bind(chapter_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        if last_decision_id != expected_decision_id {
+            return Err(ModerationBooksError::Stale);
+        }
         if visibility != expected_visibility
             || mod_state != expected_moderation_state
             || held != (mod_state != "none")
