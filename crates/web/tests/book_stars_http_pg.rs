@@ -101,8 +101,8 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:f05:http:{nonce}','ru','Исходная книга <tag>','public')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:f05:http:{nonce}','ru','Исходная книга <tag>','public','basic')
              RETURNING id",
         ),
     )

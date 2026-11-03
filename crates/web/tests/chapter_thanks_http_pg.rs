@@ -99,8 +99,8 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:thanks-http:{nonce}','ru','Книга','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:thanks-http:{nonce}','ru','Книга','public','basic') RETURNING id"
         ),
     )
     .parse()
