@@ -307,6 +307,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
             .is_some(),
         "fresh Reader SQLx pool must see the same book as psql"
     );
+    drop(fresh_reader);
     let public_reader = PgReader::new(pool.clone());
     let public_book = public_reader
         .public_book_page(book as u64, 100, None)
