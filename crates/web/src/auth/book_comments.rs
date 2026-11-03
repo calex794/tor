@@ -12,8 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::{
-    repositories::scoped_actions::ScopedActionAdmission,
-    services::security::generate_session_token,
+    repositories::scoped_actions::ScopedActionAdmission, services::security::generate_session_token,
 };
 use tor_discussions::{
     domain::{
