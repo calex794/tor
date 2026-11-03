@@ -32,6 +32,7 @@ pub(super) async fn assert_unsealed_admin_read(
     accounts: &PgAccounts,
     app: &Router,
     api_only: &Router,
+    no_storage: &Router,
     fake: &Arc<FakeG>,
     book: i64,
 ) {
@@ -106,6 +107,20 @@ pub(super) async fn assert_unsealed_admin_read(
         assert!(no_s3_html.contains("data-s3-origin=\"\""));
         assert!(!no_s3_html.contains(body));
         assert!(!no_s3_html.contains("ciphertext_url"));
+        // This is the actual default authenticated PostgreSQL router: no
+        // paid S3 bucket, KEK, private G port or paid grant routes exist.
+        let pg_only_shell = read_page(no_storage, &shell_path, Some(&admin_session)).await;
+        assert_eq!(pg_only_shell.status(), StatusCode::OK);
+        assert_eq!(pg_only_shell.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            pg_only_shell.headers()["content-security-policy"],
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        );
+        let pg_only_html = to_bytes(pg_only_shell.into_body(), 128 * 1024).await.unwrap();
+        let pg_only_html = String::from_utf8(pg_only_html.to_vec()).unwrap();
+        assert!(pg_only_html.contains("data-admin-unsealed=\"true\""));
+        assert!(pg_only_html.contains("data-s3-origin=\"\""));
+        assert!(!pg_only_html.contains(body));
         assert_eq!(
             read_page(
                 api_only,
@@ -120,6 +135,12 @@ pub(super) async fn assert_unsealed_admin_read(
         // administrator to the existing private unsealed reader, without
         // embedding content, a version ID or any signed URL in the redirect.
         let canonical = format!("/reader/{chapter}");
+        let pg_redirect = read_page(no_storage, &canonical, Some(&admin_session)).await;
+        assert_eq!(pg_redirect.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            pg_redirect.headers()[header::LOCATION],
+            format!("/read/admin/{chapter}")
+        );
         let api_redirect = read_page(api_only, &canonical, Some(&admin_session)).await;
         assert_eq!(api_redirect.status(), StatusCode::SEE_OTHER);
         assert_eq!(
@@ -155,6 +176,12 @@ pub(super) async fn assert_unsealed_admin_read(
                 read_page(api_only, &canonical, session).await.status(),
                 StatusCode::NOT_FOUND
             );
+            assert_eq!(
+                read_page(no_storage, &canonical, session)
+                    .await
+                    .status(),
+                StatusCode::NOT_FOUND
+            );
         }
         for (session, token, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
@@ -187,6 +214,12 @@ pub(super) async fn assert_unsealed_admin_read(
                     .status(),
                 expected
             );
+            assert_eq!(
+                send(no_storage, &content_path, session, token, origin, "{}")
+                    .await
+                    .status(),
+                expected
+            );
         }
         let no_s3_permitted = send(
             api_only,
@@ -204,6 +237,36 @@ pub(super) async fn assert_unsealed_admin_read(
                 .unwrap();
         assert_eq!(no_s3_payload["version_id"], version.to_string());
         assert_eq!(no_s3_payload["body_markdown"], body);
+        let pg_only_permitted = send(
+            no_storage,
+            &content_path,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await;
+        assert_eq!(pg_only_permitted.status(), StatusCode::OK);
+        let pg_payload: Value = serde_json::from_slice(
+            &to_bytes(pg_only_permitted.into_body(), 8192).await.unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pg_payload["version_id"], version.to_string());
+        assert_eq!(pg_payload["body_markdown"], body);
+        // No private paid grant can be synthesized in the no-G router.
+        assert_eq!(
+            send(
+                no_storage,
+                &format!("/api/v1/reader/chapters/{chapter}/delivery-grants"),
+                Some(&admin_session),
+                Some(&csrf),
+                Some(ORIGIN),
+                r#"{"source":"administrator"}"#,
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
         let permitted = send(
             app,
             &content_path,
@@ -267,6 +330,22 @@ pub(super) async fn assert_unsealed_admin_read(
                 .unwrap();
         assert_eq!(payload["version_id"], next.to_string());
         assert_eq!(payload["body_markdown"], "NEW PRIVATE REVISION");
+        let switched_pg = send(
+            no_storage,
+            &content_path,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await;
+        assert_eq!(switched_pg.status(), StatusCode::OK);
+        let current: Value = serde_json::from_slice(
+            &to_bytes(switched_pg.into_body(), 8192).await.unwrap(),
+        )
+        .unwrap();
+        assert_eq!(current["version_id"], next.to_string());
+        assert_eq!(current["body_markdown"], "NEW PRIVATE REVISION");
     }
     assert_eq!(
         scalar(
@@ -339,6 +418,37 @@ pub(super) async fn assert_unsealed_admin_read(
         .await
         .unwrap()
         .is_empty());
+    assert_eq!(
+        read_page(
+            no_storage,
+            &format!("/read/admin/{chapter}"),
+            Some(&admin_session)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_page(
+            no_storage,
+            &format!("/reader/{chapter}"),
+            Some(&admin_session)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let revoked_pg = send(
+        no_storage,
+        &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        "{}",
+    )
+    .await;
+    assert_eq!(revoked_pg.status(), StatusCode::FORBIDDEN);
+    assert!(to_bytes(revoked_pg.into_body(), 8192).await.unwrap().is_empty());
     let revoked_no_s3 = send(
         api_only,
         &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
