@@ -158,11 +158,9 @@ async function inspect(page, viewport, name) {
       await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
-      const privateChoice = page.getByLabel(
-        'Сохранить бесплатную главу закрытым черновиком для отложенного выпуска'
-      );
+      const privateChoice = page.getByLabel('Отложенная публикация');
       assert(await privateChoice.isVisible(),
-        viewport + ': missing S058 private-draft choice on public book');
+        viewport + ': missing S058 delayed-publication option on public book');
       await page.getByLabel('Номер главы').fill('50');
       await page.getByLabel('Название главы').fill('S058 scheduled draft');
       await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
