@@ -16,7 +16,10 @@ async fn s020_shadow_and_rec_recheck_live_age_tier_and_lifecycle() {
         .await
         .unwrap();
     assert_eq!(name, "tor_ci");
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let mut book_ids = Vec::<i64>::new();
     let mut chapter_ids = Vec::<i64>::new();
     for (suffix, tier) in [
@@ -55,25 +58,22 @@ async fn s020_shadow_and_rec_recheck_live_age_tier_and_lifecycle() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-        )
-        .bind(chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+            .bind(chapter)
+            .bind(version)
+            .execute(&pool)
+            .await
+            .unwrap();
         book_ids.push(book);
         chapter_ids.push(chapter);
     }
     let basic = book_ids[0];
-    let count_books: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM shadow_public_books WHERE id=ANY($1::bigint[])",
-    )
-    .bind(&book_ids)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_books: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM shadow_public_books WHERE id=ANY($1::bigint[])")
+            .bind(&book_ids)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count_books, 1, "adult, pro_adult and NULL must be absent");
     let count_chapters: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM shadow_public_chapters WHERE id=ANY($1::bigint[])",
@@ -83,13 +83,12 @@ async fn s020_shadow_and_rec_recheck_live_age_tier_and_lifecycle() {
     .await
     .unwrap();
     assert_eq!(count_chapters, 1, "chapter metadata must follow Book age");
-    let rec_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM rec_public_books WHERE id=ANY($1::bigint[])",
-    )
-    .bind(&book_ids)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let rec_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rec_public_books WHERE id=ANY($1::bigint[])")
+            .bind(&book_ids)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(rec_count, 1);
 
     // A live age change must revoke both public views without cached metadata.
@@ -98,13 +97,12 @@ async fn s020_shadow_and_rec_recheck_live_age_tier_and_lifecycle() {
         .execute(&pool)
         .await
         .unwrap();
-    let after_age: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM shadow_public_books WHERE id=ANY($1::bigint[])",
-    )
-    .bind(&book_ids)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let after_age: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM shadow_public_books WHERE id=ANY($1::bigint[])")
+            .bind(&book_ids)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(after_age, 0);
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
         .bind(basic)
