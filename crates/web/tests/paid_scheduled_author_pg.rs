@@ -364,8 +364,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         !toc_before.contains("S058 queued paid chapter"),
         "draft must not appear in public JSON TOC"
     );
-    let (locked_status, locked) =
-        request_body(&app, &format!("/reader/{chapter}")).await;
+    let (locked_status, locked) = request_body(&app, &format!("/reader/{chapter}")).await;
     assert_eq!(
         locked_status,
         StatusCode::NOT_FOUND,
@@ -492,8 +491,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         after.contains("S058 queued paid chapter"),
         "scheduled paid release must enter the rendered book TOC"
     );
-    let (paywall_status, paywall) =
-        request_body(&app, &format!("/reader/{chapter}")).await;
+    let (paywall_status, paywall) = request_body(&app, &format!("/reader/{chapter}")).await;
     assert_eq!(
         paywall_status,
         StatusCode::OK,
