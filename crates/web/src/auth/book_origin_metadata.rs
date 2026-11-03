@@ -25,6 +25,7 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/me/books/{id}/settings/origin", get(edit).post(save))
         .route("/me/books/{id}/settings", get(index))
+        .merge(super::book_lifecycle::router())
 }
 
 fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String> {
@@ -156,6 +157,7 @@ fn render_index(id: i64, title: &str) -> Html<String> {
         <li><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></li>
         <li><a href="/me/books/{id}/settings/project-status">Состояние работы</a></li>
         <li><a href="/me/books/{id}/settings/related">Связанные книги</a></li>
+        <li><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл</a></li>
         </ul></div></div></section>"#,
         pages::escape_html(title)
     );
@@ -215,6 +217,7 @@ mod tests {
             "/me/books/42/settings/origin",
             "/me/books/42/settings/project-status",
             "/me/books/42/settings/related",
+            "/me/books/42/settings/lifecycle",
         ] {
             assert!(html.contains(path));
         }

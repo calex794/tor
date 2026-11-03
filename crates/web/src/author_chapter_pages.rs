@@ -212,6 +212,7 @@ pub fn detail_with_covers_with_demand_page(
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <p><a href="/me/books/{id}/settings/sources">Ссылки на произведение</a></p>
         <p><a href="/me/books/{id}/settings/project-status">Состояние работы над книгой</a></p>
+        <p><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл книги</a></p>
         <p><a href="/me/books/{id}/settings/titles">Названия книги</a></p>
         <p><a href="/me/books/{id}/settings/related">Связанные книги</a></p>
         <p><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></p>

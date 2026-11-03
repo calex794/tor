@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-
 use crate::{
     auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
@@ -49,6 +48,7 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod book_lifecycle;
 mod book_likes;
 mod book_origin_metadata;
 mod book_project_status;
