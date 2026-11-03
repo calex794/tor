@@ -11,8 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::{
-    repositories::moderation_chapters::ModerationChapter,
-    services::security::session_token_digest,
+    repositories::moderation_chapters::ModerationChapter, services::security::session_token_digest,
 };
 
 #[derive(Default, Deserialize)]
@@ -66,8 +65,16 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
                 </form></article>"#,
             book_id = row.book_id,
             no = row.chapter_no,
-            version = if row.has_version { "есть" } else { "нет" },
-            published = if row.has_publication { "есть" } else { "нет" },
+            version = if row.has_version {
+                "есть"
+            } else {
+                "нет"
+            },
+            published = if row.has_publication {
+                "есть"
+            } else {
+                "нет"
+            },
             id = row.id,
             held = row.admin_hold,
             next = !row.admin_hold,
@@ -117,7 +124,10 @@ pub(super) async fn page(
     Query(query): Query<PageQuery>,
 ) -> Response {
     let status = query.status.as_deref().unwrap_or("all");
-    if !matches!(status, "all" | "hold" | "draft" | "published" | "no_version") {
+    if !matches!(
+        status,
+        "all" | "hold" | "draft" | "published" | "no_version"
+    ) {
         return deny(StatusCode::BAD_REQUEST);
     }
     let Some(token) = state.cookies.session_token(&headers) else {
@@ -139,7 +149,8 @@ pub(super) async fn page(
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(render(&rows, &pages::escape_html(&csrf), status), &cookies);
+    let mut response =
+        private_response(render(&rows, &pages::escape_html(&csrf), status), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
