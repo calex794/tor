@@ -887,6 +887,8 @@ mod project_status_pg;
 #[path = "book_titles_pg.rs"]
 mod book_titles_pg;
 
+#[path = "book_delayed_schedule_pg.rs"]
+mod book_delayed_schedule_pg;
 #[path = "book_related_pg.rs"]
 mod book_related_pg;
 

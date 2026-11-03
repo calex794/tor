@@ -8,6 +8,7 @@ pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
 pub use book_source_links::OwnedBookSourceLinks;
+mod book_delayed_schedule;
 mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_publish_free;
@@ -169,7 +170,6 @@ impl PgAuthoring {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-
     /// A successful command creates exactly one private draft. Concurrent retries
     /// with the same payload return the original ID; changed payloads conflict.
     pub async fn create_owned_book(
