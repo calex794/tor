@@ -29,7 +29,10 @@ impl PgAccounts {
         status: &str,
     ) -> Result<Vec<ModerationChapter>, ModerationBooksError> {
         if before.is_some_and(|value| value <= 0)
-            || !matches!(status, "all" | "hold" | "draft" | "published" | "no_version")
+            || !matches!(
+                status,
+                "all" | "hold" | "draft" | "published" | "no_version"
+            )
         {
             return Err(ModerationBooksError::Invalid);
         }
