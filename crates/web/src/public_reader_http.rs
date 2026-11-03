@@ -60,7 +60,10 @@ async fn administrator_private_redirect(
     let administrator = Actor { user_id: actor_id };
     let eligible = match authority.unsealed_version(administrator, chapter_id).await {
         Ok(Some(_)) => true,
-        Ok(None) => match authority
+        // Never redirect sealed paid content to a reader that has no
+        // private S3 browser. Its admin entitlement is real but its bytes
+        // are not deliverable in the current runtime configuration.
+        Ok(None) if state.private_admin_sealed_reader_enabled => match authority
             .resolve_entitlement(administrator, chapter_id, None)
             .await
         {
@@ -69,6 +72,7 @@ async fn administrator_private_redirect(
             Ok(EntitlementDecision::Allowed { .. }) => return Err(StatusCode::CONFLICT),
             Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
         },
+        Ok(None) => false,
         Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !eligible {

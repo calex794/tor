@@ -492,6 +492,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         None,
     )
     .unwrap();
+    let without_g = s065_unsealed::pg_only_app(catalog.clone(), reader.clone(), accounts.clone());
     let app = tor_web::router_with_postgres_reading_auth_paid_grants(
         catalog,
         reader,
@@ -501,7 +502,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         fake.clone(),
         None,
     );
-    // A wallet switch alone cannot expose a purchase form without the private reader.
     let purchase_path = format!("/me/chapters/{chapter}/buy");
     assert_eq!(
         read_page(&app, &purchase_path, Some(&buyer_cookie))
@@ -630,6 +630,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &accounts,
         &browser,
         &app,
+        &without_g,
         &fake,
         (book, chapter, version, purchase_id),
     )
@@ -639,9 +640,10 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         3,
         "only three verified administrator read/image grants may reach G"
     );
-    s065_unsealed::assert_unsealed_admin_read(&url, &accounts, &browser, &app, &fake, book).await;
-    // Preserve the independent fake-signer counter expected by the existing
-    // direct buyer tests below. No production signer state is ever reset.
+    s065_unsealed::assert_unsealed_admin_read(
+        &url, &accounts, &browser, &app, &without_g, &fake, book,
+    )
+    .await;
     fake.signed.store(0, Ordering::SeqCst);
     // A chapter ciphertext UUID is not an image B membership, even for
     // its valid buyer. No fallback to public media or generic G signing.

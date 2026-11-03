@@ -4,7 +4,7 @@ use super::*;
 use axum::response::{Html, IntoResponse};
 
 pub(super) async fn admin_reader(
-    State(state): State<GrantState>,
+    State(state): State<AdminReaderState>,
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
