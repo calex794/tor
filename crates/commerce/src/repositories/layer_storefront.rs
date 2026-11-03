@@ -76,7 +76,7 @@ pub async fn storefront(
                 ) AS has_cover
          FROM commerce_layer_version_books vb
          JOIN books b ON b.id=vb.book_id
-         WHERE vb.layer_version_id=$1 AND b.visibility='public'
+         WHERE vb.layer_version_id=$1 AND b.visibility='public' AND b.visibility_status='active'
            AND NOT b.admin_hold AND NOT b.is_deleted
          ORDER BY b.id LIMIT 40",
     )
@@ -172,7 +172,7 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
            WHERE r.term_id IS NULL
              AND t.started_at<=now()
              AND (t.expires_at IS NULL OR t.expires_at>now())
-             AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              AND c.visibility='public' AND c.access_level='paid'
              AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
              AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())

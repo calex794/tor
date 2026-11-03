@@ -28,7 +28,7 @@ impl ShowcaseRepository for PgShowcases {
         // Never use cached lists without publication-version invalidation.
         let rows = sqlx::query(
             "SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+             WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
                AND ($1::text IS NULL OR genres @> ARRAY[$1::text])
              ORDER BY id DESC LIMIT $2",
         )

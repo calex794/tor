@@ -44,7 +44,7 @@ impl PgReader {
              JOIN chapter_publications p ON p.chapter_id = c.id \
              JOIN chapter_versions v ON v.id = p.version_id AND v.chapter_id = c.id \
              JOIN books b ON b.id = c.book_id \
-             WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted \
+             WHERE b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted \
              AND c.visibility='public' AND c.access_level='free' \
              AND NOT c.admin_hold AND NOT c.is_deleted LIMIT 0",
         )
@@ -85,7 +85,7 @@ impl PgReader {
              JOIN books b ON b.id = c.book_id \
              JOIN chapter_publications p ON p.chapter_id = c.id \
              JOIN chapter_versions v ON v.id = p.version_id AND v.chapter_id = c.id \
-             WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' \
                AND c.access_level = 'paid' AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
@@ -130,7 +130,7 @@ impl PgReader {
         }
         let row = sqlx::query(
             "SELECT id, title, target_language, author_name, genres, description FROM books \
-             WHERE id = $1 AND visibility = 'public' AND NOT admin_hold AND NOT is_deleted",
+             WHERE id = $1 AND visibility = 'public' AND visibility_status = 'active' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -145,7 +145,7 @@ impl PgReader {
              JOIN books AS b ON b.id = c.book_id \
              JOIN chapter_publications AS p ON p.chapter_id = c.id \
              JOIN chapter_versions AS v ON v.id = p.version_id AND v.chapter_id = c.id \
-             WHERE c.book_id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.book_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
@@ -235,7 +235,7 @@ impl PublicReadingRepository for PgReader {
                   AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
                 ORDER BY following.chapter_no, following.id LIMIT 1 \
              ) AS next_public ON TRUE \
-             WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",

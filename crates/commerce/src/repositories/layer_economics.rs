@@ -48,7 +48,7 @@ pub(crate) async fn preflight_term_economics(
              JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
              JOIN books b ON b.id=vb.book_id
              WHERE origin.id=$1 AND base.id=$2 AND origin.layer_id=$3
-               AND (b.admin_hold OR b.is_deleted)
+               AND (b.admin_hold OR b.is_deleted OR b.visibility_status<>'active')
          )",
     )
     .bind(origin_version)

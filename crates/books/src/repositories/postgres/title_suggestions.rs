@@ -29,7 +29,7 @@ impl PgAuthoring {
             "SELECT b.id, b.title, b.target_language
              FROM unnest($1::text[]) AS search(term)
              JOIN books AS b
-               ON b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               ON b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
               AND b.target_language=$2
               AND (
                 search.term <% book_registration_public_title_text(

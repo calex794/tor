@@ -33,7 +33,7 @@ impl PgCheckout {
              JOIN books b ON b.id=c.book_id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
-             WHERE b.id=$1 AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
@@ -201,7 +201,7 @@ impl PgCheckout {
                  WHERE c.id=$1 AND c.visibility='public' AND c.access_level='paid'
                    AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
                    AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-                   AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                    AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
                  FOR SHARE OF c,p,b",
             )

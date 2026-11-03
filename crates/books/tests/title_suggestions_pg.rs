@@ -41,6 +41,26 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
         assert!(found.iter().any(|book| book.id == id), "{candidate}");
         assert!(found.iter().all(|book| book.id > 0));
     }
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for candidate in [&zh, &en, &title] {
+        let found = repo
+            .public_title_suggestions("ru", &[candidate])
+            .await
+            .unwrap();
+        assert!(
+            !found.iter().any(|book| book.id == id),
+            "moderated Book leaked via title suggestions: {candidate}"
+        );
+    }
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let other = repo.public_title_suggestions("en", &[&zh]).await.unwrap();
     assert!(!other.iter().any(|book| book.id == id));
     let forbidden = repo

@@ -29,10 +29,20 @@ pub(super) struct HoldForm {
     new_hold: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct VisibilityForm {
+    csrf_token: String,
+    expected_status: String,
+    expected_revision: i64,
+    new_status: String,
+}
+
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/moderation/books", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
+        .route("/moderation/books/{id}/visibility", post(submit_visibility))
         .merge(super::moderation_chapters::router())
 }
 
@@ -78,6 +88,34 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
             visibility = pages::escape_html(&row.visibility),
             held = row.admin_hold,
         ));
+        let mut choices = String::new();
+        for (value, label) in [
+            ("active", "Активна"),
+            ("hidden", "Скрыта"),
+            ("pending_moderation", "На модерации"),
+            ("blocked", "Заблокирована"),
+        ] {
+            let selected = if row.visibility_status == value {
+                " selected"
+            } else {
+                ""
+            };
+            choices.push_str(&format!(
+                r#"<option value="{value}"{selected}>{label}</option>"#
+            ));
+        }
+        list.push_str(&format!(
+            r#"<form method="post" action="/moderation/books/{id}/visibility">
+               <input type="hidden" name="csrf_token" value="{csrf}">
+               <input type="hidden" name="expected_status" value="{current}">
+               <input type="hidden" name="expected_revision" value="{revision}">
+               <label for="visibility-status-{id}">Видимость на сайте</label>
+               <select id="visibility-status-{id}" name="new_status">{choices}</select>
+               <button type="submit">Сохранить видимость</button></form>"#,
+            id = row.id,
+            current = pages::escape_html(&row.visibility_status),
+            revision = row.visibility_status_revision,
+        ));
     }
     if rows.is_empty() {
         list.push_str("<p>Книги отсутствуют.</p>");
@@ -92,7 +130,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
     }
     pages::layout(
         "Модерация книг",
-        "Контроль модерационных удержаний без доступа к покупкам.",
+        "Контроль видимости и удержаний без изменения публикации и покупок.",
         &format!(
             r#"<section class="me-page"><div class="container">
               <h1>Модерация книг</h1>
@@ -162,6 +200,42 @@ pub(super) async fn submit(
     }
 }
 
+pub(super) async fn submit_visibility(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<VisibilityForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    match state
+        .accounts
+        .moderate_book_visibility(
+            &digest,
+            id,
+            form.expected_revision,
+            &form.expected_status,
+            &form.new_status,
+        )
+        .await
+    {
+        Ok(_) => private_response(Redirect::to("/moderation/books"), &[]),
+        Err(error) => deny(error_code(error)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +245,8 @@ mod tests {
             id: 42,
             title: "<script>private</script>".into(),
             visibility: "draft".into(),
+            visibility_status: "pending_moderation".into(),
+            visibility_status_revision: 2,
             admin_hold: false,
             owner_user_id: None,
         }];
@@ -181,5 +257,9 @@ mod tests {
         assert!(html.contains("name=\"new_hold\" value=\"true\""));
         assert!(!html.contains("name=\"visibility\""));
         assert!(!html.contains("purchase_id"));
+        assert!(html.contains("name=\"expected_status\" value=\"pending_moderation\""));
+        assert!(html.contains("name=\"expected_revision\" value=\"2\""));
+        assert!(html.contains("/moderation/books/42/visibility"));
+        assert!(!html.contains("name=\"access_level\""));
     }
 }

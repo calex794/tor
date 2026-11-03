@@ -130,6 +130,22 @@ async fn e_08_book_rooms_canonical_join_rejoin_visibility_and_retry() {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rooms.join(b, first).await, Err(MailError::NotFound));
+    assert_eq!(rooms.messages(a, first, None, 50).await, Err(MailError::NotFound));
+    assert_eq!(
+        rooms.send(a, first, "Still hidden", &key(819)).await,
+        Err(MailError::NotFound)
+    );
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
     rooms.join(b, first).await.unwrap();
     assert_eq!(rooms.messages(b, first, None, 50).await.unwrap().len(), 2);
     cleanup(&pool, &users).await;

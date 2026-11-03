@@ -23,7 +23,7 @@ impl PgLibrary {
         let saved: Option<i64> = sqlx::query_scalar(
             "INSERT INTO reader_library_items (user_id, book_id) \
              SELECT $1, b.id FROM books AS b \
-             WHERE b.id = $2 AND b.visibility = 'public' \
+             WHERE b.id = $2 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id = EXCLUDED.book_id \
              RETURNING id",
@@ -70,7 +70,7 @@ impl PgLibrary {
              FROM reader_library_items AS li \
              JOIN books AS b ON b.id = li.book_id \
              WHERE li.user_id = $1 AND ($2::BIGINT IS NULL OR li.id < $2) \
-               AND b.visibility = 'public' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
              ORDER BY li.id DESC LIMIT $3",
         )
         .bind(user_id)

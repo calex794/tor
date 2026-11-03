@@ -197,6 +197,156 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     assert!(content.contains("&lt;script&gt;private moderation title&lt;/script&gt;"));
     assert!(!content.contains("<script>private moderation title</script>"));
     assert!(!content.contains("body_markdown"));
+
+    // S020: unlike Book team membership, site moderation controls the
+    // four-state visibility independent of author draft/public and hold.
+    let visibility_action = format!("/moderation/books/{book}/visibility");
+    assert!(content.contains(&visibility_action));
+    let before_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    let hidden_form =
+        format!("csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=hidden");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &outsider_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            "https://evil.invalid",
+            &hidden_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&expected_status=active&expected_revision=1&new_status=bad")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility||':'||visibility_status||':'||admin_hold::int
+             FROM books WHERE id={book}"
+            )
+        ),
+        "public:hidden:0"
+    );
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        request(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let hidden_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(hidden_total, before_total - 1);
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &hidden_form
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let active_form =
+        format!("csrf_token={csrf}&expected_status=hidden&expected_revision=2&new_status=active");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &active_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility_status_revision FROM books WHERE id={book}")
+        ),
+        "3"
+    );
+    let after_total: i64 = pg(
+        &url,
+        "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(after_total, before_total);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT actor_user_id || ':' || before_status || '>' || after_status
+             FROM moderation_book_visibility_events WHERE book_id={book} ORDER BY id"
+            )
+        ),
+        format!("{moderator}:active>hidden\n{moderator}:hidden>active")
+    );
     assert_eq!(
         request(
             &app,
@@ -279,6 +429,70 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    let blocked_form =
+        format!("csrf_token={csrf}&expected_status=active&expected_revision=3&new_status=blocked");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &mod_cookie,
+            ORIGIN,
+            &blocked_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "revoked site role has no moderation visibility rights"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_action,
+            &admin_cookie,
+            ORIGIN,
+            &blocked_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility||':'||visibility_status||':'||admin_hold::int
+             FROM books WHERE id={book}"
+            )
+        ),
+        "public:blocked:1"
+    );
+    // PostgreSQL trigger must reject deleting audit evidence. Keep the
+    // check within tor-web's existing psql-backed integration harness.
+    pg(
+        &url,
+        &format!(
+            "DO $$
+             BEGIN
+                 BEGIN
+                     DELETE FROM moderation_book_visibility_events WHERE book_id={book};
+                     RAISE EXCEPTION 'visibility audit was mutable';
+                 EXCEPTION WHEN check_violation THEN
+                     IF NOT EXISTS (
+                         SELECT 1 FROM moderation_book_visibility_events WHERE book_id={book}
+                     ) THEN
+                         RAISE EXCEPTION 'visibility audit unexpectedly absent';
+                     END IF;
+                 END;
+             END $$;"
+        ),
     );
     let release = format!("csrf_token={csrf}&expected_hold=true&new_hold=false");
     assert_eq!(
