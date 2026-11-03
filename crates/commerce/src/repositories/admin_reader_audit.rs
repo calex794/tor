@@ -41,7 +41,11 @@ impl PgAdminChapterAccessAudit {
         version: PositiveId,
         action: AdminReadAction,
     ) -> Result<(), DeliveryError> {
-        let mut tx = self.pool.begin().await.map_err(|_| DeliveryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
         let authorized: Option<i64> = sqlx::query_scalar(
             "SELECT u.id FROM users u
              JOIN sessions s ON s.user_id=u.id AND s.token_hash=$1
