@@ -12,8 +12,13 @@ pub enum ModerationBooksError {
     Unavailable,
 }
 
+// Row shape remains private to the bounded site-moderation queue.
+type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
+
 #[derive(Debug)]
 pub struct ModerationBook {
+    pub visibility_status: String,
+    pub visibility_status_revision: i64,
     pub id: i64,
     pub title: String,
     pub visibility: String,
@@ -60,8 +65,9 @@ impl PgAccounts {
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         current_moderator(&mut tx, session).await?;
-        let rows: Vec<(i64, String, String, bool, Option<i64>)> = sqlx::query_as(
-            "SELECT id,title,visibility,admin_hold,owner_user_id
+        let rows: Vec<ModerationBookRow> = sqlx::query_as(
+            "SELECT id,title,visibility,visibility_status,visibility_status_revision,
+                    admin_hold,owner_user_id
              FROM books WHERE NOT is_deleted
                AND ($1::bigint IS NULL OR id < $1)
              ORDER BY id DESC LIMIT 40",
@@ -76,10 +82,20 @@ impl PgAccounts {
         Ok(rows
             .into_iter()
             .map(
-                |(id, title, visibility, admin_hold, owner_user_id)| ModerationBook {
+                |(
                     id,
                     title,
                     visibility,
+                    visibility_status,
+                    visibility_status_revision,
+                    admin_hold,
+                    owner_user_id,
+                )| ModerationBook {
+                    id,
+                    title,
+                    visibility,
+                    visibility_status,
+                    visibility_status_revision,
                     admin_hold,
                     owner_user_id,
                 },
@@ -142,5 +158,75 @@ impl PgAccounts {
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
+    }
+    /// S020: only a live site moderator/administrator may modify the
+    /// NEwBOO four-state moderation visibility. Never change publication,
+    /// chapter visibility, access level, rights or the independent hold.
+    pub async fn moderate_book_visibility(
+        &self,
+        session: &[u8; 32],
+        book_id: i64,
+        expected_revision: i64,
+        expected_status: &str,
+        requested_status: &str,
+    ) -> Result<i64, ModerationBooksError> {
+        const STATES: [&str; 4] = ["active", "hidden", "pending_moderation", "blocked"];
+        if book_id <= 0
+            || expected_revision <= 0
+            || !STATES.contains(&expected_status)
+            || !STATES.contains(&requested_status)
+            || expected_status == requested_status
+        {
+            return Err(ModerationBooksError::Invalid);
+        }
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        // Live session + role FOR SHARE; concurrent role revocation waits.
+        let actor = current_moderator(&mut tx, session).await?;
+        let row: Option<(String, i64)> = sqlx::query_as(
+            "SELECT visibility_status,visibility_status_revision
+             FROM books WHERE id=$1 AND NOT is_deleted FOR UPDATE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        let (previous, revision) = row.ok_or(ModerationBooksError::Missing)?;
+        if revision != expected_revision || previous != expected_status {
+            return Err(ModerationBooksError::Stale);
+        }
+        let next = revision.checked_add(1).ok_or(ModerationBooksError::Stale)?;
+        sqlx::query(
+            "UPDATE books SET visibility_status=$2,visibility_status_revision=$3
+             WHERE id=$1 AND visibility_status_revision=$4",
+        )
+        .bind(book_id)
+        .bind(requested_status)
+        .bind(next)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO moderation_book_visibility_events
+             (actor_user_id,book_id,before_status,after_status,before_revision,after_revision)
+             VALUES($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(actor)
+        .bind(book_id)
+        .bind(previous)
+        .bind(requested_status)
+        .bind(revision)
+        .bind(next)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        Ok(next)
     }
 }

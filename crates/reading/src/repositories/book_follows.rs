@@ -24,7 +24,7 @@ impl PgBookFollows {
             return Err(FollowError::Invalid);
         }
         let found: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO reader_book_follows (user_id, book_id)              SELECT $1, b.id FROM books b WHERE b.id = $2              AND b.visibility = 'public' AND NOT b.admin_hold AND NOT b.is_deleted              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id = EXCLUDED.book_id RETURNING book_id"
+            "INSERT INTO reader_book_follows (user_id, book_id)              SELECT $1, b.id FROM books b WHERE b.id = $2              AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id = EXCLUDED.book_id RETURNING book_id"
         )
         .bind(user_id)
         .bind(book_id)

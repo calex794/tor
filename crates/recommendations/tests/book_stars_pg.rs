@@ -122,6 +122,33 @@ async fn f_05_pg_work_and_translation_are_independent_updatable_and_private() {
     assert_eq!((mine.work, mine.translation), (Some(3), Some(2)));
     let theirs = store.own_ratings(second, book).await.unwrap();
     assert_eq!((theirs.work, theirs.translation), (Some(1), None));
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store.visible_summary(book).await.unwrap().is_none());
+    assert!(!store.eligible(first, book).await.unwrap());
+    assert_eq!(
+        store.set_rating(first, book, StarKind::Work, 4).await,
+        Err(StarRatingError::NotEligible)
+    );
+    assert_eq!(store.own_ratings(first, book).await.unwrap().work, None);
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .votes,
+        2
+    );
     pool.close().await;
 }
 

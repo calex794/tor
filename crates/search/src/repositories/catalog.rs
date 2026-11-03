@@ -6,7 +6,7 @@ use sqlx::{PgPool, Row};
 
 const ASCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -19,7 +19,7 @@ ORDER BY id ASC LIMIT $3";
 
 const DESCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -90,7 +90,7 @@ pub(super) async fn read_page(
 /// This query is separate from the hot keyset path and must be opt-in.
 const FILTERED_TOTAL: &str = "
 SELECT COUNT(*) FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -139,7 +139,7 @@ pub(super) async fn count_filtered(
 // The extra id is the stable tie breaker for duplicate names.
 const TITLE_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -152,7 +152,7 @@ ORDER BY lower(title) ASC,id ASC LIMIT $4";
 
 const AUTHOR_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))

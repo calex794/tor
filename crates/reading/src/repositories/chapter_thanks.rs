@@ -45,7 +45,7 @@ impl PgChapterThanks {
              FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN chapter_publications p ON p.chapter_id=c.id
-             WHERE c.id=$1 AND b.visibility='public'
+             WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
@@ -82,7 +82,7 @@ impl PgChapterThanks {
                  SELECT c.book_id
                  FROM chapters c JOIN books b ON b.id=c.book_id
                  JOIN chapter_publications p ON p.chapter_id=c.id
-                 WHERE c.id=$1 AND b.visibility='public'
+                 WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                    AND NOT b.admin_hold AND NOT b.is_deleted
                    AND c.visibility='public' AND c.access_level='free'
                    AND NOT c.admin_hold AND NOT c.is_deleted

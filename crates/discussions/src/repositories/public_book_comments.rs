@@ -77,7 +77,7 @@ impl PgPublicBookComments {
              JOIN books b ON b.id=c.book_id
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND u.id<>$2
                AND (
                  left(lower(u.display_name),char_length($3::text))=lower($3)
@@ -151,7 +151,7 @@ impl PgPublicBookComments {
         // comment insert. Hidden/held/deleted objects never permit a new write.
         let allowed = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM books
-             WHERE id=$1 AND visibility='public'
+             WHERE id=$1 AND visibility='public' AND visibility_status='active'
                AND NOT admin_hold AND NOT is_deleted FOR SHARE",
         )
         .bind(book_id)
@@ -331,7 +331,7 @@ impl PgPublicBookComments {
                AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
                AND parent.version_id IS NULL AND reply.version_id IS NULL
                AND parent.visibility='visible' AND reply.visibility='visible'
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              ORDER BY reply.id DESC LIMIT $2",
         )
         .bind(actor_id)
@@ -380,7 +380,7 @@ impl PgPublicBookComments {
                  AND parent.visibility='visible'))
                AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                AND reply.visibility='visible'
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              FOR SHARE OF reply, b",
         )
         .bind(actor_id)
@@ -429,7 +429,7 @@ impl PgPublicBookComments {
         }
         let visible = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM books WHERE id=$1
-               AND visibility='public' AND NOT admin_hold AND NOT is_deleted",
+               AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(book_id)
         .fetch_optional(&self.pool)
@@ -442,7 +442,7 @@ impl PgPublicBookComments {
         let rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>)>(
             "SELECT c.id,c.author_user_id,c.body,c.parent_id
              FROM discussion_comments c JOIN books b ON b.id=c.book_id
-             WHERE b.id=$1 AND b.visibility='public'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='visible'
                AND ($2::BIGINT IS NULL OR c.id < $2)

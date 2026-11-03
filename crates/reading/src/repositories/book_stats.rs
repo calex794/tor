@@ -108,7 +108,7 @@ impl PgBookStats {
              WHERE c.id=$1 AND c.visibility='public' AND c.access_level='free'
                AND c.price_amount=0 AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(chapter_id)
         .fetch_optional(&mut *tx)

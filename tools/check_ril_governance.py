@@ -65,7 +65,7 @@ SCOPE_CALLS = {
     "manageable_book_description", "update_book_description",
     "manageable_book_source_links", "update_book_source_links",
     "manageable_lifecycle", "update_lifecycle",
-    "moderation_books", "moderate_book_hold",
+    "moderation_books", "moderate_book_hold", "moderate_book_visibility",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
@@ -303,6 +303,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         allowed_moderation = {
             ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
+            ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
             ("GET", "/moderation/chapters", "page"): "crates/web/src/auth/moderation_chapters.rs",
             ("POST", "/moderation/chapters/{id}/hold", "submit"): "crates/web/src/auth/moderation_chapters.rs",
         }
@@ -421,7 +422,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             if entry["method"] == "GET":
                 operation = "moderation_chapters" if is_chapter else "moderation_books"
             else:
-                operation = "moderate_chapter_hold" if is_chapter else "moderate_book_hold"
+                operation = (
+                    "moderate_chapter_hold" if is_chapter else
+                    "moderate_book_visibility" if entry["handler"] == "submit_visibility"
+                    else "moderate_book_hold"
+                )
             scoped = (
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
                 and "session_token_digest(&token)" in evidence
