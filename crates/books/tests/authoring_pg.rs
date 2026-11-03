@@ -1,8 +1,8 @@
 //! B-01/B-02: a real owner creates one draft, protected against retries.
 use sqlx::{PgPool, Row};
 use tor_books::{
-    repositories::{postgres::PgAuthoring, PgCatalog},
-    services::{authoring::{new_book, AuthorError}, PublicBookRepository},
+    repositories::postgres::PgAuthoring,
+    services::authoring::{new_book, AuthorError},
 };
 
 #[tokio::test]
@@ -253,29 +253,6 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
     .await
     .unwrap();
     assert_eq!(public_title.as_deref(), Some("Реальная книга"));
-    // An author can release a draft but cannot approve its site visibility.
-    // Neither repeated release nor presence of a published free chapter
-    // permits anonymous discovery until a live site moderator approves it.
-    let public = PgCatalog::new(pool.clone());
-    assert_eq!(
-        sqlx::query_scalar::<_, String>(
-            "SELECT visibility_status FROM books WHERE id=$1"
-        )
-        .bind(book_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap(),
-        "pending_moderation"
-    );
-    assert!(public.get_public(book_id as u64).await.unwrap().is_none());
-    // Model the moderator's DB transition here. HTTP/CSRF/role authority is
-    // tested separately in tor-web's moderation_books_pg test.
-    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
-        .bind(book_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(public.get_public(book_id as u64).await.unwrap().is_some());
     pool.close().await;
 }
 

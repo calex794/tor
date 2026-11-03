@@ -173,9 +173,7 @@ impl PgAuthoring {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-    /// New books require a site moderator's explicit active transition.
-    /// Existing books inherit the migration's legacy-active backfill only.
-    /// A successful command creates exactly one private draft. Concurrent retries
+    /// Creates one private draft requiring site approval. Concurrent retries
     /// with the same payload return the original ID; changed payloads conflict.
     pub async fn create_owned_book(
         &self,
