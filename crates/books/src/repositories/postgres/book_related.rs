@@ -78,7 +78,11 @@ impl PgAuthoring {
         book_id: i64,
         title: &str,
     ) -> Result<Vec<RelatedBookCard>, AuthorError> {
-        if self.manageable_related_books(actor, book_id).await?.is_none() {
+        if self
+            .manageable_related_books(actor, book_id)
+            .await?
+            .is_none()
+        {
             return Err(AuthorError::Missing);
         }
         let needle = normalized_title(title);
