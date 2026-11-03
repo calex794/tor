@@ -76,7 +76,8 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
         }
         // Moderator publish/draft pins the displayed edition and revision.
         // Version identifiers are metadata; no chapter text is rendered.
-        for (next_state, label) in [("published", "Опубликовать"), ("draft", "В черновик")] {
+        for (next_state, label) in [("published", "Опубликовать"), ("draft", "В черновик")]
+        {
             if (next_state == "published" && row.visibility == "public" && !row.admin_hold)
                 || (next_state == "draft" && row.visibility == "draft" && !row.admin_hold)
                 || (next_state == "published" && row.current_version_id.is_none())
@@ -228,24 +229,34 @@ pub(super) async fn submit(
         form.expected_visibility.as_deref(),
         form.expected_revision,
     ) {
-        (Some(expected), Some(next @ ("published" | "draft")), None, None, Some(visibility), Some(revision)) => {
-            state.accounts
+        (
+            Some(expected),
+            Some(next @ ("published" | "draft")),
+            None,
+            None,
+            Some(visibility),
+            Some(revision),
+        ) => {
+            state
+                .accounts
                 .moderate_chapter_publication(
-                    &digest, id, expected, visibility, revision, form.expected_version, next
+                    &digest,
+                    id,
+                    expected,
+                    visibility,
+                    revision,
+                    form.expected_version,
+                    next,
                 )
                 .await
         }
-        (Some(expected), Some(next), None, None, None, None)
-            if form.expected_version.is_none() =>
-        {
+        (Some(expected), Some(next), None, None, None, None) if form.expected_version.is_none() => {
             state
                 .accounts
                 .moderate_chapter_decision(&digest, id, expected, next)
                 .await
         }
-        (None, None, Some(expected), Some(next), None, None)
-            if form.expected_version.is_none() =>
-        {
+        (None, None, Some(expected), Some(next), None, None) if form.expected_version.is_none() => {
             state
                 .accounts
                 .moderate_chapter_hold(&digest, id, expected, next)
