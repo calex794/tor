@@ -1,5 +1,6 @@
-//! Owner link settings: isolated database, atomicity, permissions and races.
+//! S019/S020: source-link editor ACL, atomicity, claims and revocation.
 use sqlx::PgPool;
+use tor_books::repositories::book_members::PgBookMembers;
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::{
@@ -10,6 +11,7 @@ use tor_books::{
         },
     },
 };
+use tor_contracts::access::BookRole;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
@@ -72,7 +74,7 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
     let id = author.create_owned_book(owner, &book).await.unwrap();
 
     let read = author
-        .owned_book_source_links(owner, id)
+        .manageable_book_source_links(owner, id)
         .await
         .unwrap()
         .unwrap();
@@ -80,12 +82,12 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
     assert_eq!(read.extra.len(), 2);
     assert_eq!(read.revision, 1);
     assert!(author
-        .owned_book_source_links(outsider, id)
+        .manageable_book_source_links(outsider, id)
         .await
         .unwrap()
         .is_none());
     assert!(author
-        .owned_book_source_links(owner, -1)
+        .manageable_book_source_links(owner, -1)
         .await
         .unwrap()
         .is_none());
@@ -108,7 +110,7 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         Ok(2)
     );
     let after = author
-        .owned_book_source_links(owner, id)
+        .manageable_book_source_links(owner, id)
         .await
         .unwrap()
         .unwrap();
@@ -177,7 +179,7 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         "a link claimed by another owner must not be stolen"
     );
     let after_failed = author
-        .owned_book_source_links(owner, id)
+        .manageable_book_source_links(owner, id)
         .await
         .unwrap()
         .unwrap();
@@ -279,5 +281,114 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         Err(AuthorError::Conflict),
         "historical canonical links from any site remain protected"
     );
+
+    // S020: this editor is scoped to active members, not website-wide roles.
+    let translator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S020 Source translator','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("s020-link-translator-{marker}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let moderator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S020 Source moderator','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("s020-link-moderator-{marker}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let members = PgBookMembers::new(pool.clone());
+    members
+        .add_collaborator(owner, id, translator, BookRole::Translator)
+        .await
+        .unwrap();
+    members
+        .add_collaborator(owner, id, moderator, BookRole::Moderator)
+        .await
+        .unwrap();
+    assert!(author
+        .manageable_book_source_links(translator, id)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(author
+        .manageable_book_source_links(moderator, id)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(author
+        .manageable_book_source_links(translator, other_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        author
+            .update_book_source_links(translator, other_id, 1, [&updated_original, "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    let member_mirror = format!("https://members.example.org/novel/{marker}");
+    assert_eq!(
+        author
+            .update_book_source_links(translator, id, 3, [&updated_original, &member_mirror, ""])
+            .await,
+        Ok(4)
+    );
+    assert_eq!(
+        author
+            .update_book_source_links(moderator, id, 4, [&updated_original, "", ""])
+            .await,
+        Ok(5)
+    );
+    assert_eq!(
+        author
+            .update_book_source_links(translator, id, 4, [&updated_original, "", ""])
+            .await,
+        Err(AuthorError::Conflict)
+    );
+
+    members
+        .revoke_collaborator(owner, id, moderator)
+        .await
+        .unwrap();
+    assert!(author
+        .manageable_book_source_links(moderator, id)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        author
+            .update_book_source_links(moderator, id, 5, [&updated_original, "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(author
+        .manageable_book_source_links(owner, id)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        author
+            .update_book_source_links(translator, id, 5, [&updated_original, "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE books SET admin_hold=FALSE,is_deleted=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(author
+        .manageable_book_source_links(translator, id)
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }

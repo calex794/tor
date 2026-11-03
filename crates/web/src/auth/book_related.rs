@@ -101,7 +101,7 @@ fn render(
          <input id="related-name" name="title" maxlength="200" required>
          <button type="submit">Найти по названию</button>
          </form><p>{info}</p>{options}
-         <p><a href="/me/books/{id}">Вернуться к книге</a></p>
+         <p><a href="/me/books/{id}/settings">Все настройки книги</a></p>
          </div></div></section>"#,
         title = pages::escape_html(&book.title),
         csrf = pages::escape_html(csrf),
