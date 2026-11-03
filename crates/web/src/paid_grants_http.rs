@@ -34,6 +34,7 @@ use tor_books::repositories::{
     paid_storage::{PgAdminPaidStorage, PgPaidStorage},
 };
 use tor_commerce::repositories::{
+    admin_reader_audit::{AdminReadAction, PgAdminChapterAccessAudit},
     admin_reader_entitlements::PgAdministratorReaderEntitlements,
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
@@ -84,6 +85,7 @@ struct GrantState {
     first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
     admin_versions: PgAdminPaidStorage,
+    admin_audit: PgAdminChapterAccessAudit,
     assets: PgPaidAssets,
     admin_assets: PgAdminPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -101,6 +103,7 @@ struct GrantState {
 struct AdminReaderState {
     accounts: PgAccounts,
     admin_unsealed: PgAdminUnsealedText,
+    admin_audit: PgAdminChapterAccessAudit,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
     reader_s3_origin: Option<String>,
@@ -359,6 +362,7 @@ fn administrator_routes(
 ) -> Router {
     let state = AdminReaderState {
         admin_unsealed: PgAdminUnsealedText::new(accounts.pool().clone()),
+        admin_audit: PgAdminChapterAccessAudit::new(accounts.pool().clone()),
         accounts,
         cookies,
         rate_limits,
@@ -429,6 +433,7 @@ fn router_inner(
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         admin_versions: PgAdminPaidStorage::new(pool.clone()),
+        admin_audit: PgAdminChapterAccessAudit::new(pool.clone()),
         assets: PgPaidAssets::new(pool.clone()),
         admin_assets: PgAdminPaidAssets::new(pool),
         storage,
