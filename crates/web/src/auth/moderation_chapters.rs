@@ -29,6 +29,9 @@ pub(super) struct HoldForm {
     new_hold: Option<bool>,
     expected_state: Option<String>,
     next_state: Option<String>,
+    expected_visibility: Option<String>,
+    expected_revision: Option<i64>,
+    expected_version: Option<i64>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -69,6 +72,32 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
                 <button type="submit">{label}</button></form>"#,
                 id = row.id,
                 expected = pages::escape_html(&row.moderation_state),
+            ));
+        }
+        // Moderator publish/draft pins the displayed edition and revision.
+        // Version identifiers are metadata; no chapter text is rendered.
+        for (next_state, label) in [("published", "Опубликовать"), ("draft", "В черновик")] {
+            if (next_state == "published" && row.visibility == "public" && !row.admin_hold)
+                || (next_state == "draft" && row.visibility == "draft" && !row.admin_hold)
+                || (next_state == "published" && row.current_version_id.is_none())
+            {
+                continue;
+            }
+            let version_field = row.current_version_id.map_or_else(String::new, |id| {
+                format!(r#"<input type="hidden" name="expected_version" value="{id}">"#)
+            });
+            actions.push_str(&format!(
+                r#"<form method="post" action="/moderation/chapters/{id}/hold">
+                <input type="hidden" name="csrf_token" value="{csrf}">
+                <input type="hidden" name="expected_state" value="{expected_state}">
+                <input type="hidden" name="expected_visibility" value="{visibility}">
+                <input type="hidden" name="expected_revision" value="{revision}">
+                {version_field}
+                <input type="hidden" name="next_state" value="{next_state}">
+                <button type="submit">{label}</button></form>"#,
+                id = row.id,
+                expected_state = pages::escape_html(&row.moderation_state),
+                revision = row.edit_revision,
             ));
         }
         cards.push_str(&format!(
@@ -196,14 +225,27 @@ pub(super) async fn submit(
         form.next_state.as_deref(),
         form.expected_hold,
         form.new_hold,
+        form.expected_visibility.as_deref(),
+        form.expected_revision,
     ) {
-        (Some(expected), Some(next), None, None) => {
+        (Some(expected), Some(next @ ("published" | "draft")), None, None, Some(visibility), Some(revision)) => {
+            state.accounts
+                .moderate_chapter_publication(
+                    &digest, id, expected, visibility, revision, form.expected_version, next
+                )
+                .await
+        }
+        (Some(expected), Some(next), None, None, None, None)
+            if form.expected_version.is_none() =>
+        {
             state
                 .accounts
                 .moderate_chapter_decision(&digest, id, expected, next)
                 .await
         }
-        (None, None, Some(expected), Some(next)) => {
+        (None, None, Some(expected), Some(next), None, None)
+            if form.expected_version.is_none() =>
+        {
             state
                 .accounts
                 .moderate_chapter_hold(&digest, id, expected, next)
@@ -235,6 +277,8 @@ mod tests {
             moderation_state: "none".into(),
             has_publication: false,
             has_version: true,
+            edit_revision: 1,
+            current_version_id: Some(42),
         }];
         let html = render(&rows, "csrf", "draft");
         assert!(html.contains("&lt;book&gt;"));
@@ -247,5 +291,7 @@ mod tests {
         assert!(html.contains("name=\"next_state\" value=\"blocked\""));
         assert!(html.contains("name=\"expected_state\" value=\"none\""));
         assert!(!html.contains("name=\"new_hold\""));
+        assert!(html.contains("name=\"next_state\" value=\"published\""));
+        assert!(html.contains("name=\"expected_version\" value=\"42\""));
     }
 }
