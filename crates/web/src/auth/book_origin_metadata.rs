@@ -9,10 +9,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_books::{
-    repositories::postgres::OwnedOriginMetadata,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::OwnedOriginMetadata, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,14 +22,14 @@ pub(super) struct OriginForm {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route(
-        "/me/books/{id}/settings/origin",
-        get(edit).post(save),
-    )
+    Router::new().route("/me/books/{id}/settings/origin", get(edit).post(save))
 }
 
 fn render(book_id: i64, book: &OwnedOriginMetadata, csrf: &str) -> Html<String> {
-    let year = book.release_year.map(|value| value.to_string()).unwrap_or_default();
+    let year = book
+        .release_year
+        .map(|value| value.to_string())
+        .unwrap_or_default();
     let language = pages::escape_html(&book.original_language);
     let mut sections = String::new();
     for (code, name) in [
@@ -44,8 +41,14 @@ fn render(book_id: i64, book: &OwnedOriginMetadata, csrf: &str) -> Html<String> 
         ("novels/original", "Авторские произведения"),
         ("fanfic/translated", "Переводы фанфиков"),
     ] {
-        let selected = if book.catalog_section == code { " selected" } else { "" };
-        sections.push_str(&format!("<option value=\"{code}\"{selected}>{name}</option>"));
+        let selected = if book.catalog_section == code {
+            " selected"
+        } else {
+            ""
+        };
+        sections.push_str(&format!(
+            "<option value=\"{code}\"{selected}>{name}</option>"
+        ));
     }
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
@@ -103,7 +106,9 @@ pub(super) async fn save(
     Form(form): Form<OriginForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -112,10 +117,18 @@ pub(super) async fn save(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    match state.authoring.update_origin_metadata(
-        actor, book_id, form.expected_revision, &form.original_language,
-        &form.release_year, &form.catalog_section,
-    ).await {
+    match state
+        .authoring
+        .update_origin_metadata(
+            actor,
+            book_id,
+            form.expected_revision,
+            &form.original_language,
+            &form.release_year,
+            &form.catalog_section,
+        )
+        .await
+    {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
