@@ -12,7 +12,7 @@ use axum::{
     Router,
 };
 use sqlx::PgPool;
-use std::{env, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{env, num::NonZeroU32, sync::Arc};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
