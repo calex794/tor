@@ -34,8 +34,7 @@ pub(super) async fn assert_unsealed_admin_read(
     fake: &Arc<FakeG>,
     book: i64,
 ) {
-    let (admin_id, admin_session) =
-        account(accounts, "s065-admin-unsealed@tor-ci.example").await;
+    let (admin_id, admin_session) = account(accounts, "s065-admin-unsealed@tor-ci.example").await;
     let (_, outsider) = account(accounts, "s065-unsealed-outsider@tor-ci.example").await;
     pg(
         url,
@@ -95,9 +94,24 @@ pub(super) async fn assert_unsealed_admin_read(
         );
         for (session, token, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
-            (Some(outsider.as_str()), Some(csrf.as_str()), Some(ORIGIN), StatusCode::FORBIDDEN),
-            (Some(admin_session.as_str()), None, Some(ORIGIN), StatusCode::FORBIDDEN),
-            (Some(admin_session.as_str()), Some(csrf.as_str()), Some("https://evil.invalid"), StatusCode::FORBIDDEN),
+            (
+                Some(outsider.as_str()),
+                Some(csrf.as_str()),
+                Some(ORIGIN),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(admin_session.as_str()),
+                None,
+                Some(ORIGIN),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(admin_session.as_str()),
+                Some(csrf.as_str()),
+                Some("https://evil.invalid"),
+                StatusCode::FORBIDDEN,
+            ),
         ] {
             let denied = send(app, &content_path, session, token, origin, "{}").await;
             assert_eq!(denied.status(), expected);
@@ -116,10 +130,8 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(permitted.status(), StatusCode::OK);
         assert_eq!(permitted.headers()[header::CACHE_CONTROL], "no-store");
         assert_eq!(permitted.headers()[header::REFERRER_POLICY], "no-referrer");
-        let payload: Value = serde_json::from_slice(
-            &to_bytes(permitted.into_body(), 8192).await.unwrap(),
-        )
-        .unwrap();
+        let payload: Value =
+            serde_json::from_slice(&to_bytes(permitted.into_body(), 8192).await.unwrap()).unwrap();
         assert_eq!(payload["schema"], "tor.admin_unsealed.v1");
         assert_eq!(payload["chapter_id"], chapter.to_string());
         assert_eq!(payload["version_id"], version.to_string());
@@ -149,10 +161,8 @@ pub(super) async fn assert_unsealed_admin_read(
         )
         .await;
         assert_eq!(switched.status(), StatusCode::OK);
-        let payload: Value = serde_json::from_slice(
-            &to_bytes(switched.into_body(), 8192).await.unwrap(),
-        )
-        .unwrap();
+        let payload: Value =
+            serde_json::from_slice(&to_bytes(switched.into_body(), 8192).await.unwrap()).unwrap();
         assert_eq!(payload["version_id"], next.to_string());
         assert_eq!(payload["body_markdown"], "NEW PRIVATE REVISION");
         assert!(!payload.to_string().contains(body));
@@ -197,5 +207,8 @@ pub(super) async fn assert_unsealed_admin_read(
     )
     .await;
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
-    assert!(to_bytes(revoked.into_body(), 8192).await.unwrap().is_empty());
+    assert!(to_bytes(revoked.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
 }
