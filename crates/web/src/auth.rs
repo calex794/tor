@@ -426,7 +426,6 @@ fn router_inner(
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
