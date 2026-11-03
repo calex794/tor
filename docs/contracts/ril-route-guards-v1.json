@@ -3,6 +3,13 @@
   "note": "Policy rows bind each registered Axum method+template+handler+source. A duplicate route may have different handlers in demo vs PG-backed mode.",
   "routes": [
     {
+      "method": "GET",
+      "template": "/__bp_honeypot/{*trap_name}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "honeypot::trap",
+      "policy": "deny"
+    },
+    {
       "method": "DELETE",
       "template": "/api/v1/me/library/{id}",
       "source": "crates/web/src/auth.rs",
