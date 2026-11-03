@@ -32,8 +32,23 @@ impl PgReadingProgress {
         version_id: i64,
     ) -> Result<SavedPlaceState, ProgressError> {
         let row = sqlx::query(
-            "SELECT version_id, block_index, char_offset FROM reader_book_positions \
-             WHERE user_id = $1 AND chapter_id = $2",
+            "SELECT saved.version_id, saved.block_index, saved.char_offset \
+             FROM reader_book_positions AS saved \
+             JOIN chapters AS c ON c.id=saved.chapter_id \
+             JOIN books AS b ON b.id=c.book_id \
+             JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
+             WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
+               AND b.visibility='public' AND b.visibility_status='active' \
+               AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.lifecycle_status<>'pending_deletion' \
+               AND (b.access_level='basic' \
+               OR (b.access_level='adult' AND viewer.adult_enabled) \
+               OR (b.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS grant \
+                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
+               AND c.visibility='public' AND c.access_level='free' \
+               AND NOT c.admin_hold AND NOT c.is_deleted \
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())",
         )
         .bind(user_id)
         .bind(chapter_id)
@@ -72,12 +87,19 @@ impl PgReadingProgress {
                          THEN progress.block_index ELSE 0 END AS block_index \
              FROM reader_book_positions AS progress \
              JOIN books AS b ON b.id = progress.book_id \
+             JOIN users AS viewer ON viewer.id=progress.user_id AND viewer.account_state='active' \
              JOIN chapters AS c ON c.id = progress.chapter_id AND c.book_id = b.id \
              JOIN chapter_publications AS publication ON publication.chapter_id = c.id \
              JOIN chapter_versions AS v \
                ON v.id = publication.version_id AND v.chapter_id = c.id \
              WHERE progress.user_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.lifecycle_status<>'pending_deletion' \
+               AND (b.access_level='basic' \
+               OR (b.access_level='adult' AND viewer.adult_enabled) \
+               OR (b.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS grant \
+                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
@@ -137,11 +159,18 @@ impl PgReadingProgress {
              SELECT $1, c.book_id, c.id, c.chapter_no, c.edit_revision, $3, $4, $5 \
              FROM chapters AS c \
              JOIN books AS b ON b.id = c.book_id \
+             JOIN users AS viewer ON viewer.id=$1 AND viewer.account_state='active' \
              JOIN chapter_publications AS published ON published.chapter_id = c.id \
              JOIN chapter_versions AS v \
                  ON v.id = published.version_id AND v.chapter_id = c.id \
              WHERE c.id = $2 AND published.version_id = $3 \
                AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.lifecycle_status<>'pending_deletion' \
+               AND (b.access_level='basic' \
+               OR (b.access_level='adult' AND viewer.adult_enabled) \
+               OR (b.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS grant \
+                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
@@ -177,14 +206,22 @@ impl PgReadingProgress {
         let current: Option<i64> = sqlx::query_scalar(
             "SELECT published.version_id FROM chapters c \
              JOIN books b ON b.id = c.book_id \
+             JOIN users AS viewer ON viewer.id=$2 AND viewer.account_state='active' \
              JOIN chapter_publications published ON published.chapter_id = c.id \
              WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.lifecycle_status<>'pending_deletion' \
+               AND (b.access_level='basic' \
+               OR (b.access_level='adult' AND viewer.adult_enabled) \
+               OR (b.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS grant \
+                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
         )
         .bind(chapter_id)
+        .bind(user_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| ProgressError::Unavailable)?;
