@@ -176,7 +176,7 @@ mod tests {
         let html = render(&rows, "csrf");
         assert!(html.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
-        assert!(html.contains("value=\"draft\"") == false);
+        assert!(!html.contains("value=\"draft\""));
         assert!(html.contains("name=\"new_hold\" value=\"true\""));
         assert!(!html.contains("name=\"visibility\""));
         assert!(!html.contains("purchase_id"));
