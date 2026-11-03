@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 258)  # Adds MOD-B01 scoped queue and hold.
-        self.assertEqual(report["route_pairs"], 254)  # Includes S020 related books and S036 approval POST.
+        self.assertEqual(report["route_pairs"], 256)  # Adds two MOD-B01 route pairs.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
