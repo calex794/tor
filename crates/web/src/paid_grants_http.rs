@@ -34,6 +34,7 @@ use tor_books::repositories::{
     paid_storage::{PgAdminPaidStorage, PgPaidStorage},
 };
 use tor_commerce::repositories::{
+    admin_reader_audit::{AdminReadAction, PgAdminChapterAccessAudit},
     admin_reader_entitlements::PgAdministratorReaderEntitlements,
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
@@ -84,7 +85,7 @@ struct GrantState {
     first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
     admin_versions: PgAdminPaidStorage,
-    admin_unsealed: PgAdminUnsealedText,
+    admin_audit: PgAdminChapterAccessAudit,
     assets: PgPaidAssets,
     admin_assets: PgAdminPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -93,6 +94,19 @@ struct GrantState {
     concurrent: Arc<Semaphore>,
     reader_s3_origin: Option<String>,
     layer_reader_enabled: bool,
+}
+
+/// This capability never needs G, KEKs or a purchased-content grant.
+/// Keep it separable from GrantState so the default PG/auth runtime can
+/// inspect current unsealed drafts without enabling private S3 storage.
+#[derive(Clone)]
+struct AdminReaderState {
+    accounts: PgAccounts,
+    admin_unsealed: PgAdminUnsealedText,
+    admin_audit: PgAdminChapterAccessAudit,
+    cookies: CookiePolicy,
+    rate_limits: Arc<Mutex<RateLimits>>,
+    reader_s3_origin: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -328,8 +342,45 @@ async fn purchased_library(
     response
 }
 
-/// Mount this router ONLY after explicit operator enablement and valid
-/// private S3 + separate content KEK configuration. No demo or default route.
+/// A-only administrative reading of current unsealed B editions.
+/// This router is enabled by authenticated PostgreSQL wiring, not by paid
+/// grants, and must never mount paid buyer or S3 delivery routes.
+pub(crate) fn administrator_only_router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
+    administrator_routes(
+        accounts,
+        cookies,
+        None,
+        Arc::new(Mutex::new(RateLimits::default())),
+    )
+}
+
+fn administrator_routes(
+    accounts: PgAccounts,
+    cookies: CookiePolicy,
+    reader_s3_origin: Option<String>,
+    rate_limits: Arc<Mutex<RateLimits>>,
+) -> Router {
+    let state = AdminReaderState {
+        admin_unsealed: PgAdminUnsealedText::new(accounts.pool().clone()),
+        admin_audit: PgAdminChapterAccessAudit::new(accounts.pool().clone()),
+        accounts,
+        cookies,
+        rate_limits,
+        reader_s3_origin,
+    };
+    Router::new()
+        .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+            post(admin_unsealed::read),
+        )
+        .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
+        .layer(DefaultBodyLimit::max(512))
+        .with_state(state)
+}
+
+/// Mount paid G routes ONLY after explicit operator enablement and valid
+/// private S3 + separate content KEK configuration.
 pub(crate) fn router(
     accounts: PgAccounts,
     cookies: CookiePolicy,
@@ -368,6 +419,13 @@ fn router_inner(
         reader_s3_origin.as_deref(),
         std::env::var("TOR_LAYER_READER_ENABLED").ok().as_deref(),
     );
+    let rate_limits = Arc::new(Mutex::new(RateLimits::default()));
+    let admin_routes = administrator_routes(
+        accounts.clone(),
+        cookies.clone(),
+        reader_s3_origin.clone(),
+        rate_limits.clone(),
+    );
     let state = GrantState {
         accounts,
         entitlement: PgDirectEntitlements::new(pool.clone()),
@@ -375,12 +433,12 @@ fn router_inner(
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         admin_versions: PgAdminPaidStorage::new(pool.clone()),
-        admin_unsealed: PgAdminUnsealedText::new(pool.clone()),
+        admin_audit: PgAdminChapterAccessAudit::new(pool.clone()),
         assets: PgPaidAssets::new(pool.clone()),
         admin_assets: PgAdminPaidAssets::new(pool),
         storage,
         cookies,
-        rate_limits: Arc::new(Mutex::new(RateLimits::default())),
+        rate_limits,
         concurrent: Arc::new(Semaphore::new(MAX_CONCURRENT_SIGNINGS)),
         reader_s3_origin,
         layer_reader_enabled,
@@ -399,12 +457,6 @@ fn router_inner(
     }
     if state.reader_s3_origin.is_some() {
         app = app
-            .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
-            .route(
-                "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
-                post(admin_unsealed::read),
-            )
-            .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",
@@ -412,7 +464,9 @@ fn router_inner(
             )
             .route("/me/purchases", get(purchased_library));
     }
-    app.layer(DefaultBodyLimit::max(512)).with_state(state)
+    app.layer(DefaultBodyLimit::max(512))
+        .with_state(state)
+        .merge(admin_routes)
 }
 
 #[cfg(test)]

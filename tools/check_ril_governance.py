@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -58,6 +58,11 @@ SCOPE_CALLS = {
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free", "create_paid",
+    "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
+    "manageable_project_status", "update_project_status",
+    "owned_book_titles", "update_book_titles",
+    "manageable_origin_metadata", "update_origin_metadata",
+    "moderation_books", "moderate_book_hold",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
@@ -70,6 +75,7 @@ OWNER_CALLS = {
     "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
     "owned_book_source_links", "update_book_source_links",
+
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",
@@ -229,7 +235,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     audited_refund = (policy == "admin_refund"
                       and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
                       and admin_key == ("GET", "/admin/finance/refunds", "page"))
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund):
+    approved_refund = (
+        policy == "admin_refund_approve"
+        and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
+        and admin_key == ("POST", "/admin/finance/refunds/approve", "approval::submit")
+    )
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_refund" and not (
             audited_refund
@@ -238,6 +249,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "session_token_digest" in evidence
             and "session_user(&state, &headers)" in evidence):
         errors.append(f"{label}: S036 administrator refund view must bind active session and audited read")
+    if policy == "admin_refund_approve":
+        required = (
+            "!enabled(&state)",
+            "session_user(&state, &headers)",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers",
+            "permit_auth_attempt(&attempt_key, 6, 600)",
+            "verify_password_for_step_up(&password, &password_hash)",
+            "approval_step_up_payload_digest(actor, request, revision, reason)",
+            ".issue_administrator_refund_step_up(",
+        )
+        approval_call = re.search(
+            r"\.approve_once\s*\(\s*actor,\s*&session_digest,\s*&proof_token,\s*request,\s*revision,\s*reason,?\s*\)",
+            evidence,
+        )
+        if not approved_refund or not all(marker in evidence for marker in required) or not approval_call:
+            errors.append(f"{label}: S036 approval must retain live administrator session, fresh password, one-use proof, CSRF, opt-in and transactional approval")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
         if not method:
@@ -269,6 +297,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "valid_token(t)" in identity
                 and '"tor-support:{token}"' in identity):
             errors.append(f"{label}: missing support requester capability boundary")
+    if entry["template"].startswith("/moderation/"):
+        allowed_moderation = {
+            ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
+            ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/chapters", "page"): "crates/web/src/auth/moderation_chapters.rs",
+            ("POST", "/moderation/chapters/{id}/hold", "submit"): "crates/web/src/auth/moderation_chapters.rs",
+        }
+        if (allowed_moderation.get(admin_key) != entry["source"]
+                or policy != "scoped"):
+            errors.append(f"{label}: unreviewed moderator capability surface")
+        if not ("session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "StatusCode::UNAUTHORIZED" in evidence):
+            errors.append(f"{label}: moderator route lacks live A role guard")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
@@ -365,6 +408,22 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
+            )
+        elif entry["source"] in {
+            "crates/web/src/auth/moderation_books.rs",
+            "crates/web/src/auth/moderation_chapters.rs",
+        }:
+            # Both reviewed moderation capabilities use a digest bound to the
+            # live role, and lock it again in the same PG mutation transaction.
+            is_chapter = entry["source"].endswith("moderation_chapters.rs")
+            if entry["method"] == "GET":
+                operation = "moderation_chapters" if is_chapter else "moderation_books"
+            else:
+                operation = "moderate_chapter_hold" if is_chapter else "moderate_book_hold"
+            scoped = (
+                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
+                and "session_token_digest(&token)" in evidence
+                and "session_actor(&digest)" in evidence
             )
         else:
             scoped = _contains_scoped_call(evidence, proof)

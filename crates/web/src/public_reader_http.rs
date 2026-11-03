@@ -19,10 +19,10 @@ pub(super) struct PublicIssueQuery {
     pub comments_after: Option<i64>,
 }
 
-/// Only a live A administrator with a sealed B/G paid edition may leave the
-/// canonical public reader for the private admin reader. No role, version,
-/// purchase identity or private metadata is taken from the URL/query string.
-async fn administrator_paid_redirect(
+/// Only a live A administrator with either an authorized unsealed current
+/// edition or a sealed B/G paid edition may reach the private admin reader.
+/// No role, version, purchase identity or private metadata comes from a query.
+async fn administrator_private_redirect(
     state: &AppState,
     headers: &HeaderMap,
     id: u64,
@@ -54,27 +54,43 @@ async fn administrator_paid_redirect(
     let actor_id =
         PositiveId::new(actor.actor.user_id.get()).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let authority = PgAdministratorReaderEntitlements::new(accounts.pool().clone(), digest);
-    match authority
-        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
-        .await
-    {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {
-            let mut response =
-                auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
-            response.headers_mut().insert(
-                header::REFERRER_POLICY,
-                HeaderValue::from_static("no-referrer"),
-            );
-            response.headers_mut().insert(
-                "x-robots-tag",
-                HeaderValue::from_static("noindex, nofollow"),
-            );
-            Ok(Some(response))
-        }
-        Ok(EntitlementDecision::Denied { .. }) => Ok(None),
-        Ok(EntitlementDecision::Allowed { .. }) => Err(StatusCode::CONFLICT),
-        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
+    // Match the destination reader: prefer the current B working draft or
+    // unsealed publication, then resolve a verified sealed paid edition.
+    // Both operations recheck the live session/administrator role in SQL.
+    let administrator = Actor { user_id: actor_id };
+    let eligible = match authority.unsealed_version(administrator, chapter_id).await {
+        Ok(Some(_)) => true,
+        // Never redirect sealed paid content to a reader that has no
+        // private S3 browser. Its admin entitlement is real but its bytes
+        // are not deliverable in the current runtime configuration.
+        Ok(None) if state.private_admin_sealed_reader_enabled => match authority
+            .resolve_entitlement(administrator, chapter_id, None)
+            .await
+        {
+            Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => true,
+            Ok(EntitlementDecision::Denied { .. }) => false,
+            Ok(EntitlementDecision::Allowed { .. }) => return Err(StatusCode::CONFLICT),
+            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        Ok(None) => false,
+        Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !eligible {
+        return Ok(None);
     }
+    // Redirect only; actual plaintext or encrypted grant is authorized again
+    // by the admin reader, so a role revoked mid-navigation cannot leak bytes.
+    let mut response =
+        auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    Ok(Some(response))
 }
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
@@ -91,10 +107,10 @@ pub(super) async fn reader_page(
     let chapter = match reader.public_chapter(id).await {
         Ok(Some(chapter)) => chapter,
         Ok(None) => {
-            // NEwBOO parity: the ordinary /reader link is sufficient for an
-            // active site administrator, including sealed hidden/draft paid
-            // editions. Everyone else retains the public paywall/404 policy.
-            match administrator_paid_redirect(&state, &headers, id).await {
+            // NEwBOO parity: the same ordinary /reader link works for an
+            // administrator on hidden/held sealed chapters and unsealed drafts.
+            // Guests and ordinary readers retain the public paywall/404.
+            match administrator_private_redirect(&state, &headers, id).await {
                 Ok(Some(redirect)) => return redirect,
                 Ok(None) => {}
                 Err(status) => return auth_cookies::private_response(status, &[]),

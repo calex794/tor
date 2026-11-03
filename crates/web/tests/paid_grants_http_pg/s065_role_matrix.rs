@@ -31,6 +31,23 @@ impl Drop for AdminRoleCleanup<'_> {
     }
 }
 
+struct ModeratorRoleCleanup<'a> {
+    url: &'a str,
+    user_id: i64,
+}
+impl Drop for ModeratorRoleCleanup<'_> {
+    fn drop(&mut self) {
+        pg(
+            self.url,
+            &format!(
+                "UPDATE account_roles SET is_active=FALSE \
+                 WHERE user_id={} AND role='moderator'",
+                self.user_id
+            ),
+        );
+    }
+}
+
 struct ChapterStateCleanup<'a> {
     url: &'a str,
     book: i64,
@@ -55,12 +72,13 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     accounts: &PgAccounts,
     reader: &Router,
     grants: &Router,
+    storage_free: &Router,
     fake: &Arc<FakeG>,
     edition: (i64, i64, i64, i64),
 ) {
     let (book, chapter, version, purchase) = edition;
     let (admin_id, admin_session) = account(accounts, "s065-c12-admin@tor-ci.example").await;
-    let (_, outsider) = account(accounts, "s065-c12-no-role@tor-ci.example").await;
+    let (moderator_id, outsider) = account(accounts, "s065-c12-no-role@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -73,6 +91,28 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         url,
         user_id: admin_id,
     };
+    // Moderation is a real independent A role, not an admin/wallet grant.
+    pg(
+        url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) \
+             VALUES({moderator_id},'moderator',TRUE) \
+             ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
+        ),
+    );
+    let _moderator_cleanup = ModeratorRoleCleanup {
+        url,
+        user_id: moderator_id,
+    };
+    let mod_actor = accounts
+        .session_actor(&session_token_digest(&outsider))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(mod_actor.moderator);
+    assert!(!mod_actor.administrator);
+    // Every outsider denial below now tests an *active moderator*, not just
+    // an unprivileged registered user.
     let actor = accounts
         .session_actor(&session_token_digest(&admin_session))
         .await
@@ -85,8 +125,54 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         format!("/api/v1/reader/chapters/{chapter}/assets/{ASSET_UUID}/delivery-grants");
     let page = format!("/read/admin/{chapter}");
     let normal = format!("/read/paid/{chapter}?purchase_id={purchase}");
+    // API-only mode must not manufacture an encrypted browser shell.
+    assert_eq!(
+        read_page(grants, &page, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        read_page(grants, &normal, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     let old_preview =
         format!("/reader/{chapter}?preview=1&version_id={version}&purchase_id={purchase}");
+
+    // A standard PG/auth server without any private G storage must not
+    // redirect sealed paid content to a reader that cannot deliver it.
+    for path in [&page, &normal] {
+        assert_eq!(
+            read_page(storage_free, path, Some(&admin_session))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    for path in [format!("/reader/{chapter}"), old_preview.clone()] {
+        let paywall = read_page(storage_free, &path, Some(&admin_session)).await;
+        assert_eq!(paywall.status(), StatusCode::OK);
+        let html = to_bytes(paywall.into_body(), 256 * 1024).await.unwrap();
+        assert!(!html
+            .windows(BODY.len())
+            .any(|bytes| bytes == BODY.as_bytes()));
+    }
+    assert_eq!(
+        send(
+            storage_free,
+            &path,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            r#"{"source":"administrator"}"#
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "PG-only reader must not expose any private paid G delivery grant"
+    );
 
     // The administrator's inspection is isolated from purchase APIs; old
     // direct buyer endpoints still refuse someone else's purchase identity.
@@ -95,6 +181,11 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_page(reader, &normal, Some(&outsider)).await.status(),
+        StatusCode::FORBIDDEN,
+        "moderator must not inherit another user's direct paid purchase"
     );
     for (label, session, token, denial) in [
         ("guest", None, None, StatusCode::UNAUTHORIZED),
@@ -255,6 +346,39 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         serde_json::from_slice(&to_bytes(held.into_body(), 8192).await.unwrap()).unwrap();
     assert_eq!(held_body["version_id"], version.to_string());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND chapter_id={chapter}"
+            )
+        ),
+        3,
+        "two sealed chapter grants and one PNG grant must be audited"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND version_id={version} \
+                 AND action='sealed_chapter_grant'"
+            )
+        ),
+        2
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND version_id={version} \
+                 AND action='sealed_asset_grant'"
+            )
+        ),
+        1
+    );
     // Even held/draft sealed content remains reachable from the same
     // canonical URL, without disclosing its identity to a guest.
     let held_redirect = read_page(reader, &canonical, Some(&admin_session)).await;
@@ -268,6 +392,32 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::NOT_FOUND
+    );
+
+    // NEwBOO's administrator bypass is bound to the CURRENT version.
+    // A sealed object from the history is not a reader fallback when neither
+    // a working draft nor a published pointer currently selects it.
+    pg(
+        url,
+        &format!("DELETE FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
+    let before_orphan = fake.signed.load(Ordering::SeqCst);
+    let orphan = send(
+        grants,
+        &path,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        r#"{"source":"administrator"}"#,
+    )
+    .await;
+    assert_ne!(orphan.status(), StatusCode::OK);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), before_orphan);
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
 
     // Revocation must invalidate the next admin GET/POST, including a held
@@ -307,6 +457,17 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         assert!(to_bytes(r.into_body(), 8192).await.unwrap().is_empty());
     }
     assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id}"
+            )
+        ),
+        3,
+        "rejected/revoked reads must not create successful-delivery audit entries"
+    );
     // Historic NEwBOO aliases are absent, not unguarded admin back doors.
     for path in [
         format!("/reader/{chapter}/history?version_id={version}"),

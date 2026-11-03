@@ -5,7 +5,7 @@ use super::*;
 use serde_json::json;
 
 pub(super) async fn read(
-    State(state): State<GrantState>,
+    State(state): State<AdminReaderState>,
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
@@ -65,6 +65,21 @@ pub(super) async fn read(
         Ok(Some(_)) => return deny(StatusCode::CONFLICT),
         Ok(None) => return deny(StatusCode::FORBIDDEN),
         Err(error) => return deny(status(error)),
+    }
+    // Never return privileged plaintext unless the live A-role access is
+    // committed to an immutable audit. The audit does not persist text.
+    if let Err(error) = state
+        .admin_audit
+        .record(
+            &digest,
+            actor_id,
+            chapter_id,
+            pinned.version_id,
+            AdminReadAction::UnsealedBody,
+        )
+        .await
+    {
+        return deny(status(error));
     }
     let mut response = private_response(
         Json(json!({

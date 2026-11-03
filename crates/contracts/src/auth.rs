@@ -4,12 +4,14 @@ pub use crate::paid_delivery::{Actor, PositiveId as UserId};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountRole {
     Author,
+    Moderator,
     Administrator,
 }
 impl AccountRole {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Author => "author",
+            Self::Moderator => "moderator",
             Self::Administrator => "administrator",
         }
     }
@@ -21,5 +23,6 @@ impl AccountRole {
 pub struct SessionActor {
     pub actor: Actor,
     pub author: bool,
+    pub moderator: bool,
     pub administrator: bool,
 }

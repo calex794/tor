@@ -1737,6 +1737,111 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_unsealed::read",
       "policy": "admin_reader"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/project-status",
+      "source": "crates/web/src/auth/book_project_status.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/project-status",
+      "source": "crates/web/src/auth/book_project_status.rs",
+      "handler": "save",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/titles",
+      "source": "crates/web/src/auth/book_titles.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/titles",
+      "source": "crates/web/src/auth/book_titles.rs",
+      "handler": "save",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/related",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/search",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "search",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/add",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "add",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/remove",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "remove",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/refunds/approve",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "approval::submit",
+      "policy": "admin_refund_approve"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/books/{id}/hold",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/chapters",
+      "source": "crates/web/src/auth/moderation_chapters.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/chapters/{id}/hold",
+      "source": "crates/web/src/auth/moderation_chapters.rs",
+      "handler": "submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "save",
+      "policy": "scoped"
     }
   ]
 }

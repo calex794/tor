@@ -28,6 +28,7 @@ fn admin(id: i64, allowed: bool) -> SessionActor {
             user_id: UserId::new(id).unwrap(),
         },
         author: false,
+        moderator: false,
         administrator: allowed,
     }
 }

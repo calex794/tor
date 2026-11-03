@@ -110,6 +110,23 @@ pub(super) async fn grant(
                     return deny(status(error));
                 }
             }
+            // A successful administrator-only ciphertext grant must have a
+            // durable metadata audit. No buyer or Layer event is recorded.
+            if matches!(body.source, Some(GrantSource::Administrator)) {
+                if let Err(error) = state
+                    .admin_audit
+                    .record(
+                        &session_token_digest(&session),
+                        actor_id,
+                        chapter_id,
+                        version,
+                        AdminReadAction::SealedChapterGrant,
+                    )
+                    .await
+                {
+                    return deny(status(error));
+                }
+            }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
                 header::CACHE_CONTROL,

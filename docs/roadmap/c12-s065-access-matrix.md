@@ -4,6 +4,37 @@
 
 Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce7), [C-12 task](tasks.tsv), [reader API](api-v1.md), [paid delivery contract](../contracts/paid-delivery-v1.md). Reference implementation: NEwBOO `backend/app/web/routes/reader_page.py` and related history/preview routes; absent legacy endpoints in TOR are **not** equivalent to implemented feature parity.
 
+## 03.11.2026 — moderator identity is not site-administrator content entitlement
+
+NEwBOO's `chapter_access_service.py` distinguishes `is_moderator` from `is_admin` at a moderation gate. Its `reader_context_service.py` explicitly overrides normal paid read denial with `can_read=true` for **administrator**, not `moderator`. TOR therefore now recognizes `AccountRole::Moderator` independently in PostgreSQL/A sessions and allows an existing administrator to grant/revoke it, but does **not** implicitly grant private S065 text/PNG, mail, finance, purchased grant or history privilege to this new A role.
+
+Integration acceptance uses a real active moderator session for the existing negative S065 private encrypted/unsealed chapter and asset routes, including revoked administrator isolation; account A-05 acceptance verifies grant/revoke/role event and a moderator's inability to grant another role. Moderator tooling, moderation capabilities and scoped book-team preview still need a separate parity design and tests; no production migration rollout or new default moderator account.
+
+## 03.11.2026 — immutable audit for privileged content deliveries
+
+TOR records the **successful delivery** of privileged content, rather than merely the presence of the administrator reader shell. The real A session and active administrator role are rechecked under PostgreSQL `FOR SHARE` locks in the same transaction as the audit insert. A failed insert/commit suppresses the privileged response. The record contains only administrator ID, chapter ID, version ID, action (`unsealed_body`, `sealed_chapter_grant`, `sealed_asset_grant`) and timestamp. It never stores text, S3/object URLs, image IDs, encryption keys, cookies or session digests. Audit rows are immutable (no UPDATE/DELETE). Buyer and Layer grants cannot create an administrative audit. A revoked role cannot create new successful-delivery events.
+
+Repository: `crates/commerce/src/repositories/admin_reader_audit.rs` and `migrations/202611039764_s065_admin_chapter_read_audit.sql`. The existing S065 PostgreSQL/Axum matrix checks successful events for each administrative delivery path, including the no-G reader, and rejects post-revocation events.
+
+This is a repository-only security audit, **not** historical-reader parity, a deployed CDN audit or a production rollout. Existing short-lived signed bearers are not invalidated retroactively.
+
+## 03.11.2026 — administrator drafts when paid G storage is entirely disabled
+
+The default authenticated PostgreSQL runtime (`router_with_postgres_reading_auth`) and both authenticated cover-only variants now mount an **independent administrator-only reader**. It requires no private G delivery port, `TOR_PAID_GRANTS_ENABLED`, paid S3 bucket, object KEK or paid S3 origin. This is a current-unsealed B body inspection capability bound to a live administrator role and session, not an override for ordinary buyer paid entitlements.
+
+- `/reader/{id}` redirects the active site administrator only if the current unsealed edition exists. Sealed paid editions **do not redirect** when no S3 browser is mounted; their regular paywall/non-disclosure behavior remains.
+- The private shell has no plaintext/keys/S3 URLs, uses same-origin CSP, and the body POST demands Origin/CSRF, enforces rate limits and checks the current version and role again.
+- The no-G router does **not** expose the paid chapter delivery grant, protected PNG grant or paid buyer reader. No fake signer, synthetic purchases, Layer grants or wallet entries are created.
+- PostgreSQL/Axum acceptance exercises the actual no-G auth constructor alongside the existing API-only G and paid-browser modes, including free/paid unsealed drafts, forged access, account revocation and current-version switch.
+
+Historical admin version browsing, media, moderator parity and explicit administration-reading audit remain independent S065 gates. Repository-only; not a deployment acceptance claim.
+
+## 03.11.2026 — current unsealed administrator draft without private S3 browser
+
+The existing API-only authenticated PostgreSQL router now mounts the strict administrator shell and the current unsealed draft POST, without enabling buyer paid HTML, paid checkout, Layer, signed S3 content, or any legacy history/preview/CDN alias. The public /reader/{id} redirects only an authenticated active site administrator when D confirms a current non-attached plaintext working draft. In this mode the HTML has an empty S3 origin, a same-origin-only CSP, no plaintext, and the JavaScript retrieves the current version through A session + Origin/CSRF + revalidated A/D and B. A sealed paid edition still returns 404 without the S3 browser. A revoked admin or outsider cannot use the route. The same PostgreSQL/Axum acceptance exercise runs both opt-in browser and API-only variants.
+
+**Scope**: only current unsealed administrative reading when the S3 browser is disabled. Full historical revision preview, media, CDN invalidation, and production verification are independent S065 acceptance gates. No live server, finance, or DB migrations.
+
 ## Policy / route matrix
 
 | Route or state | Positive proof already in main | Negative proof already in main | New C-12 proof in this PR | Limit |

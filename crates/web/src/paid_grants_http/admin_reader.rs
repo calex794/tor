@@ -4,13 +4,11 @@ use super::*;
 use axum::response::{Html, IntoResponse};
 
 pub(super) async fn admin_reader(
-    State(state): State<GrantState>,
+    State(state): State<AdminReaderState>,
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(s3_origin) = state.reader_s3_origin.as_deref() else {
-        return deny(StatusCode::NOT_FOUND);
-    };
+    let s3_origin = state.reader_s3_origin.as_deref();
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
@@ -40,6 +38,11 @@ pub(super) async fn admin_reader(
         Err(error) => return deny(status(error)),
     };
     if !unsealed {
+        // A sealed chapter still requires a configured S3 browser. Do not
+        // offer a fake encrypted reader when the private origin is absent.
+        if s3_origin.is_none() {
+            return deny(StatusCode::NOT_FOUND);
+        }
         match authority
             .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
             .await
@@ -51,6 +54,7 @@ pub(super) async fn admin_reader(
         }
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let s3_origin = s3_origin.unwrap_or("");
     let content = format!(
         r#"<section class="section reader-page reader-private reader-paid"
                      data-admin-chapter-reader data-chapter-id="{chapter}"
@@ -93,9 +97,14 @@ pub(super) async fn admin_reader(
         )
         .replace("<!--PAGE_CONTENT-->", &content);
     let mut response = private_response(Html(html), &cookies);
+    let optional_s3 = if s3_origin.is_empty() {
+        String::new()
+    } else {
+        format!(" {s3_origin}")
+    };
     let csp = format!(
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; \
-         connect-src 'self' {s3_origin}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+         connect-src 'self'{optional_s3}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     let Ok(value) = HeaderValue::from_str(&csp) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);

@@ -285,7 +285,8 @@ async function draftBook(page, viewport) {
 
   await page.getByRole('link', { name: 'Добавить главу' }).click();
   await page.waitForURL('**/chapters/new');
-  await page.getByLabel('Номер главы').fill('1');
+  assert(await page.getByLabel('Номер главы').inputValue() === '1',
+    viewport + ': automatic search fixture chapter number must be 1');
   await page.getByLabel('Название главы').fill('Открытая глава для поиска');
   await page.getByLabel('Текст главы').fill('Настоящая публикация через PostgreSQL.');
   await page.getByRole('button', { name: 'Сохранить главу' }).click();

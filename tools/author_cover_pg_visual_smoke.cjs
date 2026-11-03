@@ -124,6 +124,44 @@ async function readyCover(page, bookId, viewport, scheme) {
           'S019: duplicate title must explain the failure in Russian');
         assert(await page.getByRole('link', { name: 'Проверить каталог' }).isVisible(),
           'S019: duplicate response must offer a useful next action');
+        // S020: edited Chinese and English aliases are claimed and protected.
+        await page.goto(base + '/me/books/' + bookId + '/settings/titles');
+        const chineseAlias = '修仙之路 ' + viewport + ' ' + scheme;
+        const englishAlias = 'Immortal Path ' + viewport + ' ' + scheme;
+        await page.getByLabel('Оригинальное название').fill(chineseAlias);
+        await page.getByLabel('Альтернативное название 1 (например, английское)')
+          .fill(englishAlias);
+        await page.getByRole('button', { name: 'Сохранить названия' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        await page.goto(base + '/me/books/' + bookId + '/settings/titles');
+        assert(await page.getByLabel('Оригинальное название').inputValue() === chineseAlias,
+          'S020: edited Chinese original title must persist');
+        assert(await page.getByLabel('Альтернативное название 1 (например, английское)')
+          .inputValue() === englishAlias, 'S020: edited English alias must persist');
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill('Другая книга ' + viewport + scheme);
+        await page.getByLabel('Оригинальное название').fill(chineseAlias);
+        const [aliasConflict] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(aliasConflict.status() === 409,
+          'S020: edited Chinese title blocks new duplicate registration');
+        // S020: a member-scoped origin editor persists data without changing publication.
+        await page.goto(base + '/me/books/' + bookId + '/settings/origin');
+        await page.getByLabel('Язык оригинала (например, zh, en)').fill('zh');
+        await page.getByLabel('Год выпуска').fill('2024');
+        await page.getByLabel('Раздел каталога').selectOption('novels/chinese');
+        await page.getByRole('button', { name: 'Сохранить сведения' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings/origin');
+        await page.reload();
+        assert(await page.getByLabel('Язык оригинала (например, zh, en)').inputValue() === 'zh',
+          'S020: original language persists');
+        assert(await page.getByLabel('Год выпуска').inputValue() === '2024',
+          'S020: release year persists');
+        assert(await page.getByLabel('Раздел каталога').inputValue() === 'novels/chinese',
+          'S020: catalog section persists');
         // S019: the same normalized URL from any site must not create a duplicate.
         // Keep query and path semantics; no external URL fetch.
         const providerId = (viewport === 'desktop' ? 910100 : 910200)
@@ -193,7 +231,8 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.goto(base + '/me/books/' + bookId);
 
         await page.getByRole('link', { name: 'Добавить главу' }).click();
-        await page.getByLabel('Номер главы').fill('1');
+        assert(await page.getByLabel('Номер главы').inputValue() === '1',
+          'S021: new book starts with automatic chapter number 1');
         await page.getByLabel('Название главы').fill('Проверочная глава');
         await page.getByLabel('Текст главы').fill('Опубликованный текст с обложкой.');
         await page.getByRole('button', { name: 'Сохранить главу' }).click();

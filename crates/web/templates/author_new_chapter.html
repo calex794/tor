@@ -8,7 +8,9 @@
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
         <label for="chapter-number">Номер главы</label>
-        <input id="chapter-number" name="number" type="number" min="1" max="1000000" value="1" required>
+        <input type="hidden" name="auto_number" value="1">
+        <input id="chapter-number" name="number" type="number" min="1" max="1000000" value="<!--NEXT_NUMBER-->" readonly required>
+        <small>Номер назначается сервером при сохранении; при одновременном добавлении глав он может измениться.</small>
         <label for="chapter-title">Название главы</label>
         <input id="chapter-title" name="title" type="text" maxlength="200" required>
         <!--CHAPTER_ACCESS-->

@@ -70,7 +70,7 @@ impl PgPaidStorage {
             || request.book_id <= 0
             || request.chapter_id.is_some()
             || request.expected_revision != 0
-            || request.number <= 0
+            || request.number < 0
             || request.access != ChapterAccess::Paid
             || request.price_amount <= 0
             || !valid_command_key(&request.command_key)
@@ -169,13 +169,15 @@ impl PgPaidStorage {
 
         // The chapter must not enter catalog/reader until B verifies an
         // attached G object. Failed S3 leaves only an owner-visible draft.
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(
                  book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision
              ) VALUES($1,$2,$3,'draft','paid',$4,1) RETURNING id",
         )
         .bind(request.book_id)
-        .bind(request.number)
+        .bind(number)
         .bind(&request.title)
         .bind(request.price_amount)
         .fetch_one(&mut *tx)

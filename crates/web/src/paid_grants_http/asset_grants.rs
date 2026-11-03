@@ -115,6 +115,22 @@ pub(super) async fn grant_asset(
                     return deny(status(error));
                 }
             }
+            // Persist audit before returning a signed ciphertext image URL.
+            if matches!(body.source, Some(GrantSource::Administrator)) {
+                if let Err(error) = state
+                    .admin_audit
+                    .record(
+                        &session_token_digest(&session),
+                        actor_id,
+                        chapter_id,
+                        version,
+                        AdminReadAction::SealedAssetGrant,
+                    )
+                    .await
+                {
+                    return deny(status(error));
+                }
+            }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
