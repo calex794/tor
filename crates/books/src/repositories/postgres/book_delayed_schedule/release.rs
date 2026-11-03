@@ -102,7 +102,7 @@ impl PgAuthoring {
             "SELECT c.id,c.visibility,c.access_level,c.price_amount,
                     c.admin_hold,c.edit_revision,d.version_id AS working_version,
                     (SELECT v.id FROM chapter_versions v
-                     WHERE v.chapter_id=c.id ORDER BY v.version_no DESC LIMIT 1)
+                     WHERE v.chapter_id=c.id AND v.version_no=c.edit_revision LIMIT 1)
                         AS paid_version,
                     (SELECT EXISTS (
                         SELECT 1 FROM chapter_versions v
