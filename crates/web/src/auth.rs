@@ -84,6 +84,7 @@ mod mail;
 mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
+mod moderation_books;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
@@ -264,6 +265,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
+        .merge(moderation_books::router())
         .merge(book_project_status::router().merge(book_titles::router()))
         .merge(book_related::router())
         .route("/mail", get(mail::index))
