@@ -55,7 +55,7 @@ export async function startAdministratorReader(root) {
   requireValue(
     /^[1-9][0-9]{0,18}$/.test(chapter || "") &&
     /^[A-Za-z0-9_-]{43}$/.test(csrf || "") &&
-    typeof s3Origin === "string" && s3Origin.length > 0 &&
+    typeof s3Origin === "string" && (unsealed || s3Origin.length > 0) &&
     ["true", "false"].includes(root.dataset.adminUnsealed) &&
     status && article
   );

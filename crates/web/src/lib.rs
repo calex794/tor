@@ -77,6 +77,14 @@ struct AppState {
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
+/// Wiring mode is explicit; availability of a private admin shell does not
+/// enable wallet checkout, encrypted S3 grants or Layer reading.
+#[derive(Clone, Copy)]
+struct ReaderModes {
+    paid_browser: bool,
+    admin_reader: bool,
+}
+
 async fn text_issue_script() -> Response {
     (
         [(
@@ -472,7 +480,10 @@ fn make_router(
         active_auth,
         objects,
         follow_control,
-        false,
+        ReaderModes {
+            paid_browser: false,
+            admin_reader: false,
+        },
     )
 }
 
@@ -483,7 +494,7 @@ fn make_router_with_paid_checkout(
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
     follow_control: Option<book_follow_page::FollowBookControl>,
-    paid_browser_enabled: bool,
+    modes: ReaderModes,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
@@ -570,10 +581,10 @@ fn make_router_with_paid_checkout(
             reader,
             search,
             paid_checkout_browser: active_auth
-                && paid_browser_enabled
+                && modes.paid_browser
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             // Administrator private reading is independent of paid checkout.
-            private_admin_reader_enabled: active_auth && paid_browser_enabled,
+            private_admin_reader_enabled: active_auth && modes.admin_reader,
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,

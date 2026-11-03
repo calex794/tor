@@ -393,18 +393,20 @@ fn router_inner(
         .route(
             "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
             post(asset_grants::grant_asset),
-        );
+        )
+        // Current unsealed admin drafts do not require an S3 browser.
+        // Both routes independently enforce the live A role and private CSRF.
+        .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+            post(admin_unsealed::read),
+        )
+        .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script));
     if state.layer_reader_enabled {
         app = app.route("/read/layer/{chapter_id}", get(layer_reader::layer_reader));
     }
     if state.reader_s3_origin.is_some() {
         app = app
-            .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
-            .route(
-                "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
-                post(admin_unsealed::read),
-            )
-            .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",

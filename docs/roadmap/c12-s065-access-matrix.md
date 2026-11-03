@@ -4,6 +4,12 @@
 
 Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce7), [C-12 task](tasks.tsv), [reader API](api-v1.md), [paid delivery contract](../contracts/paid-delivery-v1.md). Reference implementation: NEwBOO `backend/app/web/routes/reader_page.py` and related history/preview routes; absent legacy endpoints in TOR are **not** equivalent to implemented feature parity.
 
+## 03.11.2026 — current unsealed administrator draft without private S3 browser
+
+The existing API-only authenticated PostgreSQL router now mounts the strict administrator shell and the current unsealed draft POST, without enabling buyer paid HTML, paid checkout, Layer, signed S3 content, or any legacy history/preview/CDN alias. The public /reader/{id} redirects only an authenticated active site administrator when D confirms a current non-attached plaintext working draft. In this mode the HTML has an empty S3 origin, a same-origin-only CSP, no plaintext, and the JavaScript retrieves the current version through A session + Origin/CSRF + revalidated A/D and B. A sealed paid edition still returns 404 without the S3 browser. A revoked admin or outsider cannot use the route. The same PostgreSQL/Axum acceptance exercise runs both opt-in browser and API-only variants.
+
+**Scope**: only current unsealed administrative reading when the S3 browser is disabled. Full historical revision preview, media, CDN invalidation, and production verification are independent S065 acceptance gates. No live server, finance, or DB migrations.
+
 ## Policy / route matrix
 
 | Route or state | Positive proof already in main | Negative proof already in main | New C-12 proof in this PR | Limit |

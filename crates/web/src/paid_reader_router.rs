@@ -1,5 +1,5 @@
 //! S034 grant/paid reader router integration; keeps the web shell compact.
-use super::{auth, auth_cookies, make_router_with_paid_checkout, paid_grants_http, ril};
+use super::{auth, auth_cookies, make_router_with_paid_checkout, paid_grants_http, ril, ReaderModes};
 use axum::Router;
 use std::sync::Arc;
 use tor_books::repositories::PgCatalog;
@@ -183,7 +183,10 @@ fn paid_grants_router(
             true,
             cover_storage,
             Some(follows),
-            browser_enabled,
+            ReaderModes {
+                paid_browser: browser_enabled,
+                admin_reader: true,
+            },
         )
         .merge(author_router)
         .merge(grants),
