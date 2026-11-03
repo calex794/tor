@@ -2,9 +2,9 @@
 //! The paid path activates only a separately G-verified, privately staged edition.
 //! This module does not activate background workers.
 use super::super::{chapter_release::release_pending_free_chapter_tx, PgAuthoring};
-use crate::repositories::paid_storage::scheduled::release_staged_paid_chapter_tx;
 use super::frontier::{advance_terminal_slot, finish_terminal};
 use super::BookSlotClaim;
+use crate::repositories::paid_storage::scheduled::release_staged_paid_chapter_tx;
 use crate::services::authoring::{valid_command_key, AuthorError};
 use sqlx::Row;
 
@@ -197,7 +197,16 @@ impl PgAuthoring {
             } else {
                 None
             };
-            (reason, if access == "paid" { paid_version } else { version }, revision, access)
+            (
+                reason,
+                if access == "paid" {
+                    paid_version
+                } else {
+                    version
+                },
+                revision,
+                access,
+            )
         } else {
             (Some("frontier_changed"), None, 0, String::new())
         };
@@ -220,12 +229,24 @@ impl PgAuthoring {
         // completes the publication and schedule cursor. D gates all reads.
         if access == "paid" {
             release_staged_paid_chapter_tx(
-                &mut tx, owner, claim.book_id, chapter_id, revision, version_id,
-            ).await?;
+                &mut tx,
+                owner,
+                claim.book_id,
+                chapter_id,
+                revision,
+                version_id,
+            )
+            .await?;
         } else {
             release_pending_free_chapter_tx(
-                &mut tx, owner, claim.book_id, chapter_id, revision, version_id,
-            ).await?;
+                &mut tx,
+                owner,
+                claim.book_id,
+                chapter_id,
+                revision,
+                version_id,
+            )
+            .await?;
         }
         // Each newly released immutable edition has one durable G event.
         // The event, reader pointer, first-release fact and cursor share
