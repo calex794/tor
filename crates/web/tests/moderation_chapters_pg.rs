@@ -462,9 +462,16 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     // but neither rewrites author visibility, edition, price or buyer rights.
     let hide_form = format!("csrf_token={csrf}&expected_state=none&next_state=hidden");
     assert_eq!(
-        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &hide_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &hide_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     let hidden = pg(
@@ -495,16 +502,30 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     assert_eq!(hidden_page.status(), StatusCode::OK);
     assert!(html(hidden_page).await.contains("Paid chapter metadata"));
     assert_eq!(
-        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &hide_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &hide_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     let block_form = format!("csrf_token={csrf}&expected_state=hidden&next_state=blocked");
     assert_eq!(
-        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &block_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &block_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
@@ -530,16 +551,30 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     assert!(html(blocked_page).await.contains("Paid chapter metadata"));
     let invalid_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=published");
     assert_eq!(
-        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &invalid_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &invalid_form
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     let unblock_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=none");
     assert_eq!(
-        request(&app, "POST", &paid_action, &admin_cookie, ORIGIN, &unblock_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &unblock_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert!(reader
