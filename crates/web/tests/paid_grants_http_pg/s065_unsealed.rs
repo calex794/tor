@@ -126,7 +126,9 @@ pub(super) async fn assert_unsealed_admin_read(
             pg_only_shell.headers()["content-security-policy"],
             "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
         );
-        let pg_only_html = to_bytes(pg_only_shell.into_body(), 128 * 1024).await.unwrap();
+        let pg_only_html = to_bytes(pg_only_shell.into_body(), 128 * 1024)
+            .await
+            .unwrap();
         let pg_only_html = String::from_utf8(pg_only_html.to_vec()).unwrap();
         assert!(pg_only_html.contains("data-admin-unsealed=\"true\""));
         assert!(pg_only_html.contains("data-s3-origin=\"\""));
@@ -187,9 +189,7 @@ pub(super) async fn assert_unsealed_admin_read(
                 StatusCode::NOT_FOUND
             );
             assert_eq!(
-                read_page(no_storage, &canonical, session)
-                    .await
-                    .status(),
+                read_page(no_storage, &canonical, session).await.status(),
                 StatusCode::NOT_FOUND
             );
         }
@@ -257,10 +257,9 @@ pub(super) async fn assert_unsealed_admin_read(
         )
         .await;
         assert_eq!(pg_only_permitted.status(), StatusCode::OK);
-        let pg_payload: Value = serde_json::from_slice(
-            &to_bytes(pg_only_permitted.into_body(), 8192).await.unwrap(),
-        )
-        .unwrap();
+        let pg_payload: Value =
+            serde_json::from_slice(&to_bytes(pg_only_permitted.into_body(), 8192).await.unwrap())
+                .unwrap();
         assert_eq!(pg_payload["version_id"], version.to_string());
         assert_eq!(pg_payload["body_markdown"], body);
         // No private paid grant can be synthesized in the no-G router.
@@ -350,10 +349,9 @@ pub(super) async fn assert_unsealed_admin_read(
         )
         .await;
         assert_eq!(switched_pg.status(), StatusCode::OK);
-        let current: Value = serde_json::from_slice(
-            &to_bytes(switched_pg.into_body(), 8192).await.unwrap(),
-        )
-        .unwrap();
+        let current: Value =
+            serde_json::from_slice(&to_bytes(switched_pg.into_body(), 8192).await.unwrap())
+                .unwrap();
         assert_eq!(current["version_id"], next.to_string());
         assert_eq!(current["body_markdown"], "NEW PRIVATE REVISION");
     }
@@ -458,7 +456,10 @@ pub(super) async fn assert_unsealed_admin_read(
     )
     .await;
     assert_eq!(revoked_pg.status(), StatusCode::FORBIDDEN);
-    assert!(to_bytes(revoked_pg.into_body(), 8192).await.unwrap().is_empty());
+    assert!(to_bytes(revoked_pg.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
     let revoked_no_s3 = send(
         api_only,
         &format!("/api/v1/reader/chapters/{chapter}/admin-unsealed"),
