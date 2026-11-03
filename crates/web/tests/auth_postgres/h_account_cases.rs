@@ -38,19 +38,32 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     .await;
     assert_eq!(decoy.status(), StatusCode::NOT_FOUND);
     assert_eq!(decoy.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(decoy.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(
+        decoy.headers()["x-robots-tag"],
+        "noindex, nofollow, noarchive"
+    );
     assert_eq!(body_of(decoy).await, "");
     let form = format!(
         "email=tor_ci_honeypot%40example.invalid&display_name=Trap&password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
     );
-    let blocked = send(app, request("POST", "/register", &form, csrf_cookie, ORIGIN)).await;
+    let blocked = send(
+        app,
+        request("POST", "/register", &form, csrf_cookie, ORIGIN),
+    )
+    .await;
     assert_eq!(blocked.status(), StatusCode::BAD_REQUEST);
     assert!(blocked.headers().get(header::SET_COOKIE).is_none());
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
     assert!(url.ends_with("/tor_ci"), "never query production");
-    let catalog = PgCatalog::connect(&url).await.expect("disposable PostgreSQL");
+    let catalog = PgCatalog::connect(&url)
+        .await
+        .expect("disposable PostgreSQL");
     let audit = PgAccounts::from_pool(catalog.pool().clone());
-    assert!(audit.find_user("tor_ci_honeypot@example.invalid").await.unwrap().is_none());
+    assert!(audit
+        .find_user("tor_ci_honeypot@example.invalid")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 /// F-09: an invalid manual code must keep the pending guest invitation and

@@ -60,7 +60,7 @@ async fn s019_multiple_links_are_atomic_and_language_scoped() {
     let mirror = format!("https://mirror.example.org/work/{marker}");
     let rulate_id = marker % 8_000_000_000 + 100000;
     let rulate = format!("https://tl.rulate.ru/book/{rulate_id}?utm_source=author");
-    let rulate_alternate = format!("http://www.rulate.ru/book/000{rulate_id}/?ref=other");
+    let rulate_alternate = format!("http://www.tl.rulate.ru/book/{rulate_id}/?utm_source=author");
     let repo = PgAuthoring::new(pool.clone());
 
     let key = "a".repeat(43);
@@ -127,7 +127,7 @@ async fn s019_multiple_links_are_atomic_and_language_scoped() {
     assert_eq!(
         repo.create_owned_book(owner, &by_provider).await,
         Err(AuthorError::Conflict),
-        "Rulate variant is covered even when it is an extra URL"
+        "normalized source URL is protected even when it is an extra URL"
     );
 
     let key4 = "d".repeat(43);

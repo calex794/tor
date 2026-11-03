@@ -124,29 +124,29 @@ async function readyCover(page, bookId, viewport, scheme) {
           'S019: duplicate title must explain the failure in Russian');
         assert(await page.getByRole('link', { name: 'Проверить каталог' }).isVisible(),
           'S019: duplicate response must offer a useful next action');
-        // S019: the same Rulate work must not be registered again under another
-        // title, domain, scheme or tracking query. No external URL fetch.
+        // S019: the same normalized URL from any site must not create a duplicate.
+        // Keep query and path semantics; no external URL fetch.
         const providerId = (viewport === 'desktop' ? 910100 : 910200)
           + (scheme === 'light' ? 1 : 2);
         await page.goto(base + '/me/books/new');
-        await page.getByLabel('Название книги').fill('Исходная Rulate книга ' + providerId);
+        await page.getByLabel('Название книги').fill('Исходная книга ' + providerId);
         await page.getByLabel('Ссылка на первоисточник')
-          .fill('https://tl.rulate.ru/book/' + providerId + '/?utm_source=test');
+          .fill('http://www.example.org/work/' + providerId + '/');
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
         await page.goto(base + '/me/books/new');
         await page.getByLabel('Название книги').fill('Совсем другое название ' + providerId);
         await page.getByLabel('Ссылка на первоисточник')
-          .fill('http://rulate.ru/book/000' + providerId + '?utm_campaign=other');
+          .fill('https://example.org/work/' + providerId);
         const [providerDuplicate] = await Promise.all([
           page.waitForResponse(r => r.url() === base + '/me/books' &&
             r.request().method() === 'POST'),
           page.getByRole('button', { name: 'Создать книгу' }).click(),
         ]);
         assert(providerDuplicate.status() === 409,
-          'S019: different Rulate link and title must not create a duplicate');
+          'S019: identical normalized URL under changed title must be rejected');
         assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
-          'S019: Rulate alias conflict must preserve actionable error page');
+          'S019: generic URL conflict must preserve actionable error page');
         // S019: an actual original and a mirror may be from arbitrary hosts.
         // Registration must claim both in one transaction without fetching them.
         const workNum = providerId + 500000;
