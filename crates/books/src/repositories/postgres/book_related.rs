@@ -1,7 +1,7 @@
 //! S020: bidirectional related-book links; one canonical SQL edge per pair.
 //! A source is always owner-controlled. Search and display expose only live
 //! public target books, never private names or hidden administration holds.
-use super::PgAuthoring;
+use super::{PgAuthoring, PgCatalog};
 use crate::services::{authoring::AuthorError, book_registration::normalized_title};
 use sqlx::Row;
 
@@ -208,6 +208,47 @@ impl PgAuthoring {
         Ok(deleted)
     }
 }
+/// Explicit NEwBOO related-book links, not automatically inferred recommendations.
+/// Both the source and every target must still pass the live public-book gate.
+/// One indexed query, bounded to 12 cards; a hidden target never leaks a title.
+impl PgCatalog {
+    pub async fn public_related_books(
+        &self,
+        book_id: i64,
+    ) -> Result<Vec<RelatedBookCard>, AuthorError> {
+        if book_id <= 0 {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT target.id, target.title
+             FROM books AS source
+             JOIN book_related_links AS link
+               ON source.id IN (link.smaller_book_id, link.larger_book_id)
+             JOIN books AS target
+               ON target.id = CASE WHEN source.id=link.smaller_book_id
+                 THEN link.larger_book_id ELSE link.smaller_book_id END
+             WHERE source.id=$1
+               AND source.visibility='public'
+               AND NOT source.admin_hold AND NOT source.is_deleted
+               AND target.visibility='public'
+               AND NOT target.admin_hold AND NOT target.is_deleted
+             ORDER BY target.id LIMIT 12",
+        )
+        .bind(book_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(RelatedBookCard {
+                    id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
