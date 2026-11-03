@@ -28,7 +28,7 @@ async fn fixture(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) {
         &format!("tor-ci:s058-release:{user}:{suffix}:{nonce}"),
         "ru",
         &format!("S058 release {suffix} {nonce}"),
-        &"j".repeat(43),
+        &format!("{nonce:043x}"),
     )
     .unwrap();
     let author = PgAuthoring::new(pool.clone());
