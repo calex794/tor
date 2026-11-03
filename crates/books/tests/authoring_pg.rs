@@ -896,6 +896,8 @@ mod book_related_pg;
 mod book_description_pg;
 #[path = "book_slot_frontier_pg.rs"]
 mod book_slot_frontier_pg;
+#[path = "book_slot_release_pg.rs"]
+mod book_slot_release_pg;
 #[path = "book_slot_occurrences_pg.rs"]
 mod book_slot_occurrences_pg;
 
