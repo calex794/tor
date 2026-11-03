@@ -375,7 +375,7 @@ fn router_inner(
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
         .route("/me/books", get(author_books).post(create_book))
-        .route("/me/books/new", get(new_author_book))
+        .route("/me/books/new", get(book_registration_http::new_page))
         .route(
             "/me/books/title-suggestions",
             get(book_title_suggestions::find),
@@ -442,16 +442,6 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(books) => layer_routes::author_index(&state, actor, &books).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => (),
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    }
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let command_key = generate_session_token();
-    book_title_suggestions::registration_page(&csrf, &command_key, &cookies)
 }
 async fn create_book(
     State(state): State<AuthState>,
