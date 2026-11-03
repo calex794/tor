@@ -9,8 +9,8 @@ CREATE TABLE book_related_links (
     CONSTRAINT book_related_links_no_self CHECK (smaller_book_id < larger_book_id)
 );
 CREATE INDEX book_related_links_large_idx ON book_related_links (larger_book_id, smaller_book_id);
--- The tor_app runtime may query and change edges, but never alter table structure.
-GRANT SELECT, INSERT, DELETE ON TABLE book_related_links TO tor_app;
+-- Runtime grants are provided by the tor_migrator default privileges.
+-- The generic migration verifier intentionally has no tor_app role.
 -- Exact main-title lookup for public related-book suggestions, across languages.
 -- Restricted to public candidates to avoid leaking private draft names.
 CREATE INDEX books_related_public_exact_title_idx
