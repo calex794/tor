@@ -3,7 +3,7 @@
 use super::source_alias_guard;
 use crate::services::{
     authoring::{AuthorError, NewBook},
-    book_registration::{registration_link_claims, rulate_work_id},
+    book_registration::{normalized_source_url, registration_link_claims},
 };
 use sqlx::{Postgres, Transaction};
 
@@ -50,13 +50,16 @@ pub(super) async fn check(
         return Err(AuthorError::Conflict);
     }
 
-    // A historical Rulate link may contain a different scheme/query/host.
-    for (_, url) in &links {
-        if let Some(work_id) = rulate_work_id(url) {
-            if source_alias_guard::rulate_work_exists(tx, &book.target_language, &work_id).await? {
-                return Err(AuthorError::Conflict);
-            }
-        }
+    // Legacy primary URLs and old additional links use the same canonical
+    // comparison as new claims, regardless of source website.
+    let canonical_urls = links
+        .iter()
+        .map(|(_, url)| normalized_source_url(url))
+        .collect::<Result<Vec<_>, _>>()?;
+    if source_alias_guard::source_url_exists(tx, &book.target_language, &canonical_urls, None)
+        .await?
+    {
+        return Err(AuthorError::Conflict);
     }
     Ok(links)
 }
