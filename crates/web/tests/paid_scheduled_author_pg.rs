@@ -16,7 +16,6 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_books::services::PublicBookRepository;
 use tor_books::repositories::{
     postgres::{
         book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome},
@@ -24,6 +23,7 @@ use tor_books::repositories::{
     },
     PgCatalog,
 };
+use tor_books::services::PublicBookRepository;
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::{PgBookLikes, PgReader};
 use tor_recommendations::repositories::PgBookStars;
@@ -296,7 +296,11 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     );
     let catalog_probe = PgCatalog::new(pool.clone());
     assert!(
-        catalog_probe.get_public(book as u64).await.unwrap().is_some(),
+        catalog_probe
+            .get_public(book as u64)
+            .await
+            .unwrap()
+            .is_some(),
         "Catalog SQLx must see the same book as psql"
     );
     let fresh_reader = PgReader::connect(&url).await.unwrap();
