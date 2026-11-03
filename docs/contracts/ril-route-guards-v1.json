@@ -1758,6 +1758,20 @@
       "source": "crates/web/src/auth/book_titles.rs",
       "handler": "save",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "save",
+      "policy": "owner"
     }
   ]
 }
