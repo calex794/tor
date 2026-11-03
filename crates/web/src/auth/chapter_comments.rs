@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tor_accounts::services::security::session_token_digest;
+use tor_accounts::repositories::scoped_actions::ScopedActionAdmission;
 use tor_discussions::{
     domain::comments::{CommentBody, CommentIntentKey},
     repositories::public_chapter_comments::{
@@ -108,14 +108,19 @@ pub(super) async fn submit(
         Ok(anchor) => anchor,
         Err(status) => return deny(status),
     };
-    // Shared PostgreSQL limiter, not a per-process bypassable map.
-    let throttle = session_token_digest(&format!("action:chapter_comment:user:{actor}"));
-    let permitted = match state.accounts.permit_auth_attempt(&throttle, 30, 60).await {
-        Ok(permitted) => permitted,
+    // A book comment and a free-chapter comment spend the same donor
+    // 'comments' quota. Valid idempotent replays never consume it twice.
+    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
+        Ok(ScopedActionAdmission::Allowed) => {}
+        Ok(ScopedActionAdmission::Limited { retry_after }) => {
+            return super::book_comments::comment_rate_denial(retry_after);
+        }
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    if !permitted {
-        return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let hash = payload_hash(
         chapter_id,
