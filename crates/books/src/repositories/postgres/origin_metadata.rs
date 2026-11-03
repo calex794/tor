@@ -114,7 +114,11 @@ impl PgAuthoring {
         }
         let (language, year, section) =
             validate_origin_metadata(raw_language, raw_year, raw_section)?;
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         // Same Book -> BookMember lock order as collaborator revocation and S020
         // related/title/status writes. No stale access check before the write.
         let revision: Option<i64> = sqlx::query_scalar(
