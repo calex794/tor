@@ -1793,6 +1793,20 @@
       "source": "crates/web/src/auth/admin_refund_review.rs",
       "handler": "approval::submit",
       "policy": "admin_refund_approve"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/books/{id}/hold",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "submit",
+      "policy": "scoped"
     }
   ]
 }
