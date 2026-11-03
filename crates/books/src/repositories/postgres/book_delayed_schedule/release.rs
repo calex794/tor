@@ -227,6 +227,33 @@ impl PgAuthoring {
                 &mut tx, owner, claim.book_id, chapter_id, revision, version_id,
             ).await?;
         }
+        // Each newly released immutable edition has one durable G event.
+        // The event, reader pointer, first-release fact and cursor share
+        // the same transaction. Consumers never see an uncommitted edition.
+        let created = sqlx::query(
+            "INSERT INTO outbox_events
+               (event_type,schema_version,aggregate_kind,aggregate_id,
+                dedupe_key,payload,required_consumers)
+             VALUES('ChapterPublished',1,'chapter',$1,$2,
+                jsonb_build_object(
+                  'chapter_id',$1,'book_id',$3,'version_id',$4,
+                  'published_at',clock_timestamp(),
+                  'first_release',true
+                ),
+                ARRAY['search-index-v1','subscription-inbox-v1']::text[])
+             ON CONFLICT(dedupe_key) DO NOTHING",
+        )
+        .bind(chapter_id)
+        .bind(format!("chapter-published:{chapter_id}:{version_id}"))
+        .bind(claim.book_id)
+        .bind(version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?
+        .rows_affected();
+        if created != 1 {
+            return Err(AuthorError::Conflict);
+        }
         finish_terminal(&mut tx, claim, token, Some(chapter_id), "completed", None).await?;
         advance_terminal_slot(&mut tx, claim).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
