@@ -8,10 +8,7 @@ use tor_books::services::{
 };
 
 /// Authenticated registration form with a feature-scoped script policy.
-pub(super) async fn new_page(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn new_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     match session_user(&state, &headers).await {
         Ok(Some(_)) => (),
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
