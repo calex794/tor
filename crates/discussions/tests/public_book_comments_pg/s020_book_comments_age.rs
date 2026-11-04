@@ -207,11 +207,24 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
+    // Pending deletion is not public discovery or a place for new activity.
+    // A verified historical reader may still see the already-existing discussion.
+    assert_eq!(repo.list(book, None, 20).await.unwrap(), None);
     assert!(repo
         .list_for_session(book, None, 20, Some(&digest))
         .await
         .unwrap()
         .is_some());
+    assert_eq!(
+        repo.create(actor, book, "Late comment", &"e".repeat(43), &[5; 32])
+            .await,
+        CreateResult::NotFound
+    );
+    assert!(repo
+        .mention_candidates(actor, book, "Wri")
+        .await
+        .unwrap()
+        .is_empty());
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
