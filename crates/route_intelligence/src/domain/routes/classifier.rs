@@ -280,6 +280,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history"), "POST") => { Some(265) }
         (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants"), "POST") => { Some(266) }
         (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants"), "POST") => { Some(267) }
+        (Some("/admin/finance/refunds/reject"), "POST") => Some(268),
         _ => None,
     };
     index
