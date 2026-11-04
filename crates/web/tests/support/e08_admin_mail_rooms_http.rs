@@ -61,8 +61,8 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
     let book_id: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e08:admin-room:{nonce}','ru','<b>Library room</b>','public')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:e08:admin-room:{nonce}','ru','<b>Library room</b>','public','basic')
              RETURNING id"
         ),
     )
