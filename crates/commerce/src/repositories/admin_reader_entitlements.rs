@@ -168,10 +168,12 @@ impl PgAdministratorReaderEntitlements {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
-        Ok(id.filter(|found| *found == version_id.get()).map(|_| ChapterVersionRef {
-            chapter_id,
-            version_id,
-        }))
+        Ok(id
+            .filter(|found| *found == version_id.get())
+            .map(|_| ChapterVersionRef {
+                chapter_id,
+                version_id,
+            }))
     }
 
     /// Bounded private metadata: no S3 key, plaintext or signed URL.
@@ -201,9 +203,11 @@ impl PgAdministratorReaderEntitlements {
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
         rows.into_iter()
-            .map(|(id, no)| PositiveId::new(id)
-                .map(|version_id| (version_id, no))
-                .map_err(|_| DeliveryError::Unavailable))
+            .map(|(id, no)| {
+                PositiveId::new(id)
+                    .map(|version_id| (version_id, no))
+                    .map_err(|_| DeliveryError::Unavailable)
+            })
             .collect()
     }
 }
