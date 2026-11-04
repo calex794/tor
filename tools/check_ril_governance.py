@@ -224,11 +224,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "admin_history::read"),
     }
     history_binding = (entry["method"], entry["template"], entry["handler"]) in history_handlers
+    sealed_handlers = {
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "admin_sealed_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "admin_sealed_history::grant"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "admin_sealed_history::asset"),
+    }
+    sealed_binding = (entry["method"], entry["template"], entry["handler"]) in sealed_handlers
+
     if history_binding and entry["source"] == "crates/web/src/paid_grants_http.rs":
         if not re.search(r"\bauthorize\s*\(\s*&state\s*,\s*&headers\s*\)", body):
             errors.append(f"{label}: historical reader must invoke the verified helper")
         else:
             evidence += "\n" + functions.get("authorize", "")
+    if sealed_binding and entry["source"] == "crates/web/src/paid_grants_http.rs":
+        if not re.search(r"\bauthenticate_sealed_admin\s*\(\s*&state\s*,\s*&headers\s*\)", body):
+            errors.append(f"{label}: sealed history must invoke A/CSRF helper")
+        else:
+            evidence += "\n" + functions.get("authenticate_sealed_admin", "")
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -506,8 +518,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and entry["handler"] == "admin_unsealed::read"
         )
         allowed_history = history_binding and entry["source"] == "crates/web/src/paid_grants_http.rs"
-        if not (allowed_shell or allowed_unsealed or allowed_history):
+        allowed_sealed = sealed_binding and entry["source"] == "crates/web/src/paid_grants_http.rs"
+        if not (allowed_shell or allowed_unsealed or allowed_history or allowed_sealed):
             errors.append(f"{label}: unreviewed site administrator reader route")
+        if allowed_sealed and not (
+            ("sealed_history(" in evidence or "issue_paid_chapter_grant(" in evidence
+             or "issue_paid_admin_asset_grant(" in evidence)
+            and "authenticate_sealed_admin(" in evidence
+            and "state.cookies.valid_csrf(headers" in evidence
+            and "state.cookies.same_origin(headers)" in evidence
+            and "StatusCode::FORBIDDEN" in evidence
+            and "StatusCode::UNAUTHORIZED" in evidence
+        ):
+            errors.append(f"{label}: sealed history lacks live A/CSRF/D proof")
+        if allowed_sealed and entry["handler"] != "admin_sealed_history::list" and not (
+            "state.admin_audit.record(" in evidence
+            or ".admin_audit" in evidence and ".record(" in evidence
+        ):
+            errors.append(f"{label}: sealed history must audit signed delivery")
         if allowed_history and not (
             "unsealed_historical_version(" in evidence
             or "unsealed_history(" in evidence
@@ -529,7 +557,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "StatusCode::UNAUTHORIZED",
         )
         if not all(marker in evidence for marker in common):
-            errors.append(f"{label}: missing live administrator read-entitlement proof")
+            if not (allowed_sealed and all(marker in evidence for marker in (
+                "session_token_digest(&session)",
+                "session_actor(&digest)",
+                "if actor.administrator",
+                "StatusCode::FORBIDDEN",
+                "StatusCode::UNAUTHORIZED",
+            )) and (
+                "PgAdministratorReaderEntitlements::new" in evidence
+                or "PgAdministratorHistoricalEditionEntitlements::new" in evidence
+            )):
+                errors.append(f"{label}: missing live administrator read-entitlement proof")
         if allowed_shell and ".resolve_entitlement(" not in evidence:
             errors.append(f"{label}: admin shell lacks sealed D entitlement")
         if allowed_unsealed and not (
