@@ -102,6 +102,48 @@ module.exports = async function sealedHistoryAcceptance({
       " AND version_id=" + version_id +
       " AND action='sealed_chapter_grant'") > auditBefore);
 
+    // The two history selectors share one rendering generation. Hold a real
+    // encrypted grant response, choose the current unsealed edition, then
+    // release the old grant: it must not repaint the newer private selection.
+    const unsealedSelect = page.getByLabel("История редакций");
+    await unsealedSelect.waitFor();
+    assert.equal(await unsealedSelect.locator(
+      "option[value='" + draft + "']").count(), 1);
+    const delayedPattern = "**/admin-sealed-history/" + version_id +
+      "/delivery-grants";
+    let releaseDelayed = () => {};
+    const delay = new Promise(resolve => { releaseDelayed = resolve; });
+    let markIntercepted = () => {};
+    const intercepted = new Promise(resolve => { markIntercepted = resolve; });
+    await page.route(delayedPattern, async (route) => {
+      markIntercepted();
+      await delay;
+      await route.continue();
+    });
+    try {
+      await select.dispatchEvent("change");
+      await intercepted;
+      await unsealedSelect.dispatchEvent("change");
+      await page.locator("[data-admin-status]").filter({
+        hasText: "Административный просмотр",
+      }).waitFor({ timeout: 30000 });
+      assert((await article.textContent()).includes("S065-HIST-CURRENT-PRIVATE"));
+      const finished = page.waitForEvent("requestfinished", {
+        predicate: (request) => request.url() === SITE + edition,
+      });
+      releaseDelayed();
+      await finished;
+      await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert((await article.textContent()).includes("S065-HIST-CURRENT-PRIVATE"),
+        "late historical sealed response must not overwrite later unsealed choice");
+      assert(!(await article.textContent()).includes("Оплаченная V1: кириллица"));
+      assert.equal(await article.locator("img").count(), 0);
+    } finally {
+      releaseDelayed();
+      await page.unroute(delayedPattern);
+    }
+
     for (const [session, code] of [[null, 401], [outsider_session, 403]]) {
       const other = await contextFor(browser, session);
       try {
