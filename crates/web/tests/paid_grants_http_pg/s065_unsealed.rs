@@ -399,17 +399,26 @@ pub(super) async fn assert_unsealed_admin_read(
         let history_path = format!("/api/v1/reader/chapters/{chapter}/admin-history");
         let old_path = format!("{history_path}/{version}");
         let history = send(
-            app, &history_path, Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
-        ).await;
+            app,
+            &history_path,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await;
         assert_eq!(history.status(), StatusCode::OK);
         assert_eq!(history.headers()[header::CACHE_CONTROL], "no-store");
-        let versions: Value = serde_json::from_slice(
-            &to_bytes(history.into_body(), 8192).await.unwrap(),
-        ).unwrap();
+        let versions: Value =
+            serde_json::from_slice(&to_bytes(history.into_body(), 8192).await.unwrap()).unwrap();
         assert_eq!(versions["schema"], "tor.admin_history.v1");
         assert_eq!(versions["versions"].as_array().unwrap().len(), 2);
-        assert!(versions["versions"].as_array().unwrap().iter()
-            .any(|entry| entry["version_id"].as_str() == Some(version.to_string().as_str())));
+        let historical_id = version.to_string();
+        assert!(versions["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["version_id"].as_str() == Some(historical_id.as_str())));
         for (session, csrf, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
             (
