@@ -603,16 +603,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap();
     // S065/C-12: real MinIO+Chromium switches current sealed V2 to
     // historical sealed V1 and decrypts its attached PNG, without a purchase.
-    s065_admin_browser::verify(
-        &app,
-        &accounts,
-        &url,
-        chapter,
-        v2,
-        v1,
-        &stranger_cookie,
-    )
-    .await;
+    s065_admin_browser::verify(&app, &accounts, &url, chapter, v2, v1, &stranger_cookie).await;
     // Capture the actual Rust HTML before the author hides the book. CI
     // screenshots exercise the mixed original NEwBOO-style free/paid/locked
     // design while preserving a separate hidden-book entitlement check.
