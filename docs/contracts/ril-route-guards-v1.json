@@ -1891,6 +1891,13 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_sealed_history::asset",
       "policy": "admin_reader"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/covers/{id}/{variant}/direct-grant",
+      "source": "crates/web/src/lib.rs",
+      "handler": "cover_http::cover_direct_grant",
+      "policy": "public"
     }
   ]
 }
