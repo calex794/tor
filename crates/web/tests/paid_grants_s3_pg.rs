@@ -195,7 +195,10 @@ async fn html_body(response: Response) -> String {
     .unwrap()
 }
 
-#[tokio::test]
+// The fixture uses synchronous psql calls while rejected SQLx transactions
+// may be rolling back asynchronously. Keep an executor worker available so
+// a psql UPDATE cannot deadlock waiting for a deferred rollback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18, local MinIO and NODE WebCrypto follow-up"]
 async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let url = env::var("TEST_DATABASE_URL").expect("PG disposable URL");
