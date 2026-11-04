@@ -276,7 +276,6 @@ impl EntitlementPort for PgAdministratorReaderEntitlements {
     }
 }
 
-    
 /// Typed, live administrator-only entitlement for a chosen historical edition.
 /// Unlike a buyer's purchase, this grants no commerce or refund capability.
 pub struct PgAdministratorHistoricalEditionEntitlements {
