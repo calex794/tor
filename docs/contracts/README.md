@@ -13,3 +13,8 @@
 **Внешние границы:** S041 Boosty, S003 OAuth и рекламная активация работают только после реальных подписанных конфигураций и end-to-end теста. Замороженные S053–S056 не реализовывать без нового продуктового решения.
 
 Оригинал продукта: [Notion v0.2](https://app.notion.com/p/40432a84beec81c49bbad75e88ff6989). Истинный статус функций: [Notion](https://app.notion.com/p/970f1eab10e041489e285725a697b513).
+
+
+## REC-13 — обратная связь рекомендаций (DRAFT)
+
+[REC-13 v1: атрибуция показов, кликов, подтверждённого чтения и явных отказов](recommendation-feedback-v1.md) и [JSON Schema](recommendation-feedback-v1.schema.json) — proposal, ожидающий review линии I/F. Не изменяют OpenAPI, C/D authoritative facts, scoring recommendations_v1 или production flags до отдельного принятия и PG/HTTP/Chromium приёмки.
