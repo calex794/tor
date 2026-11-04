@@ -389,7 +389,7 @@ async fn e_08_book_room_commit_order_preserves_pagination() {
 /// A membership or previously delivered message never becomes an age grant.
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
-async fn s020_room_live_age_revocation_preserves_membership_without_disclosure() {
+async fn e_08_s020_room_live_age_revocation_preserves_membership_without_disclosure() {
     let (pool, users) = fixture().await;
     let (reader, outsider) = (users[0], users[1]);
     let nonce = SystemTime::now()
