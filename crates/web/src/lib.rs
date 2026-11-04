@@ -23,6 +23,7 @@ mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
 mod book_follow_page;
+mod book_rating_context;
 mod book_related_public;
 mod catalog_http;
 mod chapter_import_assets;
@@ -280,18 +281,12 @@ async fn book_detail(
                 Ok(id) => id,
                 Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
             };
-            let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
-            let stars = match store.visible_summary(id).await {
-                Ok(Some(stars)) => stars,
-                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-            };
-            let likes = tor_reading::repositories::PgBookLikes::new(catalog.pool().clone());
-            let count = match likes.public_count(id).await {
-                Ok(Some(count)) => count,
-                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-            };
+            let (stars, count) =
+                match book_rating_context::for_book(catalog, id, digest.as_ref()).await {
+                    Ok(Some(context)) => context,
+                    Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+                    Err(status) => return book_error(&state, status).await,
+                };
             let html = if state.paid_batch_browser_enabled {
                 pages::book_detail_with_chapters_cover_stars_batch(
                     &book, limit, has_cover, &stars, true,
