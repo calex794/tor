@@ -60,31 +60,55 @@ pub(super) async fn book_sources(
     generation: &str,
     seed: i64,
 ) -> Result<(), FeedbackError> {
-    // Exact pinned content coefficients: genres 180 (max3), tags120 (max5),
-    // same language10 only after overlap. There is no canonical author ID in
-    // current B metadata: do not confuse owner/display name with author identity.
-    sqlx::query(
-        "WITH candidates AS (
-           SELECT b.id,LEAST(1000,
-             LEAST(3,(SELECT count(*) FROM (SELECT unnest(b.genres) INTERSECT SELECT unnest(s.genres)) x))*180 +
-             LEAST(5,(SELECT count(*) FROM (SELECT unnest(b.tags) INTERSECT SELECT unnest(s.tags)) x))*120 +10
-           )::smallint AS score
-           FROM rec_public_books s JOIN rec_public_books b ON b.target_language=s.target_language AND b.id<>s.id
+    let cte = super::discovery::GENERATION_BOOKS_CTE;
+    // Exact NEwBOO parity weights: genre 180 (max 3), tag 120 (max 5).
+    // Preserve the old 20 basic candidates while allowing up to 20 per
+    // restricted tier. Anonymous reads still use the live basic-only gate.
+    let content_sql = format!(
+        "{cte}, candidates AS (
+           SELECT b.id,b.access_level,
+             LEAST(1000,
+               LEAST(3,(SELECT count(*) FROM (SELECT unnest(b.genres) INTERSECT SELECT unnest(s.genres)) x))*180 +
+               LEAST(5,(SELECT count(*) FROM (SELECT unnest(b.tags) INTERSECT SELECT unnest(s.tags)) x))*120 +10
+             )::smallint AS score
+           FROM rec_generation_books s
+           JOIN rec_generation_books b
+             ON b.target_language=s.target_language AND b.id<>s.id
            WHERE s.id=$2 AND (b.genres && s.genres OR b.tags && s.tags)
-         ) INSERT INTO rec_candidate_edges(generation_id,seed_id,book_id,source,reason,score)
-         SELECT $1::uuid,$2,id,'content','similar_by_content',score FROM candidates
-         ORDER BY score DESC,id::text LIMIT 20 ON CONFLICT DO NOTHING")
-        .bind(generation).bind(seed).execute(&mut **tx).await?;
-    sqlx::query(
-        "INSERT INTO rec_candidate_edges(generation_id,seed_id,book_id,source,reason,score)
+         ), ranked AS (
+           SELECT id,score,row_number() OVER(
+             PARTITION BY access_level ORDER BY score DESC,id::text
+           ) AS position FROM candidates
+         )
+         INSERT INTO rec_candidate_edges(generation_id,seed_id,book_id,source,reason,score)
+         SELECT $1::uuid,$2,id,'content','similar_by_content',score
+         FROM ranked WHERE position<=20
+         ORDER BY score DESC,id::text ON CONFLICT DO NOTHING"
+    );
+    sqlx::query(&content_sql)
+        .bind(generation)
+        .bind(seed)
+        .execute(&mut **tx)
+        .await?;
+
+    // Manual Book relations are author/editor-managed metadata. A related
+    // adult/pro_adult target remains invisible to guests until live A rights
+    // are verified by the final REC metadata query and ticket activation.
+    let related_sql = format!(
+        "{cte} INSERT INTO rec_candidate_edges(
+             generation_id,seed_id,book_id,source,reason,score
+         )
          SELECT $1::uuid,$2,r.related_book_id,'related_books','manually_related',1000
-         FROM book_recommendation_relations r JOIN rec_public_books b ON b.id=r.related_book_id
-         WHERE r.book_id=$2 AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=$2)
-         ORDER BY r.related_book_id::text LIMIT 10 ON CONFLICT DO NOTHING",
-    )
-    .bind(generation)
-    .bind(seed)
-    .execute(&mut **tx)
-    .await?;
+         FROM book_recommendation_relations r
+         JOIN rec_generation_books b ON b.id=r.related_book_id
+         WHERE r.book_id=$2
+           AND EXISTS(SELECT 1 FROM rec_generation_books WHERE id=$2)
+         ORDER BY r.related_book_id::text LIMIT 10 ON CONFLICT DO NOTHING"
+    );
+    sqlx::query(&related_sql)
+        .bind(generation)
+        .bind(seed)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }

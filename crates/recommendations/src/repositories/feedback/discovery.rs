@@ -26,3 +26,23 @@ WITH rec_actor_books AS (
       )
 )
 "#;
+
+
+/// Internal worker-only metadata snapshot used to build candidate edges.
+/// It does not authorize an anonymous result, a chapter or a paid grant.
+ /// The public seed=0 and quality views remain rec_public_books (basic-only).
+pub(super) const GENERATION_BOOKS_CTE: &str = r#"
+WITH rec_generation_books AS (
+    SELECT b.id,b.target_language,b.genres,b.tags,b.access_level,b.created_at
+    FROM books b
+    LEFT JOIN book_recommendation_audiences a ON a.book_id=b.id
+    WHERE b.visibility='public' AND b.visibility_status='active'
+      AND b.lifecycle_status<>'pending_deletion'
+      AND NOT b.admin_hold AND NOT b.is_deleted
+      AND (
+        (b.access_level='basic' AND COALESCE(a.audience,'general')='general')
+        OR (b.access_level IN ('adult','pro_adult')
+            AND COALESCE(a.audience,'general') IN ('general','adult'))
+      )
+)
+"#;
