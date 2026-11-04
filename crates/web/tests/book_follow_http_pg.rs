@@ -634,9 +634,7 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     );
     pg(
         &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='pending_deletion' WHERE id={restricted}"
-        ),
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={restricted}"),
     );
     assert_eq!(
         post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
