@@ -95,9 +95,9 @@ impl PgCreatorFollows {
         let actor: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
         )
-            .bind(follower)
-            .fetch_optional(&mut *tx)
-            .await?;
+        .bind(follower)
+        .fetch_optional(&mut *tx)
+        .await?;
         if actor.is_none() {
             return Err(CreatorFollowError::Invalid);
         }
