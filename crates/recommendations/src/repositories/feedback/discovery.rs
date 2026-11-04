@@ -27,10 +27,9 @@ WITH rec_actor_books AS (
 )
 "#;
 
-
 /// Internal worker-only metadata snapshot used to build candidate edges.
 /// It does not authorize an anonymous result, a chapter or a paid grant.
- /// The public seed=0 and quality views remain rec_public_books (basic-only).
+/// The public seed=0 and quality views remain rec_public_books (basic-only).
 pub(super) const GENERATION_BOOKS_CTE: &str = r#"
 WITH rec_generation_books AS (
     SELECT b.id,b.target_language,b.genres,b.tags,b.access_level,b.created_at

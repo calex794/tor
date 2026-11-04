@@ -24,7 +24,10 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
         .await
         .unwrap();
 
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let mut created = Vec::new();
     for (label, tier, audience, lifecycle) in [
         ("adult", Some("adult"), "adult", "in_progress"),
@@ -46,14 +49,12 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
         .fetch_one(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,$2)",
-        )
-        .bind(book)
-        .bind(audience)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,$2)")
+            .bind(book)
+            .bind(audience)
+            .execute(&pool)
+            .await
+            .unwrap();
         created.push(book);
     }
     let (adult, pro, unknown, unreviewed, pending) =
@@ -72,7 +73,10 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
     assert!(content_ids.contains(&adult));
     assert!(content_ids.contains(&pro));
     for id in [unknown, unreviewed, pending] {
-        assert!(!content_ids.contains(&id), "excluded tier must not materialize");
+        assert!(
+            !content_ids.contains(&id),
+            "excluded tier must not materialize"
+        );
     }
     let bad_global: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM rec_candidate_edges
@@ -91,9 +95,10 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
         .await
         .unwrap();
     let guest = store.feed(None, Some(books[0]), 20).await.unwrap();
-    assert!(guest.items.iter().all(|b| {
-        b.book_id != adult.to_string() && b.book_id != pro.to_string()
-    }));
+    assert!(guest
+        .items
+        .iter()
+        .all(|b| { b.book_id != adult.to_string() && b.book_id != pro.to_string() }));
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(actor)
@@ -123,16 +128,20 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
         .unwrap();
     let only_pro = store.feed(Some(actor), Some(books[0]), 20).await.unwrap();
     assert!(only_pro.items.iter().any(|b| b.book_id == pro.to_string()));
-    assert!(only_pro.items.iter().all(|b| b.book_id != adult.to_string()));
+    assert!(only_pro
+        .items
+        .iter()
+        .all(|b| b.book_id != adult.to_string()));
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
     let revoked = store.feed(Some(actor), Some(books[0]), 20).await.unwrap();
-    assert!(revoked.items.iter().all(|b| {
-        b.book_id != adult.to_string() && b.book_id != pro.to_string()
-    }));
+    assert!(revoked
+        .items
+        .iter()
+        .all(|b| { b.book_id != adult.to_string() && b.book_id != pro.to_string() }));
 
     sqlx::query(
         "UPDATE rec_runtime_policy SET active_generation=$1::uuid,
