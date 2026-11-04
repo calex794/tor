@@ -122,7 +122,11 @@ pub(super) async fn assert_unsealed_admin_read(
         (502, "paid", 175, "S065-PRIVATE-PAID-DRAFT-NEVER-IN-SSR"),
     ] {
         // Free and paid drafts are checked under adult and pro_adult respectively.
-        let tier = if access == "free" { "adult" } else { "pro_adult" };
+        let tier = if access == "free" {
+            "adult"
+        } else {
+            "pro_adult"
+        };
         pg(
             url,
             &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
