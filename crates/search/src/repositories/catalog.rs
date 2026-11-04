@@ -83,7 +83,10 @@ pub(super) async fn read_page(
     if let Some(digest) = digest {
         query = query.bind(digest.as_slice());
     }
-    let rows = query.fetch_all(pool).await.map_err(|_| SearchError::Unavailable)?;
+    let rows = query
+        .fetch_all(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
 
     let mut items = rows
         .into_iter()
@@ -166,7 +169,10 @@ pub(super) async fn count_filtered(
     if let Some(digest) = digest {
         query = query.bind(digest.as_slice());
     }
-    let total: i64 = query.fetch_one(pool).await.map_err(|_| SearchError::Unavailable)?;
+    let total: i64 = query
+        .fetch_one(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
     u64::try_from(total).map_err(|_| SearchError::Unavailable)
 }
 
@@ -284,7 +290,10 @@ pub(super) async fn read_lexical_page(
     if let Some(digest) = digest {
         query = query.bind(digest.as_slice());
     }
-    let rows = query.fetch_all(pool).await.map_err(|_| SearchError::Unavailable)?;
+    let rows = query
+        .fetch_all(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
     let mut entries = rows
         .into_iter()
         .map(|row| {
