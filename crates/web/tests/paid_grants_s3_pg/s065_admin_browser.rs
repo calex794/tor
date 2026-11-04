@@ -27,7 +27,8 @@ pub(super) async fn verify(
     accounts: &PgAccounts,
     url: &str,
     chapter: i64,
-    version: i64,
+    current_version: i64,
+    historical_version: i64,
     outsider_session: &str,
 ) {
     assert!(
@@ -79,7 +80,8 @@ pub(super) async fn verify(
         "admin_session": admin_session,
         "outsider_session": outsider_session,
         "chapter_id": chapter,
-        "version_id": version,
+        "version_id": current_version,
+        "historical_version_id": historical_version,
         "asset_object_id": asset_fixture::ASSET_OBJECT_ID,
     });
     let mut options = OpenOptions::new();
