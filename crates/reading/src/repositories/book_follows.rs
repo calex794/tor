@@ -42,7 +42,7 @@ impl PgBookFollows {
                      SELECT 1 FROM account_roles role
                      WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id=EXCLUDED.book_id
-             RETURNING book_id"
+             RETURNING book_id",
         )
         .bind(user_id)
         .bind(book_id)
