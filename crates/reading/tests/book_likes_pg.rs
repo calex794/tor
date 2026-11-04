@@ -197,7 +197,8 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     assert!(likes.visible_summary(first, book).await.unwrap().is_none());
     assert_eq!(likes.direct_view_count(book).await.unwrap(), Some(2));
     assert_eq!(
-        likes.direct_view_summary(first, book)
+        likes
+            .direct_view_summary(first, book)
             .await
             .unwrap()
             .map(|summary| summary.count),
