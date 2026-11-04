@@ -107,6 +107,18 @@ async fn s020_adult_and_pro_feedback_impressions_recheck_current_actor_entitleme
                 .await,
             Err(FeedbackError::NotFound)
         );
+        assert_eq!(
+            store
+                .set_feedback(
+                    actor,
+                    book,
+                    Choice::NotInterested,
+                    1,
+                    &new_ticket().unwrap(),
+                )
+                .await,
+            Err(FeedbackError::NotFound)
+        );
         assert!(store
             .hidden_books(actor, 0)
             .await
