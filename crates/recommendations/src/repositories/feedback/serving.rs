@@ -1,5 +1,6 @@
 //! Read-only serving: bounded generation lookup, unchanged hybrid math, final live B gate.
 use super::*;
+use super::discovery::ACTOR_DISCOVERY_CTE;
 use crate::domain::feedback::{rollout_allowed, Feed, FeedItem, ALGORITHM, MAX_ITEMS};
 use crate::services::{
     hybrid_scoring::{score_hybrid_candidates, Candidate, Reason, Source},
@@ -80,11 +81,12 @@ impl PgRecommendations {
             return Err(FeedbackError::Invalid);
         }
         if let Some(seed) = seed {
-            let allowed: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rec_public_books WHERE id=$1)")
-                    .bind(seed)
-                    .fetch_one(&self.pool)
-                    .await?;
+            let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$2)");
+            let allowed: bool = sqlx::query_scalar(&sql)
+                .bind(actor)
+                .bind(seed)
+                .fetch_one(&self.pool)
+                .await?;
             if !allowed {
                 return Err(FeedbackError::NotFound);
             }
@@ -96,8 +98,8 @@ impl PgRecommendations {
         .fetch_optional(&self.pool)
         .await?;
         let recent: Vec<i64> = if let Some(subject) = subject.as_ref() {
-            sqlx::query_scalar("SELECT s.book_id FROM rec_reader_signals s JOIN rec_public_books b ON b.id=s.book_id WHERE s.subject_id=$1::uuid AND s.occurred_at>now()-interval '30 days' ORDER BY s.occurred_at DESC,s.book_id LIMIT 5")
-                .bind(subject).fetch_all(&self.pool).await?
+            let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT s.book_id FROM rec_reader_signals s JOIN rec_actor_books b ON b.id=s.book_id WHERE s.subject_id=$2::uuid AND s.occurred_at>now()-interval '30 days' ORDER BY s.occurred_at DESC,s.book_id LIMIT 5");
+            sqlx::query_scalar(&sql).bind(actor).bind(subject).fetch_all(&self.pool).await?
         } else {
             Vec::new()
         };
@@ -109,7 +111,7 @@ impl PgRecommendations {
                 None => percent == 100,
             };
         if !eligible {
-            return self.fallback(subject.as_deref(), seed, limit).await;
+            return self.fallback(actor, subject.as_deref(), seed, limit).await;
         }
         let generation = generation.expect("eligible generation");
         let seeds = candidate_seeds(seed, &recent);
@@ -182,12 +184,14 @@ impl PgRecommendations {
         }
         ordered.truncate(60);
         if ordered.is_empty() {
-            return self.fallback(subject.as_deref(), seed, limit).await;
+            return self.fallback(actor, subject.as_deref(), seed, limit).await;
         }
         let ids: Vec<i64> = ordered.iter().map(|c| c.0).collect();
         // One final statement checks current B visibility and current explicit preference.
-        let rows=sqlx::query("SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision FROM rec_public_books b LEFT JOIN rec_subjects s ON s.subject_id=$2::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE b.id=ANY($1::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())")
-            .bind(&ids).bind(subject.as_deref()).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
+        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$4+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_subjects s ON s.subject_id=$3::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE b.id=ANY($2::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())");
+        let rows = sqlx::query(&sql).bind(actor).bind(&ids)
+            .bind(subject.as_deref()).bind(REVISION_STRIDE)
+            .fetch_all(&self.pool).await?;
         let mut metadata = BTreeMap::new();
         for row in rows {
             metadata.insert(
@@ -225,12 +229,14 @@ impl PgRecommendations {
 
     async fn fallback(
         &self,
+        actor: Option<i64>,
         subject: Option<&str>,
         seed: Option<i64>,
         limit: usize,
     ) -> Result<Feed, FeedbackError> {
-        let rows=sqlx::query("SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$4+COALESCE(f.revision,0)) AS revision FROM rec_public_books b LEFT JOIN rec_subjects s ON s.subject_id=$1::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE ($2::bigint IS NULL OR b.id<>$2) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $3")
-            .bind(subject).bind(seed).bind(limit as i64).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
+        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$5+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_subjects s ON s.subject_id=$2::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE ($3::bigint IS NULL OR b.id<>$3) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $4");
+        let rows = sqlx::query(&sql).bind(actor).bind(subject).bind(seed)
+            .bind(limit as i64).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
         let mut items = Vec::new();
         for row in rows {
             items.push(FeedItem {

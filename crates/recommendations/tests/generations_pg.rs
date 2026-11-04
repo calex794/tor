@@ -327,3 +327,68 @@ async fn rec13_content_edits_keep_eligibility_and_b_policy_changes_apply_live() 
         .unwrap();
     assert_public_eligible(&pool, book, false).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable database");
+    assert!(url.ends_with("/tor_ci"), "never modify production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash,adult_enabled)
+         VALUES('s020-rec-tier@tor-ci.example','REC age reader','$argon2id$test',FALSE)
+         ON CONFLICT(email_normalized) DO UPDATE SET adult_enabled=FALSE RETURNING id",
+    )
+    .fetch_one(&pool).await.unwrap();
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(actor).execute(&pool).await.unwrap();
+    let mut books = Vec::new();
+    for tier in ["adult", "pro_adult", "basic"] {
+        let book: i64 = sqlx::query_scalar(
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES($1,'ru',$2,'public',$3)
+             ON CONFLICT(source_identity,target_language) DO UPDATE SET
+               visibility='public',visibility_status='active',
+               lifecycle_status='in_progress',admin_hold=FALSE,is_deleted=FALSE,
+               access_level=EXCLUDED.access_level RETURNING id",
+        )
+        .bind(format!("ci:s020:rec-tier:{tier}"))
+        .bind(format!("REC tier {tier}"))
+        .bind(tier).fetch_one(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general')
+             ON CONFLICT(book_id) DO UPDATE SET audience='general'",
+        ).bind(book).execute(&pool).await.unwrap();
+        books.push(book);
+    }
+    let (adult, pro, legacy) = (books[0], books[1], books[2]);
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(legacy).execute(&pool).await.unwrap();
+    let rec = PgRecommendations::new(pool.clone());
+    for actor in [None, Some(actor)] {
+        for book in [adult, pro, legacy] {
+            assert_eq!(rec.feed(actor, Some(book), 20).await.err(), Some(FeedbackError::NotFound));
+        }
+    }
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(actor).execute(&pool).await.unwrap();
+    assert!(rec.feed(Some(actor), Some(adult), 20).await.is_ok());
+    assert_eq!(rec.feed(Some(actor), Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)
+         ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE",
+    ).bind(actor).execute(&pool).await.unwrap();
+    assert!(rec.feed(Some(actor), Some(pro), 20).await.is_ok());
+    assert_eq!(rec.feed(None, Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(actor).execute(&pool).await.unwrap();
+    assert_eq!(rec.feed(Some(actor), Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(adult).execute(&pool).await.unwrap();
+    assert_eq!(rec.feed(Some(actor), Some(adult), 20).await.err(), Some(FeedbackError::NotFound));
+    sqlx::query(
+        "UPDATE books SET visibility_status='active',lifecycle_status='pending_deletion' WHERE id=$1"
+    ).bind(adult).execute(&pool).await.unwrap();
+    assert_eq!(rec.feed(Some(actor), Some(adult), 20).await.err(), Some(FeedbackError::NotFound));
+}
