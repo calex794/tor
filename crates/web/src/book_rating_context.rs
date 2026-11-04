@@ -2,6 +2,7 @@
 //! The canonical B reader grants access before this projection; anonymous
 //! basic-only metadata must never downgrade an eligible adult/pro_adult reader.
 use axum::http::StatusCode;
+use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgBookLikes;
 use tor_recommendations::repositories::{BookStars, PgBookStars};
@@ -13,16 +14,10 @@ pub(super) async fn for_book(
 ) -> Result<Option<(BookStars, i64)>, StatusCode> {
     // Bind the actual A session to the server-side actor, not a client id.
     let actor = if let Some(session) = session_digest {
-        sqlx::query_scalar::<_, i64>(
-            "SELECT s.user_id FROM sessions s
-             JOIN users u ON u.id=s.user_id AND u.account_state='active'
-             WHERE s.token_hash=$1::bytea AND s.revoked_at IS NULL
-               AND s.expires_at>now()",
-        )
-        .bind(session.as_slice())
-        .fetch_optional(catalog.pool())
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        PgAccounts::from_pool(catalog.pool().clone())
+            .active_session_user(session)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     } else {
         None
     };
