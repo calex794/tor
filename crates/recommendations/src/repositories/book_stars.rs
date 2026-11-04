@@ -119,9 +119,9 @@ impl PgBookStars {
                      AND (b.access_level='basic'
                        OR (b.access_level='adult' AND viewer.adult_enabled)
                        OR (b.access_level='pro_adult' AND EXISTS (
-                         SELECT 1 FROM user_level_grants grant
-                         WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
-                           AND grant.is_active))
+                         SELECT 1 FROM user_level_grants age
+                         WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                           AND age.is_active))
                        OR EXISTS (
                          SELECT 1 FROM account_roles role
                          WHERE role.user_id=viewer.id AND role.role='administrator'
@@ -188,9 +188,9 @@ impl PgBookStars {
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (
-                     SELECT 1 FROM user_level_grants grant
-                     WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
-                       AND grant.is_active))
+                     SELECT 1 FROM user_level_grants age
+                     WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                       AND age.is_active))
                  OR EXISTS (
                      SELECT 1 FROM account_roles role
                      WHERE role.user_id=viewer.id AND role.role='administrator'
@@ -235,9 +235,9 @@ impl PgBookStars {
                   AND (b.access_level='basic'
                     OR (b.access_level='adult' AND viewer.adult_enabled)
                     OR (b.access_level='pro_adult' AND EXISTS (
-                        SELECT 1 FROM user_level_grants grant
-                        WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
-                          AND grant.is_active))
+                        SELECT 1 FROM user_level_grants age
+                        WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                          AND age.is_active))
                     OR EXISTS (
                         SELECT 1 FROM account_roles role
                         WHERE role.user_id=viewer.id AND role.role='administrator'
@@ -280,9 +280,9 @@ impl PgBookStars {
                    AND (b.access_level='basic'
                      OR (b.access_level='adult' AND viewer.adult_enabled)
                      OR (b.access_level='pro_adult' AND EXISTS (
-                       SELECT 1 FROM user_level_grants grant
-                       WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
-                         AND grant.is_active))
+                       SELECT 1 FROM user_level_grants age
+                       WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                         AND age.is_active))
                      OR EXISTS (
                        SELECT 1 FROM account_roles role
                        WHERE role.user_id=viewer.id AND role.role='administrator'
