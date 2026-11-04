@@ -763,8 +763,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     s020_paid_completion_age::verify(
         &app,
         &url,
-        book,
-        buyer,
+        (book, buyer),
         (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
