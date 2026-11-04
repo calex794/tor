@@ -32,6 +32,7 @@ impl PgBookFollows {
              SELECT $1, b.id FROM books b
              JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
              WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
