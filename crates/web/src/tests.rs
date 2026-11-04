@@ -78,6 +78,21 @@ async fn demo_must_not_advertise_unimplemented_reader() {
     assert_eq!(reply.status(), StatusCode::NOT_FOUND);
 }
 #[tokio::test]
+async fn s025_direct_cover_grants_are_disabled_without_private_s3() {
+    for path in [
+        "/api/v1/covers/1/card.webp/direct-grant",
+        "/api/v1/covers/1/main.webp/direct-grant",
+        "/api/v1/covers/0/card.webp/direct-grant",
+        "/api/v1/covers/1/source.webp/direct-grant",
+    ] {
+        let (status, body) = get(path).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        assert!(!body.contains("staging/covers/"));
+        assert!(!body.contains("X-Amz-"));
+    }
+}
+
+#[tokio::test]
 async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {
     assert_eq!(get("/ops/overview").await.0, StatusCode::UNAUTHORIZED);
 }
