@@ -244,6 +244,80 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         work_count, 2,
         "repeated vote does not create duplicate rows"
     );
+    // S020: a saved verified completion or vote never bypasses the current
+    // Book's age tier. Both GET (title) and direct POST must deny.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
