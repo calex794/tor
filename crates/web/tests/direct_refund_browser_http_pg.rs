@@ -159,7 +159,9 @@ async fn s036_refund_browser_disabled_by_default() {
         Ok("1")
     );
     assert_eq!(
-        admin_reject(&site, "", ORIGIN, "invalid=form").await.status(),
+        admin_reject(&site, "", ORIGIN, "invalid=form")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -466,9 +468,12 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         "1"
     );
     let approval_enabled = std::env::var("TOR_REFUND_APPROVAL_HTTP_ENABLED").as_deref() == Ok("1");
-    let rejection_enabled = std::env::var("TOR_REFUND_REJECTION_HTTP_ENABLED").as_deref() == Ok("1");
-    assert!(!(approval_enabled && rejection_enabled),
-        "run dedicated acceptance fixtures for each exclusive decision");
+    let rejection_enabled =
+        std::env::var("TOR_REFUND_REJECTION_HTTP_ENABLED").as_deref() == Ok("1");
+    assert!(
+        !(approval_enabled && rejection_enabled),
+        "run dedicated acceptance fixtures for each exclusive decision"
+    );
     if approval_enabled {
         assert!(admin_html.contains("action=\"/admin/finance/refunds/approve\""));
         let request_form = format!(
@@ -567,55 +572,90 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         let reject_form = format!(
             "csrf_token={csrf}&request_id={refund_id}&expected_revision=1&reason=Admin+rejected&current_password=S036RefundOtherPassword2026"
         );
-        let bad_password =
-            reject_form.replace("S036RefundOtherPassword2026", "IncorrectPassword");
+        let bad_password = reject_form.replace("S036RefundOtherPassword2026", "IncorrectPassword");
         assert_eq!(
             admin_reject(&site, &outsider_cookie, ORIGIN, &bad_password)
-                .await.status(),
+                .await
+                .status(),
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            admin_reject(&site, &outsider_cookie, "https://evil.invalid", &reject_form)
-                .await.status(),
+            admin_reject(
+                &site,
+                &outsider_cookie,
+                "https://evil.invalid",
+                &reject_form
+            )
+            .await
+            .status(),
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            admin_reject(&site, &outsider_cookie, ORIGIN,
-                &reject_form.replace(&csrf, "invalid")).await.status(),
+            admin_reject(
+                &site,
+                &outsider_cookie,
+                ORIGIN,
+                &reject_form.replace(&csrf, "invalid")
+            )
+            .await
+            .status(),
             StatusCode::FORBIDDEN
         );
         assert_eq!(
             admin_reject(&site, &buyer_cookie, ORIGIN, &reject_form)
-                .await.status(),
+                .await
+                .status(),
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            admin_reject(&site, &outsider_cookie, ORIGIN,
-                &format!("{reject_form}&user_id={buyer}")).await.status(),
+            admin_reject(
+                &site,
+                &outsider_cookie,
+                ORIGIN,
+                &format!("{reject_form}&user_id={buyer}")
+            )
+            .await
+            .status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
-            admin_reject(&site, &outsider_cookie, ORIGIN,
-                &reject_form.replace("expected_revision=1", "expected_revision=2"))
-                .await.status(),
+            admin_reject(
+                &site,
+                &outsider_cookie,
+                ORIGIN,
+                &reject_form.replace("expected_revision=1", "expected_revision=2")
+            )
+            .await
+            .status(),
             StatusCode::CONFLICT
         );
         let rejected = admin_reject(&site, &outsider_cookie, ORIGIN, &reject_form).await;
         assert_eq!(rejected.status(), StatusCode::OK);
         assert!(html(rejected).await.contains("Заявка"));
         assert_eq!(
-            pg(&url, &format!("SELECT state FROM finance_direct_refund_requests WHERE id={refund_id}")),
+            pg(
+                &url,
+                &format!("SELECT state FROM finance_direct_refund_requests WHERE id={refund_id}")
+            ),
             "rejected"
         );
         assert_eq!(
-            pg(&url, &format!("SELECT revision FROM finance_direct_refund_requests WHERE id={refund_id}")),
+            pg(
+                &url,
+                &format!(
+                    "SELECT revision FROM finance_direct_refund_requests WHERE id={refund_id}"
+                )
+            ),
             "2"
         );
         let replay = admin_reject(&site, &outsider_cookie, ORIGIN, &reject_form).await;
         assert_eq!(replay.status(), StatusCode::OK);
         assert!(html(replay).await.contains("Повтор решения"));
         assert_eq!(
-            pg(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")),
+            pg(
+                &url,
+                &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+            ),
             "700"
         );
         assert_eq!(
@@ -630,7 +670,8 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         assert!(!admin_html.contains("action=\"/admin/finance/refunds/reject\""));
         assert_eq!(
             admin_reject(&site, &outsider_cookie, ORIGIN, "invalid=form")
-                .await.status(),
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
