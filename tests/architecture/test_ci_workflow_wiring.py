@@ -211,6 +211,27 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn(owned, text)
         self.assertIn("bash tools/rec13_browser_acceptance.sh", text)
 
+    def test_rec13_migration_filter_is_exact_and_keeps_core_pg_coverage(self):
+        # Each REC schema migration uses the explicit _rec_ family; a
+        # non-REC migration is already covered by TOR integration/PG.
+        text = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("      - 'migrations/*_rec_*.sql'", text)
+        self.assertNotIn("      - 'migrations/**'", text)
+        migrations = [
+            p.name for p in (ROOT / "migrations").glob("*.sql")
+        ]
+        self.assertTrue(any("_rec_" in p for p in migrations))
+        self.assertTrue(any("_rec_" not in p for p in migrations))
+        import fnmatch
+        for name in migrations:
+            with self.subTest(migration=name):
+                matched = fnmatch.fnmatchcase(name, "*_rec_*.sql")
+                self.assertEqual(matched, "_rec_" in name)
+        core = (WORKFLOWS / CI_WORKFLOW).read_text()
+        self.assertIn("  postgres-runtime:", core)
+        self.assertIn("  migrations:", core)
+        self.assertIn("    needs: [select, preflight]", core)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml"}
