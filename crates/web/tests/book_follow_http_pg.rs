@@ -616,6 +616,22 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         ),
         "0"
     );
+    // Defence in depth: an already-suspended user cannot create a follow
+    // even through a future internal caller without a web-session check.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={restricted}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET account_state='suspended' WHERE id={first}"),
+    );
+    assert_eq!(
+        tor_reading::repositories::PgBookFollows::new(pool.clone())
+            .follow(first, restricted)
+            .await,
+        Err(tor_reading::repositories::FollowError::NotFound)
+    );
 
     // CI drops its isolated tor_ci database; deleting these owned books
     // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
