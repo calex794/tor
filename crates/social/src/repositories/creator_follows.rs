@@ -92,10 +92,12 @@ impl PgCreatorFollows {
         let mut tx = self.pool.begin().await?;
         // Serializing the reader's own follow commands also fences rapid
         // follow/unfollow/re-follow requests across browsers.
-        let actor: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE")
-            .bind(follower)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let actor: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(follower)
+        .fetch_optional(&mut *tx)
+        .await?;
         if actor.is_none() {
             return Err(CreatorFollowError::Invalid);
         }
