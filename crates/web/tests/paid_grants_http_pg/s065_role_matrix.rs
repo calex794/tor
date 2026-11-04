@@ -321,6 +321,22 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         StatusCode::FORBIDDEN,
         "site moderator cannot inherit administrator-only pro_adult inspection"
     );
+    let moderator_pro_adult_grant = send(
+        grants,
+        &path,
+        Some(&outsider),
+        Some(&csrf),
+        Some(ORIGIN),
+        r#"{"source":"administrator"}"#,
+    )
+    .await;
+    assert_eq!(moderator_pro_adult_grant.status(), StatusCode::FORBIDDEN);
+    assert!(
+        to_bytes(moderator_pro_adult_grant.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     assert_eq!(
         send(
