@@ -8,7 +8,10 @@ async fn authorize(
     state: &AdminReaderState,
     headers: &HeaderMap,
 ) -> Result<(PgAdministratorReaderEntitlements, PositiveId, [u8; 32]), StatusCode> {
-    let session = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let session = state
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let digest = session_token_digest(&session);
     let actor = match state.accounts.session_actor(&digest).await {
         Ok(Some(actor)) if actor.administrator => actor,
@@ -16,17 +19,23 @@ async fn authorize(
         Ok(None) => return Err(StatusCode::UNAUTHORIZED),
         Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let actor_id = PositiveId::new(actor.actor.user_id.get())
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let actor_id =
+        PositiveId::new(actor.actor.user_id.get()).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
         != Some(state.cookies.origin.as_str())
         || !state.cookies.same_origin(headers)
-        || !headers.get("x-csrf-token").and_then(|v| v.to_str().ok())
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
             .is_some_and(|csrf| state.cookies.valid_csrf(headers, csrf))
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok((PgAdministratorReaderEntitlements::new(state.accounts.pool().clone(), digest), actor_id, digest))
+    Ok((
+        PgAdministratorReaderEntitlements::new(state.accounts.pool().clone(), digest),
+        actor_id,
+        digest,
+    ))
 }
 
 pub(super) async fn list(
@@ -54,9 +63,10 @@ pub(super) async fn list(
     if history.is_empty() {
         return deny(StatusCode::NOT_FOUND);
     }
-    let entries: Vec<_> = history.iter().map(|(id, number)| {
-        json!({"version_id": id.get().to_string(), "version_no": number})
-    }).collect();
+    let entries: Vec<_> = history
+        .iter()
+        .map(|(id, number)| json!({"version_id": id.get().to_string(), "version_no": number}))
+        .collect();
     private_json(json!({
         "schema": "tor.admin_history.v1",
         "chapter_id": chapter.get().to_string(),
@@ -93,16 +103,25 @@ pub(super) async fn read(
     };
     // A second authoritative DB check blocks revocation and a changed
     // chapter-version association while B was fetching the original text.
-    match authority.unsealed_historical_version(
-        Actor { user_id: actor }, chapter, version,
-    ).await {
+    match authority
+        .unsealed_historical_version(Actor { user_id: actor }, chapter, version)
+        .await
+    {
         Ok(Some(pinned)) if pinned == current => {}
         Ok(_) => return deny(StatusCode::FORBIDDEN),
         Err(error) => return deny(status(error)),
     }
-    if let Err(error) = state.admin_audit.record(
-        &digest, actor, chapter, version, AdminReadAction::UnsealedBody,
-    ).await {
+    if let Err(error) = state
+        .admin_audit
+        .record(
+            &digest,
+            actor,
+            chapter,
+            version,
+            AdminReadAction::UnsealedBody,
+        )
+        .await
+    {
         return deny(status(error));
     }
     private_json(json!({
@@ -115,7 +134,12 @@ pub(super) async fn read(
 
 fn private_json(body: serde_json::Value) -> Response {
     let mut response = private_response(Json(body), &[]);
-    response.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
-    response.headers_mut().insert("x-robots-tag", HeaderValue::from_static("noindex"));
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response
+        .headers_mut()
+        .insert("x-robots-tag", HeaderValue::from_static("noindex"));
     response
 }
