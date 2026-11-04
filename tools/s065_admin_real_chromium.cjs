@@ -273,6 +273,15 @@ async function main() {
       chapter_id, pg, count, contextFor, assertNoMoney,
     });
 
+    // Separate mixed-current regression: an unsealed working V3 cannot
+    // authorize historical sealed V1 except via the administrator-only path.
+    stage = "sealed V1 history from current unsealed draft on real MinIO";
+    await require("./s065_admin_sealed_history_chromium.cjs")({
+      browser, SITE, S3, admin_id, admin_session, outsider_session,
+      chapter_id, version_id: historical_version_id, asset_object_id,
+      pg, count, contextFor, assertNoMoney,
+    });
+
     stage = "revoked admin denial";
     pg("UPDATE account_roles SET is_active=FALSE WHERE user_id=" +
       admin_id + " AND role='administrator'");
