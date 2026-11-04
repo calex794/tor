@@ -235,8 +235,8 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:inbox','ru','Reply book','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,visibility_status,access_level)
+         VALUES('ci:e03:inbox','ru','Reply book','public','active','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -479,6 +479,9 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     let bounded = repo.received_replies(users[0], 1).await.unwrap();
     assert_eq!(bounded.len(), 1);
     assert_eq!(bounded[0].comment_id, second);
+
+    s020_age_inbox::verify(&pool, &repo, &inbox, book, users[0], second).await;
+
     sqlx::query("DELETE FROM discussion_comments WHERE parent_id=$1")
         .bind(parent)
         .execute(&pool)
@@ -911,3 +914,6 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         Err(tor_discussions::repositories::public_chapter_comments::ListError::Invalid)
     );
 }
+
+#[path = "public_book_comments_pg/s020_age_inbox.rs"]
+mod s020_age_inbox;
