@@ -38,7 +38,7 @@ impl PgBookLikes {
         sqlx::query_scalar(
             "SELECT (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT
              FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted AND b.access_level='basic'",
+               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion' AND b.access_level='basic'",
         )
         .bind(book_id)
         .fetch_optional(&self.pool)
@@ -62,7 +62,7 @@ impl PgBookLikes {
              FROM books b
              JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (
@@ -106,7 +106,7 @@ impl PgBookLikes {
                      SELECT b.id FROM books b
                      JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
                      WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-                       AND NOT b.admin_hold AND NOT b.is_deleted
+                       AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
                        AND (b.access_level='basic'
                          OR (b.access_level='adult' AND viewer.adult_enabled)
                          OR (b.access_level='pro_adult' AND EXISTS (
@@ -134,7 +134,7 @@ impl PgBookLikes {
                      SELECT b.id FROM books b
                      JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
                      WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-                       AND NOT b.admin_hold AND NOT b.is_deleted
+                       AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
                        AND (b.access_level='basic'
                          OR (b.access_level='adult' AND viewer.adult_enabled)
                          OR (b.access_level='pro_adult' AND EXISTS (
