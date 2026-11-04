@@ -169,6 +169,42 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .await
         .unwrap()
         .is_empty());
+    // S020/#486: a Book member must not use exact-title search or a forged
+    // target_id to enumerate Books that the public basic-only list excludes.
+    for (suffix, tier) in [
+        ("adult", Some("adult")),
+        ("pro", Some("pro_adult")),
+        ("unknown", None),
+    ] {
+        let title = format!("S020 age-restricted related {mark} {suffix}");
+        let target = make_book(
+            &pool,
+            format!("related:age:{suffix}:{mark}"),
+            title.clone(),
+            another,
+            "public",
+            false,
+        )
+        .await;
+        sqlx::query("UPDATE books SET access_level=$1 WHERE id=$2")
+            .bind(tier)
+            .bind(target)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            repo.find_related_candidates(owner, a, &title)
+                .await
+                .unwrap()
+                .is_empty(),
+            "restricted or unknown target must not leak via title search: {suffix}"
+        );
+        assert_eq!(
+            repo.add_related_book(owner, a, target).await,
+            Err(AuthorError::Missing),
+            "forged target ID must not bypass the basic-only linking gate"
+        );
+    }
     assert_eq!(
         repo.add_related_book(owner, a, hidden).await,
         Err(AuthorError::Missing)
@@ -222,6 +258,29 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     assert_eq!(repo.add_related_book(translator, a, b).await, Ok(()));
     assert_eq!(repo.remove_related_book(moderator, a, b).await, Ok(true));
     assert_eq!(repo.add_related_book(moderator, a, b).await, Ok(()));
+    // An already-linked target must disappear from related displays while
+    // its live Book tier is adult; the stored canonical edge stays intact.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .manageable_related_books(owner, a)
+        .await
+        .unwrap()
+        .unwrap()
+        .linked
+        .is_empty());
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
     // Changing and then revoking Book membership changes manage rights,
     // without altering bought content or requiring a fresh authentication.
     members
