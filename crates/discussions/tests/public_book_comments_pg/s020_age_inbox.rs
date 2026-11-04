@@ -40,7 +40,12 @@ pub(super) async fn verify(
         .unwrap();
     assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
     assert_eq!(
-        inbox.list(actor, InboxFilter::All, None, 25).await.unwrap().items.len(),
+        inbox
+            .list(actor, InboxFilter::All, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
         2
     );
 
@@ -95,16 +100,21 @@ pub(super) async fn verify(
     .unwrap();
     assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
     assert_eq!(
-        inbox.list(actor, InboxFilter::All, None, 25).await.unwrap().items.len(),
+        inbox
+            .list(actor, InboxFilter::All, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
         2
     );
     sqlx::query(
         "UPDATE account_roles SET is_active=FALSE WHERE user_id=$1 AND role='administrator'",
     )
-        .bind(actor)
-        .execute(pool)
-        .await
-        .unwrap();
+    .bind(actor)
+    .execute(pool)
+    .await
+    .unwrap();
     assert!(repo.received_replies(actor, 10).await.unwrap().is_empty());
     sqlx::query(
         "INSERT INTO account_roles(user_id,role,is_active)
@@ -167,5 +177,4 @@ pub(super) async fn verify(
         .execute(pool)
         .await
         .unwrap();
-
 }
