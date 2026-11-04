@@ -105,6 +105,7 @@ struct AdminReaderState {
     accounts: PgAccounts,
     admin_unsealed: PgAdminUnsealedText,
     admin_audit: PgAdminChapterAccessAudit,
+    history_rate_limits: Arc<Mutex<RateLimits>>,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
     reader_s3_origin: Option<String>,
@@ -364,6 +365,7 @@ fn administrator_routes(
     let state = AdminReaderState {
         admin_unsealed: PgAdminUnsealedText::new(accounts.pool().clone()),
         admin_audit: PgAdminChapterAccessAudit::new(accounts.pool().clone()),
+        history_rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         accounts,
         cookies,
         rate_limits,
