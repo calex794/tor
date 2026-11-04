@@ -993,3 +993,6 @@ include!("support/e08_group_creator_lifecycle_pg.rs");
 
 #[path = "support/e08_admin_mail_pg.rs"]
 mod admin_mail_pg;
+
+#[path = "support/s020_creator_follow_age.rs"]
+mod s020_creator_follow_age;
