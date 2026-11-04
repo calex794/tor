@@ -389,6 +389,12 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         StatusCode::SEE_OTHER
     );
 
+    // An authenticated adult must keep the original Book detail, including
+    // its aggregate ratings. Anonymous rating data remains basic-only.
+    let adult_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(adult_detail.status(), StatusCode::OK);
+    assert!(html(adult_detail).await.contains("5.00"));
+
     pg(
         &url,
         &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
@@ -418,6 +424,10 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
             .status(),
         StatusCode::SEE_OTHER
     );
+    let pro_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(pro_detail.status(), StatusCode::OK);
+    assert!(html(pro_detail).await.contains("5.00"));
+
     pg(
         &url,
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
