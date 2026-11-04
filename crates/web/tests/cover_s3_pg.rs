@@ -26,7 +26,7 @@ use tor_ingest::{
     },
 };
 use tor_reading::repositories::PgReader;
-use tor_web::cover_worker::{CoverRunner, CoverRunnerMonitor};
+use tor_web::{cover_delivery::CoverDelivery, cover_worker::{CoverRunner, CoverRunnerMonitor}};
 use tower::ServiceExt;
 
 const BUCKET: &str = "tor-private-obs09-ci";
