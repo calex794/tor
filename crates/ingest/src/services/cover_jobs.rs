@@ -24,6 +24,21 @@ pub trait CoverJobs: Send + Sync {
 
 #[async_trait]
 pub trait CoverObjectStore: Send + Sync {
+    /// Direct public cover delivery is opt-in. Unconfigured/fake stores refuse
+    /// grants and never expose a private S3 bucket or object key.
+    fn direct_read_origin(&self) -> Option<&str> {
+        None
+    }
+
+    /// Sign only a validated, attached public variant after B has checked ACL.
+    /// This method is a storage capability, NOT authorization by itself.
+    async fn presign_variant_get(
+        &self,
+        _key: &str,
+        _ttl: std::time::Duration,
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
     /// A source must be verified by a signed PUT, HEAD, and bounded GET.
     /// Stores without source-upload support fail closed.
     async fn put_source_verified(
