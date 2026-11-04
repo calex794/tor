@@ -73,7 +73,7 @@ module.exports = async function sealedHistoryAcceptance({
       "WHERE admin_user_id=" + admin_id + " AND chapter_id=" + chapter_id +
       " AND version_id=" + version_id + " AND action='sealed_chapter_grant'");
     // Only the explicitly selected historical version may trigger D->B->G->D.
-    await select.dispatchEvent("change");
+    await select.selectOption(String(version_id));
     await page.locator("[data-admin-status]").filter({
       hasText: "Защищённый просмотр",
     }).waitFor({ timeout: 30000 });
