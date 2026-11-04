@@ -79,6 +79,31 @@ module.exports = async function historyAcceptance({
         pg("UPDATE account_roles SET is_active=TRUE WHERE user_id=" + admin_id +
           " AND role='administrator'");
       }
+      // Hold a real server response until pagehide, then let the reader finish.
+      // Await the exported loader itself: no timing-based sleep or fake body.
+      const lateBody = await page.evaluate(async () => {
+        const { startAdministratorReader } = await import("/assets/newboo-admin-reader.mjs");
+        const originalFetch = window.fetch;
+        let received, release;
+        const arrived = new Promise(resolve => { received = resolve; });
+        const held = new Promise(resolve => { release = resolve; });
+        window.fetch = async (...args) => {
+          const response = await originalFetch(...args);
+          received();
+          await held;
+          return response;
+        };
+        try {
+          const root = document.querySelector("[data-admin-chapter-reader]");
+          const loading = startAdministratorReader(root);
+          await arrived;
+          window.dispatchEvent(new Event("pagehide"));
+          release();
+          await loading;
+          return root.querySelector("[data-admin-content]").textContent;
+        } finally { window.fetch = originalFetch; }
+      });
+      assert.equal(lateBody, "", "late response must not restore private text after close");
       assertNoMoney();
       assert(count("SELECT count(*) FROM reader_admin_chapter_access_audit " +
         "WHERE admin_user_id=" + admin_id + " AND chapter_id=" + chapter +
