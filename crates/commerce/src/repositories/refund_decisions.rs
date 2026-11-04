@@ -23,7 +23,6 @@ pub fn rejection_step_up_payload_digest(
     digest.finalize().into()
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DirectRefundRejectError {
     InvalidRequest,
@@ -74,7 +73,9 @@ impl PgDirectRefundDecisions {
             || reason.is_empty()
             || reason.chars().count() > 1000
             || step_up_token.len() != 43
-            || !step_up_token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || !step_up_token
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
             return Err(DirectRefundRejectError::InvalidRequest);
         }
@@ -154,9 +155,8 @@ impl PgDirectRefundDecisions {
         // The one-use proof is bound to this decision, reason, revision and
         // *current session*. Approval-scoped tokens cannot authorize rejection.
         let proof_hash = Sha256::digest(step_up_token.as_bytes());
-        let payload = rejection_step_up_payload_digest(
-            actor, request_id, expected_revision, reason,
-        );
+        let payload =
+            rejection_step_up_payload_digest(actor, request_id, expected_revision, reason);
         let consumed = sqlx::query(
             "UPDATE sessions SET step_up_used_at=clock_timestamp()
              WHERE user_id=$1 AND token_hash=$2
