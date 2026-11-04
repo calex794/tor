@@ -92,10 +92,12 @@ impl PgAdministratorReaderEntitlements {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
-        Ok(found.filter(|id| *id == version_id.get()).map(|_| ChapterVersionRef {
-            chapter_id,
-            version_id,
-        }))
+        Ok(found
+            .filter(|id| *id == version_id.get())
+            .map(|_| ChapterVersionRef {
+                chapter_id,
+                version_id,
+            }))
     }
 
     /// Bounded metadata-only history of unsealed editions for the private
