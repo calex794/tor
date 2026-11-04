@@ -279,8 +279,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         scalar(
             url,
             &format!(
-                "SELECT COUNT(*) FROM user_level_grants WHERE user_id={admin_id} \\
-                 AND level='pro_adult' AND is_active"
+                "SELECT COUNT(*) FROM user_level_grants WHERE user_id={admin_id} AND level='pro_adult' AND is_active"
             )
         ),
         0
