@@ -44,7 +44,10 @@ async fn e_05_s020_creator_source_book_age_revocation() {
     let original = follows.list_active(reader, None).await.unwrap();
     assert_eq!(original.len(), 1);
     assert_eq!(
-        original[0].source_book.as_ref().map(|(_, title)| title.as_str()),
+        original[0]
+            .source_book
+            .as_ref()
+            .map(|(_, title)| title.as_str()),
         Some("E05 age protected source"),
     );
     let period = original[0].period_id;
