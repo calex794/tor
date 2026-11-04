@@ -8,6 +8,9 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
+#[path = "s020_admin_age.rs"]
+mod s020_admin_age;
+
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, session_token_digest},
@@ -312,6 +315,12 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         url,
         &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
     );
+    // The private administrator role is independent of moderation status,
+    // lifecycle, and the ordinary 21+ subscription gate (no G grants here).
+    s020_admin_age::assert_admin_can_inspect_all_book_states(
+        url, accounts, reader, admin_id, &admin_session, book, chapter, version,
+    )
+    .await;
     // The existing chapter+image S3 grant assertions below run at pro_adult,
     // with no viewer grant and without changing audit or signed-object counts.
     assert_eq!(
