@@ -891,7 +891,10 @@ async fn s020_suspended_rec_actor_cannot_reuse_private_consent_subject() {
     enable(&store, actor).await;
     let active = store.feed(Some(actor), None, 20).await.unwrap();
     assert!(
-        active.items.iter().any(|item| item.feedback_revision.is_some()),
+        active
+            .items
+            .iter()
+            .any(|item| item.feedback_revision.is_some()),
         "active consent must produce versioned recommendation cards"
     );
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
