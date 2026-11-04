@@ -78,11 +78,7 @@ async fn s020_revoked_age_edges_cannot_crowd_out_anonymous_basic_candidates() {
         }
     }
     store
-        .activate_generation(
-            &generation,
-            store.runtime_status().await.unwrap().2,
-            100,
-        )
+        .activate_generation(&generation, store.runtime_status().await.unwrap().2, 100)
         .await
         .unwrap();
     let guest = store.feed(None, Some(books[0]), 20).await.unwrap();
@@ -98,9 +94,10 @@ async fn s020_revoked_age_edges_cannot_crowd_out_anonymous_basic_candidates() {
         .expect("authorized basic content edge must survive pre-rank filtering");
     assert_eq!(allowed.source, "content");
     assert!(
-        guest.items.iter().all(|item| {
-            !adult_ids.contains(&item.book_id.parse::<i64>().unwrap())
-        }),
+        guest
+            .items
+            .iter()
+            .all(|item| { !adult_ids.contains(&item.book_id.parse::<i64>().unwrap()) }),
         "guest cannot see age-tier metadata"
     );
 
