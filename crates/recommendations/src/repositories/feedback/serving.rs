@@ -93,8 +93,13 @@ impl PgRecommendations {
                 return Err(FeedbackError::NotFound);
             }
         }
+        // A verified session can be suspended between HTTP authentication
+        // and serving. Inactive accounts must not reuse their private REC
+        // subject, recent reading signals or feedback on this read path.
         let subject: Option<String> = sqlx::query_scalar(
-            "SELECT subject_id::text FROM rec_subjects WHERE user_id=$1 AND enabled",
+            "SELECT s.subject_id::text FROM rec_subjects s
+             JOIN users u ON u.id=s.user_id AND u.account_state='active'
+             WHERE s.user_id=$1 AND s.enabled",
         )
         .bind(actor)
         .fetch_optional(&self.pool)
