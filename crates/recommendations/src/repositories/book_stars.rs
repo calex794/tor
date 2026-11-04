@@ -4,6 +4,19 @@
 
 use sqlx::{PgPool, Row};
 
+// The same B-level predicate is used for every actor-owned rating read/write.
+// Site-admin may inspect a published Book, but cannot revive legacy NULL tiers.
+const LIVE_LEVEL: &str = "b.access_level IN ('basic','adult','pro_adult') AND (
+    b.access_level='basic'
+    OR (b.access_level='adult' AND viewer.adult_enabled)
+    OR (b.access_level='pro_adult' AND EXISTS (
+      SELECT 1 FROM user_level_grants g
+      WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+    OR EXISTS (
+      SELECT 1 FROM account_roles ar
+      WHERE ar.user_id=viewer.id AND ar.role='administrator' AND ar.is_active)
+)";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StarKind {
     Work,
@@ -80,13 +93,23 @@ impl PgBookStars {
         &self,
         book_id: i64,
     ) -> Result<Option<BookStars>, StarRatingError> {
-        if book_id <= 0 {
+        self.visible_summary_for_actor(None, book_id).await
+    }
+
+    /// Anonymous summary is basic-only. For a signed-in actor the title and
+    /// both totals are selected in the same SQL statement as the live age gate.
+    pub async fn visible_summary_for_actor(
+        &self,
+        actor: Option<i64>,
+        book_id: i64,
+    ) -> Result<Option<BookStars>, StarRatingError> {
+        if book_id <= 0 || actor.is_some_and(|id| id <= 0) {
             return Err(StarRatingError::Invalid);
         }
         // Public visibility and both vote totals are evaluated from the
         // same PostgreSQL statement snapshot; never expose aggregates from
         // a later snapshot after a book became held or hidden.
-        let row = sqlx::query(
+        let sql = format!(
             "SELECT b.title,
                 COALESCE(SUM(r.rating::bigint) FILTER
                     (WHERE r.rating_kind='work'),0)::bigint AS work_sum,
@@ -100,9 +123,17 @@ impl PgBookStars {
              LEFT JOIN user_book_star_ratings r ON r.book_id=b.id
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
-             GROUP BY b.id,b.title",
-        )
+               AND (($2::bigint IS NULL AND b.access_level='basic')
+                   OR EXISTS (
+                       SELECT 1 FROM users viewer
+                       WHERE viewer.id=$2 AND viewer.account_state='active'
+                         AND {LIVE_LEVEL}
+                   ))
+             GROUP BY b.id,b.title"
+        );
+        let row = sqlx::query(&sql)
         .bind(book_id)
+        .bind(actor)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| StarRatingError::Unavailable)?;
@@ -148,13 +179,16 @@ impl PgBookStars {
         if actor <= 0 || book_id <= 0 {
             return Err(StarRatingError::Invalid);
         }
-        let rows = sqlx::query(
+        let sql = format!(
             "SELECT r.rating_kind, r.rating
              FROM user_book_star_ratings r
              JOIN books b ON b.id=r.book_id
+             JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
              WHERE r.user_id=$1 AND r.book_id=$2
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted",
-        )
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted AND {LIVE_LEVEL}"
+        );
+        let rows = sqlx::query(&sql)
         .bind(actor)
         .bind(book_id)
         .fetch_all(&self.pool)
@@ -185,17 +219,19 @@ impl PgBookStars {
         if actor <= 0 || book_id <= 0 {
             return Err(StarRatingError::Invalid);
         }
-        sqlx::query_scalar(
+        let sql = format!(
             "SELECT EXISTS(
                 SELECT 1 FROM books b
+                JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
                 WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
-                  AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND NOT b.admin_hold AND NOT b.is_deleted AND {LIVE_LEVEL}
                   AND EXISTS(
                     SELECT 1 FROM reader_chapter_completions c
                     WHERE c.user_id=$1 AND c.book_id=$2
                   )
-             )",
-        )
+             )"
+        );
+        sqlx::query_scalar(&sql)
         .bind(actor)
         .bind(book_id)
         .fetch_one(&self.pool)
@@ -216,25 +252,26 @@ impl PgBookStars {
         if actor <= 0 || book_id <= 0 || !(1..=5).contains(&rating) {
             return Err(StarRatingError::Invalid);
         }
-        let result: Option<i16> = sqlx::query_scalar(
+        let sql = format!(
             "INSERT INTO user_book_star_ratings
                 (user_id,book_id,rating_kind,rating)
              SELECT $1,$2,$3,$4
-             WHERE EXISTS (
-                 SELECT 1 FROM books b WHERE b.id=$2
-                   AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold
-                   AND NOT b.is_deleted
-             ) AND EXISTS (
+             FROM books b
+             JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
+             WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted AND {LIVE_LEVEL}
+               AND EXISTS (
                  SELECT 1 FROM reader_chapter_completions c
                  WHERE c.user_id=$1 AND c.book_id=$2
-             )
+               )
              ON CONFLICT(user_id,book_id,rating_kind) DO UPDATE SET
                  rating=EXCLUDED.rating,
                  updated_at=CASE
                    WHEN user_book_star_ratings.rating <> EXCLUDED.rating THEN now()
                    ELSE user_book_star_ratings.updated_at END
-             RETURNING rating",
-        )
+             RETURNING rating"
+        );
+        let result: Option<i16> = sqlx::query_scalar(&sql)
         .bind(actor)
         .bind(book_id)
         .bind(kind.wire())
