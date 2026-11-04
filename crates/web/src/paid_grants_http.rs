@@ -3,6 +3,7 @@
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod admin_history;
 mod admin_reader;
+mod admin_sealed_history;
 mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
@@ -462,6 +463,18 @@ fn router_inner(
         .route(
             "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
             post(asset_grants::grant_asset),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history",
+            post(admin_sealed_history::list),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants",
+            post(admin_sealed_history::grant),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
+            post(admin_sealed_history::asset),
         );
     if state.layer_reader_enabled {
         app = app.route("/read/layer/{chapter_id}", get(layer_reader::layer_reader));
