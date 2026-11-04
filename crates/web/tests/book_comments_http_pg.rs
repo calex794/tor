@@ -978,3 +978,6 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
 
 #[path = "book_comments_http_pg/scoped_comments.rs"]
 mod scoped_comments;
+
+#[path = "book_comments_http_pg/s020_age_public_comments.rs"]
+mod s020_age_public_comments;
