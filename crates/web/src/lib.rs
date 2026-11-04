@@ -280,14 +280,46 @@ async fn book_detail(
                 Ok(id) => id,
                 Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
             };
+            // A reader granted Book adult/pro_adult may view this direct detail.
+            // Do not let the anonymous basic-only star/like projections turn
+            // an already authorized page into a 404. Resolve the verified
+            // session again from PostgreSQL; browser ids never select an actor.
+            let actor = if let Some(session) = digest.as_ref() {
+                match sqlx::query_scalar::<_, i64>(
+                    "SELECT s.user_id FROM sessions s
+                     JOIN users u ON u.id=s.user_id AND u.account_state='active'
+                     WHERE s.token_hash=$1::bytea AND s.revoked_at IS NULL
+                       AND s.expires_at>now()",
+                )
+                .bind(session.as_slice())
+                .fetch_optional(catalog.pool())
+                .await
+                {
+                    Ok(actor) => actor,
+                    Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
+                }
+            } else {
+                None
+            };
             let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
-            let stars = match store.visible_summary(id).await {
+            let stars_result = match actor {
+                Some(actor) => store.visible_summary_for_actor(actor, id).await,
+                None => store.visible_summary(id).await,
+            };
+            let stars = match stars_result {
                 Ok(Some(stars)) => stars,
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
             let likes = tor_reading::repositories::PgBookLikes::new(catalog.pool().clone());
-            let count = match likes.public_count(id).await {
+            let count_result = match actor {
+                Some(actor) => likes
+                    .visible_summary(actor, id)
+                    .await
+                    .map(|summary| summary.map(|summary| summary.count)),
+                None => likes.public_count(id).await,
+            };
+            let count = match count_result {
                 Ok(Some(count)) => count,
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
