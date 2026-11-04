@@ -188,13 +188,13 @@ export async function startAdministratorReader(root) {
   // "save place" buttons: admin inspection is not a purchased reading fact.
   // Unsealed drafts may contain asset markers without B/G attachments:
   // render those markers as inert text rather than guessing private assets.
-  const onImage = unsealed ? null : (frame, id, alt) => {
+  const onImage = (frame, id, alt) => {
     requireValue(known.size < 64);
     known.set(frame, { frame, id, alt });
     if (observer) observer.observe(frame);
     else schedule(frame);
   };
-  renderPaidBlocks(article, text, () => {}, onImage);
+  renderPaidBlocks(article, text, () => {}, unsealed ? null : onImage);
   for (const button of article.querySelectorAll(".reader-save-button")) {
     button.remove();
   }
@@ -249,7 +249,7 @@ export async function startAdministratorReader(root) {
       // The current revision remains readable even when history is unavailable.
     }
   }
-  if (!unsealed) {
+  if (s3Origin) {
     try {
       const history = await adminSealedHistory(chapter, csrf);
       requireValue(history.schema === "tor.admin_sealed_history.v1" &&
