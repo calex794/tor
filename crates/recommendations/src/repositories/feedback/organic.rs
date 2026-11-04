@@ -1,5 +1,6 @@
 //! Source-verified organic discovery, distinct from recommendation assignments.
 //! Every write requires an opted-in REC subject and a live session digest.
+use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::{
     domain::feedback::{book_id, token_digest, OrganicQualityRow, OrganicSource, MAX_ITEMS},
@@ -43,13 +44,15 @@ impl PgRecommendations {
             }
             let ticket = new_ticket()?;
             let digest = token_digest(&ticket)?;
-            let inserted: Option<String> = sqlx::query_scalar(
-                "INSERT INTO organic_discovery_touches
+            let sql = format!(
+                "{ACTOR_DISCOVERY_CTE} INSERT INTO organic_discovery_touches
                  (subject_id,session_digest,ticket_digest,book_id,source,position)
-                 SELECT $1::uuid,$2,$3,$4,$5,$6
-                 WHERE EXISTS(SELECT 1 FROM rec_public_books WHERE id=$4)
-                 RETURNING id::text",
-            )
+                 SELECT $2::uuid,$3,$4,$5,$6,$7
+                 WHERE EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$5)
+                 RETURNING id::text"
+            );
+            let inserted: Option<String> = sqlx::query_scalar(&sql)
+            .bind(actor)
             .bind(&subject)
             .bind(session.as_slice())
             .bind(digest.as_slice())
@@ -79,14 +82,16 @@ impl PgRecommendations {
         let digest = token_digest(ticket)?;
         let mut tx = self.pool.begin().await?;
         let subject = lock_subject(&mut tx, actor).await?;
-        let touch: Option<String> = sqlx::query_scalar(
-            "UPDATE organic_discovery_touches t
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} UPDATE organic_discovery_touches t
              SET clicked_at=COALESCE(t.clicked_at,now())
-             WHERE t.ticket_digest=$1 AND t.subject_id=$2::uuid AND t.session_digest=$3
+             WHERE t.ticket_digest=$2 AND t.subject_id=$3::uuid AND t.session_digest=$4
                AND t.expires_at>now()
-               AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=t.book_id)
-             RETURNING t.id::text",
-        )
+               AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=t.book_id)
+             RETURNING t.id::text"
+        );
+        let touch: Option<String> = sqlx::query_scalar(&sql)
+        .bind(actor)
         .bind(digest.as_slice())
         .bind(&subject)
         .bind(session.as_slice())
@@ -110,13 +115,15 @@ impl PgRecommendations {
         validate_actor(book)?;
         let mut tx = self.pool.begin().await?;
         let subject = lock_subject(&mut tx, actor).await?;
-        let touch: Option<String> = sqlx::query_scalar(
-            "SELECT id::text FROM organic_discovery_touches
-             WHERE subject_id=$1::uuid AND session_digest=$2 AND book_id=$3
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT id::text FROM organic_discovery_touches
+             WHERE subject_id=$2::uuid AND session_digest=$3 AND book_id=$4
                AND clicked_at>=now()-interval '15 minutes'
-               AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=$3)
-             ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE",
-        )
+               AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$4)
+             ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE"
+        );
+        let touch: Option<String> = sqlx::query_scalar(&sql)
+        .bind(actor)
         .bind(&subject)
         .bind(session.as_slice())
         .bind(book)
