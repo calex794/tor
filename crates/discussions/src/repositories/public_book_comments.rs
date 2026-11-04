@@ -75,9 +75,19 @@ impl PgPublicBookComments {
              LEFT JOIN account_settings s ON s.user_id=u.id
              JOIN discussion_comments c ON c.author_user_id=u.id
              JOIN books b ON b.id=c.book_id
+             JOIN users actor ON actor.id=$2 AND actor.account_state='active'
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND actor.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants age
+                   WHERE age.user_id=actor.id AND age.level='pro_adult' AND age.is_active))
+                 OR EXISTS (
+                   SELECT 1 FROM account_roles role
+                   WHERE role.user_id=actor.id AND role.role='administrator' AND role.is_active))
                AND u.id<>$2
                AND (
                  left(lower(u.display_name),char_length($3::text))=lower($3)
@@ -150,11 +160,24 @@ impl PgPublicBookComments {
         // Lock publication state: a parallel withdrawal cannot race past the
         // comment insert. Hidden/held/deleted objects never permit a new write.
         let allowed = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM books
-             WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND NOT admin_hold AND NOT is_deleted FOR SHARE",
+            "SELECT b.id FROM books b
+             JOIN users u ON u.id=$2 AND u.account_state='active'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND u.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants age
+                   WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active
+                   FOR SHARE OF age))
+                 OR EXISTS (
+                   SELECT 1 FROM account_roles role
+                   WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active
+                   FOR SHARE OF role))
+             FOR SHARE OF b,u",
         )
         .bind(book_id)
+        .bind(actor_id)
         .fetch_optional(&mut *tx)
         .await;
         match allowed {
@@ -440,51 +463,85 @@ impl PgPublicBookComments {
     }
 
     /// Only public/visible book comments; all rights are rechecked on every GET.
+    /// Public callers are anonymous: only basic Book comments are indexable.
+    /// Signed-in Book pages use list_for_session with server-derived digest.
     pub async fn list(
         &self,
         book_id: i64,
         after_id: Option<i64>,
         limit: u16,
     ) -> Result<Option<Vec<PublicComment>>, ListCommentsError> {
+        self.list_for_session(book_id, after_id, limit, None)
+            .await
+            .map(|result| result.map(|(_, comments)| comments))
+    }
+
+    /// Resolve the Book title and its visible comments in ONE actor-scoped SQL
+    /// statement. A revoked session/grant cannot leak reply bodies between
+    /// a separate Book preflight and the actual comment fetch.
+    pub async fn list_for_session(
+        &self,
+        book_id: i64,
+        after_id: Option<i64>,
+        limit: u16,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<(String, Vec<PublicComment>)>, ListCommentsError> {
         if book_id <= 0 || limit == 0 || limit > 100 || after_id.is_some_and(|n| n <= 0) {
             return Err(ListCommentsError::Invalid);
         }
-        let visible = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM books WHERE id=$1
-               AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted",
-        )
-        .bind(book_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| ListCommentsError::Unavailable)?;
-        if visible.is_none() {
-            return Ok(None);
-        }
-        // The visibility join inside this query avoids a time-of-check/time-of-use leak.
-        let rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>)>(
-            "SELECT c.id,c.author_user_id,c.body,c.parent_id
-             FROM discussion_comments c JOIN books b ON b.id=c.book_id
+        let rows = sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<String>, Option<i64>)>(
+            "SELECT b.title,c.id,c.author_user_id,c.body,c.parent_id
+             FROM books b
+             LEFT JOIN LATERAL (
+                SELECT c.id,c.author_user_id,c.body,c.parent_id
+                FROM discussion_comments c
+                WHERE c.book_id=b.id AND c.visibility='visible'
+                  AND c.chapter_id IS NULL AND c.version_id IS NULL
+                  AND ($2::BIGINT IS NULL OR c.id<$2)
+                ORDER BY c.id DESC LIMIT $3
+             ) c ON TRUE
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
-               AND c.visibility='visible'
-               AND ($2::BIGINT IS NULL OR c.id < $2)
-             ORDER BY c.id DESC LIMIT $3",
+               AND (b.access_level='basic'
+                 OR EXISTS (
+                    SELECT 1 FROM sessions sess
+                    JOIN users u ON u.id=sess.user_id AND u.account_state='active'
+                    WHERE sess.token_hash=$4::bytea AND sess.revoked_at IS NULL
+                      AND sess.expires_at>now()
+                      AND (
+                        (b.access_level='adult' AND u.adult_enabled)
+                        OR (b.access_level='pro_adult' AND EXISTS (
+                            SELECT 1 FROM user_level_grants age
+                            WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active))
+                        OR EXISTS (
+                            SELECT 1 FROM account_roles role
+                            WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active)
+                      )
+                 ))
+             ORDER BY c.id DESC NULLS LAST",
         )
         .bind(book_id)
         .bind(after_id)
         .bind(i64::from(limit))
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_all(&self.pool)
         .await
         .map_err(|_| ListCommentsError::Unavailable)?;
-        Ok(Some(
-            rows.into_iter()
-                .map(|(id, author_user_id, body, parent_id)| PublicComment {
+        let Some((title, _, _, _, _)) = rows.first() else {
+            return Ok(None);
+        };
+        let title = title.clone();
+        let mut comments = Vec::new();
+        for (_, id, author_user_id, body, parent_id) in rows {
+            if let Some(id) = id {
+                comments.push(PublicComment {
                     id,
-                    author_user_id,
-                    body,
+                    author_user_id: author_user_id.ok_or(ListCommentsError::Unavailable)?,
+                    body: body.ok_or(ListCommentsError::Unavailable)?,
                     parent_id,
-                })
-                .collect(),
-        ))
+                });
+            }
+        }
+        Ok(Some((title, comments)))
     }
 }
