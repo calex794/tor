@@ -242,8 +242,8 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
     let book = scalar(
         url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:s334-paid-restore','ru','S334 paid V1 recovery','public',{author})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s334-paid-restore','ru','S334 paid V1 recovery','public',{author},'basic')
              RETURNING id"
         ),
     );

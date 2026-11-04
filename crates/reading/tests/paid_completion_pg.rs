@@ -25,8 +25,8 @@ async fn c_14_paid_v1_completion_survives_v2_and_refund_blocks_new_fact() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility)
-         VALUES(98610,'ci:c14:paid','ru','Платная V1','public')",
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+         VALUES(98610,'ci:c14:paid','ru','Платная V1','public','basic')",
     )
     .execute(&pool)
     .await

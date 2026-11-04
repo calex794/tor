@@ -108,8 +108,8 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:paid-storage-b09','ru','History of paid versions','public',$1)
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:paid-storage-b09','ru','History of paid versions','public',$1,'basic')
          RETURNING id",
     )
     .bind(owner)
@@ -543,8 +543,8 @@ async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_v
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:paid-new-save','ru','New paid chapter','public',$1) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:paid-new-save','ru','New paid chapter','public',$1,'basic') RETURNING id",
     )
     .bind(owner)
     .fetch_one(&pool)

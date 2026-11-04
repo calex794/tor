@@ -34,8 +34,8 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','E12 Book','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','E12 Book','public',$2,'basic') RETURNING id",
     )
     .bind(format!("e12:{nonce}"))
     .bind(author)
