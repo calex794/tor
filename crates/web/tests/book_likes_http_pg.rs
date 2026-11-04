@@ -365,6 +365,12 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
 
+    // The temporary 21+ grant has a RESTRICT FK to users; remove it
+    // before verifying that erasing the reader removes only their like.
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={user_a}"),
+    );
     // Reader erasure must not leave ghost popularity.
     pg(&url, &format!("DELETE FROM users WHERE id={user_a}"));
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
