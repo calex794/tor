@@ -134,7 +134,7 @@ impl PgCoverSlots {
              JOIN book_cover_slots s ON s.book_id=b.id
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=$2
-             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND b.access_level='basic'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND b.lifecycle_status='active' AND b.access_level='basic'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND b.owner_user_id=j.actor_user_id
                AND j.status='done'",
@@ -205,7 +205,7 @@ impl PgCoverSlots {
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
              WHERE b.id=ANY($1::bigint[])
-               AND b.visibility='public' AND b.visibility_status='active' AND b.access_level='basic' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND b.lifecycle_status='active' AND b.access_level='basic' AND NOT b.admin_hold AND NOT b.is_deleted
                AND b.owner_user_id=j.actor_user_id AND j.status='done'",
         )
         .bind(ids)
