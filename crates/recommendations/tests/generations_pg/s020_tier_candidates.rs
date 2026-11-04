@@ -95,6 +95,10 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
         .await
         .unwrap();
     let guest = store.feed(None, Some(books[0]), 20).await.unwrap();
+    assert!(
+        guest.items.iter().any(|b| b.book_id == books[1].to_string()),
+        "private age candidates must not crowd out public related books"
+    );
     assert!(guest
         .items
         .iter()
