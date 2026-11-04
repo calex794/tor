@@ -136,7 +136,10 @@ async fn s020_actor_catalog_age_is_live_scoped_and_cursors_remain_exact() {
         .await
         .unwrap();
     assert_eq!(
-        showcased.into_iter().map(|book| book.id).collect::<Vec<_>>(),
+        showcased
+            .into_iter()
+            .map(|book| book.id)
+            .collect::<Vec<_>>(),
         vec![id("basic")],
         "pending_deletion must not leak to anonymous F-04 showcases"
     );
