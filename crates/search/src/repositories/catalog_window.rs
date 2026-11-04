@@ -67,9 +67,9 @@ async fn cursor_for_book(
         CatalogSort::Oldest | CatalogSort::Newest => Ok(first.id.to_string()),
         CatalogSort::Title | CatalogSort::Author => {
             let sql = if sort == CatalogSort::Title {
-                "SELECT lower(title) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted"
+                "SELECT lower(title) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted"
             } else {
-                "SELECT lower(author_name) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted"
+                "SELECT lower(author_name) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted"
             };
             let query_sql = catalog::scoped_sql(sql, digest, 2);
             let mut query = sqlx::query_scalar(query_sql.as_ref())
@@ -88,7 +88,7 @@ async fn cursor_for_book(
 
 const PREVIOUS_OLDEST: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -101,7 +101,7 @@ ORDER BY id DESC LIMIT $3";
 
 const PREVIOUS_NEWEST: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -114,7 +114,7 @@ ORDER BY id ASC LIMIT $3";
 
 const PREVIOUS_TITLE: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -127,7 +127,7 @@ ORDER BY lower(title) DESC,id DESC LIMIT $4";
 
 const PREVIOUS_AUTHOR: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
