@@ -150,7 +150,7 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
         .unwrap();
     let database_total: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM books
-         WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted",
+         WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted",
     )
     .fetch_one(&pool)
     .await
@@ -178,7 +178,7 @@ async fn assert_public_catalog_projection_count(pool: &PgPool) {
     let (stored, actual): (i64, i64) = sqlx::query_as(
         "SELECT s.visible_book_count,
                 (SELECT COUNT(*) FROM books
-                 WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted)
+                 WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted)
          FROM public_catalog_statistics s WHERE singleton",
     )
     .fetch_one(pool)
@@ -335,4 +335,55 @@ async fn s020_anonymous_catalog_excludes_restricted_books_and_exact_counts() {
     .await
     .unwrap();
     assert_eq!(after, before);
+}
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL and S020 lifecycle projection migration"]
+async fn s020_pending_deletion_is_excluded_from_cached_count_and_facets_atomically() {
+    use tor_search::repositories::CatalogFacets;
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated database");
+    assert!(url.ends_with("/tor_ci"), "never modify production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let identity: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(identity, "tor_ci");
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let genre = format!("s020-pending-projection-{nonce}");
+    let search = PgSearch::new(pool.clone());
+    let filters = CatalogFacets {
+        term: "",
+        language: None,
+        genre: None,
+        tag: None,
+        fandom: None,
+    };
+    let before = search.count_catalog(filters).await.unwrap();
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,
+                           visibility_status,access_level,lifecycle_status,genres)
+         VALUES($1,'ru',$2,'public','active','basic','pending_deletion',ARRAY[$3::text])
+         RETURNING id",
+    ).bind(format!("ci:s020:pending:projection:{nonce}"))
+      .bind(format!("Pending projection {nonce}"))
+      .bind(&genre).fetch_one(&pool).await.unwrap();
+    assert_eq!(search.count_catalog(filters).await.unwrap(), before);
+    assert!(!search.taxonomy_options().await.unwrap().genres.contains(&genre));
+    assert_public_catalog_projection_count(&pool).await;
+
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    assert_eq!(search.count_catalog(filters).await.unwrap(), before + 1);
+    assert!(search.taxonomy_options().await.unwrap().genres.contains(&genre));
+    assert_public_catalog_projection_count(&pool).await;
+
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    assert_eq!(search.count_catalog(filters).await.unwrap(), before);
+    assert!(!search.taxonomy_options().await.unwrap().genres.contains(&genre));
+    assert_public_catalog_projection_count(&pool).await;
+
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    assert_eq!(search.count_catalog(filters).await.unwrap(), before);
 }
