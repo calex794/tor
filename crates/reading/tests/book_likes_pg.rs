@@ -185,6 +185,34 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
 
+    // A book pending deletion is not publicly discoverable in NEwBOO.
+    // Existing likes remain for recovery, but counters, titles and mutations
+    // must not reveal that the book exists.
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(likes.public_count(book).await.unwrap(), None);
+    assert!(likes.visible_summary(first, book).await.unwrap().is_none());
+    assert_eq!(
+        likes.set_like(first, book, false).await.unwrap(),
+        LikeMutation::NotVisible
+    );
+    let saved_likes: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM book_likes WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(saved_likes, 2);
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
+
     // Moderation must hide both the public count and the personal action.
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(book)
