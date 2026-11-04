@@ -234,6 +234,12 @@ impl PgRecommendations {
                 }
             }
         }
+        // A candidate generation may be valid but contain only age-restricted
+        // or freshly withdrawn books for this actor. Fall back to the same
+        // live Book gate rather than returning a blank recommendation shelf.
+        if items.is_empty() {
+            return self.fallback(actor, subject.as_deref(), seed, limit).await;
+        }
         Ok(Feed {
             items,
             generation_id: Some(generation),
