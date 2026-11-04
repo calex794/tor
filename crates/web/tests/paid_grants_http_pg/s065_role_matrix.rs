@@ -159,6 +159,18 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .unwrap(),
         None,
     );
+    // Even a real administrator cannot bind an edition to a foreign chapter.
+    assert_eq!(
+        authority
+            .sealed_historical_version(
+                admin_actor,
+                PositiveId::new(chapter + 1_000_000).unwrap(),
+                version_id,
+            )
+            .await
+            .unwrap(),
+        None,
+    );
     let moderator_authority = tor_commerce::repositories::admin_reader_entitlements::
         PgAdministratorReaderEntitlements::new(
             accounts.pool().clone(),
