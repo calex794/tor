@@ -43,10 +43,7 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        store.activate(actor, &[7; 32], &adult).await.unwrap(),
-        book
-    );
+    assert_eq!(store.activate(actor, &[7; 32], &adult).await.unwrap(), book);
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
@@ -87,10 +84,7 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
     );
     // A previously recorded click must never become an attribution path after
     // this Book's age entitlement is revoked.
-    store
-        .record_book_open(actor, &[7; 32], book)
-        .await
-        .unwrap();
+    store.record_book_open(actor, &[7; 32], book).await.unwrap();
     let attributed: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM rec_attribution_events e
          JOIN rec_assignments a ON a.id=e.assignment_id
