@@ -432,7 +432,7 @@ async fn s020_room_live_age_revocation_preserves_membership_without_disclosure()
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(rooms.overview(reader, book).await.unwrap().1, true);
+    assert!(rooms.overview(reader, book).await.unwrap().1);
     assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 1);
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
@@ -459,7 +459,7 @@ async fn s020_room_live_age_revocation_preserves_membership_without_disclosure()
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(rooms.overview(reader, book).await.unwrap().1, true);
+    assert!(rooms.overview(reader, book).await.unwrap().1);
     assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 1);
     rooms.send(reader, book, "Still eligible with 21+ grant", &key(932))
         .await
@@ -489,7 +489,7 @@ async fn s020_room_live_age_revocation_preserves_membership_without_disclosure()
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(rooms.overview(reader, book).await.unwrap().1, false);
+    assert!(!rooms.overview(reader, book).await.unwrap().1);
     assert_eq!(
         rooms.messages(reader, book, None, 50).await,
         Err(MailError::NotFound)
