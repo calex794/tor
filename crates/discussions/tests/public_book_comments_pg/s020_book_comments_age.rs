@@ -25,13 +25,15 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .await
     .unwrap();
     let digest = [17_u8; 32];
-    sqlx::query("INSERT INTO sessions(user_id,token_hash,expires_at)
-                 VALUES($1,$2,now()+INTERVAL '1 hour')")
-        .bind(actor)
-        .bind(digest.as_slice())
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+                 VALUES($1,$2,now()+INTERVAL '1 hour')",
+    )
+    .bind(actor)
+    .bind(digest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,visibility_status,access_level)
          VALUES('ci:s020:e02-age','ru','E02 age book','public','active','basic')
@@ -42,7 +44,8 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .unwrap();
     let repo = PgPublicBookComments::new(pool.clone());
     assert!(matches!(
-        repo.create(writer, book, "Existing body", &"a".repeat(43), &[1; 32]).await,
+        repo.create(writer, book, "Existing body", &"a".repeat(43), &[1; 32])
+            .await,
         CreateResult::Created(_)
     ));
     assert_eq!(repo.list(book, None, 20).await.unwrap().unwrap().len(), 1);
@@ -54,14 +57,21 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
         .unwrap();
     assert_eq!(repo.list(book, None, 20).await.unwrap(), None);
     assert_eq!(
-        repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap(),
+        repo.list_for_session(book, None, 20, Some(&digest))
+            .await
+            .unwrap(),
         None
     );
     assert_eq!(
-        repo.create(actor, book, "Denied", &"b".repeat(43), &[2; 32]).await,
+        repo.create(actor, book, "Denied", &"b".repeat(43), &[2; 32])
+            .await,
         CreateResult::NotFound
     );
-    assert!(repo.mention_candidates(actor, book, "Wri").await.unwrap().is_empty());
+    assert!(repo
+        .mention_candidates(actor, book, "Wri")
+        .await
+        .unwrap()
+        .is_empty());
 
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(actor)
@@ -75,9 +85,13 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
         .unwrap();
     assert_eq!(title, "E02 age book");
     assert_eq!(rows[0].body, "Existing body");
-    assert_eq!(repo.mention_candidates(actor, book, "Wri").await.unwrap()[0].user_id, writer);
+    assert_eq!(
+        repo.mention_candidates(actor, book, "Wri").await.unwrap()[0].user_id,
+        writer
+    );
     assert!(matches!(
-        repo.create(actor, book, "Allowed body", &"c".repeat(43), &[3; 32]).await,
+        repo.create(actor, book, "Allowed body", &"c".repeat(43), &[3; 32])
+            .await,
         CreateResult::Created(_)
     ));
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
@@ -91,7 +105,11 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)
@@ -101,8 +119,16 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_some());
-    assert!(!repo.mention_candidates(actor, book, "Wri").await.unwrap().is_empty());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_some());
+    assert!(!repo
+        .mention_candidates(actor, book, "Wri")
+        .await
+        .unwrap()
+        .is_empty());
     sqlx::query(
         "UPDATE user_level_grants SET is_active=FALSE
          WHERE user_id=$1 AND level='pro_adult'",
@@ -111,9 +137,14 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        repo.create(actor, book, "Revoked", &"d".repeat(43), &[4; 32]).await,
+        repo.create(actor, book, "Revoked", &"d".repeat(43), &[4; 32])
+            .await,
         CreateResult::NotFound
     );
 
@@ -126,7 +157,11 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query(
         "INSERT INTO account_roles(user_id,role,is_active)
          VALUES($1,'administrator',TRUE)
@@ -136,7 +171,11 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_some());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_some());
     sqlx::query(
         "UPDATE account_roles SET is_active=FALSE
          WHERE user_id=$1 AND role='administrator'",
@@ -145,14 +184,22 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query(
         "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
     )
@@ -160,7 +207,11 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_some());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_some());
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
@@ -171,7 +222,11 @@ async fn e_02_s020_book_comments_live_age_and_direct_post_gate() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(repo.list_for_session(book, None, 20, Some(&digest)).await.unwrap().is_none());
+    assert!(repo
+        .list_for_session(book, None, 20, Some(&digest))
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query("DELETE FROM discussion_comments WHERE book_id=$1")
         .bind(book)

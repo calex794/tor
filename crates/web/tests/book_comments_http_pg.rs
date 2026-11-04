@@ -349,11 +349,15 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     )
     .await;
     assert_eq!(
-        call(&app, "GET", &comments_path, "", ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, "", ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let direct = format!(
@@ -361,9 +365,16 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         generate_session_token()
     );
     assert_eq!(
-        call(&app, "POST", &comments_path, &writer_cookie, ORIGIN, &direct)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &writer_cookie,
+            ORIGIN,
+            &direct
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -372,7 +383,9 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     )
     .await;
     assert_eq!(
-        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::OK
     );
     pg(
@@ -381,7 +394,9 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     )
     .await;
     assert_eq!(
-        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -394,7 +409,9 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     )
     .await;
     assert_eq!(
-        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::OK
     );
     pg(
@@ -406,7 +423,9 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     )
     .await;
     assert_eq!(
-        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "").await.status(),
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     pg(
