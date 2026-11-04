@@ -47,11 +47,12 @@ impl PgRecommendations {
                 return Err(error);
             }
         }
-        let books: Vec<i64> =
-            sqlx::query_scalar("SELECT id FROM rec_materializable_books WHERE id>$1 ORDER BY id LIMIT 8")
-                .bind(cursor)
-                .fetch_all(&mut *tx)
-                .await?;
+        let books: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM rec_materializable_books WHERE id>$1 ORDER BY id LIMIT 8",
+        )
+        .bind(cursor)
+        .fetch_all(&mut *tx)
+        .await?;
         for book in &books {
             super::sources::book_sources(&mut tx, &id, *book).await?;
         }
