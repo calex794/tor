@@ -31,12 +31,7 @@ async fn assert_rejected(
     );
 }
 
-async fn assert_readable(
-    app: &Router,
-    edition: (i64, i64, i64),
-    session: &str,
-    csrf: &str,
-) {
+async fn assert_readable(app: &Router, edition: (i64, i64, i64), session: &str, csrf: &str) {
     let (chapter, purchase, _) = edition;
     assert_eq!(
         paid_page(app, chapter, purchase, session).await.status(),
@@ -62,7 +57,9 @@ pub(super) async fn verify(
     let (chapter, purchase, _) = edition;
     let facts_before = scalar(
         url,
-        &format!("SELECT count(*) FROM chapter_purchase_facts WHERE id={purchase} AND user_id={buyer}"),
+        &format!(
+            "SELECT count(*) FROM chapter_purchase_facts WHERE id={purchase} AND user_id={buyer}"
+        ),
     );
     let owned_before = scalar(
         url,
@@ -72,17 +69,29 @@ pub(super) async fn verify(
         ),
     );
     assert_eq!(facts_before, 1, "fixture must own the immutable D purchase");
-    assert_eq!(owned_before, 1, "fixture must own the historical purchased V1");
+    assert_eq!(
+        owned_before, 1,
+        "fixture must own the historical purchased V1"
+    );
 
     // Possession alone never grants a forbidden 18+ read or completion.
-    pg(url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
     assert_rejected(app, edition, session, csrf, command).await;
 
-    pg(url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer}"));
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer}"),
+    );
     assert_readable(app, edition, session, csrf).await;
 
     // 21+ is an independent server grant, not the 18+ opt-in.
-    pg(url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
     assert_rejected(app, edition, session, csrf, command).await;
     pg(
         url,
@@ -92,7 +101,10 @@ pub(super) async fn verify(
              ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
         ),
     );
-    pg(url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer}"));
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer}"),
+    );
     assert_readable(app, edition, session, csrf).await;
 
     pg(
@@ -105,7 +117,10 @@ pub(super) async fn verify(
     assert_rejected(app, edition, session, csrf, command).await;
 
     // Unknown legacy tier must not silently become basic.
-    pg(url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
     assert_rejected(app, edition, session, csrf, command).await;
 
     // Age denial must not revoke the paid V1, manufacture a C completion,
@@ -150,6 +165,9 @@ pub(super) async fn verify(
 
     // Restore the same bought edition. The parent test must still be able
     // to produce exactly one genuine completion with its existing anchor.
-    pg(url, &format!("UPDATE books SET access_level='basic' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     assert_readable(app, edition, session, csrf).await;
 }
