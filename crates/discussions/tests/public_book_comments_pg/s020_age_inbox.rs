@@ -168,6 +168,31 @@ pub(super) async fn verify(
         .await
         .unwrap();
     assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
+    // NEwBOO excludes pending_deletion independently from site moderation.
+    // An old reply must not keep the Book title discoverable via Inbox.
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(book)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(repo.received_replies(actor, 10).await.unwrap().is_empty());
+    assert!(inbox
+        .list(actor, InboxFilter::All, None, 25)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        repo.set_reply_read_state(actor, second, false).await,
+        ReadStateResult::NotFound
+    );
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(book)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
+
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
         .bind(actor)
         .execute(pool)
