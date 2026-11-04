@@ -54,6 +54,12 @@ pub(super) async fn verify(
         .execute(pool)
         .await
         .unwrap();
+    // NEwBOO grants pro_adult independently of the adult_enabled switch.
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
     assert!(repo.received_replies(actor, 10).await.unwrap().is_empty());
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
@@ -65,6 +71,19 @@ pub(super) async fn verify(
     .await
     .unwrap();
     assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
+    assert_eq!(
+        inbox
+            .list(actor, InboxFilter::All, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    assert_eq!(
+        repo.set_reply_read_state(actor, second, true).await,
+        ReadStateResult::Updated
+    );
     sqlx::query(
         "UPDATE user_level_grants SET is_active=FALSE
          WHERE user_id=$1 AND level='pro_adult'",
