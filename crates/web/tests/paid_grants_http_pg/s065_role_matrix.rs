@@ -318,15 +318,20 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     // The private administrator role is independent of moderation status,
     // lifecycle, and the ordinary 21+ subscription gate (no G grants here).
     s020_admin_age::assert_admin_can_inspect_all_book_states(
-        url, accounts, reader, admin_id, &admin_session, book, chapter, version,
+        url,
+        accounts,
+        reader,
+        admin_id,
+        &admin_session,
+        book,
+        chapter,
+        version,
     )
     .await;
     // The existing chapter+image S3 grant assertions below run at pro_adult,
     // with no viewer grant and without changing audit or signed-object counts.
     assert_eq!(
-        read_page(reader, &page, Some(&outsider))
-            .await
-            .status(),
+        read_page(reader, &page, Some(&outsider)).await.status(),
         StatusCode::FORBIDDEN,
         "site moderator cannot inherit administrator-only pro_adult inspection"
     );
@@ -340,12 +345,10 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     )
     .await;
     assert_eq!(moderator_pro_adult_grant.status(), StatusCode::FORBIDDEN);
-    assert!(
-        to_bytes(moderator_pro_adult_grant.into_body(), 8192)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(to_bytes(moderator_pro_adult_grant.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
 
     assert_eq!(
         send(

@@ -3,14 +3,9 @@
 //! Run from S065's real disposable-PG/Axum role matrix. No G signing here.
 use super::super::{pg, read_page};
 use axum::{http::StatusCode, Router};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
-use tor_contracts::paid_delivery::{
-    Actor, EntitlementDecision, EntitlementPort, PositiveId,
-};
+use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
 
 struct RestoreBook<'a> {
     url: &'a str,
