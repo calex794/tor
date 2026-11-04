@@ -309,6 +309,8 @@ impl PgPublicBookComments {
         result
     }
 
+    /// A pending_deletion Book can retain a private reply reference for a
+    /// still-eligible reader; only public discovery excludes its metadata.
     /// Derive recipients from canonical parents, never from browser input or
     /// copied notification text. Recheck both comments and the book in one query.
     pub async fn received_replies(
@@ -332,7 +334,7 @@ impl PgPublicBookComments {
                AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
                AND parent.version_id IS NULL AND reply.version_id IS NULL
                AND parent.visibility='visible' AND reply.visibility='visible'
-               AND b.visibility='public' AND b.visibility_status='active' AND b.lifecycle_status<>'pending_deletion' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                     OR (b.access_level='adult' AND u.adult_enabled)
                     OR (b.access_level='pro_adult' AND EXISTS (
@@ -390,7 +392,7 @@ impl PgPublicBookComments {
                  AND parent.visibility='visible'))
                AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                AND reply.visibility='visible'
-               AND b.visibility='public' AND b.visibility_status='active' AND b.lifecycle_status<>'pending_deletion' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                     OR (b.access_level='adult' AND u.adult_enabled)
                     OR (b.access_level='pro_adult' AND EXISTS (
