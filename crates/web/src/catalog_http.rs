@@ -150,10 +150,10 @@ pub(super) async fn catalog(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    Ok(pages::catalog(
-        &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
+    Ok(
+        pages::catalog(&public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?)
+            .into_response(),
     )
-    .into_response())
 }
 
 #[cfg(test)]
