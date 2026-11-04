@@ -48,9 +48,15 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   // 25 arrivals/s, independent of previous requests' completion.
   const sample = await page.evaluate(async ({tickets, csrf, rate}) => {
     const start = performance.now();
+    let inFlight = 0;
+    let peakInFlight = 0;
     const promises = tickets.map((ticket, i) => new Promise(resolve => {
+      const scheduledMs = Math.round(i * 1000 / rate);
       setTimeout(async () => {
         const begun = performance.now();
+        const dispatchLag = Math.max(0, begun - start - scheduledMs);
+        inFlight += 1;
+        peakInFlight = Math.max(peakInFlight, inFlight);
         try {
           const result = await fetch('/api/v1/discovery/activate', {
             method: 'POST',
@@ -58,14 +64,20 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: new URLSearchParams({ticket, csrf_token: csrf})
           });
-          resolve({status: result.status, latency: performance.now() - begun});
+          const finished = performance.now();
+          resolve({slot: i, status: result.status, latency: finished - begun,
+            dispatchLag, dispatchedAt: begun - start, finishedAt: finished - start});
         } catch (err) {
-          resolve({status: 0, latency: performance.now() - begun});
+          const finished = performance.now();
+          resolve({slot: i, status: 0, latency: finished - begun,
+            dispatchLag, dispatchedAt: begun - start, finishedAt: finished - start});
+        } finally {
+          inFlight -= 1;
         }
-      }, Math.round(i * 1000 / rate));
+      }, scheduledMs);
     }));
     const results = await Promise.all(promises);
-    return {results, elapsed: performance.now() - start};
+    return {results, elapsed: performance.now() - start, peakInFlight};
   }, {tickets, csrf, rate:RATE});
 
   const statuses = new Map();
@@ -74,6 +86,25 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   const p95 = latencies[Math.ceil(latencies.length * 0.95) - 1];
   const p50 = latencies[Math.ceil(latencies.length * 0.50) - 1];
   const actualRps = COUNT * 1000 / sample.elapsed;
+  // The HTTP p95 below is deliberately unchanged. Dispatch diagnostics
+  // distinguish timer stalls/bunched arrivals from requests that waited after
+  // dispatch. No tickets, cookies, CSRF values or user IDs leave the browser.
+  const dispatchLag = sample.results.map(r => r.dispatchLag).sort((a, b) => a - b);
+  const p95DispatchLag = dispatchLag[Math.ceil(dispatchLag.length * 0.95) - 1];
+  const maxDispatchLag = dispatchLag[dispatchLag.length - 1];
+  const dispatched = sample.results.slice().sort((a, b) => a.dispatchedAt - b.dispatchedAt);
+  const bunchedGaps = dispatched.slice(1).filter(
+    (r, i) => r.dispatchedAt - dispatched[i].dispatchedAt < 5
+  ).length;
+  const worst = sample.results.slice().sort((a, b) => b.latency - a.latency).slice(0, 12)
+    .map(r => 'slot=' + r.slot + ':status=' + r.status +
+      ':http=' + r.latency.toFixed(1) + 'ms:dispatch-lag=' +
+      r.dispatchLag.toFixed(1) + 'ms:at=' + r.dispatchedAt.toFixed(1) + 'ms')
+    .join(', ');
+  const timing = 'REC13 CLIENT timing (diagnostic, not gate): dispatch-lag-p95=' +
+    p95DispatchLag.toFixed(1) + 'ms, dispatch-lag-max=' +
+    maxDispatchLag.toFixed(1) + 'ms, bunched-gaps-under-5ms=' +
+    bunchedGaps + '/' + (COUNT - 1) + ', peak-in-flight=' + sample.peakInFlight;
   const hashed = hashes.map(h => "decode('" + h + "','hex')").join(',');
   const credited = Number(sql('SELECT count(*) FROM organic_discovery_touches ' +
     'WHERE book_id=' + book + ' AND ticket_digest IN (' + hashed +
@@ -85,6 +116,11 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
     p95.toFixed(1) + 'ms, actual=' + actualRps.toFixed(1) +
     '/s, SQL clicks=' + credited;
   console.log(metric);
+  console.log(timing);
+  if (p95 > P95_BUDGET_MS) {
+    // Indices only: enough to locate a burst without leaking signed tickets.
+    console.error('REC13 SLOWEST HTTP slots: ' + worst);
+  }
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       '\n### Consent-gated organic POST, disposable tor_ci\n\n' +
@@ -93,7 +129,8 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
       '/' + COUNT + ' | ' + p50.toFixed(1) + ' ms | ' +
       p95.toFixed(1) + ' ms | ' + actualRps.toFixed(1) +
       ' req/s | ' + credited + '/' + COUNT + ' |\n\n' +
-      'CI-hosted benchmark of authenticated activation only; not a production capacity estimate.\n');
+      'CI-hosted benchmark of authenticated activation only; not a production capacity estimate.\n\n' +
+      timing + '\n');
   }
   assert.equal(ok, COUNT, 'all real-session activations must succeed: ' + JSON.stringify([...statuses]));
   assert.equal(credited, COUNT, 'every successful activation must persist one click');
