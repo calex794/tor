@@ -99,6 +99,21 @@ pub(super) async fn assert_unsealed_admin_read(
         .unwrap();
     assert!(mod_actor.moderator && !mod_actor.administrator);
     let csrf = tor_accounts::services::security::generate_session_token();
+    // C-12/S020: the test administrator is not an opted-in adult viewer
+    // and has no 21+ grant. Neither should be required for privileged reading.
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={admin_id}"),
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM user_level_grants WHERE user_id={admin_id} AND level='pro_adult' AND is_active"
+            )
+        ),
+        0
+    );
     let signed_before = fake.signed.load(Ordering::SeqCst);
     // These two drafts have no published pointer or B/G-attached object.
     // Their body is never legal on a normal public/paywall or paid-grant path.
@@ -106,6 +121,16 @@ pub(super) async fn assert_unsealed_admin_read(
         (501, "free", 0, "S065-PRIVATE-FREE-DRAFT-NEVER-IN-SSR"),
         (502, "paid", 175, "S065-PRIVATE-PAID-DRAFT-NEVER-IN-SSR"),
     ] {
+        // Free and paid drafts are checked under adult and pro_adult respectively.
+        let tier = if access == "free" {
+            "adult"
+        } else {
+            "pro_adult"
+        };
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
+        );
         let chapter = scalar(
             url,
             &format!(
@@ -479,6 +504,10 @@ pub(super) async fn assert_unsealed_admin_read(
             .unwrap()
             .is_empty());
         assert!(!versions.to_string().contains(body));
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+        );
     }
     // Two versions of each free/paid draft were delivered through each
     // of the three supported admin router modes, never to other actors.
