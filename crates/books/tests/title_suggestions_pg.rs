@@ -72,22 +72,24 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
             .await
             .unwrap();
         for term in [&zh, &en, &title] {
-            let suggestions = repo
-                .public_title_suggestions("ru", &[term])
-                .await
-                .unwrap();
+            let suggestions = repo.public_title_suggestions("ru", &[term]).await.unwrap();
             assert!(
                 suggestions.iter().all(|book| book.id != id),
                 "restricted / legacy Book title exposed at {level:?}: {term}"
             );
         }
     }
-    sqlx::query("UPDATE books SET access_level='basic', lifecycle_status='pending_deletion' WHERE id=$1")
-        .bind(id)
-        .execute(&pool)
+    sqlx::query(
+        "UPDATE books SET access_level='basic', lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let pending = repo
+        .public_title_suggestions("ru", &[&title])
         .await
         .unwrap();
-    let pending = repo.public_title_suggestions("ru", &[&title]).await.unwrap();
     assert!(!pending.iter().any(|book| book.id == id));
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(id)
