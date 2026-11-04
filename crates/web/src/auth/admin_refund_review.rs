@@ -1,7 +1,7 @@
-//! S036: site-administrator-only, audited and read-only refund review.
-//! Never expose an approve/reject operation until the separate step-up and
-//! approved commercial refund policy requirements are implemented.
+//! S036: audited administrator refund review with separately gated decisions.
+//! Approval requires approved policy and one-use proof; rejection never moves money.
 mod approval;
+mod rejection;
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -30,6 +30,10 @@ pub(super) fn router() -> Router<AuthState> {
         .route(
             "/admin/finance/refunds/approve",
             post(approval::submit).layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/admin/finance/refunds/reject",
+            post(rejection::submit).layer(DefaultBodyLimit::max(4096)),
         )
 }
 
@@ -78,13 +82,13 @@ fn page_shell(content: &str, cookies: &[String]) -> Response {
     let mut response = private_response(
         pages::layout(
             "Заявки на возврат — администратор",
-            "Аудируемый просмотр заявок на возврат.",
+            "Аудируемый просмотр и безопасные решения по заявкам.",
             &format!(
                 r#"<section class="me-page"><div class="container">
                 <header class="ui-page-header"><h1>Заявки на возврат покупок</h1></header>
-                <p>Только просмотр. Статус заявки не является разрешением
-                на возврат средств. Перед любым решением условия покупки,
-                факт выдачи доступа и срок должны проверяться повторно.</p>
+                <p>Просмотр и решения по заявкам. Одобрение возвращает средства
+                только по утверждённой политике; отказ меняет лишь статус.
+                Каждое действие требует отдельного подтверждения паролем.</p>
                 {content}<p><a href="/me">Кабинет</a></p>
                 </div></section>"#
             ),
@@ -127,7 +131,8 @@ pub(super) async fn page(
         }
     };
     let allow_approval = approval::enabled(&state);
-    let (csrf, cookies) = if allow_approval {
+    let allow_rejection = rejection::enabled(&state);
+    let (csrf, cookies) = if allow_approval || allow_rejection {
         state.cookies.csrf_for_page(&headers)
     } else {
         (String::new(), Vec::new())
@@ -140,6 +145,9 @@ pub(super) async fn page(
         body.push_str(&render_request(request));
         if allow_approval {
             body.push_str(&approval::form(request, &csrf));
+        }
+        if allow_rejection {
+            body.push_str(&rejection::form(request, &csrf));
         }
     }
     if requests.len() == 30 {

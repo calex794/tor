@@ -751,6 +751,8 @@ async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
 mod d06_direct_exposure;
 #[path = "slices_pg/d06_refund_approval.rs"]
 mod d06_refund_approval;
+#[path = "slices_pg/d06_refund_reject.rs"]
+mod d06_refund_reject;
 #[path = "slices_pg/d06_refund_requests.rs"]
 mod d06_refund_requests;
 #[path = "slices_pg/d06_repurchase.rs"]
