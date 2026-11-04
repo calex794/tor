@@ -203,6 +203,76 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
     assert!(body(call(&app, "GET", &path, &cookie, ORIGIN, "").await)
         .await
         .contains("Благодарностей: 1"));
+
+    // S020: a saved thanks never grants access to age-restricted Book metadata.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &path, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+
     pg(
         &url,
         &format!("UPDATE chapters SET admin_hold=true WHERE id={chapter}"),
@@ -218,12 +288,12 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         StatusCode::NOT_FOUND
     );
     // Python NEwBOO used 20 chapter_thanks actions per user per 60 seconds.
-    // The first success, repeat and blocked attempt already used 3 slots.
+    // Success, repeat, age denial and hold denial used 4 slots.
     pg(
         &url,
         &format!("UPDATE chapters SET admin_hold=false WHERE id={chapter}"),
     );
-    for _ in 0..17 {
+    for _ in 0..16 {
         assert_eq!(
             call(&app, "POST", &path, &cookie, ORIGIN, &form)
                 .await
