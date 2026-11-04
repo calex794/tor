@@ -274,7 +274,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/__bp_honeypot/{*trap_name}"), "GET") => Some(261),
         (Some("/moderation/books/{id}/visibility"), "POST") => Some(262),
         (Some("/api/v1/reader/chapters/{chapter_id}/admin-history"), "POST") => Some(263),
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}"), "POST") => Some(264),
+        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}"), "POST") => {
+            Some(264)
+        }
         _ => None,
     };
     index
