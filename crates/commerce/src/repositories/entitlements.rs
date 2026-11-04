@@ -4,7 +4,7 @@ use crate::services::entitlements::{decide_direct_purchase, DirectPurchaseRecord
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{
-    Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
+    Actor, DeliveryError, DenialReason, EntitlementDecision, EntitlementPort, PositiveId,
 };
 
 /// An owned, readable edition. Never contains paid text or signed object URLs.
@@ -447,7 +447,19 @@ impl EntitlementPort for PgDirectEntitlements {
                     (b.is_deleted OR c.is_deleted) AS hard_deleted,
                     tor_purchase_version_readable(
                         $1, p.id, p.chapter_id, p.version_id
-                    ) AS canonical_readable
+                    ) AS canonical_readable,
+                    CASE
+                      WHEN b.access_level='basic' THEN FALSE
+                      WHEN b.access_level='adult' AND viewer.account_state='active'
+                        AND viewer.adult_enabled THEN FALSE
+                      WHEN b.access_level='pro_adult' AND viewer.account_state='active'
+                        AND EXISTS (
+                          SELECT 1 FROM user_level_grants age
+                          WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                            AND age.is_active
+                        ) THEN FALSE
+                      ELSE TRUE
+                    END AS age_restricted
              FROM library_purchased_chapters l
              JOIN chapter_purchase_facts p
                ON p.id=l.purchase_id AND p.user_id=l.user_id
@@ -456,6 +468,7 @@ impl EntitlementPort for PgDirectEntitlements {
                ON v.id=p.version_id AND v.chapter_id=p.chapter_id
              JOIN chapters c ON c.id=p.chapter_id
              JOIN books b ON b.id=c.book_id
+             LEFT JOIN users viewer ON viewer.id=p.user_id
              LEFT JOIN chapter_purchase_revocations r ON r.purchase_id=p.id
              WHERE l.user_id=$1 AND l.chapter_id=$2
                AND ($3::BIGINT IS NULL OR p.id=$3)",
@@ -466,6 +479,13 @@ impl EntitlementPort for PgDirectEntitlements {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
+        // A current Book age denial is a normal forbidden response, not a
+        // backend failure. Keep Unknown for inconsistent D source data.
+        let age_restricted: Option<bool> = row
+            .as_ref()
+            .map(|row| row.try_get("age_restricted"))
+            .transpose()
+            .map_err(|_| DeliveryError::Unavailable)?;
         let record = row
             .map(|row| {
                 Ok(DirectPurchaseRecord {
@@ -487,6 +507,18 @@ impl EntitlementPort for PgDirectEntitlements {
                 })
             })
             .transpose()?;
-        Ok(decide_direct_purchase(chapter_id, record))
+        let decision = decide_direct_purchase(chapter_id, record);
+        // Keep refund, deletion and moderation denials ahead of age.
+        if age_restricted == Some(true)
+            && matches!(
+                decision,
+                EntitlementDecision::Denied {
+                    reason: DenialReason::Unknown
+                }
+            )
+        {
+            return Err(DeliveryError::Denied);
+        }
+        Ok(decision)
     }
 }
