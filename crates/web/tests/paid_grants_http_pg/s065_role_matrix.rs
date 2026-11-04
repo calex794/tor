@@ -323,9 +323,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         reader,
         admin_id,
         &admin_session,
-        book,
-        chapter,
-        version,
+        (book, chapter, version),
     )
     .await;
     // The existing chapter+image S3 grant assertions below run at pro_adult,

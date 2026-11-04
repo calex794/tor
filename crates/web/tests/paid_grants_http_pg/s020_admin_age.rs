@@ -32,10 +32,9 @@ pub(super) async fn assert_admin_can_inspect_all_book_states(
     reader: &Router,
     admin_id: i64,
     admin_session: &str,
-    book: i64,
-    chapter: i64,
-    version: i64,
+    edition: (i64, i64, i64),
 ) {
+    let (book, chapter, version) = edition;
     let _restore = RestoreBook { url, book_id: book };
     let authority = PgAdministratorReaderEntitlements::new(
         accounts.pool().clone(),
