@@ -3,6 +3,34 @@
 use super::CatalogFacets;
 use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
 use sqlx::{PgPool, Row};
+use std::borrow::Cow;
+
+/// Keep anonymous indexed SQL unchanged. Signed queries bind a server-side
+/// session digest and verify live A/Book state in the metadata SELECT itself.
+/// This replacement only operates on checked-in SQL constants.
+pub(super) fn scoped_sql(
+    sql: &'static str,
+    digest: Option<&[u8; 32]>,
+    bind_index: usize,
+) -> Cow<'static, str> {
+    if digest.is_none() {
+        return Cow::Borrowed(sql);
+    }
+    assert!(sql.contains("access_level='basic'"));
+    let gate = format!(
+        "(books.access_level='basic' OR EXISTS (
+           SELECT 1 FROM sessions sess
+           JOIN users acct ON acct.id=sess.user_id
+           WHERE sess.token_hash=${bind_index}::bytea
+             AND sess.revoked_at IS NULL AND sess.expires_at>now()
+             AND acct.account_state='active'
+             AND ((books.access_level='adult' AND acct.adult_enabled)
+               OR (books.access_level='pro_adult' AND EXISTS (
+                 SELECT 1 FROM user_level_grants g
+                 WHERE g.user_id=acct.id AND g.level='pro_adult' AND g.is_active))))"
+    );
+    Cow::Owned(sql.replacen("access_level='basic'", &gate, 1))
+}
 
 const ASCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
@@ -36,23 +64,26 @@ pub(super) async fn read_page(
     after: i64,
     limit: usize,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<SearchPage, SearchError> {
-    let sql = match sort {
+    let base = match sort {
         CatalogSort::Oldest => ASCENDING,
         CatalogSort::Newest => DESCENDING,
         _ => return Err(SearchError::Invalid),
     };
-    let rows = sqlx::query(sql)
+    let sql = scoped_sql(base, digest, 8);
+    let mut query = sqlx::query(sql.as_ref())
         .bind(filters.term.trim())
         .bind(after)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
         .bind(filters.language)
         .bind(filters.genre)
         .bind(filters.tag)
-        .bind(filters.fandom)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
+        .bind(filters.fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let rows = query.fetch_all(pool).await.map_err(|_| SearchError::Unavailable)?;
 
     let mut items = rows
         .into_iter()
@@ -106,10 +137,12 @@ pub(super) async fn count_filtered(
     genre: Option<&str>,
     tag: Option<&str>,
     fandom: Option<&str>,
+    digest: Option<&[u8; 32]>,
 ) -> Result<u64, SearchError> {
     // Exact, transactionally maintained public total for unfiltered pages.
     // Filtered totals still use the original SQL predicates, never estimates.
-    if term.trim().is_empty()
+    if digest.is_none()
+        && term.trim().is_empty()
         && language.is_none()
         && genre.is_none()
         && tag.is_none()
@@ -123,15 +156,17 @@ pub(super) async fn count_filtered(
         .map_err(|_| SearchError::Unavailable)?;
         return u64::try_from(count).map_err(|_| SearchError::Unavailable);
     }
-    let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
+    let sql = scoped_sql(FILTERED_TOTAL, digest, 6);
+    let mut query = sqlx::query_scalar(sql.as_ref())
         .bind(term.trim())
         .bind(language)
         .bind(genre)
         .bind(tag)
-        .bind(fandom)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
+        .bind(fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let total: i64 = query.fetch_one(pool).await.map_err(|_| SearchError::Unavailable)?;
     u64::try_from(total).map_err(|_| SearchError::Unavailable)
 }
 
@@ -228,14 +263,16 @@ pub(super) async fn read_lexical_page(
     after: Option<&str>,
     limit: usize,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<SearchPage, SearchError> {
-    let query = match sort {
+    let base = match sort {
         CatalogSort::Title => TITLE_ORDER,
         CatalogSort::Author => AUTHOR_ORDER,
         _ => return Err(SearchError::Invalid),
     };
+    let sql = scoped_sql(base, digest, 9);
     let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
-    let rows = sqlx::query(query)
+    let mut query = sqlx::query(sql.as_ref())
         .bind(filters.term.trim())
         .bind(cursor_key.as_deref())
         .bind(cursor_id)
@@ -243,10 +280,11 @@ pub(super) async fn read_lexical_page(
         .bind(filters.language)
         .bind(filters.genre)
         .bind(filters.tag)
-        .bind(filters.fandom)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
+        .bind(filters.fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let rows = query.fetch_all(pool).await.map_err(|_| SearchError::Unavailable)?;
     let mut entries = rows
         .into_iter()
         .map(|row| {
