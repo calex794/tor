@@ -18,10 +18,24 @@ pub struct CatalogFacets<'a> {
 #[derive(Clone)]
 pub struct PgSearch {
     pool: PgPool,
+    /// Per-request authentication scope. Never shared or mutated across actors.
+    viewer_digest: Option<[u8; 32]>,
 }
 impl PgSearch {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            viewer_digest: None,
+        }
+    }
+
+    /// Only a server-derived session token digest may select the personalized
+    /// catalogue. Invalid/revoked sessions still see only anonymous basic rows.
+    pub fn with_session_digest(&self, digest: Option<[u8; 32]>) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            viewer_digest: digest,
+        }
     }
 
     pub async fn search(
@@ -73,6 +87,7 @@ impl PgSearch {
             genre.as_deref(),
             tag.as_deref(),
             fandom.as_deref(),
+            self.viewer_digest.as_ref(),
         )
         .await
     }
@@ -157,9 +172,24 @@ impl PgSearch {
             fandom: fandom.as_deref(),
         };
         if lexical {
-            return catalog::read_lexical_page(&self.pool, normalized, after, limit, direction)
-                .await;
+            return catalog::read_lexical_page(
+                &self.pool,
+                normalized,
+                after,
+                limit,
+                direction,
+                self.viewer_digest.as_ref(),
+            )
+            .await;
         }
-        catalog::read_page(&self.pool, normalized, after_id, limit, direction).await
+        catalog::read_page(
+            &self.pool,
+            normalized,
+            after_id,
+            limit,
+            direction,
+            self.viewer_digest.as_ref(),
+        )
+        .await
     }
 }
