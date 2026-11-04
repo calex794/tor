@@ -3,7 +3,15 @@ on:
   pull_request:
     paths:
       - '.github/workflows/rec-feedback-acceptance.yml'
-      - 'crates/**'
+      # A specialist receipt: core PRs already run REC-13 in TOR postgres-runtime.
+      # Keep this additional run only for recommendation-owned source/evidence
+      # and schema changes that can alter the feedback contract.
+      - 'crates/recommendations/**'
+      - 'crates/web/src/recommendation_http/**'
+      - 'crates/web/src/recommendation_worker.rs'
+      - 'crates/web/assets/recommendations.js'
+      - 'crates/web/tests/recommendation_feedback_http_pg.rs'
+      - 'crates/books/src/repositories/recommendation_policy.rs'
       - 'migrations/**'
       - 'tools/rec13_*'
   push:
@@ -104,14 +112,9 @@ jobs:
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
         run: bash tools/rec13_browser_acceptance.sh
-      - name: Workspace regression
-        run: |
-          exec > >(tee "$RUNNER_TEMP/rec13-browser/regression.log") 2>&1
-          status=0
-          cargo test --workspace --all-targets || status=1
-          cargo clippy --workspace --all-targets -- -D warnings || status=1
-          python3 -m unittest discover -s tests/architecture -v || status=1
-          exit "$status"
+      # The full-workspace Rust/Clippy and architecture baselines are already
+      # mandatory in integration/demo and Repository rules; do not rebuild them
+      # a second time merely to collect the REC-13 browser evidence.
       - name: Confirm tested source is the committed source
         if: always()
         run: git diff --exit-code

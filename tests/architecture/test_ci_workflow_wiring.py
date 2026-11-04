@@ -57,7 +57,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn(f"  {event}", events)
         self.assertNotRegex(events, r"(?m)^\s+(paths|paths-ignore):")
         sections = job_sections(text)
-        self.assertEqual(set(sections), {"select", CI_REQUIRED_JOB} | set(SUITE_JOB_IDS.values()))
+        self.assertEqual(set(sections), {"select", "preflight", CI_REQUIRED_JOB} | set(SUITE_JOB_IDS.values()))
         self.assertEqual(text.count("    uses: ./.github/workflows/ci-selection.yml\n"), 1)
         self.assertIn("      caller: all\n", sections["select"])
         self.assertNotIn("pull_request_target:", text)
@@ -66,10 +66,38 @@ class WorkflowWiringTests(unittest.TestCase):
                 old = (WORKFLOWS / filename).read_text()
                 self.assertEqual(problems(old, suite), [])
                 job_id = SUITE_JOB_IDS[suite]
-                self.assertIn("    needs: select\n    if: " + workflow_gate(suite) + "\n",
+                gate = workflow_gate(suite).replace(
+                    "!cancelled() && ",
+                    "!cancelled() && needs.preflight.result == 'success' && ",
+                    1,
+                )
+                self.assertIn("    needs: [select, preflight]\n    if: " + gate + "\n",
                               sections[job_id])
-                # Mirror every command, service, artifact and safety gate.
-                self.assertEqual(sections[job_id], job_sections(old)[job_id])
+                # The specialized job body must remain byte-identical to its
+                # manual counterpart, apart from its preflight dependency.
+                manual = job_sections(old)[job_id]
+                expected = manual.replace(
+                    "    needs: select\n    if: " + workflow_gate(suite) + "\n",
+                    "    needs: [select, preflight]\n    if: " + gate + "\n",
+                    1,
+                )
+                self.assertNotEqual(manual, expected)
+                self.assertEqual(sections[job_id], expected)
+
+    def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
+        sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        preflight = sections["preflight"]
+        self.assertIn("    runs-on: ubuntu-24.04", preflight)
+        self.assertIn("run: python3 tools/check_feature_layout.py", preflight)
+        self.assertIn("run: cargo fmt --all -- --check", preflight)
+        self.assertNotIn("cargo build", preflight)
+        self.assertNotIn("cargo test --workspace", preflight)
+        self.assertNotIn("postgres:18", preflight)
+        for name in SUITE_JOB_IDS.values():
+            with self.subTest(job=name):
+                job = sections[name]
+                self.assertIn("    needs: [select, preflight]", job)
+                self.assertIn("needs.preflight.result == 'success'", job)
 
     def test_stable_required_ci_waits_for_all_suites(self):
         text = (WORKFLOWS / CI_WORKFLOW).read_text()
@@ -77,7 +105,7 @@ class WorkflowWiringTests(unittest.TestCase):
         deps = re.search(r"    needs:\n((?:      - [a-z0-9_-]+\n)+)", section)
         self.assertIsNotNone(deps)
         names = re.findall(r"^      - ([a-z0-9_-]+)$", deps.group(1), re.M)
-        expected = {"select"} | set(SUITE_JOB_IDS.values())
+        expected = {"select", "preflight"} | set(SUITE_JOB_IDS.values())
         self.assertEqual(set(names), expected)
         self.assertEqual(len(names), len(expected))
         self.assertIn("    if: ${{ always() }}\n", section)
@@ -165,11 +193,23 @@ class WorkflowWiringTests(unittest.TestCase):
             "cargo test -p tor-recommendations --test generations_pg -- --ignored",
             "cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored",
             "bash tools/rec13_browser_acceptance.sh",
-            "cargo clippy --workspace --all-targets -- -D warnings",
         ):
             self.assertIn(command, text)
         for forbidden in ("rec13_integrate.py", "rec13_harden.py", "rec13_publish_tree.py"):
             self.assertNotIn(forbidden, text)
+        self.assertNotIn("cargo test --workspace --all-targets", text)
+        self.assertNotIn("cargo clippy --workspace --all-targets", text)
+        # A reader-only PR must not launch a separate REC-13 acceptance run.
+        self.assertNotIn("      - 'crates/**'", text)
+        for owned in (
+            "crates/recommendations/**",
+            "crates/web/src/recommendation_http/**",
+            "crates/web/src/recommendation_worker.rs",
+            "crates/web/tests/recommendation_feedback_http_pg.rs",
+            "tools/rec13_*",
+        ):
+            self.assertIn(owned, text)
+        self.assertIn("bash tools/rec13_browser_acceptance.sh", text)
 
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}

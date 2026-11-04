@@ -8,10 +8,14 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::{atomic::Ordering, Arc};
+#[path = "s020_admin_age.rs"]
+mod s020_admin_age;
+
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, session_token_digest},
 };
+use tor_contracts::paid_delivery::PositiveId;
 
 struct AdminRoleCleanup<'a> {
     url: &'a str,
@@ -119,6 +123,75 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         .unwrap()
         .expect("administrator must have a real live session");
     assert!(actor.administrator);
+    // An exact historical sealed version is an A-scoped administrative
+    // capability, not a purchase or a public browse parameter.
+    let authority = tor_commerce::repositories::admin_reader_entitlements::
+        PgAdministratorReaderEntitlements::new(
+            accounts.pool().clone(),
+            session_token_digest(&admin_session),
+        );
+    let admin_actor = tor_contracts::paid_delivery::Actor {
+        user_id: PositiveId::new(admin_id).unwrap(),
+    };
+    let chapter_id = PositiveId::new(chapter).unwrap();
+    let version_id = PositiveId::new(version).unwrap();
+    assert_eq!(
+        authority
+            .sealed_historical_version(admin_actor, chapter_id, version_id)
+            .await
+            .unwrap(),
+        Some(tor_contracts::paid_delivery::ChapterVersionRef {
+            chapter_id,
+            version_id,
+        }),
+    );
+    assert!(authority
+        .sealed_history(admin_actor, chapter_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|(id, _)| *id == version_id));
+    assert_eq!(
+        authority
+            .sealed_historical_version(
+                admin_actor,
+                chapter_id,
+                PositiveId::new(9_999_999_999).unwrap(),
+            )
+            .await
+            .unwrap(),
+        None,
+    );
+    // Even a real administrator cannot bind an edition to a foreign chapter.
+    assert_eq!(
+        authority
+            .sealed_historical_version(
+                admin_actor,
+                PositiveId::new(chapter + 1_000_000).unwrap(),
+                version_id,
+            )
+            .await
+            .unwrap(),
+        None,
+    );
+    let moderator_authority = tor_commerce::repositories::admin_reader_entitlements::
+        PgAdministratorReaderEntitlements::new(
+            accounts.pool().clone(),
+            session_token_digest(&outsider),
+        );
+    assert_eq!(
+        moderator_authority
+            .sealed_historical_version(
+                tor_contracts::paid_delivery::Actor {
+                    user_id: PositiveId::new(moderator_id).unwrap(),
+                },
+                chapter_id,
+                version_id,
+            )
+            .await
+            .unwrap(),
+        None,
+    );
     let csrf = generate_session_token();
     let path = route(chapter);
     let asset_path =
@@ -262,6 +335,89 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert!(!html.contains("ciphertext_url"));
     assert!(!html.contains("data-purchase-id"));
 
+    // S020/#486: site-administrator inspection is independent of the ordinary
+    // reader's adult opt-in and pro_adult grant. Do not invent either right.
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={admin_id}"),
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!("SELECT adult_enabled::integer FROM users WHERE id={admin_id}")
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM user_level_grants WHERE user_id={admin_id} AND level='pro_adult' AND is_active"
+            )
+        ),
+        0
+    );
+    for tier in ["adult", "pro_adult"] {
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
+        );
+        assert_eq!(
+            read_page(reader, &page, Some(&admin_session))
+                .await
+                .status(),
+            StatusCode::OK,
+            "site administrator must retain the sealed reader at {tier}"
+        );
+    }
+    pg(
+        url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        read_page(reader, &page, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::OK,
+        "legacy unknown age tier must not strip site-admin inspection"
+    );
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    // The private administrator role is independent of moderation status,
+    // lifecycle, and the ordinary 21+ subscription gate (no G grants here).
+    s020_admin_age::assert_admin_can_inspect_all_book_states(
+        url,
+        accounts,
+        reader,
+        admin_id,
+        &admin_session,
+        (book, chapter, version),
+    )
+    .await;
+    // The existing chapter+image S3 grant assertions below run at pro_adult,
+    // with no viewer grant and without changing audit or signed-object counts.
+    assert_eq!(
+        read_page(reader, &page, Some(&outsider)).await.status(),
+        StatusCode::FORBIDDEN,
+        "site moderator cannot inherit administrator-only pro_adult inspection"
+    );
+    let moderator_pro_adult_grant = send(
+        grants,
+        &path,
+        Some(&outsider),
+        Some(&csrf),
+        Some(ORIGIN),
+        r#"{"source":"administrator"}"#,
+    )
+    .await;
+    assert_eq!(moderator_pro_adult_grant.status(), StatusCode::FORBIDDEN);
+    assert!(to_bytes(moderator_pro_adult_grant.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+
     assert_eq!(
         send(
             grants,
@@ -307,6 +463,10 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert_eq!(value["version_id"], version.to_string());
     assert_eq!(value["object_id"], ASSET_UUID);
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     assert_eq!(
         scalar(
             url,
@@ -379,6 +539,116 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         ),
         1
     );
+    // Historical sealed inspection is an independent, explicit A/D/B/G/D
+    // flow. The exact version and each PNG must stay bound to this chapter.
+    let sealed_list = format!("/api/v1/reader/chapters/{chapter}/admin-sealed-history");
+    let sealed_grant = format!("{sealed_list}/{version}/delivery-grants");
+    let sealed_asset = format!("{sealed_list}/{version}/assets/{ASSET_UUID}/delivery-grants");
+    let listed = send(
+        grants,
+        &sealed_list,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        "{}",
+    )
+    .await;
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed: Value =
+        serde_json::from_slice(&to_bytes(listed.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(listed["schema"], "tor.admin_sealed_history.v1");
+    assert!(listed["versions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| { v["version_id"].as_str() == Some(version.to_string().as_str()) }));
+    for target in [&sealed_list, &sealed_grant, &sealed_asset] {
+        for (session, token, origin, denied) in [
+            (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
+            (
+                Some(outsider.as_str()),
+                Some(csrf.as_str()),
+                Some(ORIGIN),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(admin_session.as_str()),
+                None,
+                Some(ORIGIN),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(admin_session.as_str()),
+                Some(csrf.as_str()),
+                Some("https://evil.invalid"),
+                StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let response = send(grants, target, session, token, origin, "{}").await;
+            assert_eq!(response.status(), denied, "{target}");
+            assert!(to_bytes(response.into_body(), 8192)
+                .await
+                .unwrap()
+                .is_empty());
+        }
+    }
+    let invalid_version = send(
+        grants,
+        &format!("{sealed_list}/999999999/delivery-grants"),
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        "{}",
+    )
+    .await;
+    assert_ne!(invalid_version.status(), StatusCode::OK);
+    assert!(to_bytes(invalid_version.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    let historic = send(
+        grants,
+        &sealed_grant,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        "{}",
+    )
+    .await;
+    assert_eq!(historic.status(), StatusCode::OK);
+    assert_eq!(
+        historic.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let historic: Value =
+        serde_json::from_slice(&to_bytes(historic.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(historic["version_id"], version.to_string());
+    assert!(!historic.to_string().contains(BODY));
+    let image = send(
+        grants,
+        &sealed_asset,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        "{}",
+    )
+    .await;
+    assert_eq!(image.status(), StatusCode::OK);
+    let image: Value =
+        serde_json::from_slice(&to_bytes(image.into_body(), 8192).await.unwrap()).unwrap();
+    assert_eq!(image["version_id"], version.to_string());
+    assert_eq!(image["object_id"], ASSET_UUID);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 5);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+            "SELECT count(*) FROM reader_admin_chapter_access_audit WHERE admin_user_id={admin_id}"
+        )
+        ),
+        5
+    );
+
     // Even held/draft sealed content remains reachable from the same
     // canonical URL, without disclosing its identity to a guest.
     let held_redirect = read_page(reader, &canonical, Some(&admin_session)).await;
@@ -435,6 +705,22 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .status(),
         StatusCode::FORBIDDEN
     );
+    assert_eq!(
+        authority
+            .sealed_historical_version(admin_actor, chapter_id, version_id)
+            .await
+            .unwrap(),
+        None,
+        "revoked administrator must lose access to historical sealed versions",
+    );
+    assert!(
+        authority
+            .sealed_history(admin_actor, chapter_id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "revoked administrator cannot enumerate historical sealed versions"
+    );
     // A revoked role cannot keep navigating through the canonical URL.
     assert_eq!(
         read_page(reader, &canonical, Some(&admin_session))
@@ -456,7 +742,25 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         assert_eq!(r.headers()[header::CACHE_CONTROL], "no-store");
         assert!(to_bytes(r.into_body(), 8192).await.unwrap().is_empty());
     }
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    // A role revoked after the shell was opened cannot obtain another
+    // version grant, image grant or private version listing.
+    for target in [&sealed_list, &sealed_grant, &sealed_asset] {
+        let revoked = send(
+            grants,
+            target,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await;
+        assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
+        assert!(to_bytes(revoked.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 5);
     assert_eq!(
         scalar(
             url,
@@ -465,7 +769,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
                  WHERE admin_user_id={admin_id}"
             )
         ),
-        3,
+        5,
         "rejected/revoked reads must not create successful-delivery audit entries"
     );
     // Historic NEwBOO aliases are absent, not unguarded admin back doors.

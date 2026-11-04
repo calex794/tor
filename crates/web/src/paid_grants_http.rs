@@ -3,6 +3,7 @@
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod admin_history;
 mod admin_reader;
+mod admin_sealed_history;
 mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
@@ -92,6 +93,7 @@ struct GrantState {
     storage: Arc<dyn PrivateObjectDeliveryPort>,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
+    history_rate_limits: Arc<Mutex<RateLimits>>,
     concurrent: Arc<Semaphore>,
     reader_s3_origin: Option<String>,
     layer_reader_enabled: bool,
@@ -450,6 +452,7 @@ fn router_inner(
         storage,
         cookies,
         rate_limits,
+        history_rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         concurrent: Arc::new(Semaphore::new(MAX_CONCURRENT_SIGNINGS)),
         reader_s3_origin,
         layer_reader_enabled,
@@ -462,6 +465,18 @@ fn router_inner(
         .route(
             "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
             post(asset_grants::grant_asset),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history",
+            post(admin_sealed_history::list),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants",
+            post(admin_sealed_history::grant),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
+            post(admin_sealed_history::asset),
         );
     if state.layer_reader_enabled {
         app = app.route("/read/layer/{chapter_id}", get(layer_reader::layer_reader));

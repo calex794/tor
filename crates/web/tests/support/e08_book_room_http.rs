@@ -51,8 +51,8 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     let book_id: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e08:http:room:{nonce}','ru','Room <script>title</script>','public')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:e08:http:room:{nonce}','ru','Room <script>title</script>','public','basic')
              RETURNING id"
         ),
     )
@@ -235,6 +235,114 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     assert!(text(call(&app, "GET", &page, &cookies[0], "", &[]).await)
         .await
         .contains("&lt;img src=x onerror=alert(1)&gt;"));
+    // S020/#486: a previously joined reader cannot fetch a room title or
+    // old messages after the Book is upgraded to a restricted age tier.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book_id}"),
+    )
+    .await;
+    let denied = call(&app, "GET", &page, &cookies[0], "", &[]).await;
+    assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+    let denied_html = text(denied).await;
+    assert!(!denied_html.contains("Room &lt;script&gt;title"));
+    assert!(!denied_html.contains("&lt;img src=x onerror"));
+    assert_eq!(
+        call(&app, "POST", &send_path, &cookies[0], &body, &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &join_path,
+            &cookies[1],
+            &format!("csrf_token={}", tokens[1]),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE users SET adult_enabled=TRUE \
+             WHERE email_normalized='room-http-{nonce}-0@example.invalid'"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE users SET adult_enabled=FALSE \
+             WHERE email_normalized='room-http-{nonce}-0@example.invalid'; \
+             INSERT INTO user_level_grants(user_id,level,source,is_active) \
+             SELECT id,'pro_adult','moderation',TRUE FROM users \
+             WHERE email_normalized='room-http-{nonce}-0@example.invalid'"
+        ),
+    )
+    .await;
+    assert!(text(call(&app, "GET", &page, &cookies[0], "", &[]).await)
+        .await
+        .contains("&lt;img src=x onerror=alert(1)&gt;"));
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE \
+             WHERE user_id IN (SELECT id FROM users WHERE \
+                 email_normalized='room-http-{nonce}-0@example.invalid')"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
     pg(
         &url,
         &format!("UPDATE books SET visibility='draft' WHERE id={book_id}"),
