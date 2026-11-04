@@ -104,17 +104,26 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
         "anonymous visible basic edge must survive top-500 truncation"
     );
     assert!(
-        guest.items.iter().any(|item| item.book_id == basic.to_string()),
+        guest
+            .items
+            .iter()
+            .any(|item| item.book_id == basic.to_string()),
         "final fallback is not evidence that the bounded candidate was ranked"
     );
     assert!(
-        guest.items.iter().all(|item| item.book_id == basic.to_string()),
+        guest
+            .items
+            .iter()
+            .all(|item| item.book_id == basic.to_string()),
         "anonymous feed must not return restricted Book metadata"
     );
 
     let unverified = store.feed(Some(actor), Some(seed), 20).await.unwrap();
     assert_eq!(unverified.generation_id, Some(generation.clone()));
-    assert!(unverified.items.iter().any(|item| item.book_id == basic.to_string()));
+    assert!(unverified
+            .items
+            .iter()
+            .any(|item| item.book_id == basic.to_string()));
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
@@ -125,7 +134,10 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
     .unwrap();
     let verified = store.feed(Some(actor), Some(seed), 20).await.unwrap();
     assert_eq!(verified.generation_id, Some(generation.clone()));
-    assert!(verified.items.iter().any(|item| item.book_id != basic.to_string()));
+    assert!(verified
+            .items
+            .iter()
+            .any(|item| item.book_id != basic.to_string()));
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
@@ -133,8 +145,14 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
         .unwrap();
     let revoked = store.feed(Some(actor), Some(seed), 20).await.unwrap();
     assert_eq!(revoked.generation_id, Some(generation.clone()));
-    assert!(revoked.items.iter().any(|item| item.book_id == basic.to_string()));
-    assert!(revoked.items.iter().all(|item| item.book_id == basic.to_string()));
+    assert!(revoked
+            .items
+            .iter()
+            .any(|item| item.book_id == basic.to_string()));
+    assert!(revoked
+            .items
+            .iter()
+            .all(|item| item.book_id == basic.to_string()));
 
     // Restore the exact shared CI rollout state, then remove only this test's
     // data (no production migrations or external object storage).
