@@ -119,6 +119,62 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         .unwrap()
         .expect("administrator must have a real live session");
     assert!(actor.administrator);
+    // An exact historical sealed version is an A-scoped administrative
+    // capability, not a purchase or a public browse parameter.
+    let authority = tor_commerce::repositories::admin_reader_entitlements::
+        PgAdministratorReaderEntitlements::new(
+            accounts.pool().clone(),
+            session_token_digest(&admin_session),
+        );
+    let admin_actor = tor_contracts::paid_delivery::Actor {
+        user_id: PositiveId::new(admin_id).unwrap(),
+    };
+    let chapter_id = PositiveId::new(chapter).unwrap();
+    let version_id = PositiveId::new(version).unwrap();
+    assert_eq!(
+        authority
+            .sealed_historical_version(admin_actor, chapter_id, version_id)
+            .await
+            .unwrap(),
+        Some(tor_contracts::paid_delivery::ChapterVersionRef {
+            chapter_id,
+            version_id,
+        }),
+    );
+    assert!(
+        authority.sealed_history(admin_actor, chapter_id).await.unwrap()
+            .iter()
+            .any(|(id, _)| *id == version_id)
+    );
+    assert_eq!(
+        authority
+            .sealed_historical_version(
+                admin_actor,
+                chapter_id,
+                PositiveId::new(9_999_999_999).unwrap(),
+            )
+            .await
+            .unwrap(),
+        None,
+    );
+    let moderator_authority = tor_commerce::repositories::admin_reader_entitlements::
+        PgAdministratorReaderEntitlements::new(
+            accounts.pool().clone(),
+            session_token_digest(&outsider),
+        );
+    assert_eq!(
+        moderator_authority
+            .sealed_historical_version(
+                tor_contracts::paid_delivery::Actor {
+                    user_id: PositiveId::new(moderator_id).unwrap(),
+                },
+                chapter_id,
+                version_id,
+            )
+            .await
+            .unwrap(),
+        None,
+    );
     let csrf = generate_session_token();
     let path = route(chapter);
     let asset_path =
@@ -434,6 +490,18 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        authority
+            .sealed_historical_version(admin_actor, chapter_id, version_id)
+            .await
+            .unwrap(),
+        None,
+        "revoked administrator must lose access to historical sealed versions",
+    );
+    assert!(
+        authority.sealed_history(admin_actor, chapter_id).await.unwrap().is_empty(),
+        "revoked administrator cannot enumerate historical sealed versions"
     );
     // A revoked role cannot keep navigating through the canonical URL.
     assert_eq!(
