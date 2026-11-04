@@ -209,7 +209,14 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(next_index, 1);
+    // The first due slot depends on Moscow local time. A claimed 09:00
+    // slot advances to 18:00; a claimed 18:00 slot wraps to tomorrow's 09:00.
+    // Assert the cursor transition, not the runner's wall clock.
+    assert_eq!(
+        next_index,
+        (claim.slot_index + 1) % (times.len() as i32),
+        "the next cursor must follow the claimed slot"
+    );
     author
         .replace_book_delayed_schedule(owner, book, false, 1, &times)
         .await
