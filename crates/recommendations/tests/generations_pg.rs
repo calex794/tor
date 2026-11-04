@@ -468,3 +468,6 @@ async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
 
 #[path = "generations_pg/s020_tier_source.rs"]
 mod s020_tier_source;
+
+#[path = "generations_pg/s020_candidate_rank_pg.rs"]
+mod s020_candidate_rank_pg;

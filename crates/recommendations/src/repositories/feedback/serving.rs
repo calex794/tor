@@ -126,8 +126,24 @@ impl PgRecommendations {
         }
         let generation = generation.expect("eligible generation");
         let seeds = candidate_seeds(seed, &recent);
-        let rows=sqlx::query("SELECT seed_id,book_id,source,reason,score FROM rec_candidate_edges WHERE generation_id=$1::uuid AND seed_id=ANY($2::bigint[]) ORDER BY seed_id,score DESC,book_id::text LIMIT 500")
-            .bind(&generation).bind(&seeds).fetch_all(&self.pool).await?;
+        // Tier-restricted edges must not consume the 500-row query budget
+        // or the 50-item hybrid ranking budget for an unauthorized viewer.
+        // Do this in SQL before LIMIT and scoring, not after the shortlist.
+        // The final metadata SELECT below still rechecks live rights because
+        // age grants, Book state and consent can change within a request.
+        let candidate_sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT e.seed_id,e.book_id,e.source,e.reason,e.score
+             FROM rec_candidate_edges e
+             JOIN rec_actor_books visible ON visible.id=e.book_id
+             WHERE e.generation_id=$2::uuid AND e.seed_id=ANY($3::bigint[])
+             ORDER BY e.seed_id,e.score DESC,e.book_id::text LIMIT 500"
+        );
+        let rows = sqlx::query(&candidate_sql)
+            .bind(actor)
+            .bind(&generation)
+            .bind(&seeds)
+            .fetch_all(&self.pool)
+            .await?;
         let mut candidates = Vec::new();
         let mut dedicated = BTreeSet::new();
         for row in rows {
