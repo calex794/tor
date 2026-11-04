@@ -45,6 +45,21 @@ async function adminUnsealed(chapter, csrf) {
   return { versionId: payload.version_id, text: payload.body_markdown };
 }
 
+async function adminHistory(chapter, csrf, version = null) {
+  const path = "/api/v1/reader/chapters/" + chapter + "/admin-history" +
+    (version === null ? "" : "/" + version);
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+    credentials: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  });
+  requireValue(response.ok && response.status === 200);
+  return response.json();
+}
+
 export async function startAdministratorReader(root) {
   const chapter = root.dataset.chapterId;
   const csrf = root.dataset.csrfToken;
@@ -160,6 +175,56 @@ export async function startAdministratorReader(root) {
     button.remove();
   }
   status.textContent = "Редакция " + versionId + " · Защищённая загрузка завершена";
+  // Historical versions are a separate, audited administrator-only POST.
+  // No history ID is allowed to enter buyer/Layer grants or signed S3 URLs.
+  if (unsealed) {
+    try {
+      const history = await adminHistory(chapter, csrf);
+      requireValue(history.schema === "tor.admin_history.v1" &&
+        history.chapter_id === chapter && Array.isArray(history.versions) &&
+        history.versions.length <= 100);
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "История редакций");
+      const label = document.createElement("label");
+      label.textContent = "Редакция: ";
+      for (const entry of history.versions) {
+        requireValue(/^[1-9][0-9]{0,18}$/.test(entry.version_id || "") &&
+          Number.isInteger(entry.version_no));
+        const option = document.createElement("option");
+        option.value = entry.version_id;
+        option.textContent = "Версия " + entry.version_no;
+        option.selected = entry.version_id === versionId;
+        select.append(option);
+      }
+      if (select.options.length) {
+        label.append(select);
+        status.after(label);
+        let latest = 0;
+        select.addEventListener("change", async () => {
+          const request = ++latest;
+          const chosen = select.value;
+          article.replaceChildren();
+          status.textContent = "Проверка доступа к редакции…";
+          try {
+            const old = await adminHistory(chapter, csrf, chosen);
+            requireValue(old.schema === "tor.admin_unsealed.v1" &&
+              old.chapter_id === chapter && old.version_id === chosen &&
+              typeof old.body_markdown === "string");
+            if (closed || request !== latest) return;
+            renderPaidBlocks(article, old.body_markdown, () => {}, null);
+            for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
+            status.textContent = "Редакция " + chosen + " · Административный просмотр";
+          } catch {
+            if (closed || request !== latest) return;
+            article.replaceChildren();
+            status.textContent = "Не удалось открыть редакцию.";
+          }
+        });
+      }
+    } catch {
+      // The current revision remains readable even when history is unavailable.
+    }
+  }
 }
 
 if (typeof document !== "undefined") {
