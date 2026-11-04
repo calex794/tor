@@ -356,45 +356,99 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
     second_pool.close().await;
 
     // S020: a historic C completion and saved rating are not age grants.
-    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "POST", &rate, &cookie, ORIGIN, &form).await.status(),
-               StatusCode::FORBIDDEN);
-    assert_eq!(call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
-               StatusCode::NOT_FOUND);
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::OK);
-    assert_eq!(call(&app, "POST", &rate, &cookie, ORIGIN, &form).await.status(),
-               StatusCode::SEE_OTHER);
-
-    pg(&url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::NOT_FOUND);
-    pg(&url, &format!(
-        "INSERT INTO user_level_grants(user_id,level,source,is_active)
-         VALUES({user},'pro_adult','moderation',TRUE)"
-    ));
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::OK);
-    assert_eq!(call(&app, "POST", &rate, &cookie, ORIGIN, &form).await.status(),
-               StatusCode::SEE_OTHER);
-    pg(&url, &format!(
-        "UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"
-    ));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "POST", &rate, &cookie, ORIGIN, &form).await.status(),
-               StatusCode::FORBIDDEN);
-    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
-               StatusCode::NOT_FOUND);
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
     assert_eq!(
-        pg(&url, &format!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES({user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
             "SELECT COUNT(*) FROM user_book_star_ratings WHERE user_id={user} AND book_id={book}"
-        )), "2", "age revocation never deletes recorded work/translation ratings"
+        )
+        ),
+        "2",
+        "age revocation never deletes recorded work/translation ratings"
     );
     pool.close().await;
 }
