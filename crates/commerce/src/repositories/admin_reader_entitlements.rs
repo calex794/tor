@@ -275,3 +275,45 @@ impl EntitlementPort for PgAdministratorReaderEntitlements {
         }
     }
 }
+
+/// Typed, live administrator-only entitlement for a chosen historical edition.
+/// Unlike a buyer's purchase, this grants no commerce or refund capability.
+pub struct PgAdministratorHistoricalEditionEntitlements {
+    authority: PgAdministratorReaderEntitlements,
+    version_id: PositiveId,
+}
+
+impl PgAdministratorHistoricalEditionEntitlements {
+    pub fn new(pool: PgPool, digest: [u8; 32], version_id: PositiveId) -> Self {
+        Self {
+            authority: PgAdministratorReaderEntitlements::new(pool, digest),
+            version_id,
+        }
+    }
+}
+
+#[async_trait]
+impl EntitlementPort for PgAdministratorHistoricalEditionEntitlements {
+    async fn resolve_entitlement(
+        &self,
+        actor: Actor,
+        chapter_id: PositiveId,
+        purchase_id: Option<PositiveId>,
+    ) -> Result<EntitlementDecision, DeliveryError> {
+        if purchase_id.is_some() {
+            return Ok(EntitlementDecision::Denied {
+                reason: DenialReason::NotPurchased,
+            });
+        }
+        match self
+            .authority
+            .sealed_historical_version(actor, chapter_id, self.version_id)
+            .await?
+        {
+            Some(pinned) => Ok(EntitlementDecision::Allowed { pinned }),
+            None => Ok(EntitlementDecision::Denied {
+                reason: DenialReason::NotPurchased,
+            }),
+        }
+    }
+}
