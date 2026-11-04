@@ -1,8 +1,8 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
-mod admin_reader;
 mod admin_history;
+mod admin_reader;
 mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
