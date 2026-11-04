@@ -341,6 +341,110 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .await
         .unwrap();
     let writer_cookie = format!("tor-dev-session={writer_session}; tor-dev-csrf={writer_csrf}");
+    // S020: real signed-session Book comments and direct POST must use
+    // live actor access, never anonymous basic-only or client claims.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let direct = format!(
+        "body=Forged&command_key={}&csrf_token={writer_csrf}",
+        generate_session_token()
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &writer_cookie,
+            ORIGIN,
+            &direct
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({writer_id},'pro_adult','moderation',TRUE)
+             ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE
+             WHERE user_id={writer_id} AND level='pro_adult'"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    )
+    .await;
+    // Restore the fixture's original actor state before the existing Inbox
+    // revocation scenarios below; 18+ is not granted by this test permanently.
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer_id}"),
+    )
+    .await;
     let incoming_form = format!(
         "body=NEVER_COPY_THIS_SPOILER&parent_id={parent}&command_key={}&csrf_token={writer_csrf}",
         generate_session_token()
@@ -874,3 +978,6 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
 
 #[path = "book_comments_http_pg/scoped_comments.rs"]
 mod scoped_comments;
+
+#[path = "book_comments_http_pg/s020_age_public_comments.rs"]
+mod s020_age_public_comments;

@@ -28,8 +28,8 @@ async fn e_02_scoped_comment_limit_preserves_csrf_replay_and_other_actor() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:ab08:{nonce}','ru','AB08 limit','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:ab08:{nonce}','ru','AB08 limit','public','basic') RETURNING id"
         ),
     )
     .await
