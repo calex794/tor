@@ -339,9 +339,14 @@ async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
          VALUES('s020-rec-tier@tor-ci.example','REC age reader','$argon2id$test',FALSE)
          ON CONFLICT(email_normalized) DO UPDATE SET adult_enabled=FALSE RETURNING id",
     )
-    .fetch_one(&pool).await.unwrap();
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     let mut books = Vec::new();
     for tier in ["adult", "pro_adult", "basic"] {
         let book: i64 = sqlx::query_scalar(
@@ -354,41 +359,82 @@ async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
         )
         .bind(format!("ci:s020:rec-tier:{tier}"))
         .bind(format!("REC tier {tier}"))
-        .bind(tier).fetch_one(&pool).await.unwrap();
+        .bind(tier)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general')
              ON CONFLICT(book_id) DO UPDATE SET audience='general'",
-        ).bind(book).execute(&pool).await.unwrap();
+        )
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
         books.push(book);
     }
     let (adult, pro, legacy) = (books[0], books[1], books[2]);
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
-        .bind(legacy).execute(&pool).await.unwrap();
+        .bind(legacy)
+        .execute(&pool)
+        .await
+        .unwrap();
     let rec = PgRecommendations::new(pool.clone());
     for actor in [None, Some(actor)] {
         for book in [adult, pro, legacy] {
-            assert_eq!(rec.feed(actor, Some(book), 20).await.err(), Some(FeedbackError::NotFound));
+            assert_eq!(
+                rec.feed(actor, Some(book), 20).await.err(),
+                Some(FeedbackError::NotFound)
+            );
         }
     }
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(rec.feed(Some(actor), Some(adult), 20).await.is_ok());
-    assert_eq!(rec.feed(Some(actor), Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+    assert_eq!(
+        rec.feed(Some(actor), Some(pro), 20).await.err(),
+        Some(FeedbackError::NotFound)
+    );
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)
          ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE",
-    ).bind(actor).execute(&pool).await.unwrap();
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(rec.feed(Some(actor), Some(pro), 20).await.is_ok());
-    assert_eq!(rec.feed(None, Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+    assert_eq!(
+        rec.feed(None, Some(pro), 20).await.err(),
+        Some(FeedbackError::NotFound)
+    );
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
-    assert_eq!(rec.feed(Some(actor), Some(pro), 20).await.err(), Some(FeedbackError::NotFound));
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rec.feed(Some(actor), Some(pro), 20).await.err(),
+        Some(FeedbackError::NotFound)
+    );
     sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
-        .bind(adult).execute(&pool).await.unwrap();
-    assert_eq!(rec.feed(Some(actor), Some(adult), 20).await.err(), Some(FeedbackError::NotFound));
+        .bind(adult)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rec.feed(Some(actor), Some(adult), 20).await.err(),
+        Some(FeedbackError::NotFound)
+    );
     sqlx::query(
         "UPDATE books SET visibility_status='active',lifecycle_status='pending_deletion' WHERE id=$1"
     ).bind(adult).execute(&pool).await.unwrap();
-    assert_eq!(rec.feed(Some(actor), Some(adult), 20).await.err(), Some(FeedbackError::NotFound));
+    assert_eq!(
+        rec.feed(Some(actor), Some(adult), 20).await.err(),
+        Some(FeedbackError::NotFound)
+    );
 }

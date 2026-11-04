@@ -4,8 +4,8 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 mod assignments;
 mod consent;
-mod discovery;
 mod conversions;
+mod discovery;
 mod generations;
 mod maintenance;
 mod observations;
