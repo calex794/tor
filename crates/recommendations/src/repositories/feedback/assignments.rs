@@ -1,3 +1,4 @@
+use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::domain::feedback::{book_id, token_digest, Feed, Surface, MAX_ITEMS};
 use crate::services::feedback::{new_ticket, validate_actor};
@@ -31,13 +32,17 @@ impl PgRecommendations {
             let book = book_id(&item.book_id)?;
             let ticket = new_ticket()?;
             let digest = token_digest(&ticket)?;
-            let inserted: Option<String> = sqlx::query_scalar(
-                "INSERT INTO rec_assignments(subject_id,session_digest,ticket_digest,book_id,surface,source,reason,position,generation_id,algorithm_version)
-                 SELECT $1::uuid,$2,$3,$4,$5,$6,$7,$8,$9::uuid,$10
-                 WHERE EXISTS(SELECT 1 FROM rec_public_books WHERE id=$4)
-                   AND NOT EXISTS(SELECT 1 FROM rec_feedback_state WHERE subject_id=$1::uuid AND book_id=$4 AND hidden AND expires_at>now())
-                 RETURNING id::text")
-                .bind(&subject).bind(session.as_slice()).bind(digest.as_slice()).bind(book)
+            let sql = format!(
+                "{ACTOR_DISCOVERY_CTE} INSERT INTO rec_assignments(
+                    subject_id,session_digest,ticket_digest,book_id,surface,source,reason,
+                    position,generation_id,algorithm_version)
+                 SELECT $2::uuid,$3,$4,$5,$6,$7,$8,$9,$10::uuid,$11
+                 WHERE EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$5)
+                   AND NOT EXISTS(SELECT 1 FROM rec_feedback_state WHERE subject_id=$2::uuid AND book_id=$5 AND hidden AND expires_at>now())
+                 RETURNING id::text"
+            );
+            let inserted: Option<String> = sqlx::query_scalar(&sql)
+                .bind(actor).bind(&subject).bind(session.as_slice()).bind(digest.as_slice()).bind(book)
                 .bind(surface.as_str()).bind(&item.source).bind(&item.reason).bind((index+1) as i16)
                 .bind(feed.generation_id.as_deref()).bind(item.algorithm_version).fetch_optional(&mut *tx).await?;
             if inserted.is_some() {
@@ -60,14 +65,16 @@ impl PgRecommendations {
         let digest = token_digest(ticket)?;
         let mut tx = self.pool.begin().await?;
         let subject = lock_subject(&mut tx, actor).await?;
-        let row=sqlx::query(
-            "UPDATE rec_assignments a SET clicked_at=COALESCE(a.clicked_at,now())
-             WHERE a.ticket_digest=$1 AND a.subject_id=$2::uuid AND a.session_digest=$3
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} UPDATE rec_assignments a SET clicked_at=COALESCE(a.clicked_at,now())
+             WHERE a.ticket_digest=$2 AND a.subject_id=$3::uuid AND a.session_digest=$4
                AND a.expires_at>now()
-               AND EXISTS(SELECT 1 FROM rec_public_books b WHERE b.id=a.book_id)
+               AND EXISTS(SELECT 1 FROM rec_actor_books b WHERE b.id=a.book_id)
                AND NOT EXISTS(SELECT 1 FROM rec_feedback_state f WHERE f.subject_id=a.subject_id AND f.book_id=a.book_id AND f.hidden AND f.expires_at>now())
-             RETURNING a.id::text,a.book_id")
-            .bind(digest.as_slice()).bind(&subject).bind(session.as_slice()).fetch_optional(&mut *tx).await?.ok_or(FeedbackError::NotFound)?;
+             RETURNING a.id::text,a.book_id"
+        );
+        let row=sqlx::query(&sql)
+            .bind(actor).bind(digest.as_slice()).bind(&subject).bind(session.as_slice()).fetch_optional(&mut *tx).await?.ok_or(FeedbackError::NotFound)?;
         let assignment: String = row.try_get("id")?;
         let book: i64 = row.try_get("book_id")?;
         sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,occurred_at,trust) SELECT id,'click',clicked_at,'server_navigation' FROM rec_assignments WHERE id=$1::uuid ON CONFLICT(assignment_id,kind) DO NOTHING")
@@ -88,12 +95,15 @@ impl PgRecommendations {
         validate_actor(book)?;
         let mut tx = self.pool.begin().await?;
         let subject = lock_subject(&mut tx, actor).await?;
-        let id: Option<String>=sqlx::query_scalar(
-            "SELECT id::text FROM rec_assignments WHERE subject_id=$1::uuid AND session_digest=$2 AND book_id=$3
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT id::text FROM rec_assignments
+             WHERE subject_id=$2::uuid AND session_digest=$3 AND book_id=$4
                AND clicked_at>now()-interval '15 minutes'
-               AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=$3)
-             ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE")
-            .bind(&subject).bind(session.as_slice()).bind(book).fetch_optional(&mut *tx).await?;
+               AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$4)
+             ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE"
+        );
+        let id: Option<String>=sqlx::query_scalar(&sql)
+            .bind(actor).bind(&subject).bind(session.as_slice()).bind(book).fetch_optional(&mut *tx).await?;
         if let Some(id) = id {
             sqlx::query("UPDATE rec_assignments SET book_opened_at=COALESCE(book_opened_at,now()) WHERE id=$1::uuid")
                 .bind(&id).execute(&mut *tx).await?;
