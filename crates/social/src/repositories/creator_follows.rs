@@ -177,7 +177,8 @@ impl PgCreatorFollows {
 
     /// Keyset paged, actor-private list. Creator follow periods remain visible
     /// after Book age revocation, but source Book names require live B age rights
-    /// in the same SQL statement. Hidden and unknown legacy tiers never leak.
+    /// in the same SQL statement. Pending-deletion and legacy NULL tiers never leak.
+    /// Suspended accounts are excluded from the private listing.
     pub async fn list_active(
         &self,
         follower: i64,
@@ -193,11 +194,12 @@ impl PgCreatorFollows {
                     b.id AS source_book_id,b.title AS source_book_title
              FROM creator_follow_periods AS p
              JOIN users AS u ON u.id=p.creator_user_id
-             LEFT JOIN users AS viewer ON viewer.id=p.follower_user_id
+             JOIN users AS viewer ON viewer.id=p.follower_user_id
                   AND viewer.account_state='active'
              LEFT JOIN books AS b ON b.id=p.source_book_id
-                  AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
-                  AND viewer.id IS NOT NULL
+                  AND b.visibility='public' AND b.visibility_status='active'
+                  AND b.lifecycle_status<>'pending_deletion'
+                  AND NOT b.admin_hold AND NOT b.is_deleted
                   AND (b.access_level='basic'
                     OR (b.access_level='adult' AND viewer.adult_enabled)
                     OR (b.access_level='pro_adult' AND EXISTS (
