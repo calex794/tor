@@ -781,6 +781,78 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert!(notification.contains("\"kind\":\"mention\""));
     assert!(notification.contains(&format!("\"id\":\"{mention_id}\"")));
     assert!(!notification.contains("Look"));
+
+    // S020: the existing HTTP Inbox must hide the canonical Book reference
+    // as soon as this recipient loses verified 18+ / 21+ eligibility.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    )
+    .await;
+    let denied = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!denied.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer_id}"),
+    )
+    .await;
+    let adult = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(adult.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer_id}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    )
+    .await;
+    let without_grant =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!without_grant.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({writer_id},'pro_adult','moderation',TRUE)
+             ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
+        ),
+    )
+    .await;
+    let pro = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(pro.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE
+             WHERE user_id={writer_id} AND level='pro_adult'"
+        ),
+    )
+    .await;
+    let revoked =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!revoked.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    )
+    .await;
+    let legacy =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!legacy.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!(
+            "DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"
+        ),
+    )
+    .await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE id={mention_id}"),
