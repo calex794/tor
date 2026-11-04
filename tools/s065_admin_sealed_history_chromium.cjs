@@ -123,11 +123,13 @@ module.exports = async function sealedHistoryAcceptance({
     try {
       await select.dispatchEvent("change");
       await intercepted;
-      await unsealedSelect.dispatchEvent("change");
+      await unsealedSelect.selectOption(String(draft));
       await page.locator("[data-admin-status]").filter({
         hasText: "Административный просмотр",
       }).waitFor({ timeout: 30000 });
       assert((await article.textContent()).includes("S065-HIST-CURRENT-PRIVATE"));
+      assert.equal(await select.inputValue(), "",
+        "sealed selector must reset so a sole historical edition can be chosen again");
       const finished = page.waitForEvent("requestfinished", {
         predicate: (request) => request.url() === SITE + edition,
       });
@@ -175,7 +177,7 @@ module.exports = async function sealedHistoryAcceptance({
         assert.equal(revoked.status(), 403);
         assert.equal((await revoked.body()).length, 0);
       }
-      await select.dispatchEvent("change");
+      await select.selectOption(String(version_id));
       await page.locator("[data-admin-status]").filter({
         hasText: "Не удалось открыть редакцию.",
       }).waitFor({ timeout: 30000 });
