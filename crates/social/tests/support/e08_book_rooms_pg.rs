@@ -10,32 +10,32 @@ async fn e_08_book_rooms_canonical_join_rejoin_visibility_and_retry() {
         .unwrap()
         .as_nanos();
     let first: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Book room public','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Book room public','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:public:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let draft: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Book room hidden','draft') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Book room hidden','draft','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:draft:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let held: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
-         VALUES($1,'ru','Book room held','public',true) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold,access_level)
+         VALUES($1,'ru','Book room held','public',true,'basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:held:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let other: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Second public room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Second public room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:other:{nonce}"))
     .fetch_one(&pool)
@@ -165,8 +165,8 @@ async fn e_08_book_room_send_cannot_race_leave_or_moderation_hold() {
         .unwrap()
         .as_nanos();
     let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Race-tested book room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Race-tested book room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:race:{nonce}"))
     .fetch_one(&pool)
@@ -292,8 +292,8 @@ async fn e_08_book_room_commit_order_preserves_pagination() {
         .unwrap()
         .as_nanos();
     let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Ordered book room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Ordered book room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:ordered:{nonce}"))
     .fetch_one(&pool)
