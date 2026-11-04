@@ -27,6 +27,8 @@ impl PgChapterThanks {
         Self { pool }
     }
 
+    /// Check the actor's live 18+/21+ Book tier with the chapter title, while
+    /// retaining the free/released chapter boundary.
     /// Fail closed for hidden/held/deleted/unreleased/paid chapters. Paid
     /// entitlements are not inferred from direct purchase facts here.
     pub async fn visible_free_summary(
@@ -44,9 +46,18 @@ impl PgChapterThanks {
                             WHERE t.chapter_id=c.id AND t.user_id=$2) AS already_thanked
              FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
              WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                     SELECT 1 FROM user_level_grants g
+                     WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                 OR EXISTS (
+                     SELECT 1 FROM account_roles role
+                     WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())",
@@ -66,6 +77,7 @@ impl PgChapterThanks {
         .transpose()
     }
 
+    /// A previous thanks row is not a right to bypass revoked Book age access.
     /// Single SQL statement enforces visibility and idempotency atomically,
     /// including simultaneous retries from two devices. The primary key,
     /// not an in-process lock, is authoritative.
@@ -81,9 +93,18 @@ impl PgChapterThanks {
             "WITH visible AS (
                  SELECT c.book_id
                  FROM chapters c JOIN books b ON b.id=c.book_id
+                 JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
                  JOIN chapter_publications p ON p.chapter_id=c.id
                  WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-                   AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
+                   AND (b.access_level='basic'
+                     OR (b.access_level='adult' AND viewer.adult_enabled)
+                     OR (b.access_level='pro_adult' AND EXISTS (
+                         SELECT 1 FROM user_level_grants g
+                         WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                     OR EXISTS (
+                         SELECT 1 FROM account_roles role
+                         WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
                    AND c.visibility='public' AND c.access_level='free'
                    AND NOT c.admin_hold AND NOT c.is_deleted
                    AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
