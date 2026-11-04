@@ -570,8 +570,23 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         .await
         .unwrap();
     assert!(repo.received_replies(users[0], 10).await.unwrap().is_empty());
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'moderator',TRUE)
+         ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE",
+    )
+    .bind(users[0])
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(repo.received_replies(users[0], 10).await.unwrap().is_empty());
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='moderator'")
+        .bind(users[0])
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+    sqlx::query("UPDATE books SET access_level='basic',visibility_status='hidden' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
@@ -588,6 +603,23 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         .await
         .unwrap();
     assert_eq!(repo.received_replies(users[0], 10).await.unwrap().len(), 2);
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(users[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.received_replies(users[0], 10).await.unwrap().is_empty());
+    assert!(inbox
+        .list(users[0], InboxFilter::All, None, 25)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(users[0])
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='administrator'")
         .bind(users[0])
