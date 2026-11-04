@@ -920,3 +920,6 @@ mod s020_age_inbox;
 
 #[path = "public_book_comments_pg/s020_book_comments_age.rs"]
 mod s020_book_comments_age;
+
+#[path = "public_book_comments_pg/s020_chapter_comments_age.rs"]
+mod s020_chapter_comments_age;
