@@ -199,12 +199,11 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         likes.set_like(first, book, false).await.unwrap(),
         LikeMutation::NotVisible
     );
-    let saved_likes: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM book_likes WHERE book_id=$1")
-            .bind(book)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let saved_likes: i64 = sqlx::query_scalar("SELECT count(*) FROM book_likes WHERE book_id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(saved_likes, 2);
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(book)
