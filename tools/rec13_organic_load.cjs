@@ -47,6 +47,10 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   // Browser-origin fetch sends its real cookie, Origin and CSRF. Constant
   // 25 arrivals/s, independent of previous requests' completion.
   const sample = await page.evaluate(async ({tickets, csrf, rate}) => {
+    // Correlate each network timing record with a request index, not its
+    // sensitive ticket. Bounded to the disposable browser load fixture.
+    performance.setResourceTimingBufferSize(1000);
+    performance.clearResourceTimings();
     const start = performance.now();
     let inFlight = 0;
     let peakInFlight = 0;
@@ -58,7 +62,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
         inFlight += 1;
         peakInFlight = Math.max(peakInFlight, inFlight);
         try {
-          const result = await fetch('/api/v1/discovery/activate', {
+          const result = await fetch('/api/v1/discovery/activate?rec13_slot=' + i, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -77,7 +81,26 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
       }, scheduledMs);
     }));
     const results = await Promise.all(promises);
-    return {results, elapsed: performance.now() - start, peakInFlight};
+    const entries = performance.getEntriesByType('resource');
+    const network = new Map();
+    for (const entry of entries) {
+      const url = new URL(entry.name);
+      if (url.origin !== location.origin ||
+          url.pathname !== '/api/v1/discovery/activate') continue;
+      const slot = Number(url.searchParams.get('rec13_slot'));
+      if (Number.isSafeInteger(slot) && slot >= 0 && slot < tickets.length) {
+        network.set(slot, {
+          queueMs: entry.requestStart - entry.fetchStart,
+          firstByteMs: entry.responseStart - entry.requestStart
+        });
+      }
+    }
+    return {
+      results: results.map(r => ({...r, network: network.get(r.slot) || null})),
+      resourceCount: network.size,
+      elapsed: performance.now() - start,
+      peakInFlight
+    };
   }, {tickets, csrf, rate:RATE});
 
   const statuses = new Map();
@@ -92,6 +115,23 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   const dispatchLag = sample.results.map(r => r.dispatchLag).sort((a, b) => a - b);
   const p95DispatchLag = dispatchLag[Math.ceil(dispatchLag.length * 0.95) - 1];
   const maxDispatchLag = dispatchLag[dispatchLag.length - 1];
+  // Chromium Resource Timing separates fetch queuing/connection setup from
+  // first-byte wait (server + loopback). It is advisory: absence never bypasses
+  // the original HTTP latency or correctness assertions.
+  const percentile95 = values => {
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted.length ? sorted[Math.ceil(sorted.length * 0.95) - 1].toFixed(1) : 'n/a';
+  };
+  const queueTimes = sample.results
+    .filter(r => r.network && r.network.queueMs >= 0)
+    .map(r => r.network.queueMs);
+  const firstByteTimes = sample.results
+    .filter(r => r.network && r.network.firstByteMs >= 0)
+    .map(r => r.network.firstByteMs);
+  const networkTiming = 'REC13 NETWORK timing (diagnostic, not gate): samples=' +
+    sample.resourceCount + '/' + COUNT + ', browser-queue-p95=' +
+    percentile95(queueTimes) + 'ms, first-byte-p95=' +
+    percentile95(firstByteTimes) + 'ms';
   const dispatched = sample.results.slice().sort((a, b) => a.dispatchedAt - b.dispatchedAt);
   const bunchedGaps = dispatched.slice(1).filter(
     (r, i) => r.dispatchedAt - dispatched[i].dispatchedAt < 5
@@ -99,7 +139,9 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   const worst = sample.results.slice().sort((a, b) => b.latency - a.latency).slice(0, 12)
     .map(r => 'slot=' + r.slot + ':status=' + r.status +
       ':http=' + r.latency.toFixed(1) + 'ms:dispatch-lag=' +
-      r.dispatchLag.toFixed(1) + 'ms:at=' + r.dispatchedAt.toFixed(1) + 'ms')
+      r.dispatchLag.toFixed(1) + 'ms:at=' + r.dispatchedAt.toFixed(1) +
+      'ms:queue=' + (r.network ? r.network.queueMs.toFixed(1) : 'n/a') +
+      'ms:first-byte=' + (r.network ? r.network.firstByteMs.toFixed(1) : 'n/a') + 'ms')
     .join(', ');
   const timing = 'REC13 CLIENT timing (diagnostic, not gate): dispatch-lag-p95=' +
     p95DispatchLag.toFixed(1) + 'ms, dispatch-lag-max=' +
@@ -117,6 +159,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
     '/s, SQL clicks=' + credited;
   console.log(metric);
   console.log(timing);
+  console.log(networkTiming);
   if (p95 > P95_BUDGET_MS) {
     // Indices only: enough to locate a burst without leaking signed tickets.
     console.error('REC13 SLOWEST HTTP slots: ' + worst);
@@ -130,7 +173,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
       p95.toFixed(1) + ' ms | ' + actualRps.toFixed(1) +
       ' req/s | ' + credited + '/' + COUNT + ' |\n\n' +
       'CI-hosted benchmark of authenticated activation only; not a production capacity estimate.\n\n' +
-      timing + '\n');
+      timing + '\n' + networkTiming + '\n');
   }
   assert.equal(ok, COUNT, 'all real-session activations must succeed: ' + JSON.stringify([...statuses]));
   assert.equal(credited, COUNT, 'every successful activation must persist one click');
