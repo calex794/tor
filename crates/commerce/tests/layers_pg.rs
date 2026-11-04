@@ -72,8 +72,8 @@ async fn setup(suffix: &str) -> (PgPool, PgLayers, i64, i64, i64) {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','D05 own book','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','D05 own book','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:d05:{suffix}"))
     .bind(owner)

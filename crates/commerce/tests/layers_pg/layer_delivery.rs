@@ -82,6 +82,104 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         }
     );
 
+    // S020/#486: a live Layer term is NOT an exception to age eligibility.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        }
+    );
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v1)
+    );
+
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        }
+    );
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(buyer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v1)
+    );
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        }
+    );
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        }
+    );
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v1),
+        "pending deletion unlists a Book without deleting an already paid Layer term"
+    );
+    sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        EntitlementDecision::Denied {
+            reason: DenialReason::Hidden
+        }
+    );
+    sqlx::query(
+        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+
     // Future publication and unpublished content are never revealed by
     // the book-level Layer right.
     sqlx::query("UPDATE chapters SET reader_released_at=now()+INTERVAL '1 day' WHERE id=$1")

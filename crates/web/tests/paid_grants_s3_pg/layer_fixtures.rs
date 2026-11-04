@@ -186,6 +186,90 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::UNPROCESSABLE_ENTITY,
     );
 
+    // S020/#486: a S3 grant must not reveal a signed URL or DEK when age
+    // permission is absent. The D-05 PG suite covers the full age matrix.
+    // HTTP probes deliberately remain within the production 12/min/actor cap.
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    let age_denied = post_grant(
+        app,
+        chapter,
+        Some(cookie),
+        Some(csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(age_denied.status(), StatusCode::NOT_FOUND);
+    assert_eq!(age_denied.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(
+        to_bytes(age_denied.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no DEK or signed URL without current 18+ permission"
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={subscriber}"),
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::OK
+    );
+
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({subscriber},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::OK
+    );
+    pg(
+        url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={subscriber}"),
+    );
+    let revoked = post_grant(
+        app,
+        chapter,
+        Some(cookie),
+        Some(csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(revoked.status(), StatusCode::NOT_FOUND);
+    assert_eq!(revoked.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(
+        to_bytes(revoked.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty(),
+        "revoked 21+ grant must not expose any S3 bearer"
+    );
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+
     // A blocked storefront disallows new sales without confiscating
     // existing rights. The term, not the storefront, is the entitlement.
     pg(
@@ -259,19 +343,13 @@ pub(super) async fn assert_layer_s3_grants(
         );
 
         pg(url, &clear);
+        // Both holds must restore the existing Layer term. The earlier valid
+        // S3 grant is already exercised; use the shell here to stay under the
+        // production per-actor 12/min signed-grant limit.
         assert_eq!(
-            post_grant(
-                app,
-                chapter,
-                Some(cookie),
-                Some(csrf),
-                ORIGIN,
-                r#"{"source":"layer"}"#,
-            )
-            .await
-            .status(),
+            private_get(app, &layer_page, Some(cookie)).await.status(),
             StatusCode::OK,
-            "lifting {scope} hold restores existing Layer entitlements"
+            "lifting {scope} hold restores the existing Layer reader shell"
         );
     }
 

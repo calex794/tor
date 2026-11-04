@@ -39,11 +39,25 @@ impl EntitlementPort for PgLayerChapterEntitlements {
         // Both the version and the book entitlement are read from PostgreSQL.
         // A Layer is a book-level package, but the concrete chapter must be
         // public, paid, released and published before it may be delivered.
-        // Hidden/blocked Layer storefronts must not revoke historical terms.
+        // A hidden/blocked Layer *storefront* does not revoke historical terms.
+        // A site-moderation Book block or revoked 18+/21+ viewer gate does.
+        // No direct purchase fact is inferred from Layer membership.
         let record: Option<(Option<i64>, bool, bool)> = sqlx::query_as(
             "SELECT cp.version_id,
                     (b.visibility='public' AND c.visibility='public'
                      AND c.access_level='paid' AND c.price_amount>0
+                     AND viewer.account_state='active'
+                     AND b.visibility_status<>'blocked'
+                     AND COALESCE((
+                         b.access_level='basic'
+                         OR (b.access_level='adult' AND viewer.adult_enabled)
+                         OR (b.access_level='pro_adult' AND EXISTS (
+                             SELECT 1 FROM user_level_grants AS age_grant
+                             WHERE age_grant.user_id=viewer.id
+                               AND age_grant.level='pro_adult'
+                               AND age_grant.is_active
+                         ))
+                     ), FALSE)
                      AND NOT b.admin_hold AND NOT b.is_deleted
                      AND NOT c.admin_hold AND NOT c.is_deleted
                      AND (c.reader_released_at IS NULL
@@ -69,6 +83,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                     ) AS entitled
              FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN users AS viewer ON viewer.id=$1
              LEFT JOIN chapter_publications cp ON cp.chapter_id=c.id
              WHERE c.id=$2",
         )
