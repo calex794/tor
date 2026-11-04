@@ -637,8 +637,8 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     .await;
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
-        3,
-        "only three verified administrator read/image grants may reach G"
+        5,
+        "three current and two historical administrator chapter/image grants may reach G"
     );
     s065_unsealed::assert_unsealed_admin_read(
         &url, &accounts, &browser, &app, &without_g, &fake, book,
