@@ -4,13 +4,17 @@ use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
 };
+use std::{
+    num::NonZeroU32,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
-use std::{num::NonZeroU32, process::Command, time::{SystemTime, UNIX_EPOCH}};
 use tower::ServiceExt;
 
 async fn get(app: axum::Router, path: &str) -> (StatusCode, String) {
@@ -66,14 +70,33 @@ async fn b_18_catalog_http_is_bounded_and_rejects_invalid_page_parameters() {
 
 fn sql(url: &str, query: &str) -> String {
     let result = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", query])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
+        ])
         .output()
         .unwrap();
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     String::from_utf8(result.stdout).unwrap().trim().to_owned()
 }
 
-async fn get_as(app: &axum::Router, uri: &str, cookie: &str) -> (StatusCode, String, Option<String>) {
+async fn get_as(
+    app: &axum::Router,
+    uri: &str,
+    cookie: &str,
+) -> (StatusCode, String, Option<String>) {
     let request = Request::builder()
         .uri(uri)
         .header(header::COOKIE, cookie)
@@ -81,8 +104,11 @@ async fn get_as(app: &axum::Router, uri: &str, cookie: &str) -> (StatusCode, Str
         .unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
-    let cache = response.headers().get(header::CACHE_CONTROL)
-        .and_then(|value| value.to_str().ok()).map(str::to_owned);
+    let cache = response
+        .headers()
+        .get(header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let body = to_bytes(response.into_body(), 131_072).await.unwrap();
     (status, String::from_utf8(body.to_vec()).unwrap(), cache)
 }
@@ -92,21 +118,30 @@ async fn get_as(app: &axum::Router, uri: &str, cookie: &str) -> (StatusCode, Str
 async fn s020_catalog_http_rechecks_session_and_age_without_seo_leak() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PostgreSQL");
     assert!(url.ends_with("/tor_ci"));
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let term = format!("S020HTTPAge{stamp}");
     let session = generate_session_token();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let actor = accounts.register_with_session(
-        &format!("s020-catalog-http-{stamp}@example.invalid"),
-        "S020 catalog reader",
-        &hash_password("DisposableCatalogTestPassword2026").unwrap(),
-        &session_token_digest(&session),
-        NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
+    let actor = accounts
+        .register_with_session(
+            &format!("s020-catalog-http-{stamp}@example.invalid"),
+            "S020 catalog reader",
+            &hash_password("DisposableCatalogTestPassword2026").unwrap(),
+            &session_token_digest(&session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool), accounts, false,
+        catalog,
+        PgReader::new(pool),
+        accounts,
+        false,
         "http://127.0.0.1:3098".to_owned(),
     );
     for (name, level, visibility, lifecycle) in [
@@ -141,24 +176,43 @@ async fn s020_catalog_http_rechecks_session_and_age_without_seo_leak() {
     assert_eq!(private.as_deref(), Some("no-store"));
     check(&basic, &["basic"]);
 
-    sql(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={actor}"));
+    sql(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={actor}"),
+    );
     check(&get_as(&app, &path, &cookie).await.1, &["basic", "adult"]);
-    sql(&url, &format!(
-        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+    sql(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES({actor},'pro_adult','moderation',TRUE)"
-    ));
-    check(&get_as(&app, &path, &cookie).await.1, &["basic", "adult", "pro"]);
+        ),
+    );
+    check(
+        &get_as(&app, &path, &cookie).await.1,
+        &["basic", "adult", "pro"],
+    );
     check(&get_as(&app, &path, "").await.1, &["basic"]);
-    check(&get_as(&app, &format!("/api/v1/search/books?q={term}"), &cookie).await.1, &["basic"]);
+    check(
+        &get_as(&app, &format!("/api/v1/search/books?q={term}"), &cookie)
+            .await
+            .1,
+        &["basic"],
+    );
 
-    sql(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={actor}"));
+    sql(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={actor}"),
+    );
     check(&get_as(&app, &path, &cookie).await.1, &["basic", "pro"]);
-    sql(&url, &format!(
-        "UPDATE user_level_grants SET is_active=FALSE WHERE user_id={actor}"
-    ));
+    sql(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={actor}"),
+    );
     check(&get_as(&app, &path, &cookie).await.1, &["basic"]);
-    sql(&url, &format!(
-        "UPDATE sessions SET revoked_at=now() WHERE user_id={actor}"
-    ));
+    sql(
+        &url,
+        &format!("UPDATE sessions SET revoked_at=now() WHERE user_id={actor}"),
+    );
     check(&get_as(&app, &path, &cookie).await.1, &["basic"]);
 }
