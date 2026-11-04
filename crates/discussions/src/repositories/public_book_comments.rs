@@ -324,6 +324,7 @@ impl PgPublicBookComments {
              FROM discussion_comments reply
              JOIN discussion_comments parent ON parent.id=reply.parent_id
              JOIN books b ON b.id=reply.book_id
+             JOIN users u ON u.id=$1 AND u.account_state='active'
              LEFT JOIN discussion_reply_reads seen
                ON seen.recipient_user_id=$1 AND seen.reply_comment_id=reply.id
              WHERE parent.author_user_id=$1 AND reply.author_user_id<>$1
@@ -332,6 +333,14 @@ impl PgPublicBookComments {
                AND parent.version_id IS NULL AND reply.version_id IS NULL
                AND parent.visibility='visible' AND reply.visibility='visible'
                AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND u.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants age
+                        WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active))
+                    OR EXISTS (
+                        SELECT 1 FROM account_roles role
+                        WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active))
              ORDER BY reply.id DESC LIMIT $2",
         )
         .bind(actor_id)
@@ -372,6 +381,7 @@ impl PgPublicBookComments {
              LEFT JOIN discussion_comment_mentions mention
                ON mention.comment_id=reply.id AND mention.recipient_user_id=$1
              JOIN books b ON b.id=reply.book_id
+             JOIN users u ON u.id=$1 AND u.account_state='active'
              WHERE reply.id=$2
                AND (parent.author_user_id=$1 OR mention.recipient_user_id IS NOT NULL)
                AND reply.author_user_id<>$1
@@ -381,7 +391,17 @@ impl PgPublicBookComments {
                AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                AND reply.visibility='visible'
                AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
-             FOR SHARE OF reply, b",
+               AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND u.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants age
+                        WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active
+                        FOR SHARE OF age))
+                    OR EXISTS (
+                        SELECT 1 FROM account_roles role
+                        WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active
+                        FOR SHARE OF role))
+             FOR SHARE OF reply, b, u",
         )
         .bind(actor_id)
         .bind(reply_id)
