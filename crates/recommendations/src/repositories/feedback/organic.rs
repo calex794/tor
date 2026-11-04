@@ -52,15 +52,15 @@ impl PgRecommendations {
                  RETURNING id::text"
             );
             let inserted: Option<String> = sqlx::query_scalar(&sql)
-            .bind(actor)
-            .bind(&subject)
-            .bind(session.as_slice())
-            .bind(digest.as_slice())
-            .bind(id)
-            .bind(source.as_str())
-            .bind((position + 1) as i16)
-            .fetch_optional(&mut *tx)
-            .await?;
+                .bind(actor)
+                .bind(&subject)
+                .bind(session.as_slice())
+                .bind(digest.as_slice())
+                .bind(id)
+                .bind(source.as_str())
+                .bind((position + 1) as i16)
+                .fetch_optional(&mut *tx)
+                .await?;
             if let Some(touch) = inserted {
                 self::mark_dirty(&mut tx, &touch).await?;
                 issued.push((id, ticket));
@@ -91,12 +91,12 @@ impl PgRecommendations {
              RETURNING t.id::text"
         );
         let touch: Option<String> = sqlx::query_scalar(&sql)
-        .bind(actor)
-        .bind(digest.as_slice())
-        .bind(&subject)
-        .bind(session.as_slice())
-        .fetch_optional(&mut *tx)
-        .await?;
+            .bind(actor)
+            .bind(digest.as_slice())
+            .bind(&subject)
+            .bind(session.as_slice())
+            .fetch_optional(&mut *tx)
+            .await?;
         let touch = touch.ok_or(FeedbackError::NotFound)?;
         mark_dirty(&mut tx, &touch).await?;
         tx.commit().await?;
@@ -123,12 +123,12 @@ impl PgRecommendations {
              ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE"
         );
         let touch: Option<String> = sqlx::query_scalar(&sql)
-        .bind(actor)
-        .bind(&subject)
-        .bind(session.as_slice())
-        .bind(book)
-        .fetch_optional(&mut *tx)
-        .await?;
+            .bind(actor)
+            .bind(&subject)
+            .bind(session.as_slice())
+            .bind(book)
+            .fetch_optional(&mut *tx)
+            .await?;
         if let Some(touch) = touch {
             sqlx::query(
                 "UPDATE organic_discovery_touches
