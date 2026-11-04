@@ -24,9 +24,13 @@ impl PgRecommendations {
         let subject = lock_subject(&mut tx, actor).await?;
         for claim in claims.iter().filter(|c| c.qualified()) {
             let digest = token_digest(&claim.ticket)?;
+            // A previously issued ticket is not permission to observe a book
+            // after an 18+/21+ grant has been revoked.
             let sql = format!(
-                "{ACTOR_DISCOVERY_CTE} UPDATE rec_assignments a SET viewed_at=COALESCE(a.viewed_at,now())
-                 WHERE a.ticket_digest=$2 AND a.subject_id=$3::uuid AND a.session_digest=$4 AND a.expires_at>now()
+                "{ACTOR_DISCOVERY_CTE} UPDATE rec_assignments a
+                 SET viewed_at=COALESCE(a.viewed_at,now())
+                 WHERE a.ticket_digest=$2 AND a.subject_id=$3::uuid
+                   AND a.session_digest=$4 AND a.expires_at>now()
                    AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=a.book_id)
                  RETURNING a.id::text"
             );
