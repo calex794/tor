@@ -202,13 +202,11 @@ pub(super) async fn verify(
         .unwrap()
         .items
         .is_empty());
-    sqlx::query(
-        "UPDATE books SET lifecycle_status='in_progress',access_level='basic' WHERE id=$1",
-    )
-    .bind(book)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress',access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(pool)
+        .await
+        .unwrap();
     assert_eq!(repo.received_replies(actor, 10).await.unwrap().len(), 2);
 
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
