@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_refund_reject", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_refund_reject", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -267,7 +267,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
         and admin_key == ("POST", "/admin/finance/refunds/approve", "approval::submit")
     )
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund):
+    rejected_refund = (
+        policy == "admin_refund_reject"
+        and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
+        and admin_key == ("POST", "/admin/finance/refunds/reject", "rejection::submit")
+    )
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund or rejected_refund):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_refund" and not (
             audited_refund
@@ -293,6 +298,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         )
         if not approved_refund or not all(marker in evidence for marker in required) or not approval_call:
             errors.append(f"{label}: S036 approval must retain live administrator session, fresh password, one-use proof, CSRF, opt-in and transactional approval")
+    if policy == "admin_refund_reject":
+        required = (
+            "!enabled(&state)",
+            "session_user(&state, &headers)",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers",
+            "permit_auth_attempt(&attempt_key, 6, 600)",
+            "verify_password_for_step_up(&password, &password_hash)",
+            "rejection_step_up_payload_digest(actor, request, revision, reason)",
+            ".issue_administrator_refund_rejection_step_up(",
+        )
+        rejection_call = re.search(
+            r"\\.reject_once\\s*\\(\\s*actor,\\s*&session_digest,\\s*&proof_token,\\s*request,\\s*revision,\\s*reason,?\\s*\\)",
+            evidence,
+        )
+        if not rejected_refund or not all(marker in evidence for marker in required) or not rejection_call:
+            errors.append(f"{label}: S036 rejection requires live admin, fresh password, scoped one-use proof, CSRF and atomic decision")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
         if not method:
