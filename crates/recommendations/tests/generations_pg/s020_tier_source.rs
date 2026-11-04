@@ -104,7 +104,10 @@ async fn s020_generation_includes_classified_tiers_but_never_reveals_restricted_
         .items
         .iter()
         .all(|item| !visible_restricted.contains(&item.book_id.parse::<i64>().unwrap())));
-    let unverified = store.feed(Some(actor), Some(id("basic")), 20).await.unwrap();
+    let unverified = store
+        .feed(Some(actor), Some(id("basic")), 20)
+        .await
+        .unwrap();
     assert!(unverified
         .items
         .iter()
@@ -115,9 +118,18 @@ async fn s020_generation_includes_classified_tiers_but_never_reveals_restricted_
         .execute(&pool)
         .await
         .unwrap();
-    let adult = store.feed(Some(actor), Some(id("basic")), 20).await.unwrap();
-    assert!(adult.items.iter().any(|item| item.book_id == id("adult").to_string()));
-    assert!(adult.items.iter().all(|item| item.book_id != id("pro").to_string()));
+    let adult = store
+        .feed(Some(actor), Some(id("basic")), 20)
+        .await
+        .unwrap();
+    assert!(adult
+        .items
+        .iter()
+        .any(|item| item.book_id == id("adult").to_string()));
+    assert!(adult
+        .items
+        .iter()
+        .all(|item| item.book_id != id("pro").to_string()));
 
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
@@ -127,24 +139,45 @@ async fn s020_generation_includes_classified_tiers_but_never_reveals_restricted_
     .execute(&pool)
     .await
     .unwrap();
-    let both = store.feed(Some(actor), Some(id("basic")), 20).await.unwrap();
-    assert!(both.items.iter().any(|item| item.book_id == id("adult").to_string()));
-    assert!(both.items.iter().any(|item| item.book_id == id("pro").to_string()));
+    let both = store
+        .feed(Some(actor), Some(id("basic")), 20)
+        .await
+        .unwrap();
+    assert!(both
+        .items
+        .iter()
+        .any(|item| item.book_id == id("adult").to_string()));
+    assert!(both
+        .items
+        .iter()
+        .any(|item| item.book_id == id("pro").to_string()));
 
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
-    let pro_only = store.feed(Some(actor), Some(id("basic")), 20).await.unwrap();
-    assert!(pro_only.items.iter().all(|item| item.book_id != id("adult").to_string()));
-    assert!(pro_only.items.iter().any(|item| item.book_id == id("pro").to_string()));
+    let pro_only = store
+        .feed(Some(actor), Some(id("basic")), 20)
+        .await
+        .unwrap();
+    assert!(pro_only
+        .items
+        .iter()
+        .all(|item| item.book_id != id("adult").to_string()));
+    assert!(pro_only
+        .items
+        .iter()
+        .any(|item| item.book_id == id("pro").to_string()));
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
-    let revoked = store.feed(Some(actor), Some(id("basic")), 20).await.unwrap();
+    let revoked = store
+        .feed(Some(actor), Some(id("basic")), 20)
+        .await
+        .unwrap();
     assert!(revoked
         .items
         .iter()
