@@ -2,6 +2,7 @@
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod admin_reader;
+mod admin_history;
 mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
@@ -370,6 +371,14 @@ fn administrator_routes(
     };
     Router::new()
         .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-history",
+            post(admin_history::list),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}",
+            post(admin_history::read),
+        )
         .route(
             "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
             post(admin_unsealed::read),
