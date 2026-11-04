@@ -44,10 +44,14 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/asset_fixture.rs"]
 mod asset_fixture;
+#[path = "paid_grants_s3_pg/completion_helpers.rs"]
+mod completion_helpers;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/s020_paid_completion_age.rs"]
+mod s020_paid_completion_age;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
@@ -56,6 +60,8 @@ mod s035_browser;
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
 mod s065_admin_browser;
+
+use completion_helpers::request_completion;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -150,44 +156,6 @@ async fn post_grant(
     }
     app.clone()
         .oneshot(request.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap()
-}
-
-async fn request_completion(
-    app: &Router,
-    method: &str,
-    edition: (i64, i64, i64),
-    session: &str,
-    csrf: &str,
-    body: Option<Value>,
-) -> Response {
-    let (chapter, purchase, version) = edition;
-    let url = format!(
-        "/api/v1/me/progress/purchased/complete?chapter_id={chapter}&purchase_id={purchase}&version_id={version}"
-    );
-    let mut request = Request::builder()
-        .uri(if method == "GET" {
-            url.as_str()
-        } else {
-            "/api/v1/me/progress/purchased/complete"
-        })
-        .method(method)
-        .header(header::ORIGIN, ORIGIN)
-        .header(
-            header::COOKIE,
-            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
-        )
-        .header("x-csrf-token", csrf);
-    if method == "POST" {
-        request = request.header(header::CONTENT_TYPE, "application/json");
-    }
-    app.clone()
-        .oneshot(
-            request
-                .body(Body::from(body.map_or_else(String::new, |v| v.to_string())))
-                .unwrap(),
-        )
         .await
         .unwrap()
 }
@@ -792,6 +760,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(fake_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    s020_paid_completion_age::verify(
+        &app,
+        &url,
+        (book, buyer),
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        &command,
+    )
+    .await;
     let rank_before = private_get(&app, "/api/v1/me/rankings", Some(&buyer_cookie)).await;
     assert!(!decode(rank_before)
         .await
