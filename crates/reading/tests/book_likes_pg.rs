@@ -204,6 +204,18 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
 
+    // The fixture's 21+ grant and roles use RESTRICT foreign keys;
+    // clear only its authority rows before testing account erasure.
+    sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
     // Account erasure removes only that account's row.
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(first)

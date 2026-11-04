@@ -219,6 +219,12 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
         ThanksMutation::NotVisible
     );
 
+    // The temporary 21+ authority is not part of the thanks/erasure contract.
+    sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(user)
         .execute(&pool)
