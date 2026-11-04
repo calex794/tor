@@ -6,7 +6,7 @@ use tor_discussions::repositories::public_chapter_comments::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires migrated disposable PostgreSQL tor_ci"]
-async fn s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
+async fn e_02_s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
     assert!(url.ends_with("/tor_ci"), "do not use production");
     let pool = PgPool::connect(&url).await.unwrap();
