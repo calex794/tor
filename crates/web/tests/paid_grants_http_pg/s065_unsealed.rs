@@ -409,7 +409,7 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(versions["schema"], "tor.admin_history.v1");
         assert_eq!(versions["versions"].as_array().unwrap().len(), 2);
         assert!(versions["versions"].as_array().unwrap().iter()
-            .any(|entry| entry["version_id"] == version.to_string()));
+            .any(|entry| entry["version_id"].as_str() == Some(version.to_string().as_str())));
         for (session, csrf, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
             (Some(outsider.as_str()), Some(csrf.as_str()), Some(ORIGIN), StatusCode::FORBIDDEN),
