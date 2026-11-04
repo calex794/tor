@@ -136,6 +136,59 @@ async fn e_05_s020_creator_source_book_age_revocation() {
         None,
         "legacy NULL cannot become basic",
     );
+    // A site administrator keeps independent access even without an age grant.
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'administrator',TRUE)",
+    )
+    .bind(reader)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(follows.follow_from_book(reader, book).await, Ok(author));
+    assert!(follows.list_active(reader, None).await.unwrap()[0]
+        .source_book
+        .is_some());
+    sqlx::query("UPDATE account_roles SET is_active=FALSE WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(follows.list_active(reader, None).await.unwrap()[0]
+        .source_book
+        .is_none());
+
+    // Pending-deletion books remain privately accessible through the correct
+    // reader path, but their old source title is no longer a public listing.
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(follows.list_active(reader, None).await.unwrap()[0]
+        .source_book
+        .is_none());
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(follows.list_active(reader, None).await.unwrap()[0]
+        .source_book
+        .is_some());
+
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        follows.follow_from_book(reader, book).await,
+        Err(CreatorFollowError::Invalid),
+    );
+    assert!(follows.list_active(reader, None).await.unwrap().is_empty());
     assert_eq!(follows.unfollow(reader, author).await, Ok(()));
     assert!(follows.list_active(reader, None).await.unwrap().is_empty());
     // No permanent migration or explicit deletion of immutable financial history.
