@@ -232,11 +232,23 @@ async fn f_05_pg_hidden_or_unverified_books_cannot_collect_or_expose_votes() {
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn s020_f05_pg_live_age_revoke_restores_ratings_without_mutating_history() {
     let (store, pool, actor, _other, book, _) = fixture("age").await;
-    store.set_rating(actor, book, StarKind::Work, 4).await.unwrap();
+    store
+        .set_rating(actor, book, StarKind::Work, 4)
+        .await
+        .unwrap();
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(store.visible_summary(book).await.unwrap(), None);
-    assert_eq!(store.visible_summary_for_actor(Some(actor), book).await.unwrap(), None);
+    assert_eq!(
+        store
+            .visible_summary_for_actor(Some(actor), book)
+            .await
+            .unwrap(),
+        None
+    );
     assert_eq!(store.own_ratings(actor, book).await.unwrap().work, None);
     assert!(!store.eligible(actor, book).await.unwrap());
     assert_eq!(
@@ -244,17 +256,36 @@ async fn s020_f05_pg_live_age_revoke_restores_ratings_without_mutating_history()
         Err(StarRatingError::NotEligible)
     );
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
-        store.visible_summary_for_actor(Some(actor), book)
-            .await.unwrap().unwrap().work,
+        store
+            .visible_summary_for_actor(Some(actor), book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work,
         StarTotal { sum: 4, votes: 1 }
     );
     assert!(store.eligible(actor, book).await.unwrap());
-    store.set_rating(actor, book, StarKind::Work, 5).await.unwrap();
+    store
+        .set_rating(actor, book, StarKind::Work, 5)
+        .await
+        .unwrap();
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
-    assert_eq!(store.visible_summary_for_actor(Some(actor), book).await.unwrap(), None);
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .visible_summary_for_actor(Some(actor), book)
+            .await
+            .unwrap(),
+        None
+    );
     assert_eq!(
         store.set_rating(actor, book, StarKind::Work, 1).await,
         Err(StarRatingError::NotEligible)
@@ -264,15 +295,37 @@ async fn s020_f05_pg_live_age_revoke_restores_ratings_without_mutating_history()
          VALUES($1,'pro_adult','moderation',TRUE)
          ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE",
     )
-    .bind(actor).execute(&pool).await.unwrap();
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
-    assert!(store.visible_summary_for_actor(Some(actor), book).await.unwrap().is_some());
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .visible_summary_for_actor(Some(actor), book)
+        .await
+        .unwrap()
+        .is_some());
     assert_eq!(store.own_ratings(actor, book).await.unwrap().work, Some(5));
-    store.set_rating(actor, book, StarKind::Work, 3).await.unwrap();
+    store
+        .set_rating(actor, book, StarKind::Work, 3)
+        .await
+        .unwrap();
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
-        .bind(actor).execute(&pool).await.unwrap();
-    assert_eq!(store.visible_summary_for_actor(Some(actor), book).await.unwrap(), None);
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .visible_summary_for_actor(Some(actor), book)
+            .await
+            .unwrap(),
+        None
+    );
     assert_eq!(store.own_ratings(actor, book).await.unwrap().work, None);
     assert!(!store.eligible(actor, book).await.unwrap());
     assert_eq!(
@@ -283,11 +336,27 @@ async fn s020_f05_pg_live_age_revoke_restores_ratings_without_mutating_history()
         "SELECT rating FROM user_book_star_ratings
          WHERE user_id=$1 AND book_id=$2 AND rating_kind='work'",
     )
-    .bind(actor).bind(book).fetch_one(&pool).await.unwrap();
-    assert_eq!(persisted, 3, "age revocation never erases existing star ratings");
+    .bind(actor)
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        persisted, 3,
+        "age revocation never erases existing star ratings"
+    );
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(store.visible_summary(book).await.unwrap(), None);
-    assert_eq!(store.visible_summary_for_actor(Some(actor), book).await.unwrap(), None);
+    assert_eq!(
+        store
+            .visible_summary_for_actor(Some(actor), book)
+            .await
+            .unwrap(),
+        None
+    );
     pool.close().await;
 }

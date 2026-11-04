@@ -132,11 +132,11 @@ impl PgBookStars {
              GROUP BY b.id,b.title"
         );
         let row = sqlx::query(&sql)
-        .bind(book_id)
-        .bind(actor)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| StarRatingError::Unavailable)?;
+            .bind(book_id)
+            .bind(actor)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StarRatingError::Unavailable)?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -189,11 +189,11 @@ impl PgBookStars {
                AND NOT b.admin_hold AND NOT b.is_deleted AND {LIVE_LEVEL}"
         );
         let rows = sqlx::query(&sql)
-        .bind(actor)
-        .bind(book_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| StarRatingError::Unavailable)?;
+            .bind(actor)
+            .bind(book_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| StarRatingError::Unavailable)?;
         let mut own = UserStars::default();
         for row in rows {
             let kind: String = row
@@ -232,11 +232,11 @@ impl PgBookStars {
              )"
         );
         sqlx::query_scalar(&sql)
-        .bind(actor)
-        .bind(book_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| StarRatingError::Unavailable)
+            .bind(actor)
+            .bind(book_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| StarRatingError::Unavailable)
     }
 
     /// One upsert per user/book/kind. Exact original value is stored, and
@@ -272,13 +272,13 @@ impl PgBookStars {
              RETURNING rating"
         );
         let result: Option<i16> = sqlx::query_scalar(&sql)
-        .bind(actor)
-        .bind(book_id)
-        .bind(kind.wire())
-        .bind(rating)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| StarRatingError::Unavailable)?;
+            .bind(actor)
+            .bind(book_id)
+            .bind(kind.wire())
+            .bind(rating)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| StarRatingError::Unavailable)?;
         if result == Some(rating) {
             Ok(())
         } else {

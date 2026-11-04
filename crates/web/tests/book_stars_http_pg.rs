@@ -368,7 +368,10 @@ async fn s020_f05_http_age_gate_on_star_title_and_existing_completion() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let session = generate_session_token();
     let csrf = generate_session_token();
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let actor = accounts
         .register_with_session(
             &format!("s020-stars-age-{nonce}@tor-ci.example"),
@@ -377,60 +380,145 @@ async fn s020_f05_http_age_gate_on_star_title_and_existing_completion() {
             &session_token_digest(&session),
             std::num::NonZeroU32::new(3600).unwrap(),
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     let book: i64 = pg(&url, &format!(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES('ci:s020:stars:{nonce}','ru','Protected rating title','public','basic') RETURNING id"
     )).parse().unwrap();
-    let chapter: i64 = pg(&url, &format!(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES({book},1,'One','public','free',0) RETURNING id"
-    )).parse().unwrap();
-    let version: i64 = pg(&url, &format!(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES({chapter},1,'Body') RETURNING id"
-    )).parse().unwrap();
-    pg(&url, &format!(
-        "INSERT INTO reader_chapter_completions
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
             (user_id,book_id,chapter_id,first_version_id,source_event_id)
          VALUES({actor},{book},{chapter},{version},gen_random_uuid())"
-    ));
+        ),
+    );
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool.clone()), accounts, false, ORIGIN.to_owned(),
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
     let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
     let route = format!("/me/books/{book}/rate");
     let form = format!("csrf_token={csrf}&rating_kind=work&rating=5");
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::OK);
-    assert_eq!(call(&app, "POST", &route, &cookie, ORIGIN, &form).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "POST", &route, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
 
-    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "POST", &route, &cookie, ORIGIN, &form).await.status(), StatusCode::FORBIDDEN);
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={actor}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &route, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={actor}"),
+    );
     let visible = call(&app, "GET", &route, &cookie, ORIGIN, "").await;
     assert_eq!(visible.status(), StatusCode::OK);
     assert!(html(visible).await.contains("Protected rating title"));
 
-    pg(&url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::NOT_FOUND);
-    pg(&url, &format!(
-        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES({actor},'pro_adult','moderation',TRUE)"
-    ));
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={actor}"));
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::OK);
-    pg(&url, &format!(
-        "UPDATE user_level_grants SET is_active=FALSE WHERE user_id={actor}"
-    ));
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::NOT_FOUND);
-    assert_eq!(call(&app, "POST", &route, &cookie, ORIGIN, &form).await.status(), StatusCode::FORBIDDEN);
-    let persisted = pg(&url, &format!(
-        "SELECT rating FROM user_book_star_ratings
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={actor}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={actor}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &route, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let persisted = pg(
+        &url,
+        &format!(
+            "SELECT rating FROM user_book_star_ratings
          WHERE user_id={actor} AND book_id={book} AND rating_kind='work'"
-    ));
+        ),
+    );
     assert_eq!(persisted, "5", "revocation must retain historical rating");
-    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
-    assert_eq!(call(&app, "GET", &route, &cookie, ORIGIN, "").await.status(), StatusCode::NOT_FOUND);
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     pool.close().await;
 }
