@@ -99,7 +99,7 @@ pub(super) async fn page(
         Err(error) => return deny(error),
     };
     let stars = PgBookStars::new(state.accounts.pool().clone());
-    let summary = match stars.visible_summary(book_id).await {
+    let summary = match stars.visible_summary_for_actor(book_id, Some(actor)).await {
         Ok(Some(summary)) => summary,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(map_error(error)),

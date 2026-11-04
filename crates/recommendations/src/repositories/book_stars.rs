@@ -74,11 +74,22 @@ impl PgBookStars {
         Self { pool }
     }
 
-    /// Public aggregates only for a currently discoverable book. Each kind
-    /// is independent; no hidden votes, private user ids or pairwise tiers.
+    /// Anonymous public aggregates are indexable for basic books only.
+    /// Authenticated rating pages resolve their own live Book entitlement.
     pub async fn visible_summary(
         &self,
         book_id: i64,
+    ) -> Result<Option<BookStars>, StarRatingError> {
+        self.visible_summary_for_actor(book_id, None).await
+    }
+
+    /// Book title and both vote totals are returned in the SAME query that
+    /// checks the current actor, 18+/21+ tier and active site-admin role.
+    /// A historic completion/rating never grants reading eligibility.
+    pub async fn visible_summary_for_actor(
+        &self,
+        book_id: i64,
+        actor: Option<i64>,
     ) -> Result<Option<BookStars>, StarRatingError> {
         if book_id <= 0 {
             return Err(StarRatingError::Invalid);
@@ -100,9 +111,27 @@ impl PgBookStars {
              LEFT JOIN user_book_star_ratings r ON r.book_id=b.id
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (
+                 ($2::BIGINT IS NULL AND b.access_level='basic')
+                 OR EXISTS (
+                   SELECT 1 FROM users viewer
+                   WHERE viewer.id=$2 AND viewer.account_state='active'
+                     AND (b.access_level='basic'
+                       OR (b.access_level='adult' AND viewer.adult_enabled)
+                       OR (b.access_level='pro_adult' AND EXISTS (
+                         SELECT 1 FROM user_level_grants grant
+                         WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
+                           AND grant.is_active))
+                       OR EXISTS (
+                         SELECT 1 FROM account_roles role
+                         WHERE role.user_id=viewer.id AND role.role='administrator'
+                           AND role.is_active))
+                 )
+               )
              GROUP BY b.id,b.title",
         )
         .bind(book_id)
+        .bind(actor)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| StarRatingError::Unavailable)?;
@@ -152,8 +181,20 @@ impl PgBookStars {
             "SELECT r.rating_kind, r.rating
              FROM user_book_star_ratings r
              JOIN books b ON b.id=r.book_id
+             JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
              WHERE r.user_id=$1 AND r.book_id=$2
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                     SELECT 1 FROM user_level_grants grant
+                     WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
+                       AND grant.is_active))
+                 OR EXISTS (
+                     SELECT 1 FROM account_roles role
+                     WHERE role.user_id=viewer.id AND role.role='administrator'
+                       AND role.is_active))",
         )
         .bind(actor)
         .bind(book_id)
@@ -188,8 +229,19 @@ impl PgBookStars {
         sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM books b
+                JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
                 WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
                   AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND viewer.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants grant
+                        WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
+                          AND grant.is_active))
+                    OR EXISTS (
+                        SELECT 1 FROM account_roles role
+                        WHERE role.user_id=viewer.id AND role.role='administrator'
+                          AND role.is_active))
                   AND EXISTS(
                     SELECT 1 FROM reader_chapter_completions c
                     WHERE c.user_id=$1 AND c.book_id=$2
@@ -221,9 +273,20 @@ impl PgBookStars {
                 (user_id,book_id,rating_kind,rating)
              SELECT $1,$2,$3,$4
              WHERE EXISTS (
-                 SELECT 1 FROM books b WHERE b.id=$2
-                   AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold
-                   AND NOT b.is_deleted
+                 SELECT 1 FROM books b
+                 JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
+                 WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
+                   AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND (b.access_level='basic'
+                     OR (b.access_level='adult' AND viewer.adult_enabled)
+                     OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants grant
+                       WHERE grant.user_id=viewer.id AND grant.level='pro_adult'
+                         AND grant.is_active))
+                     OR EXISTS (
+                       SELECT 1 FROM account_roles role
+                       WHERE role.user_id=viewer.id AND role.role='administrator'
+                         AND role.is_active))
              ) AND EXISTS (
                  SELECT 1 FROM reader_chapter_completions c
                  WHERE c.user_id=$1 AND c.book_id=$2
