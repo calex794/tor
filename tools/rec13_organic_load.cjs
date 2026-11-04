@@ -81,13 +81,16 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
       }, scheduledMs);
     }));
     const results = await Promise.all(promises);
+    const elapsed = performance.now() - start;
     const entries = performance.getEntriesByType('resource');
     const network = new Map();
     for (const entry of entries) {
       const url = new URL(entry.name);
       if (url.origin !== location.origin ||
           url.pathname !== '/api/v1/discovery/activate') continue;
-      const slot = Number(url.searchParams.get('rec13_slot'));
+      const slotParam = url.searchParams.get('rec13_slot');
+      if (slotParam === null) continue;
+      const slot = Number(slotParam);
       if (Number.isSafeInteger(slot) && slot >= 0 && slot < tickets.length) {
         network.set(slot, {
           queueMs: entry.requestStart - entry.fetchStart,
@@ -98,7 +101,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
     return {
       results: results.map(r => ({...r, network: network.get(r.slot) || null})),
       resourceCount: network.size,
-      elapsed: performance.now() - start,
+      elapsed,
       peakInFlight
     };
   }, {tickets, csrf, rate:RATE});
