@@ -53,10 +53,7 @@ async fn e_05_s020_creator_follow_and_source_titles_recheck_live_age_grants() {
     );
     let title = follows.list_active(reader, None).await.unwrap();
     assert_eq!(title.len(), 1);
-    assert_eq!(
-        title[0].source_book.as_ref().map(|pair| pair.0),
-        Some(book)
-    );
+    assert_eq!(title[0].source_book.as_ref().map(|pair| pair.0), Some(book));
 
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(reader)
