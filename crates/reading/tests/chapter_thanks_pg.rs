@@ -22,8 +22,8 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Book thanks','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Book thanks','public','basic') RETURNING id",
     )
     .bind(format!("ci:thanks:{nonce}"))
     .fetch_one(&pool)
@@ -86,6 +86,72 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+
+
+    // S020: Book age rights are checked at the moment of free-chapter
+    // appreciation, regardless of an earlier successful thanks.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_none());
+    assert_eq!(
+        repo.thank_visible_free(user, chapter).await.unwrap(),
+        ThanksMutation::NotVisible
+    );
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_some());
+    assert_eq!(
+        repo.thank_visible_free(user, chapter).await.unwrap(),
+        ThanksMutation::Repeated
+    );
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_none());
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_some());
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_none());
+    assert_eq!(
+        repo.thank_visible_free(user, chapter).await.unwrap(),
+        ThanksMutation::NotVisible
+    );
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_none());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.visible_free_summary(user, chapter).await.unwrap().unwrap().count, 1);
 
     sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
         .bind(chapter)
