@@ -200,6 +200,18 @@ export async function startAdministratorReader(root) {
   for (const button of article.querySelectorAll(".reader-save-button")) {
     button.remove();
   }
+  // Both history selectors share a generation, so a stale response can never
+  // repaint another revision or reveal private content after a later choice.
+  const beginVersionChange = () => {
+    const request = ++renderSequence;
+    observer?.disconnect();
+    tasks.length = 0;
+    known.clear();
+    for (const url of liveUrls.values()) URL.revokeObjectURL(url);
+    liveUrls.clear();
+    article.replaceChildren();
+    return request;
+  };
   status.textContent = "Редакция " + versionId + " · Защищённая загрузка завершена";
   // Historical versions are a separate, audited administrator-only POST.
   // No history ID is allowed to enter buyer/Layer grants or signed S3 URLs.
@@ -226,11 +238,10 @@ export async function startAdministratorReader(root) {
       if (select.options.length) {
         label.append(select);
         status.after(label);
-        let latest = 0;
         select.addEventListener("change", async () => {
-          const request = ++latest;
+          const request = beginVersionChange();
           const chosen = select.value;
-          article.replaceChildren();
+          selectedHistorical = false;
           status.textContent = "Проверка доступа к редакции…";
           try {
             const old = await adminHistory(chapter, csrf, chosen);
@@ -238,12 +249,13 @@ export async function startAdministratorReader(root) {
               old.chapter_id === chapter && old.version_id === chosen &&
               typeof old.body_markdown === "string" &&
               old.body_markdown.length > 0 && old.body_markdown.length <= 200000);
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
+            versionId = chosen;
             renderPaidBlocks(article, old.body_markdown, () => {}, null);
             for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
             status.textContent = "Редакция " + chosen + " · Административный просмотр";
           } catch {
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
             article.replaceChildren();
             status.textContent = "Не удалось открыть редакцию.";
           }
@@ -276,17 +288,9 @@ export async function startAdministratorReader(root) {
       if (select.options.length) {
         label.append(select);
         status.after(label);
-        let latest = 0;
         select.addEventListener("change", async () => {
-          const request = ++latest;
+          const request = beginVersionChange();
           const chosen = select.value;
-          ++renderSequence;
-          observer?.disconnect();
-          tasks.length = 0;
-          known.clear();
-          for (const url of liveUrls.values()) URL.revokeObjectURL(url);
-          liveUrls.clear();
-          article.replaceChildren();
           status.textContent = "Проверка доступа к редакции…";
           try {
             const grant = await adminSealedHistory(chapter, csrf, chosen);
@@ -294,14 +298,14 @@ export async function startAdministratorReader(root) {
               grant.chapter_id === chapter && grant.version_id === chosen);
             const result = await decryptPaidGrant(grant, chapter, s3Origin);
             requireValue(result.versionId === chosen);
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
             versionId = chosen;
             selectedHistorical = true;
             renderPaidBlocks(article, result.text, () => {}, onImage);
             for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
             status.textContent = "Редакция " + chosen + " · Защищённый просмотр";
           } catch {
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
             article.replaceChildren();
             status.textContent = "Не удалось открыть редакцию.";
           }
