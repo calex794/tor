@@ -9,6 +9,12 @@ WITH rec_actor_books AS (
     WHERE b.visibility='public' AND b.visibility_status='active'
       AND b.lifecycle_status<>'pending_deletion'
       AND NOT b.admin_hold AND NOT b.is_deleted
+      -- Actor-scoped writes cannot reuse a retained REC subject once A suspends it.
+      -- NULL remains the intentional anonymous, basic-only read path.
+      AND ($1::bigint IS NULL OR EXISTS(
+          SELECT 1 FROM users active_user
+          WHERE active_user.id=$1 AND active_user.account_state='active'
+      ))
       AND (
         (b.access_level='basic' AND COALESCE(a.audience,'general')='general')
         OR (b.access_level='adult' AND COALESCE(a.audience,'general') IN ('general','adult')
