@@ -209,7 +209,14 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(next_index, 1);
+    // The initial slot depends on Moscow local time at fixture creation:
+    // before 09:00 it is slot 0, between 09:00 and 18:00 slot 1.
+    // Advancing the claimed terminal slot wraps to the next day when needed.
+    assert_eq!(
+        next_index,
+        (claim.slot_index + 1) % (times.len() as i32),
+        "cursor must advance relative to the claimed slot, not wall-clock fixture time"
+    );
     author
         .replace_book_delayed_schedule(owner, book, false, 1, &times)
         .await
