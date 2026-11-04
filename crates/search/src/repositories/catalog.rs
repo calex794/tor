@@ -27,7 +27,7 @@ pub(super) fn scoped_sql(
              AND ((books.access_level='adult' AND acct.adult_enabled)
                OR (books.access_level='pro_adult' AND EXISTS (
                  SELECT 1 FROM user_level_grants g
-                 WHERE g.user_id=acct.id AND g.level='pro_adult' AND g.is_active))))"
+                 WHERE g.user_id=acct.id AND g.level='pro_adult' AND g.is_active)))))"
     );
     Cow::Owned(sql.replacen("access_level='basic'", &gate, 1))
 }
