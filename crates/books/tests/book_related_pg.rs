@@ -252,6 +252,53 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .await
     .unwrap();
     assert_eq!(count, 1, "one canonical row is bilateral");
+    // A pending-deletion Book is still editable by its active collaborators,
+    // but its title and link must vanish from all public related-book cards.
+    for hidden_book in [a, b] {
+        sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+            .bind(hidden_book)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            PgCatalog::new(pool.clone())
+                .public_related_books(a)
+                .await
+                .unwrap()
+                .is_empty(),
+            "pending-deletion source or target must be unlisted",
+        );
+        assert!(
+            PgCatalog::new(pool.clone())
+                .public_related_books(b)
+                .await
+                .unwrap()
+                .is_empty(),
+            "reverse public link must also be unlisted",
+        );
+        assert!(
+            repo.manageable_related_books(owner, a)
+                .await
+                .unwrap()
+                .unwrap()
+                .linked
+                .iter()
+                .any(|item| item.id == b),
+            "Book-member management must retain the canonical relation",
+        );
+        sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+            .bind(hidden_book)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    assert!(PgCatalog::new(pool.clone())
+        .public_related_books(a)
+        .await
+        .unwrap()
+        .iter()
+        .any(|item| item.id == b));
+
     assert_eq!(
         repo.manageable_related_books(translator, a)
             .await
