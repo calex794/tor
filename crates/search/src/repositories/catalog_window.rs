@@ -27,12 +27,22 @@ impl PgSearch {
         }
         let order = CatalogSort::parse(sort)?;
         if let Some(anchor) = before {
-            return read_previous_page(&self.pool, facets, anchor, limit, order).await;
+            return read_previous_page(
+                &self.pool,
+                facets,
+                anchor,
+                limit,
+                order,
+                self.viewer_digest.as_ref(),
+            )
+            .await;
         }
         let page = self.search_catalog(facets, after, limit, sort).await?;
         let previous_cursor = if after.is_some() {
             match page.items.first() {
-                Some(first) => Some(cursor_for_book(&self.pool, first, order).await?),
+                Some(first) => Some(
+                    cursor_for_book(&self.pool, first, order, self.viewer_digest.as_ref()).await?,
+                ),
                 None => None,
             }
         } else {
@@ -51,17 +61,23 @@ async fn cursor_for_book(
     pool: &PgPool,
     first: &SearchBook,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<String, SearchError> {
     match sort {
         CatalogSort::Oldest | CatalogSort::Newest => Ok(first.id.to_string()),
         CatalogSort::Title | CatalogSort::Author => {
             let sql = if sort == CatalogSort::Title {
-                "SELECT lower(title) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted"
+                "SELECT lower(title) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted"
             } else {
-                "SELECT lower(author_name) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted"
+                "SELECT lower(author_name) FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted"
             };
-            let key: String = sqlx::query_scalar(sql)
-                .bind(i64::try_from(first.id).map_err(|_| SearchError::Unavailable)?)
+            let query_sql = catalog::scoped_sql(sql, digest, 2);
+            let mut query = sqlx::query_scalar(query_sql.as_ref())
+                .bind(i64::try_from(first.id).map_err(|_| SearchError::Unavailable)?);
+            if let Some(digest) = digest {
+                query = query.bind(digest.as_slice());
+            }
+            let key: String = query
                 .fetch_one(pool)
                 .await
                 .map_err(|_| SearchError::Unavailable)?;
@@ -72,7 +88,7 @@ async fn cursor_for_book(
 
 const PREVIOUS_OLDEST: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -85,7 +101,7 @@ ORDER BY id DESC LIMIT $3";
 
 const PREVIOUS_NEWEST: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -98,7 +114,7 @@ ORDER BY id ASC LIMIT $3";
 
 const PREVIOUS_TITLE: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -111,7 +127,7 @@ ORDER BY lower(title) DESC,id DESC LIMIT $4";
 
 const PREVIOUS_AUTHOR: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
-WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -128,6 +144,7 @@ async fn read_previous_page(
     before: &str,
     limit: usize,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<CatalogWindow, SearchError> {
     let lexical = matches!(sort, CatalogSort::Title | CatalogSort::Author);
     let (_, language, genre) = validate_browse(
@@ -143,12 +160,13 @@ async fn read_previous_page(
     let rows = (if lexical {
         let (key, id) = catalog::decode_lexical_cursor(Some(before), sort)?;
         let key = key.ok_or(SearchError::Invalid)?;
-        let sql = if sort == CatalogSort::Title {
+        let base = if sort == CatalogSort::Title {
             PREVIOUS_TITLE
         } else {
             PREVIOUS_AUTHOR
         };
-        sqlx::query(sql)
+        let sql = catalog::scoped_sql(base, digest, 9);
+        let mut query = sqlx::query(sql.as_ref())
             .bind(filters.term.trim())
             .bind(key)
             .bind(id)
@@ -156,9 +174,11 @@ async fn read_previous_page(
             .bind(language.as_deref())
             .bind(genre.as_deref())
             .bind(tag.as_deref())
-            .bind(fandom.as_deref())
-            .fetch_all(pool)
-            .await
+            .bind(fandom.as_deref());
+        if let Some(digest) = digest {
+            query = query.bind(digest.as_slice());
+        }
+        query.fetch_all(pool).await
     } else {
         let (id, _, _) = validate_browse(
             filters.term,
@@ -167,21 +187,24 @@ async fn read_previous_page(
             Some(before),
             limit,
         )?;
-        let sql = if sort == CatalogSort::Oldest {
+        let base = if sort == CatalogSort::Oldest {
             PREVIOUS_OLDEST
         } else {
             PREVIOUS_NEWEST
         };
-        sqlx::query(sql)
+        let sql = catalog::scoped_sql(base, digest, 8);
+        let mut query = sqlx::query(sql.as_ref())
             .bind(filters.term.trim())
             .bind(id)
             .bind(size)
             .bind(language.as_deref())
             .bind(genre.as_deref())
             .bind(tag.as_deref())
-            .bind(fandom.as_deref())
-            .fetch_all(pool)
-            .await
+            .bind(fandom.as_deref());
+        if let Some(digest) = digest {
+            query = query.bind(digest.as_slice());
+        }
+        query.fetch_all(pool).await
     })
     .map_err(|_| SearchError::Unavailable)?;
     let mut entries = rows
