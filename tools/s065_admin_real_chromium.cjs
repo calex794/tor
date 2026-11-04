@@ -242,6 +242,12 @@ async function main() {
       await privileged.close();
     }
 
+    stage = "unsealed history desktop and mobile";
+    await require("./s065_admin_history_chromium.cjs")({
+      browser, SITE, admin_id, admin_session, outsider_session,
+      chapter_id, pg, count, contextFor, assertNoMoney,
+    });
+
     stage = "revoked admin denial";
     pg("UPDATE account_roles SET is_active=FALSE WHERE user_id=" +
       admin_id + " AND role='administrator'");
