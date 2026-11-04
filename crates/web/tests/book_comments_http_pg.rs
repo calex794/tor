@@ -789,7 +789,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
     )
     .await;
-    let denied = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    let denied =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
     assert!(!denied.contains(&format!("\"id\":\"{mention_id}\"")));
     pg(
         &url,
@@ -848,9 +849,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     .await;
     pg(
         &url,
-        &format!(
-            "DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"
-        ),
+        &format!("DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"),
     )
     .await;
     pg(
