@@ -654,3 +654,6 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     );
     pool.close().await;
 }
+
+#[path = "book_follow_http_pg/s020_creator_follow_age.rs"]
+mod s020_creator_follow_age;
