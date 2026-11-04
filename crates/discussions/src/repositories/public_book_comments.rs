@@ -79,6 +79,7 @@ impl PgPublicBookComments {
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
                AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND actor.adult_enabled)
@@ -163,6 +164,7 @@ impl PgPublicBookComments {
             "SELECT b.id FROM books b
              JOIN users u ON u.id=$2 AND u.account_state='active'
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND u.adult_enabled)
@@ -502,14 +504,15 @@ impl PgPublicBookComments {
              ) c ON TRUE
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
-               AND (b.access_level='basic'
+               AND ((b.access_level='basic' AND b.lifecycle_status<>'pending_deletion')
                  OR EXISTS (
                     SELECT 1 FROM sessions sess
                     JOIN users u ON u.id=sess.user_id AND u.account_state='active'
                     WHERE sess.token_hash=$4::bytea AND sess.revoked_at IS NULL
                       AND sess.expires_at>now()
                       AND (
-                        (b.access_level='adult' AND u.adult_enabled)
+                        b.access_level='basic'
+                        OR (b.access_level='adult' AND u.adult_enabled)
                         OR (b.access_level='pro_adult' AND EXISTS (
                             SELECT 1 FROM user_level_grants age
                             WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active))
