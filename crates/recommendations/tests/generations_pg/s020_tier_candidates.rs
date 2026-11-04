@@ -83,7 +83,7 @@ async fn s020_generation_includes_age_tiers_but_anon_and_revoked_actor_cannot_se
          WHERE generation_id=$1::uuid AND seed_id=0 AND book_id=ANY($2::bigint[])",
     )
     .bind(&generation)
-    .bind(&[adult, pro])
+    .bind([adult, pro])
     .fetch_one(&pool)
     .await
     .unwrap();
