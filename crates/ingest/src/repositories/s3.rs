@@ -5,8 +5,8 @@ use crate::domain::cover::CoverError;
 use crate::services::cover_jobs::CoverObjectStore;
 use async_trait::async_trait;
 use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
-use std::time::Duration;
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
 #[derive(Clone)]
@@ -293,7 +293,9 @@ mod direct_cover_tests {
             "staging/covers/variants//bad.webp",
         ] {
             assert!(matches!(
-                enabled.presign_variant_get(key, Duration::from_secs(60)).await,
+                enabled
+                    .presign_variant_get(key, Duration::from_secs(60))
+                    .await,
                 Err(CoverError::Invalid)
             ));
         }
