@@ -1891,6 +1891,13 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_sealed_history::asset",
       "policy": "admin_reader"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/refunds/reject",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "rejection::submit",
+      "policy": "admin_refund_reject"
     }
   ]
 }
