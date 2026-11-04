@@ -244,3 +244,66 @@ impl CoverObjectStore for S3CoverStore {
                 .is_some_and(|s| s == &expected))
     }
 }
+
+#[cfg(test)]
+mod direct_cover_tests {
+    use super::*;
+    use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+
+    fn store() -> S3CoverStore {
+        let config = aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("test-region"))
+            .credentials_provider(Credentials::new("test", "test", None, None, "unit"))
+            .endpoint_url("http://127.0.0.1:9000")
+            .force_path_style(true)
+            .build();
+        S3CoverStore::new(Client::from_conf(config), "private-covers".into()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn direct_covers_default_off_and_reject_untrusted_keys() {
+        let disabled = store();
+        assert_eq!(disabled.direct_read_origin(), None);
+        assert!(matches!(
+            disabled
+                .presign_variant_get("staging/covers/variants/safe.webp", Duration::from_secs(60))
+                .await,
+            Err(CoverError::Forbidden)
+        ));
+
+        for origin in [
+            "http://example.com",
+            "https://example.com/path",
+            "https://name@example.com",
+            "https://example.com?x=1",
+            "https://example.com/",
+            "ftp://example.com",
+        ] {
+            assert!(store().with_direct_origin(origin.into()).is_err());
+        }
+
+        let enabled = store()
+            .with_direct_origin("http://127.0.0.1:9000".into())
+            .unwrap();
+        assert_eq!(enabled.direct_read_origin(), Some("http://127.0.0.1:9000"));
+        for key in [
+            "staging/covers/sources/private.png",
+            "staging/covers/variants/../private.webp",
+            "staging/covers/variants//bad.webp",
+        ] {
+            assert!(matches!(
+                enabled.presign_variant_get(key, Duration::from_secs(60)).await,
+                Err(CoverError::Invalid)
+            ));
+        }
+        for ttl in [Duration::ZERO, Duration::from_secs(121)] {
+            assert!(matches!(
+                enabled
+                    .presign_variant_get("staging/covers/variants/valid.webp", ttl)
+                    .await,
+                Err(CoverError::Invalid)
+            ));
+        }
+    }
+}
