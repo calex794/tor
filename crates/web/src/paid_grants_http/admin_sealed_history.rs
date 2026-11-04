@@ -9,7 +9,7 @@ use tor_reading::services::paid_delivery::issue_paid_admin_asset_grant;
 
 /// Authenticate the *current* A session, role and double-submit browser CSRF.
 /// D repeats the live entitlement before and after private G signing.
-async fn actor(
+async fn authenticate_sealed_admin(
     state: &GrantState,
     headers: &HeaderMap,
 ) -> Result<(PositiveId, [u8; 32]), StatusCode> {
@@ -56,7 +56,7 @@ pub(super) async fn list(
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let (actor_id, digest) = match actor(&state, &headers).await {
+    let (actor_id, digest) = match authenticate_sealed_admin(&state, &headers).await {
         Ok(authorized) => authorized,
         Err(error) => return deny(error),
     };
@@ -91,7 +91,7 @@ pub(super) async fn grant(
     Path((raw_chapter, raw_version)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let (actor_id, digest) = match actor(&state, &headers).await {
+    let (actor_id, digest) = match authenticate_sealed_admin(&state, &headers).await {
         Ok(authorized) => authorized,
         Err(error) => return deny(error),
     };
@@ -142,7 +142,7 @@ pub(super) async fn asset(
         Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let (actor_id, digest) = match actor(&state, &headers).await {
+    let (actor_id, digest) = match authenticate_sealed_admin(&state, &headers).await {
         Ok(authorized) => authorized,
         Err(error) => return deny(error),
     };
