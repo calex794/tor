@@ -273,6 +273,8 @@ const ROUTES: [RouteRegistration; 263] = [
     RouteRegistration::new("/me/books/{id}/settings", "GET", "/me/", Prefix, Page, Dashboard, Read), // 260
     RouteRegistration::new("/__bp_honeypot/{*trap_name}", "GET", "/auth/honeypot/", Prefix, Service, Auth, Free), // 261
     RouteRegistration::new("/moderation/books/{id}/visibility", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 262
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
