@@ -310,7 +310,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ".issue_administrator_refund_rejection_step_up(",
         )
         rejection_call = re.search(
-            r"\\.reject_once\\s*\\(\\s*actor,\\s*&session_digest,\\s*&proof_token,\\s*request,\\s*revision,\\s*reason,?\\s*\\)",
+            r"\.reject_once\s*\(\s*actor,\s*&session_digest,\s*&proof_token,\s*request,\s*revision,\s*reason,?\s*\)",
             evidence,
         )
         if not rejected_refund or not all(marker in evidence for marker in required) or not rejection_call:
