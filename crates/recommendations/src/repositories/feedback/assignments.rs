@@ -42,9 +42,19 @@ impl PgRecommendations {
                  RETURNING id::text"
             );
             let inserted: Option<String> = sqlx::query_scalar(&sql)
-                .bind(actor).bind(&subject).bind(session.as_slice()).bind(digest.as_slice()).bind(book)
-                .bind(surface.as_str()).bind(&item.source).bind(&item.reason).bind((index+1) as i16)
-                .bind(feed.generation_id.as_deref()).bind(item.algorithm_version).fetch_optional(&mut *tx).await?;
+                .bind(actor)
+                .bind(&subject)
+                .bind(session.as_slice())
+                .bind(digest.as_slice())
+                .bind(book)
+                .bind(surface.as_str())
+                .bind(&item.source)
+                .bind(&item.reason)
+                .bind((index + 1) as i16)
+                .bind(feed.generation_id.as_deref())
+                .bind(item.algorithm_version)
+                .fetch_optional(&mut *tx)
+                .await?;
             if inserted.is_some() {
                 item.ticket = Some(ticket);
                 kept.push(item);
@@ -73,8 +83,14 @@ impl PgRecommendations {
                AND NOT EXISTS(SELECT 1 FROM rec_feedback_state f WHERE f.subject_id=a.subject_id AND f.book_id=a.book_id AND f.hidden AND f.expires_at>now())
              RETURNING a.id::text,a.book_id"
         );
-        let row=sqlx::query(&sql)
-            .bind(actor).bind(digest.as_slice()).bind(&subject).bind(session.as_slice()).fetch_optional(&mut *tx).await?.ok_or(FeedbackError::NotFound)?;
+        let row = sqlx::query(&sql)
+            .bind(actor)
+            .bind(digest.as_slice())
+            .bind(&subject)
+            .bind(session.as_slice())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(FeedbackError::NotFound)?;
         let assignment: String = row.try_get("id")?;
         let book: i64 = row.try_get("book_id")?;
         sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,occurred_at,trust) SELECT id,'click',clicked_at,'server_navigation' FROM rec_assignments WHERE id=$1::uuid ON CONFLICT(assignment_id,kind) DO NOTHING")
@@ -102,8 +118,13 @@ impl PgRecommendations {
                AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$4)
              ORDER BY clicked_at DESC,id ASC LIMIT 1 FOR UPDATE"
         );
-        let id: Option<String>=sqlx::query_scalar(&sql)
-            .bind(actor).bind(&subject).bind(session.as_slice()).bind(book).fetch_optional(&mut *tx).await?;
+        let id: Option<String> = sqlx::query_scalar(&sql)
+            .bind(actor)
+            .bind(&subject)
+            .bind(session.as_slice())
+            .bind(book)
+            .fetch_optional(&mut *tx)
+            .await?;
         if let Some(id) = id {
             sqlx::query("UPDATE rec_assignments SET book_opened_at=COALESCE(book_opened_at,now()) WHERE id=$1::uuid")
                 .bind(&id).execute(&mut *tx).await?;
