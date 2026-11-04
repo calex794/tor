@@ -52,6 +52,7 @@ impl PgInbox {
                  AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                  AND reply.visibility='visible'
                  AND b.visibility='public' AND b.visibility_status='active'
+                 AND b.lifecycle_status<>'pending_deletion'
                  AND NOT b.admin_hold AND NOT b.is_deleted
                  AND (b.access_level='basic'
                       OR (b.access_level='adult' AND u.adult_enabled)
