@@ -1,3 +1,4 @@
+use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::domain::feedback::{
     observation, token_digest, ImpressionClaim, Observation, QualityRow, MAX_ITEMS,
@@ -23,12 +24,23 @@ impl PgRecommendations {
         let subject = lock_subject(&mut tx, actor).await?;
         for claim in claims.iter().filter(|c| c.qualified()) {
             let digest = token_digest(&claim.ticket)?;
-            let id: Option<String>=sqlx::query_scalar(
-                "UPDATE rec_assignments a SET viewed_at=COALESCE(a.viewed_at,now())
-                 WHERE a.ticket_digest=$1 AND a.subject_id=$2::uuid AND a.session_digest=$3 AND a.expires_at>now()
-                   AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=a.book_id)
-                 RETURNING a.id::text")
-                .bind(digest.as_slice()).bind(&subject).bind(session.as_slice()).fetch_optional(&mut *tx).await?;
+            // A previously issued ticket is not permission to observe a book
+            // after an 18+/21+ grant has been revoked.
+            let sql = format!(
+                "{ACTOR_DISCOVERY_CTE} UPDATE rec_assignments a
+                 SET viewed_at=COALESCE(a.viewed_at,now())
+                 WHERE a.ticket_digest=$2 AND a.subject_id=$3::uuid
+                   AND a.session_digest=$4 AND a.expires_at>now()
+                   AND EXISTS(SELECT 1 FROM rec_actor_books WHERE id=a.book_id)
+                 RETURNING a.id::text"
+            );
+            let id: Option<String> = sqlx::query_scalar(&sql)
+                .bind(actor)
+                .bind(digest.as_slice())
+                .bind(&subject)
+                .bind(session.as_slice())
+                .fetch_optional(&mut *tx)
+                .await?;
             let id = id.ok_or(FeedbackError::NotFound)?;
             sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,occurred_at,trust) SELECT id,'impression',viewed_at,'client_observed' FROM rec_assignments WHERE id=$1::uuid ON CONFLICT(assignment_id,kind) DO NOTHING")
                 .bind(&id).execute(&mut *tx).await?;
