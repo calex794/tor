@@ -47,13 +47,13 @@ async fn assert_readable(app: &Router, edition: (i64, i64, i64), session: &str, 
 pub(super) async fn verify(
     app: &Router,
     url: &str,
-    book: i64,
-    buyer: i64,
+    owner: (i64, i64),
     edition: (i64, i64, i64),
     session: &str,
     csrf: &str,
     command: &Value,
 ) {
+    let (book, buyer) = owner;
     let (chapter, purchase, _) = edition;
     let facts_before = scalar(
         url,
