@@ -402,7 +402,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     pg(
         &url,
         &format!(
-            "UPDATE books SET access_level='basic',visibility_status='hidden' WHERE id={book}"
+            "UPDATE books SET access_level='basic',lifecycle_status='in_progress',visibility_status='hidden' WHERE id={book}"
         ),
     );
     assert_eq!(
