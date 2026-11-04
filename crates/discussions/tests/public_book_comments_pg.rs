@@ -15,8 +15,8 @@ async fn e_02_public_book_visibility_and_replay() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e02:comment','ru','E02 Book','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e02:comment','ru','E02 Book','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -89,15 +89,15 @@ async fn e_02_e03_replies_bind_parent_target_and_concurrent_replay() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:replies','ru','Replies','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e03:replies','ru','Replies','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
     let other_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:other','ru','Other','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e03:other','ru','Other','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -527,8 +527,8 @@ async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Mentions','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Mentions','public','basic') RETURNING id",
     )
     .bind(first)
     .fetch_one(&pool)
@@ -640,8 +640,8 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','S011 free','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','S011 free','public','basic') RETURNING id",
     )
     .bind(format!("ci:s011:{nonce}"))
     .fetch_one(&pool)
