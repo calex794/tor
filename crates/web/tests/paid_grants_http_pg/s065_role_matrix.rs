@@ -314,6 +314,13 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     );
     // The existing chapter+image S3 grant assertions below run at pro_adult,
     // with no viewer grant and without changing audit or signed-object counts.
+    assert_eq!(
+        read_page(reader, &page, Some(&outsider))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "site moderator cannot inherit administrator-only pro_adult inspection"
+    );
 
     assert_eq!(
         send(
