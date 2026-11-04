@@ -137,7 +137,12 @@ async fn s020_actor_catalog_age_is_live_scoped_and_cursors_remain_exact() {
             .await
             .unwrap();
         assert_eq!(
-            [first.items.clone(), second.items.clone(), third.items.clone()].concat(),
+            [
+                first.items.clone(),
+                second.items.clone(),
+                third.items.clone()
+            ]
+            .concat(),
             full,
             "{sort} forward pagination"
         );
