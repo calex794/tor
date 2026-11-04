@@ -12,7 +12,10 @@ on:
       - 'crates/web/assets/recommendations.js'
       - 'crates/web/tests/recommendation_feedback_http_pg.rs'
       - 'crates/books/src/repositories/recommendation_policy.rs'
-      - 'migrations/**'
+      # REC-13 SQL has its own _rec_ prefix. Other migrations are still
+      # exercised by mandatory TOR integration (PostgreSQL, including REC),
+      # but must not launch this redundant specialist workflow.
+      - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
   push:
     branches: ['feat/f/rec-feedback-system-20261031']
