@@ -644,10 +644,19 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     // version grant, image grant or private version listing.
     for target in [&sealed_list, &sealed_grant, &sealed_asset] {
         let revoked = send(
-            grants, target, Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
-        ).await;
+            grants,
+            target,
+            Some(&admin_session),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await;
         assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
-        assert!(to_bytes(revoked.into_body(), 8192).await.unwrap().is_empty());
+        assert!(to_bytes(revoked.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty());
     }
     assert_eq!(fake.signed.load(Ordering::SeqCst), 5);
     assert_eq!(
