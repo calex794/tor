@@ -17,8 +17,8 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
     let title = format!("Путь бессмертного {suffix}");
     let hidden = format!("Секретная глава {suffix}");
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,original_title,alt_titles,visibility)
-         VALUES($1,'ru',$2,$3,ARRAY[$4]::text[],'public') RETURNING id"
+        "INSERT INTO books(source_identity,target_language,title,original_title,alt_titles,visibility,access_level)
+         VALUES($1,'ru',$2,$3,ARRAY[$4]::text[],'public','basic') RETURNING id"
     )
     .bind(format!("s019:public:{suffix}"))
     .bind(&title).bind(&zh).bind(&en).fetch_one(&pool).await.unwrap();
@@ -61,6 +61,46 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
         .execute(&pool)
         .await
         .unwrap();
+    // S020: title hints are anonymous/basic discovery even when the
+    // registration form itself requires a signed-in account. Distinct B age
+    // grants do not turn this public S019 projection into an actor feed.
+    for level in [Some("adult"), Some("pro_adult"), None] {
+        sqlx::query("UPDATE books SET access_level=$1 WHERE id=$2")
+            .bind(level)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for term in [&zh, &en, &title] {
+            let suggestions = repo
+                .public_title_suggestions("ru", &[term])
+                .await
+                .unwrap();
+            assert!(
+                suggestions.iter().all(|book| book.id != id),
+                "restricted / legacy Book title exposed at {level:?}: {term}"
+            );
+        }
+    }
+    sqlx::query("UPDATE books SET access_level='basic', lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let pending = repo.public_title_suggestions("ru", &[&title]).await.unwrap();
+    assert!(!pending.iter().any(|book| book.id == id));
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .public_title_suggestions("ru", &[&title])
+        .await
+        .unwrap()
+        .iter()
+        .any(|book| book.id == id));
+
     let other = repo.public_title_suggestions("en", &[&zh]).await.unwrap();
     assert!(!other.iter().any(|book| book.id == id));
     let forbidden = repo
