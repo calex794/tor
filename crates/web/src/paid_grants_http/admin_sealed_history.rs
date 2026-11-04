@@ -40,6 +40,10 @@ async fn authenticate_sealed_admin(
 fn private_json<T: serde::Serialize>(content: T) -> Response {
     let mut response = private_response(Json(content), &[]);
     response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
