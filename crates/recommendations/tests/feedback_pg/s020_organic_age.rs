@@ -108,12 +108,11 @@ async fn s020_organic_tickets_recheck_live_age_before_click_and_book_open() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(
+    assert_eq!(
         store
             .issue_organic_tickets(actor, session, OrganicSource::Catalog, &[book])
-            .await
-            .unwrap()
-            .is_empty(),
-        "suspended accounts cannot issue new organic tickets on basic books"
+            .await,
+        Err(FeedbackError::Forbidden),
+        "suspended accounts must not issue new organic tickets"
     );
 }
