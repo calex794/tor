@@ -74,9 +74,6 @@ export async function startAdministratorReader(root) {
     ["true", "false"].includes(root.dataset.adminUnsealed) &&
     status && article
   );
-  const { versionId, text } = unsealed
-    ? await adminUnsealed(chapter, csrf)
-    : await decryptPaidGrant(await adminGrant(chapter, csrf), chapter, s3Origin);
   const liveUrls = new Map();
   let closed = false;
   let active = 0;
@@ -98,6 +95,11 @@ export async function startAdministratorReader(root) {
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) location.reload();
   });
+
+  const { versionId, text } = unsealed
+    ? await adminUnsealed(chapter, csrf)
+    : await decryptPaidGrant(await adminGrant(chapter, csrf), chapter, s3Origin);
+  if (closed) return;
 
   async function show({ frame, id, alt }) {
     if (closed || !frame.isConnected) return;
@@ -183,6 +185,7 @@ export async function startAdministratorReader(root) {
       requireValue(history.schema === "tor.admin_history.v1" &&
         history.chapter_id === chapter && Array.isArray(history.versions) &&
         history.versions.length <= 100);
+      if (closed) return;
       const select = document.createElement("select");
       select.setAttribute("aria-label", "История редакций");
       const label = document.createElement("label");
@@ -209,7 +212,8 @@ export async function startAdministratorReader(root) {
             const old = await adminHistory(chapter, csrf, chosen);
             requireValue(old.schema === "tor.admin_unsealed.v1" &&
               old.chapter_id === chapter && old.version_id === chosen &&
-              typeof old.body_markdown === "string");
+              typeof old.body_markdown === "string" &&
+              old.body_markdown.length > 0 && old.body_markdown.length <= 200000);
             if (closed || request !== latest) return;
             renderPaidBlocks(article, old.body_markdown, () => {}, null);
             for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
