@@ -917,3 +917,6 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
 
 #[path = "public_book_comments_pg/s020_age_inbox.rs"]
 mod s020_age_inbox;
+
+#[path = "public_book_comments_pg/s020_book_comments_age.rs"]
+mod s020_book_comments_age;
