@@ -529,12 +529,18 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         ),
         "0"
     );
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={second}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={second}"),
+    );
     assert_eq!(
         post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
         StatusCode::SEE_OTHER
     );
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={second}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={second}"),
+    );
     assert_eq!(
         post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
         StatusCode::NOT_FOUND,
