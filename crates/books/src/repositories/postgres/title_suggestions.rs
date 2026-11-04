@@ -1,4 +1,4 @@
-//! Public-only, indexed title hints for S019. Never query private book names.
+//! Anonymous-discoverable, indexed title hints for S019. Never reveal adult/pro_adult or private names.
 use super::PgAuthoring;
 use crate::services::{authoring::AuthorError, title_suggestions};
 use sqlx::Row;
@@ -29,7 +29,9 @@ impl PgAuthoring {
             "SELECT b.id, b.title, b.target_language
              FROM unnest($1::text[]) AS search(term)
              JOIN books AS b
-               ON b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               ON b.visibility='public' AND b.visibility_status='active'
+              AND b.access_level='basic' AND b.lifecycle_status<>'pending_deletion'
+              AND NOT b.admin_hold AND NOT b.is_deleted
               AND b.target_language=$2
               AND (
                 search.term <% book_registration_public_title_text(
