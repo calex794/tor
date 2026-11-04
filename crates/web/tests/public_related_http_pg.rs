@@ -151,7 +151,9 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
         &url,
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={source}"),
     );
-    assert_eq!(page(app.clone(), source).await.0, StatusCode::NOT_FOUND);
+    // This test covers public related-card discovery, NOT direct Book reading.
+    // NEwBOO allows a direct Book view during pending_deletion until hard delete;
+    // a 404 assertion here would silently canonize the wrong reader policy.
     let (reverse_status, reverse) = page(app.clone(), target).await;
     assert_eq!(reverse_status, StatusCode::OK);
     assert!(!reverse.contains(&format!("href=\"/books/{source}\"")));
