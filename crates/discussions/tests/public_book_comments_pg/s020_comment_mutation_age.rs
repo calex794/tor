@@ -44,8 +44,14 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
     .unwrap();
     let repo = PgPublicBookComments::new(pool.clone());
     assert!(matches!(
-        repo.create(target, book, "Reader initial remark", &"a".repeat(43), &[1; 32])
-            .await,
+        repo.create(
+            target,
+            book,
+            "Reader initial remark",
+            &"a".repeat(43),
+            &[1; 32]
+        )
+        .await,
         CreateResult::Created(_)
     ));
     assert_eq!(
@@ -84,7 +90,13 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
             .await,
         CreateResult::Created(_)
     ));
-    assert_eq!(repo.mention_candidates(actor, book, "Read").await.unwrap().len(), 1);
+    assert_eq!(
+        repo.mention_candidates(actor, book, "Read")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
@@ -92,11 +104,21 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
         .await
         .unwrap();
     assert_eq!(
-        repo.create(actor, book, "Denied without grant", &"d".repeat(43), &[4; 32])
-            .await,
+        repo.create(
+            actor,
+            book,
+            "Denied without grant",
+            &"d".repeat(43),
+            &[4; 32]
+        )
+        .await,
         CreateResult::NotFound
     );
-    assert!(repo.mention_candidates(actor, book, "Read").await.unwrap().is_empty());
+    assert!(repo
+        .mention_candidates(actor, book, "Read")
+        .await
+        .unwrap()
+        .is_empty());
 
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(actor)
@@ -116,7 +138,13 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
             .await,
         CreateResult::Created(_)
     ));
-    assert_eq!(repo.mention_candidates(actor, book, "Read").await.unwrap().len(), 1);
+    assert_eq!(
+        repo.mention_candidates(actor, book, "Read")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     sqlx::query(
         "UPDATE user_level_grants SET is_active=FALSE
@@ -131,7 +159,11 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
             .await,
         CreateResult::NotFound
     );
-    assert!(repo.mention_candidates(actor, book, "Read").await.unwrap().is_empty());
+    assert!(repo
+        .mention_candidates(actor, book, "Read")
+        .await
+        .unwrap()
+        .is_empty());
 
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(book)
@@ -177,7 +209,13 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
             .await,
         CreateResult::Created(_)
     ));
-    assert_eq!(repo.mention_candidates(actor, book, "Read").await.unwrap().len(), 1);
+    assert_eq!(
+        repo.mention_candidates(actor, book, "Read")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
         .bind(actor)
@@ -189,32 +227,47 @@ async fn e_02_age_tier_mutations_recheck_reader_rights_without_leaking_mentions(
             .await,
         CreateResult::NotFound
     );
-    assert!(repo.mention_candidates(actor, book, "Read").await.unwrap().is_empty());
+    assert!(repo
+        .mention_candidates(actor, book, "Read")
+        .await
+        .unwrap()
+        .is_empty());
 
     sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        repo.create(actor, book, "No new public comment", &"k".repeat(43), &[11; 32])
-            .await,
-        CreateResult::NotFound
-    );
-    assert!(repo.mention_candidates(actor, book, "Read").await.unwrap().is_empty());
-
-    // All denied requests leave the source discussion untouched.
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM discussion_comments WHERE book_id=$1",
+    sqlx::query(
+        "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1",
     )
     .bind(book)
-    .fetch_one(&pool)
+    .execute(&pool)
     .await
     .unwrap();
+    assert_eq!(
+        repo.create(
+            actor,
+            book,
+            "No new public comment",
+            &"k".repeat(43),
+            &[11; 32]
+        )
+        .await,
+        CreateResult::NotFound
+    );
+    assert!(repo
+        .mention_candidates(actor, book, "Read")
+        .await
+        .unwrap()
+        .is_empty());
+
+    // All denied requests leave the source discussion untouched.
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM discussion_comments WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 4);
 }
