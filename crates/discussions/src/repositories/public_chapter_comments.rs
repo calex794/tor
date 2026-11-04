@@ -301,7 +301,7 @@ impl PgPublicChapterComments {
                    AND ((b.access_level='adult' AND acct.adult_enabled)
                      OR (b.access_level='pro_adult' AND EXISTS (
                        SELECT 1 FROM user_level_grants age
-                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active))))
+                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active)))))
              FOR SHARE OF b,c,p,v",
         )
         .bind(chapter_id)
@@ -344,7 +344,7 @@ impl PgPublicChapterComments {
                    AND ((b.access_level='adult' AND acct.adult_enabled)
                      OR (b.access_level='pro_adult' AND EXISTS (
                        SELECT 1 FROM user_level_grants age
-                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active))))
+                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active)))))
                AND ($3::bigint IS NULL OR c.id<$3)
                AND (c.parent_id IS NULL OR EXISTS(
                  SELECT 1 FROM discussion_comments parent
