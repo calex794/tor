@@ -49,7 +49,7 @@ impl PgChapterThanks {
              JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
              WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (
@@ -96,7 +96,7 @@ impl PgChapterThanks {
                  JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
                  JOIN chapter_publications p ON p.chapter_id=c.id
                  WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-                   AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
                    AND (b.access_level='basic'
                      OR (b.access_level='adult' AND viewer.adult_enabled)
                      OR (b.access_level='pro_adult' AND EXISTS (
