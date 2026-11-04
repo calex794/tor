@@ -18,6 +18,7 @@ def evidence(selected=None, selector_result="success"):
         job_id: {"result": "success" if flags[suite] else "skipped"}
         for suite, job_id in SUITE_JOB_IDS.items()
     }
+    jobs["preflight"] = {"result": "success"}
     jobs["select"] = {
         "result": selector_result, "outputs": {"suites": json.dumps(flags)},
     }
@@ -39,6 +40,22 @@ class CIRequiredGateTests(unittest.TestCase):
         partial[SUITE_JOB_IDS["postgres"]]["result"] = "skipped"
         with self.assertRaises(GateError):
             verify("pull_request", partial)
+
+    def test_preflight_is_mandatory_even_for_docs_only(self):
+        for state in ("failure", "skipped", "cancelled", None):
+            with self.subTest(state=state):
+                data = evidence(set())
+                data["preflight"]["result"] = state
+                with self.assertRaises(GateError):
+                    verify("pull_request", data)
+        data = evidence({"rust"})
+        data.pop("preflight")
+        with self.assertRaises(GateError):
+            verify("pull_request", data)
+        data = evidence({"rust"})
+        data["preflight"] = None
+        with self.assertRaises(GateError):
+            verify("pull_request", data)
 
     def test_failed_selector_runs_full_fallback_pack(self):
         full = evidence(selector_result="failure")

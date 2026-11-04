@@ -14,9 +14,26 @@ jobs:
     uses: ./.github/workflows/ci-selection.yml
     with:
       caller: all
+  preflight:
+    # Cheap fail-fast checks must pass before any of the 14 expensive suites.
+    # Failure of the selector still triggers full fallback, but a malformed
+    # tree or rustfmt error must never start a costly build.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Feature boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
   demo:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -75,8 +92,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   postgres-runtime:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -407,8 +424,8 @@ jobs:
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
   migrations:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     services:
@@ -442,8 +459,8 @@ jobs:
       - name: Verify donor SQL blobs plus TOR cover schema, fresh and upgrade migrations
         run: bash tests/postgres/verify-migrations.sh
   reader-browser:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"reader_browser":true}').reader_browser) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"reader_browser":true}').reader_browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -555,8 +572,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   visual:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"visual":true}').visual) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"visual":true}').visual) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -606,8 +623,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 10
   author-cover:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_browser":true}').cover_browser) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_browser":true}').cover_browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:
@@ -763,8 +780,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   image:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"image":true}').image) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"image":true}').image) }}
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:
@@ -782,8 +799,8 @@ jobs:
       - name: Compile S3 adapter (AWS SDK, no credentials)
         run: cargo check -p tor-ingest --features s3
   crypto:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"crypto":true}').crypto) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"crypto":true}').crypto) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -805,8 +822,8 @@ jobs:
       - name: Independent WebCrypto AES-GCM golden
         run: node crates/storage/tests/crypto_webcrypto.mjs
   s3-provider:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"storage_s3":true}').storage_s3) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"storage_s3":true}').storage_s3) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -867,8 +884,8 @@ jobs:
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log" || true
   s3-cover-build:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -998,8 +1015,8 @@ jobs:
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
   f02-100k:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"search_load":true}').search_load) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"search_load":true}').search_load) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -1071,8 +1088,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   paid-private-e2e:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -1201,8 +1218,8 @@ jobs:
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log" || true
   sealed-remote-copy:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -1302,8 +1319,8 @@ jobs:
           curl -fsS --max-time 3 http://127.0.0.1:9010/minio/health/ready || true
           echo "TOR recovery CI failed; no secret, archive or database files are published"
   purchased-v1-recovery:
-    needs: select
-    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
@@ -1424,6 +1441,7 @@ jobs:
   ci-required:
     needs:
       - select
+      - preflight
       - demo
       - postgres-runtime
       - migrations

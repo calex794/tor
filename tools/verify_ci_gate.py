@@ -16,9 +16,15 @@ class GateError(ValueError):
 def verify(event_name: str, needs: dict) -> dict:
     if event_name not in {"pull_request", "push", "workflow_dispatch"}:
         raise GateError("unsupported workflow event")
-    required_dependencies = {"select", *SUITE_JOB_IDS.values()}
+    required_dependencies = {"select", "preflight", *SUITE_JOB_IDS.values()}
     if not isinstance(needs, dict) or set(needs) != required_dependencies:
         raise GateError("unexpected or missing dependency jobs")
+    # A successful selector is not sufficient: all expensive jobs depend on
+    # this cheap structural/formatting prerequisite, and a skipped preflight
+    # must never count as accepted, even when no feature suites were selected.
+    preflight = needs["preflight"]
+    if not isinstance(preflight, dict) or preflight.get("result") != "success":
+        raise GateError("preflight must complete successfully")
     selector = needs["select"]
     if not isinstance(selector, dict):
         raise GateError("invalid selector job evidence")
