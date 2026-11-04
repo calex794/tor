@@ -438,6 +438,13 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
     )
     .await;
+    // Restore the fixture's original actor state before the existing Inbox
+    // revocation scenarios below; 18+ is not granted by this test permanently.
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer_id}"),
+    )
+    .await;
     let incoming_form = format!(
         "body=NEVER_COPY_THIS_SPOILER&parent_id={parent}&command_key={}&csrf_token={writer_csrf}",
         generate_session_token()
