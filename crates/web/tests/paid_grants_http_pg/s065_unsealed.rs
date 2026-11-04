@@ -394,6 +394,52 @@ pub(super) async fn assert_unsealed_admin_read(
                 .unwrap();
         assert_eq!(current["version_id"], next.to_string());
         assert_eq!(current["body_markdown"], "NEW PRIVATE REVISION");
+        // Historical text is reachable only through the separate audited
+        // admin POST, not via the current reader or forged query parameters.
+        let history_path = format!("/api/v1/reader/chapters/{chapter}/admin-history");
+        let old_path = format!("{history_path}/{version}");
+        let history = send(
+            app, &history_path, Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
+        ).await;
+        assert_eq!(history.status(), StatusCode::OK);
+        assert_eq!(history.headers()[header::CACHE_CONTROL], "no-store");
+        let versions: Value = serde_json::from_slice(
+            &to_bytes(history.into_body(), 8192).await.unwrap(),
+        ).unwrap();
+        assert_eq!(versions["schema"], "tor.admin_history.v1");
+        assert_eq!(versions["versions"].as_array().unwrap().len(), 2);
+        assert!(versions["versions"].as_array().unwrap().iter()
+            .any(|entry| entry["version_id"] == version.to_string()));
+        for (session, csrf, origin, expected) in [
+            (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
+            (Some(outsider.as_str()), Some(csrf.as_str()), Some(ORIGIN), StatusCode::FORBIDDEN),
+            (Some(admin_session.as_str()), None, Some(ORIGIN), StatusCode::FORBIDDEN),
+            (Some(admin_session.as_str()), Some(csrf.as_str()), Some("https://evil.invalid"), StatusCode::FORBIDDEN),
+        ] {
+            let response = send(app, &old_path, session, csrf, origin, "{}").await;
+            assert_eq!(response.status(), expected);
+            assert!(to_bytes(response.into_body(), 8192).await.unwrap().is_empty());
+        }
+        let historical = send(
+            app, &old_path, Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
+        ).await;
+        assert_eq!(historical.status(), StatusCode::OK);
+        assert_eq!(historical.headers()[header::REFERRER_POLICY], "no-referrer");
+        let historical: Value = serde_json::from_slice(
+            &to_bytes(historical.into_body(), 8192).await.unwrap(),
+        ).unwrap();
+        assert_eq!(historical["version_id"], version.to_string());
+        assert_eq!(historical["body_markdown"], body);
+        // A version from another chapter or an unbound random identifier is
+        // never a valid historical entitlement for this chapter.
+        let foreign = send(
+            app, &format!("{history_path}/999999999"),
+            Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
+        ).await;
+        assert_eq!(foreign.status(), StatusCode::NOT_FOUND);
+        assert!(to_bytes(foreign.into_body(), 8192).await.unwrap().is_empty());
+        assert!(!versions.to_string().contains(body));
+
     }
     // Two versions of each free/paid draft were delivered through each
     // of the three supported admin router modes, never to other actors.
@@ -405,7 +451,7 @@ pub(super) async fn assert_unsealed_admin_read(
                  WHERE admin_user_id={admin_id} AND action='unsealed_body'"
             )
         ),
-        12
+        14
     );
     assert_eq!(
         scalar(
@@ -522,6 +568,14 @@ pub(super) async fn assert_unsealed_admin_read(
     )
     .await;
     assert_eq!(revoked_no_s3.status(), StatusCode::FORBIDDEN);
+    let revoked_history = send(
+        app,
+        &format!("/api/v1/reader/chapters/{chapter}/admin-history"),
+        Some(&admin_session), Some(&csrf), Some(ORIGIN), "{}",
+    ).await;
+    assert_eq!(revoked_history.status(), StatusCode::FORBIDDEN);
+    assert!(to_bytes(revoked_history.into_body(), 8192).await.unwrap().is_empty());
+
     assert!(to_bytes(revoked_no_s3.into_body(), 8192)
         .await
         .unwrap()
@@ -534,7 +588,7 @@ pub(super) async fn assert_unsealed_admin_read(
                  WHERE admin_user_id={admin_id}"
             )
         ),
-        12,
+        14,
         "revoked or denied reads cannot create successful-delivery audit records"
     );
 }
