@@ -248,6 +248,12 @@ async function main() {
       chapter_id, pg, count, contextFor, assertNoMoney,
     });
 
+    stage = "sealed historical edition and PNG on real MinIO";
+    await require("./s065_admin_sealed_history_chromium.cjs")({
+      browser, SITE, S3, admin_id, admin_session, outsider_session,
+      chapter_id, version_id, asset_object_id, pg, count, contextFor, assertNoMoney,
+    });
+
     stage = "revoked admin denial";
     pg("UPDATE account_roles SET is_active=FALSE WHERE user_id=" +
       admin_id + " AND role='administrator'");
