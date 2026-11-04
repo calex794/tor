@@ -305,7 +305,10 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
             .status(),
         StatusCode::FORBIDDEN
     );
-    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
     assert_eq!(
         call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND

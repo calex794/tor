@@ -237,7 +237,13 @@ async fn s020_f05_rating_title_and_write_require_current_book_age_rights() {
         .await
         .unwrap();
     assert_eq!(
-        store.visible_summary(book).await.unwrap().unwrap().work.votes,
+        store
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .votes,
         1
     );
 
@@ -253,7 +259,10 @@ async fn s020_f05_rating_title_and_write_require_current_book_age_rights() {
         .await
         .unwrap()
         .is_none());
-    assert_eq!(store.own_ratings(first, book).await.unwrap(), Default::default());
+    assert_eq!(
+        store.own_ratings(first, book).await.unwrap(),
+        Default::default()
+    );
     assert!(!store.eligible(first, book).await.unwrap());
     assert_eq!(
         store.set_rating(first, book, StarKind::Work, 1).await,
@@ -329,19 +338,23 @@ async fn s020_f05_rating_title_and_write_require_current_book_age_rights() {
         .await
         .unwrap()
         .is_none());
-    sqlx::query("INSERT INTO account_roles(user_id,role,is_active)
-                 VALUES($1,'moderator',TRUE)")
-        .bind(first)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+                 VALUES($1,'moderator',TRUE)",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(!store.eligible(first, book).await.unwrap());
-    sqlx::query("INSERT INTO account_roles(user_id,role,is_active)
-                 VALUES($1,'administrator',TRUE)")
-        .bind(first)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+                 VALUES($1,'administrator',TRUE)",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(store
         .visible_summary_for_actor(book, Some(first))
         .await
