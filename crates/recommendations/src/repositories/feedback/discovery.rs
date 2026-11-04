@@ -12,10 +12,11 @@ WITH rec_actor_books AS (
       AND (
         (b.access_level='basic' AND COALESCE(a.audience,'general')='general')
         OR (b.access_level='adult' AND COALESCE(a.audience,'general') IN ('general','adult')
-            AND EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.adult_enabled))
+            AND EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.account_state='active' AND u.adult_enabled))
         OR (b.access_level='pro_adult' AND COALESCE(a.audience,'general') IN ('general','adult')
-            AND EXISTS(SELECT 1 FROM user_level_grants g
-                       WHERE g.user_id=$1 AND g.level='pro_adult' AND g.is_active))
+            AND EXISTS(SELECT 1 FROM users u JOIN user_level_grants g ON g.user_id=u.id
+                       WHERE u.id=$1 AND u.account_state='active'
+                         AND g.level='pro_adult' AND g.is_active))
       )
 )
 "#;
