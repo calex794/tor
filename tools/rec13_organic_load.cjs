@@ -82,7 +82,18 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
     }));
     const results = await Promise.all(promises);
     const elapsed = performance.now() - start;
-    const entries = performance.getEntriesByType('resource');
+    // Resource Timing entries may be published a task after fetch() resolves
+    // for a 204 response. Wait only after measuring latency/throughput; never
+    // silently drop a slow request from the independent HTTP p95 gate.
+    const resourcePrefix = location.origin + '/api/v1/discovery/activate?rec13_slot=';
+    let entries = [];
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      entries = performance.getEntriesByType('resource');
+      if (entries.filter(e => e.name.startsWith(resourcePrefix)).length >= tickets.length) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
     const network = new Map();
     for (const entry of entries) {
       const url = new URL(entry.name);
