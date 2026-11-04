@@ -10,8 +10,13 @@ async fn creator_page(app: &Router, cookies: &str) -> String {
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await.unwrap().to_vec())
-        .unwrap()
+    String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -68,28 +73,58 @@ async fn e_05_s020_creator_follow_http_age_matrix() {
     );
     let cookies = format!("tor-dev-session={reader_token}; tor-dev-csrf={csrf}");
     let follow = format!("/me/books/{book}/follow-creator");
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
-    assert!(creator_page(&app, &cookies).await.contains("E05 restricted source"));
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT count(*) FROM creator_follow_periods
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM creator_follow_periods
              WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NULL"
-        )),
+            )
+        ),
         "1",
     );
 
-    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::NOT_FOUND);
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
     let denied = creator_page(&app, &cookies).await;
     assert!(!denied.contains("E05 restricted source"));
     assert!(denied.contains(&format!("/me/creators/{author}/unfollow")));
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={reader}"));
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
-    assert!(creator_page(&app, &cookies).await.contains("E05 restricted source"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={reader}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
 
-    pg(&url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"));
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::NOT_FOUND);
-    assert!(!creator_page(&app, &cookies).await.contains("E05 restricted source"));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert!(!creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
     pg(
         &url,
         &format!(
@@ -98,9 +133,17 @@ async fn e_05_s020_creator_follow_http_age_matrix() {
              ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
         ),
     );
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={reader}"));
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
-    assert!(creator_page(&app, &cookies).await.contains("E05 restricted source"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={reader}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
     pg(
         &url,
         &format!(
@@ -108,12 +151,25 @@ async fn e_05_s020_creator_follow_http_age_matrix() {
              WHERE user_id={reader} AND level='pro_adult'"
         ),
     );
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::NOT_FOUND);
-    assert!(!creator_page(&app, &cookies).await.contains("E05 restricted source"));
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert!(!creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
 
-    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}"));
-    assert_eq!(post(&app, &follow, &cookies, ORIGIN, &csrf).await, StatusCode::NOT_FOUND);
-    assert!(!creator_page(&app, &cookies).await.contains("E05 restricted source"));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert!(!creator_page(&app, &cookies)
+        .await
+        .contains("E05 restricted source"));
     assert_eq!(
         post(
             &app,
