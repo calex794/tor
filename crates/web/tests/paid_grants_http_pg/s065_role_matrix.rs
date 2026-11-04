@@ -141,11 +141,12 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             version_id,
         }),
     );
-    assert!(
-        authority.sealed_history(admin_actor, chapter_id).await.unwrap()
-            .iter()
-            .any(|(id, _)| *id == version_id)
-    );
+    assert!(authority
+        .sealed_history(admin_actor, chapter_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|(id, _)| *id == version_id));
     assert_eq!(
         authority
             .sealed_historical_version(
@@ -500,7 +501,11 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         "revoked administrator must lose access to historical sealed versions",
     );
     assert!(
-        authority.sealed_history(admin_actor, chapter_id).await.unwrap().is_empty(),
+        authority
+            .sealed_history(admin_actor, chapter_id)
+            .await
+            .unwrap()
+            .is_empty(),
         "revoked administrator cannot enumerate historical sealed versions"
     );
     // A revoked role cannot keep navigating through the canonical URL.
