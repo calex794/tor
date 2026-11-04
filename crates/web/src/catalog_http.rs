@@ -1,9 +1,9 @@
 //! TOR F-02 catalogue HTTP projection, kept separate from routing shell.
-use super::{cover_http, pages, public_cards, AppState};
+use super::{auth_cookies, cover_http, pages, public_cards, public_reader_http, AppState};
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::Html,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use tor_books::services::DEFAULT_PAGE_SIZE;
@@ -41,8 +41,14 @@ fn requested_page(query: &CatalogQuery) -> Result<u32, StatusCode> {
 pub(super) async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
     if let Some(search) = state.search.as_ref() {
+        // Tokens are obtained from the signed session cookie, never from
+        // a query parameter. The repository rechecks the live session and
+        // Book age on every SQL statement that emits metadata.
+        let digest = public_reader_http::reader_session_digest(&state, &headers);
+        let search = search.with_session_digest(digest);
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
         let sort = query.sort.as_deref().unwrap_or("oldest");
@@ -108,7 +114,7 @@ pub(super) async fn catalog(
             })
             .collect();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::catalog_search_with_covers(
+        let html = pages::catalog_search_with_covers(
             &cards,
             pages::CatalogPageQuery {
                 query: query.q.as_deref().unwrap_or(""),
@@ -124,7 +130,13 @@ pub(super) async fn catalog(
                 options: options.as_ref(),
             },
             &covers,
-        ));
+        );
+        return Ok(if digest.is_some() {
+            // Personalized 18+/21+ metadata must never be cached for guests.
+            auth_cookies::private_response(html, &[])
+        } else {
+            html.into_response()
+        });
     }
     if query.q.is_some()
         || query.after.is_some()
@@ -140,7 +152,8 @@ pub(super) async fn catalog(
     }
     Ok(pages::catalog(
         &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-    ))
+    )
+    .into_response())
 }
 
 #[cfg(test)]
