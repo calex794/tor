@@ -1,3 +1,4 @@
+use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::{
     domain::feedback::{token_digest, Choice, FeedbackReceipt, HiddenBook},
@@ -47,11 +48,17 @@ impl PgRecommendations {
         if commands >= 30 {
             return Err(FeedbackError::Limited);
         }
-        let visible: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rec_public_books WHERE id=$1)")
-                .bind(book)
-                .fetch_one(&mut *tx)
-                .await?;
+        // A live reader grant controls *new* negative feedback, just as it
+        // controls the recommended title. Clearing an existing preference
+        // still works after a grant is revoked, without revealing metadata.
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$2)"
+        );
+        let visible: bool = sqlx::query_scalar(&sql)
+            .bind(actor)
+            .bind(book)
+            .fetch_one(&mut *tx)
+            .await?;
         let old: Option<i64> = sqlx::query_scalar(
             "SELECT revision FROM rec_feedback_state WHERE subject_id=$1::uuid AND book_id=$2",
         )
@@ -93,8 +100,23 @@ impl PgRecommendations {
         if after < 0 {
             return Err(FeedbackError::Invalid);
         }
-        let rows = sqlx::query("SELECT f.book_id::text,b.title,(s.feedback_epoch*$3+f.revision) AS revision FROM rec_feedback_state f JOIN rec_subjects s ON s.subject_id=f.subject_id JOIN rec_public_books b ON b.id=f.book_id WHERE s.user_id=$1 AND s.enabled AND f.hidden AND f.expires_at>now() AND f.book_id>$2 ORDER BY f.book_id LIMIT 20")
-            .bind(actor).bind(after).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
+        // Hidden-book titles are personal metadata: never expose them to a
+        // suspended account, or after its live age entitlement was revoked.
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT f.book_id::text,b.title,(s.feedback_epoch*$3+f.revision) AS revision
+             FROM rec_feedback_state f
+             JOIN rec_subjects s ON s.subject_id=f.subject_id
+             JOIN users u ON u.id=s.user_id AND u.account_state='active'
+             JOIN rec_actor_books b ON b.id=f.book_id
+             WHERE s.user_id=$1 AND s.enabled AND f.hidden AND f.expires_at>now()
+               AND f.book_id>$2 ORDER BY f.book_id LIMIT 20"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(actor)
+            .bind(after)
+            .bind(REVISION_STRIDE)
+            .fetch_all(&self.pool)
+            .await?;
         rows.into_iter()
             .map(|r| {
                 Ok(HiddenBook {
