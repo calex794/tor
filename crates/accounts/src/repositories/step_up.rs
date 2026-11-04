@@ -29,8 +29,13 @@ impl PgAccounts {
         decision_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
         self.issue_refund_decision_step_up(
-            REFUND_APPROVE_SCOPE, actor, session_digest, verified_password,
-            request_id, expected_revision, decision_digest,
+            REFUND_APPROVE_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            request_id,
+            expected_revision,
+            decision_digest,
         )
         .await
     }
@@ -46,8 +51,13 @@ impl PgAccounts {
         decision_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
         self.issue_refund_decision_step_up(
-            REFUND_REJECT_SCOPE, actor, session_digest, verified_password,
-            request_id, expected_revision, decision_digest,
+            REFUND_REJECT_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            request_id,
+            expected_revision,
+            decision_digest,
         )
         .await
     }
