@@ -564,7 +564,9 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         inbox.list(users[0], InboxFilter::All, None, 25).await.unwrap().items.len(),
         2
     );
-    sqlx::query("UPDATE account_roles SET is_active=FALSE WHERE user_id=$1 AND role='administrator'")
+    sqlx::query(
+        "UPDATE account_roles SET is_active=FALSE WHERE user_id=$1 AND role='administrator'",
+    )
         .bind(users[0])
         .execute(&pool)
         .await
