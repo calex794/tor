@@ -126,8 +126,23 @@ impl PgRecommendations {
         }
         let generation = generation.expect("eligible generation");
         let seeds = candidate_seeds(seed, &recent);
-        let rows=sqlx::query("SELECT seed_id,book_id,source,reason,score FROM rec_candidate_edges WHERE generation_id=$1::uuid AND seed_id=ANY($2::bigint[]) ORDER BY seed_id,score DESC,book_id::text LIMIT 500")
-            .bind(&generation).bind(&seeds).fetch_all(&self.pool).await?;
+        // Gate candidates BEFORE the 500-edge bound. Otherwise hundreds of
+        // high-scoring but inaccessible adult/21+ edges can displace a visible
+        // basic candidate; a final metadata check alone cannot recover it.
+        // The same live gate is rechecked below for concurrent revocations.
+        let sql = format!(
+            "{ACTOR_DISCOVERY_CTE} SELECT e.seed_id,e.book_id,e.source,e.reason,e.score
+             FROM rec_candidate_edges e
+             JOIN rec_actor_books allowed ON allowed.id=e.book_id
+             WHERE e.generation_id=$2::uuid AND e.seed_id=ANY($3::bigint[])
+             ORDER BY e.seed_id,e.score DESC,e.book_id::text LIMIT 500"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(actor)
+            .bind(&generation)
+            .bind(&seeds)
+            .fetch_all(&self.pool)
+            .await?;
         let mut candidates = Vec::new();
         let mut dedicated = BTreeSet::new();
         for row in rows {
