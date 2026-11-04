@@ -36,4 +36,3 @@ async fn s020_suspended_rec_actor_cannot_reuse_private_consent_subject() {
         "stale actor IDs may only receive anonymous public metadata"
     );
 }
-

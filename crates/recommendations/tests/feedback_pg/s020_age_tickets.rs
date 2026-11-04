@@ -109,7 +109,9 @@ async fn s020_suspended_actor_cannot_issue_activate_or_record() {
         .await
         .unwrap();
     assert!(matches!(
-        store.issue_tickets(actor, &[7; 32], Surface::Home, feed(book)).await,
+        store
+            .issue_tickets(actor, &[7; 32], Surface::Home, feed(book))
+            .await,
         Err(FeedbackError::Forbidden)
     ));
     assert_eq!(
