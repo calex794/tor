@@ -503,6 +503,142 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let guest = author_chapter_page(&app, public, "", None).await;
     assert_eq!(guest.0, StatusCode::SEE_OTHER);
 
+    // S020: the POST route must recheck age, even when a reader submits a
+    // stale follow form or constructs a Book ID without visiting its page.
+    // A follow is not a purchase and must never grant reading access.
+    let restricted: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s020:follow:{nonce}','ru','Tier-gated Book','public',{first},'adult')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let restricted_follow = format!("/me/books/{restricted}/follow");
+    let restricted_unfollow = format!("/me/books/{restricted}/unfollow");
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "0"
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND,
+        "an old follow intent cannot bypass revoked adult consent"
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER,
+        "removal of a preexisting follow remains available after revocation"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({second},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    // The site administrator's separately active global role bypasses the
+    // age tier. Book moderators and ordinary owners receive no such bypass.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({first},'administrator',TRUE)"
+        ),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=FALSE WHERE user_id={first}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &one, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "0"
+    );
+    // Defence in depth: an already-suspended user cannot create a follow
+    // even through a future internal caller without a web-session check.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={restricted}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET account_state='suspended' WHERE id={first}"),
+    );
+    assert_eq!(
+        tor_reading::repositories::PgBookFollows::new(pool.clone())
+            .follow(first, restricted)
+            .await,
+        Err(tor_reading::repositories::FollowError::NotFound)
+    );
+
     // CI drops its isolated tor_ci database; deleting these owned books
     // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
     pool.close().await;

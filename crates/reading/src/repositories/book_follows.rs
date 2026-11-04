@@ -23,8 +23,26 @@ impl PgBookFollows {
         if user_id <= 0 || book_id <= 0 {
             return Err(FollowError::Invalid);
         }
+        // Book-detail GET may have preceded a tier revocation. A direct
+        // CSRF-valid follow POST must recheck the current actor and Book tier
+        // in the same statement that creates the persistent follow intent.
+        // Unfollow stays independent from age rights to permit cleanup.
         let found: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO reader_book_follows (user_id, book_id)              SELECT $1, b.id FROM books b WHERE b.id = $2              AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id = EXCLUDED.book_id RETURNING book_id"
+            "INSERT INTO reader_book_follows (user_id, book_id)
+             SELECT $1, b.id FROM books b
+             JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active'
+             WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                     SELECT 1 FROM user_level_grants g
+                     WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                 OR EXISTS (
+                     SELECT 1 FROM account_roles role
+                     WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
+             ON CONFLICT (user_id, book_id) DO UPDATE SET book_id=EXCLUDED.book_id
+             RETURNING book_id",
         )
         .bind(user_id)
         .bind(book_id)
