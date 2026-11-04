@@ -508,5 +508,11 @@ async fn e_08_s020_room_live_age_revocation_preserves_membership_without_disclos
         .unwrap();
     rooms.join(reader, book).await.unwrap();
     assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 2);
+    // The test's 21+ entitlement has a RESTRICT FK to users.
+    sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
     cleanup(&pool, &users).await;
 }
