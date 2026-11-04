@@ -92,7 +92,7 @@ impl PgCreatorFollows {
         let mut tx = self.pool.begin().await?;
         // Serializing the reader's own follow commands also fences rapid
         // follow/unfollow/re-follow requests across browsers.
-        let actor: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        let actor: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE")
             .bind(follower)
             .fetch_optional(&mut *tx)
             .await?;
@@ -101,8 +101,19 @@ impl PgCreatorFollows {
         }
         let creator: Option<i64> = sqlx::query_scalar(
             "SELECT b.owner_user_id FROM books AS b
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              WHERE b.id=$1 AND b.owner_user_id IS NOT NULL
                AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                     SELECT 1 FROM user_level_grants age
+                     WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                       AND age.is_active FOR SHARE OF age))
+                 OR EXISTS (
+                     SELECT 1 FROM account_roles role
+                     WHERE role.user_id=viewer.id AND role.role='administrator'
+                       AND role.is_active FOR SHARE OF role))
                AND EXISTS (
                    SELECT 1 FROM book_members AS m WHERE m.book_id=b.id
                      AND m.user_id=b.owner_user_id AND m.role='owner' AND m.is_active
@@ -110,6 +121,7 @@ impl PgCreatorFollows {
              FOR SHARE OF b",
         )
         .bind(book_id)
+        .bind(follower)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(creator) = creator else {
@@ -161,8 +173,9 @@ impl PgCreatorFollows {
         Ok(())
     }
 
-    /// Keyset paged, actor-private list. The historical source Book is shown
-    /// only if it is still public; an old hidden Book never leaks its title.
+    /// Keyset paged, actor-private list. Creator follow periods remain visible
+    /// after Book age revocation, but source Book names require live B age rights
+    /// in the same SQL statement. Hidden and unknown legacy tiers never leak.
     pub async fn list_active(
         &self,
         follower: i64,
@@ -178,8 +191,21 @@ impl PgCreatorFollows {
                     b.id AS source_book_id,b.title AS source_book_title
              FROM creator_follow_periods AS p
              JOIN users AS u ON u.id=p.creator_user_id
+             LEFT JOIN users AS viewer ON viewer.id=p.follower_user_id
+                  AND viewer.account_state='active'
              LEFT JOIN books AS b ON b.id=p.source_book_id
                   AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND viewer.id IS NOT NULL
+                  AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND viewer.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants age
+                        WHERE age.user_id=viewer.id AND age.level='pro_adult'
+                          AND age.is_active))
+                    OR EXISTS (
+                        SELECT 1 FROM account_roles role
+                        WHERE role.user_id=viewer.id AND role.role='administrator'
+                          AND role.is_active))
              WHERE p.follower_user_id=$1 AND p.ended_at IS NULL
                  AND ($2::bigint IS NULL OR p.id<$2)
              ORDER BY p.id DESC LIMIT 21",
