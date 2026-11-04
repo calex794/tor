@@ -67,7 +67,7 @@ pub(super) async fn list(
         return deny(StatusCode::NOT_FOUND);
     };
     if !state
-        .rate_limits
+        .history_rate_limits
         .lock()
         .await
         .allow(actor_id.get(), Instant::now())
@@ -113,7 +113,7 @@ pub(super) async fn grant(
         return deny(StatusCode::NOT_FOUND);
     };
     if !state
-        .rate_limits
+        .history_rate_limits
         .lock()
         .await
         .allow(actor_id.get(), Instant::now())
@@ -175,7 +175,7 @@ pub(super) async fn asset(
         return deny(StatusCode::NOT_FOUND);
     };
     if !state
-        .rate_limits
+        .history_rate_limits
         .lock()
         .await
         .allow(actor_id.get(), Instant::now())
