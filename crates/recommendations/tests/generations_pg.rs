@@ -440,17 +440,19 @@ async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
     // Repository callers must not reuse a verified actor id after A suspends
     // the account. HTTP session checks alone leave a revocation race window.
     sqlx::query(
-        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1"
+        "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1",
     )
     .bind(adult)
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query("UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1 AND level='pro_adult'")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1 AND level='pro_adult'",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
         .bind(actor)
         .execute(&pool)
