@@ -224,6 +224,78 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     assert!(!mine_html.contains("Заголовок <like>"));
     assert!(!mine_html.contains("user_id"));
 
+    // S020: a bookmarked like cannot reveal the title or accept writes after
+    // revoking Book age access. Both 18+ and independent 21+ are live facts.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(likes.public_count(book).await.unwrap(), None);
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &like, &cookie_a, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user_a}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({user_a},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user_a}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user_a}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+
     assert_eq!(
         call(&app, "POST", &like, &cookie_a, ORIGIN, &remove)
             .await
@@ -293,6 +365,12 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
 
+    // The temporary 21+ grant has a RESTRICT FK to users; remove it
+    // before verifying that erasing the reader removes only their like.
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={user_a}"),
+    );
     // Reader erasure must not leave ghost popularity.
     pg(&url, &format!("DELETE FROM users WHERE id={user_a}"));
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));

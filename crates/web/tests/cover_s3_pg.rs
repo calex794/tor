@@ -60,7 +60,18 @@ async fn pg_sql(url: &str, sql: &str) -> String {
     let sql = sql.to_owned();
     tokio::task::spawn_blocking(move || {
         let output = std::process::Command::new("psql")
-            .args(["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-d", &url, "-c", &sql])
+            .args([
+                "-X",
+                "-q",
+                "-t",
+                "-A",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-d",
+                &url,
+                "-c",
+                &sql,
+            ])
             .output()
             .expect("disposable CI psql");
         assert!(
@@ -244,19 +255,18 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     )
     .await;
     assert!(
-        slots.public_card_ids(&[BOOK_ID as u64])
+        slots
+            .public_card_ids(&[BOOK_ID as u64])
             .await
             .unwrap()
             .is_empty(),
         "a deleted Book cannot appear in homepage/catalog cover projections"
     );
-    assert!(
-        slots
-            .public_variant(BOOK_ID, PublicCoverKind::Card)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(slots
+        .public_variant(BOOK_ID, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
     for kind in ["card", "main"] {
         assert_eq!(
             request(&app, &format!("/covers/{BOOK_ID}/{kind}.webp"))
@@ -268,9 +278,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     }
     pg_sql(
         &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='{previous_lifecycle}' WHERE id={BOOK_ID}"
-        ),
+        &format!("UPDATE books SET lifecycle_status='{previous_lifecycle}' WHERE id={BOOK_ID}"),
     )
     .await;
     assert_eq!(

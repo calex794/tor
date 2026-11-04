@@ -129,6 +129,7 @@ impl PgPublicChapterComments {
         let source = sqlx::query_scalar::<_, String>(
             "SELECT v.body_markdown FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN users actor ON actor.id=$3 AND actor.account_state='active'
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
              WHERE c.id=$1 AND p.version_id=$2 AND b.visibility='public' AND b.visibility_status='active'
@@ -136,10 +137,17 @@ impl PgPublicChapterComments {
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-             FOR SHARE OF b,c,p,v",
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND actor.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants age
+                   WHERE age.user_id=actor.id AND age.level='pro_adult'
+                     AND age.is_active FOR SHARE OF age)))
+             FOR SHARE OF b,c,p,v,actor",
         )
         .bind(comment.chapter_id)
         .bind(comment.version_id)
+        .bind(actor_id)
         .fetch_optional(&mut *tx)
         .await;
         let source = match source {
@@ -249,6 +257,20 @@ impl PgPublicChapterComments {
         after_id: Option<i64>,
         limit: u16,
     ) -> Result<Option<ChapterCommentPage>, ListError> {
+        self.list_free_for_session(chapter_id, version_id, after_id, limit, None)
+            .await
+    }
+
+    /// Recheck the actor's live age right in the statement returning comment
+    /// bodies. The public wrapper intentionally allows basic books only.
+    pub async fn list_free_for_session(
+        &self,
+        chapter_id: i64,
+        version_id: i64,
+        after_id: Option<i64>,
+        limit: u16,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<ChapterCommentPage>, ListError> {
         if chapter_id <= 0
             || version_id <= 0
             || limit == 0
@@ -272,10 +294,19 @@ impl PgPublicChapterComments {
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               AND (b.access_level='basic' OR EXISTS (
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id
+                 WHERE sess.token_hash=$3::bytea AND sess.revoked_at IS NULL
+                   AND sess.expires_at>now() AND acct.account_state='active'
+                   AND ((b.access_level='adult' AND acct.adult_enabled)
+                     OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants age
+                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active)))))
              FOR SHARE OF b,c,p,v",
         )
         .bind(chapter_id)
         .bind(version_id)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| ListError::Unavailable)?;
@@ -295,9 +326,25 @@ impl PgPublicChapterComments {
         >(
             "SELECT c.id,c.parent_id,c.body,a.block_key,a.start_utf16,a.end_utf16
              FROM discussion_comments c
+             JOIN chapters ch ON ch.id=c.chapter_id
+             JOIN books b ON b.id=ch.book_id
+             JOIN chapter_publications p ON p.chapter_id=ch.id AND p.version_id=c.version_id
              LEFT JOIN discussion_anchors a ON a.comment_id=c.id
              WHERE c.chapter_id=$1 AND c.version_id=$2
                AND c.visibility='visible'
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND ch.visibility='public' AND ch.access_level='free'
+               AND NOT ch.admin_hold AND NOT ch.is_deleted
+               AND (ch.reader_released_at IS NULL OR ch.reader_released_at<=now())
+               AND (b.access_level='basic' OR EXISTS (
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id
+                 WHERE sess.token_hash=$5::bytea AND sess.revoked_at IS NULL
+                   AND sess.expires_at>now() AND acct.account_state='active'
+                   AND ((b.access_level='adult' AND acct.adult_enabled)
+                     OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants age
+                       WHERE age.user_id=acct.id AND age.level='pro_adult' AND age.is_active)))))
                AND ($3::bigint IS NULL OR c.id<$3)
                AND (c.parent_id IS NULL OR EXISTS(
                  SELECT 1 FROM discussion_comments parent
@@ -309,6 +356,7 @@ impl PgPublicChapterComments {
         .bind(version_id)
         .bind(after_id)
         .bind(i64::from(limit) + 1)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ListError::Unavailable)?;
