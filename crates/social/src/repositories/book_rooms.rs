@@ -29,14 +29,29 @@ fn missing_or_unavailable(error: sqlx::Error) -> MailError {
     }
 }
 
-/// Lock the canonical book row against a concurrent draft/hold/deletion.
-/// This check is performed separately for join, send and read, not only join.
-async fn public_book(tx: &mut Transaction<'_, Postgres>, book_id: i64) -> Result<(), MailError> {
+/// Lock the Book, live reader account and qualifying 21+ grant until
+/// transaction commit. A revocation or Book-tier change must not race a
+/// message read/send after the initial eligibility check.
+async fn public_book(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: i64,
+    book_id: i64,
+) -> Result<(), MailError> {
     let available: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active'
-         AND NOT admin_hold AND NOT is_deleted FOR SHARE",
+        "SELECT b.id FROM books b
+         JOIN users u ON u.id=$2 AND u.account_state='active'
+         WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+           AND NOT b.admin_hold AND NOT b.is_deleted
+           AND (b.access_level='basic'
+                OR (b.access_level='adult' AND u.adult_enabled)
+                OR (b.access_level='pro_adult' AND EXISTS (
+                    SELECT 1 FROM user_level_grants age
+                    WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active
+                    FOR SHARE OF age)))
+         FOR SHARE OF b,u",
     )
     .bind(book_id)
+    .bind(actor)
     .fetch_optional(&mut **tx)
     .await
     .map_err(unavailable)?;
@@ -85,8 +100,14 @@ impl PgBookRooms {
                  SELECT 1 FROM social_book_room_members m
                  WHERE m.book_id=b.id AND m.user_id=$2 AND m.status='active')
              FROM books b
+             JOIN users u ON u.id=$2 AND u.account_state='active'
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND u.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants age
+                        WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active)))",
         )
         .bind(book_id)
         .bind(actor)
@@ -104,7 +125,7 @@ impl PgBookRooms {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        public_book(&mut tx, book_id).await?;
+        public_book(&mut tx, actor, book_id).await?;
         let active_actor: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
         )
@@ -177,7 +198,7 @@ impl PgBookRooms {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        public_book(&mut tx, book_id).await?;
+        public_book(&mut tx, actor, book_id).await?;
         active_membership(&mut tx, actor, book_id, false).await?;
         let mut rows = sqlx::query_as::<_, (i64, i64, String, String)>(
             "SELECT m.id,m.sender_id,u.display_name,m.body
@@ -219,7 +240,7 @@ impl PgBookRooms {
         }
         let body = clean_body(body)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        public_book(&mut tx, book_id).await?;
+        public_book(&mut tx, actor, book_id).await?;
         // Sequence message IDs by book room, rather than by sender.
         // Keep this lock through the insert/commit so a later ID cannot
         // become visible before a delayed, lower-ID message.

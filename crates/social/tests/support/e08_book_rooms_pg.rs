@@ -10,32 +10,32 @@ async fn e_08_book_rooms_canonical_join_rejoin_visibility_and_retry() {
         .unwrap()
         .as_nanos();
     let first: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Book room public','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Book room public','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:public:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let draft: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Book room hidden','draft') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Book room hidden','draft','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:draft:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let held: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
-         VALUES($1,'ru','Book room held','public',true) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold,access_level)
+         VALUES($1,'ru','Book room held','public',true,'basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:held:{nonce}"))
     .fetch_one(&pool)
     .await
     .unwrap();
     let other: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Second public room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Second public room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:other:{nonce}"))
     .fetch_one(&pool)
@@ -165,8 +165,8 @@ async fn e_08_book_room_send_cannot_race_leave_or_moderation_hold() {
         .unwrap()
         .as_nanos();
     let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Race-tested book room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Race-tested book room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:race:{nonce}"))
     .fetch_one(&pool)
@@ -292,8 +292,8 @@ async fn e_08_book_room_commit_order_preserves_pagination() {
         .unwrap()
         .as_nanos();
     let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Ordered book room','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Ordered book room','public','basic') RETURNING id",
     )
     .bind(format!("ci:e08:room:ordered:{nonce}"))
     .fetch_one(&pool)
@@ -383,4 +383,136 @@ async fn e_08_book_room_commit_order_preserves_pagination() {
     second_pool.close().await;
     cleanup(&pool, &users).await;
     // Book/room fixture rows remain only in the disposable tor_ci database.
+}
+
+/// S020/#486: room titles and bodies obey the current viewer Book age tier.
+/// A membership or previously delivered message never becomes an age grant.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_s020_room_live_age_revocation_preserves_membership_without_disclosure() {
+    let (pool, users) = fixture().await;
+    let (reader, outsider) = (users[0], users[1]);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','S020 age-controlled room','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:s020:e08:room:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let rooms = PgBookRooms::new(pool.clone());
+    rooms.join(reader, book).await.unwrap();
+    rooms.send(reader, book, "Room content behind age gate", &key(930))
+        .await
+        .unwrap();
+    assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 1);
+
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rooms.overview(reader, book).await, Err(MailError::NotFound));
+    assert_eq!(rooms.join(outsider, book).await, Err(MailError::NotFound));
+    assert_eq!(
+        rooms.messages(reader, book, None, 50).await,
+        Err(MailError::NotFound)
+    );
+    assert_eq!(
+        rooms.send(reader, book, "No adult opt-in", &key(931)).await,
+        Err(MailError::NotFound)
+    );
+
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(rooms.overview(reader, book).await.unwrap().1);
+    assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 1);
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rooms.overview(reader, book).await, Err(MailError::NotFound));
+    assert_eq!(
+        rooms.messages(reader, book, None, 50).await,
+        Err(MailError::NotFound)
+    );
+
+    // The 21+ grant is independent of the 18+ toggle.
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(reader)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(rooms.overview(reader, book).await.unwrap().1);
+    assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 1);
+    rooms.send(reader, book, "Still eligible with 21+ grant", &key(932))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE user_level_grants SET is_active=FALSE
+         WHERE user_id=$1 AND level='pro_adult'",
+    )
+    .bind(reader)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rooms.overview(reader, book).await, Err(MailError::NotFound));
+    assert_eq!(
+        rooms.send(reader, book, "Revoked 21+", &key(933)).await,
+        Err(MailError::NotFound)
+    );
+    assert_eq!(
+        rooms.messages(reader, book, None, 50).await,
+        Err(MailError::NotFound)
+    );
+
+    // No Book age gate may prevent quitting an old room membership.
+    rooms.leave(reader, book).await.unwrap();
+    sqlx::query("UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!rooms.overview(reader, book).await.unwrap().1);
+    assert_eq!(
+        rooms.messages(reader, book, None, 50).await,
+        Err(MailError::NotFound)
+    );
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rooms.overview(reader, book).await, Err(MailError::NotFound));
+    assert_eq!(rooms.join(reader, book).await, Err(MailError::NotFound));
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    rooms.join(reader, book).await.unwrap();
+    assert_eq!(rooms.messages(reader, book, None, 50).await.unwrap().len(), 2);
+    // The test's 21+ entitlement has a RESTRICT FK to users.
+    sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
+        .bind(reader)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
 }
