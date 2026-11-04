@@ -44,10 +44,14 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/asset_fixture.rs"]
 mod asset_fixture;
+#[path = "paid_grants_s3_pg/completion_helpers.rs"]
+mod completion_helpers;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/s020_paid_completion_age.rs"]
+mod s020_paid_completion_age;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
@@ -56,10 +60,6 @@ mod s035_browser;
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
 mod s065_admin_browser;
-#[path = "paid_grants_s3_pg/completion_helpers.rs"]
-mod completion_helpers;
-#[path = "paid_grants_s3_pg/s020_paid_completion_age.rs"]
-mod s020_paid_completion_age;
 
 use completion_helpers::request_completion;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
