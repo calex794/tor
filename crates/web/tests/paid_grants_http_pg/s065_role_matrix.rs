@@ -262,6 +262,60 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert!(!html.contains("ciphertext_url"));
     assert!(!html.contains("data-purchase-id"));
 
+    // S020/#486: site-administrator inspection is independent of the ordinary
+    // reader's adult opt-in and pro_adult grant. Do not invent either right.
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={admin_id}"),
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!("SELECT adult_enabled::integer FROM users WHERE id={admin_id}")
+        ),
+        0
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM user_level_grants WHERE user_id={admin_id} \\
+                 AND level='pro_adult' AND is_active"
+            )
+        ),
+        0
+    );
+    for tier in ["adult", "pro_adult"] {
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
+        );
+        assert_eq!(
+            read_page(reader, &page, Some(&admin_session))
+                .await
+                .status(),
+            StatusCode::OK,
+            "site administrator must retain the sealed reader at {tier}"
+        );
+    }
+    pg(
+        url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        read_page(reader, &page, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::OK,
+        "legacy unknown age tier must not strip site-admin inspection"
+    );
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    // The existing chapter+image S3 grant assertions below run at pro_adult,
+    // with no viewer grant and without changing audit or signed-object counts.
+
     assert_eq!(
         send(
             grants,
@@ -307,6 +361,10 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert_eq!(value["version_id"], version.to_string());
     assert_eq!(value["object_id"], ASSET_UUID);
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     assert_eq!(
         scalar(
             url,
