@@ -99,6 +99,8 @@ export async function startAdministratorReader(root) {
   const known = new Map();
   let selectedHistorical = false;
   let renderSequence = 0;
+  let unsealedHistorySelect = null;
+  let sealedHistorySelect = null;
 
   const clear = () => {
     closed = true;
@@ -236,11 +238,13 @@ export async function startAdministratorReader(root) {
         select.append(option);
       }
       if (select.options.length) {
+        unsealedHistorySelect = select;
         label.append(select);
         status.after(label);
         select.addEventListener("change", async () => {
           const request = beginVersionChange();
           const chosen = select.value;
+          if (sealedHistorySelect) sealedHistorySelect.selectedIndex = -1;
           selectedHistorical = false;
           status.textContent = "Проверка доступа к редакции…";
           try {
@@ -285,12 +289,20 @@ export async function startAdministratorReader(root) {
         option.selected = entry.version_id === versionId;
         select.append(option);
       }
+      // A current unsealed draft has no selected sealed edition. Browsers
+      // otherwise auto-select the first option, making a single historical
+      // edition impossible to choose through a native "change" event.
+      if (!history.versions.some(entry => entry.version_id === versionId)) {
+        select.selectedIndex = -1;
+      }
       if (select.options.length) {
+        sealedHistorySelect = select;
         label.append(select);
         status.after(label);
         select.addEventListener("change", async () => {
           const request = beginVersionChange();
           const chosen = select.value;
+          if (unsealedHistorySelect) unsealedHistorySelect.selectedIndex = -1;
           status.textContent = "Проверка доступа к редакции…";
           try {
             const grant = await adminSealedHistory(chapter, csrf, chosen);
