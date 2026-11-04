@@ -56,14 +56,12 @@ async fn s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(chapter)
-    .bind(version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
     let repo = PgPublicChapterComments::new(pool.clone());
     let first_key = "a".repeat(43);
     let first = NewChapterComment {
@@ -94,7 +92,10 @@ async fn s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(repo.list_free(chapter, version, None, 20).await.unwrap(), None);
+    assert_eq!(
+        repo.list_free(chapter, version, None, 20).await.unwrap(),
+        None
+    );
     assert_eq!(
         repo.list_free_for_session(chapter, version, None, 20, Some(&digest))
             .await
@@ -222,7 +223,10 @@ async fn s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(repo.list_free(chapter, version, None, 20).await.unwrap(), None);
+    assert_eq!(
+        repo.list_free(chapter, version, None, 20).await.unwrap(),
+        None
+    );
 
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
         .bind(book)
@@ -245,12 +249,11 @@ async fn s020_free_chapter_comments_recheck_live_age_for_read_and_write() {
             .unwrap(),
         None,
     );
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM discussion_comments WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM discussion_comments WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 3, "rejected age requests must not create comments");
 }

@@ -203,7 +203,13 @@ pub(super) async fn reader_page(
         };
         let store = PgPublicChapterComments::new(catalog.pool().clone());
         match store
-            .list_free_for_session(chapter_id, version_id, query.comments_after, 25, digest.as_ref())
+            .list_free_for_session(
+                chapter_id,
+                version_id,
+                query.comments_after,
+                25,
+                digest.as_ref(),
+            )
             .await
         {
             Ok(Some(comments)) => Some(comments),
