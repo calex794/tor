@@ -430,15 +430,27 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         StatusCode::NOT_FOUND
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::NOT_FOUND, false,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
     pg(
         &url,
         &format!("UPDATE users SET adult_enabled=TRUE WHERE id={reader_user}"),
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::OK, true,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::OK,
+        true,
+    )
+    .await;
     assert_eq!(
         send(
             &app,
@@ -486,8 +498,14 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         StatusCode::NOT_FOUND
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::NOT_FOUND, false,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
     pg(
         &url,
         &format!(
@@ -496,8 +514,14 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         ),
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::OK, true,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::OK,
+        true,
+    )
+    .await;
     let (status, saved) = send(
         &app,
         "PUT",
@@ -529,15 +553,27 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         StatusCode::NOT_FOUND
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::NOT_FOUND, false,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
     pg(
         &url,
         &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
     );
     assert_age_comment_page(
-        &app, chapter_id, Some(&reader_token), &csrf, StatusCode::NOT_FOUND, false,
-    ).await;
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
     assert_eq!(
         send(
             &app,
