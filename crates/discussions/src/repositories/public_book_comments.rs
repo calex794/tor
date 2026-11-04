@@ -75,9 +75,22 @@ impl PgPublicBookComments {
              LEFT JOIN account_settings s ON s.user_id=u.id
              JOIN discussion_comments c ON c.author_user_id=u.id
              JOIN books b ON b.id=c.book_id
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              WHERE c.book_id=$1 AND c.visibility='visible'
                AND c.chapter_id IS NULL AND c.version_id IS NULL
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND viewer.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                      SELECT 1 FROM user_level_grants grant_row
+                      WHERE grant_row.user_id=viewer.id
+                        AND grant_row.level='pro_adult' AND grant_row.is_active))
+                    OR EXISTS (
+                      SELECT 1 FROM account_roles role
+                      WHERE role.user_id=viewer.id AND role.role='administrator'
+                        AND role.is_active))
                AND u.id<>$2
                AND (
                  left(lower(u.display_name),char_length($3::text))=lower($3)
@@ -150,11 +163,26 @@ impl PgPublicBookComments {
         // Lock publication state: a parallel withdrawal cannot race past the
         // comment insert. Hidden/held/deleted objects never permit a new write.
         let allowed = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM books
-             WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND NOT admin_hold AND NOT is_deleted FOR SHARE",
+            "SELECT b.id FROM books b
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                    OR (b.access_level='adult' AND viewer.adult_enabled)
+                    OR (b.access_level='pro_adult' AND EXISTS (
+                      SELECT 1 FROM user_level_grants grant_row
+                      WHERE grant_row.user_id=viewer.id
+                        AND grant_row.level='pro_adult' AND grant_row.is_active
+                      FOR SHARE OF grant_row))
+                    OR EXISTS (
+                      SELECT 1 FROM account_roles role
+                      WHERE role.user_id=viewer.id AND role.role='administrator'
+                        AND role.is_active FOR SHARE OF role))
+             FOR SHARE OF b,viewer",
         )
         .bind(book_id)
+        .bind(actor_id)
         .fetch_optional(&mut *tx)
         .await;
         match allowed {
