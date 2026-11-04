@@ -6,30 +6,29 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
     let (pool, store, actor, book) = fixture("s020-age-ticket").await;
     enable(&store, actor).await;
     let sample = || feed(book);
+
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(store
+    let denied = store
         .issue_tickets(actor, &[7; 32], Surface::Home, sample())
         .await
-        .unwrap()
-        .items
-        .is_empty());
+        .unwrap();
+    assert!(denied.items.is_empty());
+
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
-    let adult = store
+    let mut issued = store
         .issue_tickets(actor, &[7; 32], Surface::Home, sample())
         .await
-        .unwrap()
-        .items
-        .remove(0)
-        .ticket
         .unwrap();
+    let adult = issued.items.remove(0).ticket.unwrap();
+
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(actor)
         .execute(&pool)
@@ -45,17 +44,18 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
         .await
         .unwrap();
     assert_eq!(store.activate(actor, &[7; 32], &adult).await.unwrap(), book);
+
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(store
+    let denied = store
         .issue_tickets(actor, &[7; 32], Surface::Home, sample())
         .await
-        .unwrap()
-        .items
-        .is_empty());
+        .unwrap();
+    assert!(denied.items.is_empty());
+
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)
@@ -65,14 +65,12 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
     .execute(&pool)
     .await
     .unwrap();
-    let pro = store
+    let mut issued = store
         .issue_tickets(actor, &[7; 32], Surface::Home, sample())
         .await
-        .unwrap()
-        .items
-        .remove(0)
-        .ticket
         .unwrap();
+    let pro = issued.items.remove(0).ticket.unwrap();
+
     sqlx::query(
         "UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1 AND level='pro_adult'",
     )
@@ -97,4 +95,29 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
     .await
     .unwrap();
     assert_eq!(attributed, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s020_suspended_actor_cannot_issue_activate_or_record() {
+    let (pool, store, actor, book) = fixture("s020-suspended-assignment").await;
+    enable(&store, actor).await;
+    let ticket = assignment(&store, actor, book).await;
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.issue_tickets(actor, &[7; 32], Surface::Home, feed(book)).await,
+        Err(FeedbackError::Forbidden)
+    ));
+    assert_eq!(
+        store.activate(actor, &[7; 32], &ticket).await,
+        Err(FeedbackError::Forbidden)
+    );
+    assert_eq!(
+        store.record_book_open(actor, &[7; 32], book).await,
+        Err(FeedbackError::Forbidden)
+    );
 }

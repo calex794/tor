@@ -43,7 +43,9 @@ async fn lock_subject(
     actor: i64,
 ) -> Result<String, FeedbackError> {
     sqlx::query_scalar(
-        "SELECT subject_id::text FROM rec_subjects WHERE user_id=$1 AND enabled FOR UPDATE",
+        "SELECT s.subject_id::text FROM rec_subjects s
+         JOIN users u ON u.id=s.user_id AND u.account_state='active'
+         WHERE s.user_id=$1 AND s.enabled FOR UPDATE OF s FOR SHARE OF u",
     )
     .bind(actor)
     .fetch_optional(&mut **tx)
