@@ -53,6 +53,41 @@ async fn request(app: &axum::Router, path: &str) -> axum::response::Response {
         .expect("local router must return HTTP response")
 }
 
+// Run lifecycle mutations outside the async PostgreSQL executor. A synchronous
+// psql call on its worker thread can deadlock a single-threaded Tokio test.
+async fn pg_sql(url: &str, sql: &str) -> String {
+    let url = url.to_owned();
+    let sql = sql.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let output = std::process::Command::new("psql")
+            .args([
+                "-X",
+                "-q",
+                "-t",
+                "-A",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-d",
+                &url,
+                "-c",
+                &sql,
+            ])
+            .output()
+            .expect("disposable CI psql");
+        assert!(
+            output.status.success(),
+            "disposable CI SQL failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("UTF-8 psql output")
+            .trim()
+            .to_owned()
+    })
+    .await
+    .expect("blocking SQL task")
+}
+
 fn local_client() -> Client {
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback S3 endpoint");
     assert!(
@@ -197,6 +232,64 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(
         request(&app, "/covers/951/card.webp").await.status(),
         StatusCode::NOT_FOUND
+    );
+
+    // An old same-origin cover URL must stop resolving when its public Book is
+    // pending deletion, and both list projection and both variants must agree.
+    // Existing private S3 variants stay stored; only public access is revoked.
+    let previous_lifecycle = pg_sql(
+        &url,
+        &format!("SELECT lifecycle_status FROM books WHERE id={BOOK_ID}"),
+    )
+    .await;
+    assert!(
+        ["in_progress", "completed", "abandoned", "on_hiatus"]
+            .contains(&previous_lifecycle.as_str()),
+        "expected a public, non-deleting fixture"
+    );
+    let initial_cards = slots.public_card_ids(&[BOOK_ID as u64]).await.unwrap();
+    assert!(initial_cards.contains(&(BOOK_ID as u64)));
+    pg_sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={BOOK_ID}"),
+    )
+    .await;
+    assert!(
+        slots
+            .public_card_ids(&[BOOK_ID as u64])
+            .await
+            .unwrap()
+            .is_empty(),
+        "a deleted Book cannot appear in homepage/catalog cover projections"
+    );
+    assert!(slots
+        .public_variant(BOOK_ID, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
+    for kind in ["card", "main"] {
+        assert_eq!(
+            request(&app, &format!("/covers/{BOOK_ID}/{kind}.webp"))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "previous cover URL must be revoked"
+        );
+    }
+    pg_sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='{previous_lifecycle}' WHERE id={BOOK_ID}"),
+    )
+    .await;
+    assert_eq!(
+        request(&app, "/covers/950/card.webp").await.status(),
+        StatusCode::OK,
+        "restoring a public Book reuses the same validated cover"
+    );
+    assert_eq!(
+        slots.current_slot(BOOK_ID).await.unwrap(),
+        Some((job, 1)),
+        "lifecycle revocation does not publish a new cover revision"
     );
 
     // A malicious provider writer can forge HEAD metadata. The public HTTP
