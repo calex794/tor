@@ -16,10 +16,11 @@ assert(temp && fixtureFile && path.resolve(fixtureFile).startsWith(
   path.resolve(temp) + path.sep), "only disposable runner fixtures allowed");
 const fixture = JSON.parse(fs.readFileSync(fixtureFile, "utf8"));
 const { admin_id, admin_session, outsider_session, chapter_id, version_id,
-  asset_object_id } = fixture;
-for (const id of [admin_id, chapter_id, version_id]) {
+  historical_version_id, asset_object_id } = fixture;
+for (const id of [admin_id, chapter_id, version_id, historical_version_id]) {
   assert(Number.isSafeInteger(id) && id > 0, "valid fixture ID");
 }
+assert.notEqual(historical_version_id, version_id, "historical V1 and current V2 must differ");
 assert.match(admin_session, /^[A-Za-z0-9_-]{43}$/);
 assert.match(outsider_session, /^[A-Za-z0-9_-]{43}$/);
 assert.match(asset_object_id, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
@@ -53,6 +54,10 @@ const readerPath = "/read/admin/" + chapter_id;
 const chapterGrant = "/api/v1/reader/chapters/" + chapter_id + "/delivery-grants";
 const assetGrant = "/api/v1/reader/chapters/" + chapter_id +
   "/assets/" + asset_object_id + "/delivery-grants";
+const historyList = "/api/v1/reader/chapters/" + chapter_id + "/admin-sealed-history";
+const historyChapter = historyList + "/" + historical_version_id + "/delivery-grants";
+const historyImage = historyList + "/" + historical_version_id +
+  "/assets/" + asset_object_id + "/delivery-grants";
 async function contextFor(browser, session = null) {
   const ctx = await browser.newContext();
   if (session) {
@@ -75,7 +80,8 @@ async function denied(ctx, status) {
   assert.equal(page.status(), status, "admin shell requires active role");
   assert((page.headers()["cache-control"] || "").includes("no-store"));
   assert.equal((await page.body()).length, 0, "denied shell must be empty");
-  for (const endpoint of [chapterGrant, assetGrant]) {
+  for (const endpoint of [chapterGrant, assetGrant,
+    historyList, historyChapter, historyImage]) {
     const response = await postAdminGrant(ctx, endpoint, csrf);
     assert.equal(response.status(), status, "role-based grant denial");
     assert((response.headers()["cache-control"] || "").includes("no-store"));
@@ -89,7 +95,7 @@ async function positive(browser, viewport, device) {
   const page = await ctx.newPage();
   await page.setViewportSize(viewport);
   const observed = { textGrant: 0, imageGrant: 0, chapterS3: 0, imageS3: 0,
-    progressWrites: 0 };
+    historicalTextGrant: 0, historicalImageGrant: 0, progressWrites: 0 };
   page.on("request", (request) => {
     if (request.url().startsWith(SITE + "/api/v1/me/progress/purchased") &&
         request.method() !== "GET") observed.progressWrites++;
@@ -100,6 +106,8 @@ async function positive(browser, viewport, device) {
         response.request().method() === "POST") {
       if (uri.pathname === chapterGrant) observed.textGrant++;
       if (uri.pathname === assetGrant) observed.imageGrant++;
+      if (uri.pathname === historyChapter) observed.historicalTextGrant++;
+      if (uri.pathname === historyImage) observed.historicalImageGrant++;
     }
     if (uri.origin === S3 && response.status() === 200 &&
         response.request().method() === "GET") {
@@ -144,7 +152,22 @@ async function positive(browser, viewport, device) {
     assert((await page.locator("[data-admin-status]").textContent())
       .includes("Редакция " + version_id));
     const article = page.locator("[data-admin-content]");
-    assert((await article.textContent()).includes("Оплаченная V1: кириллица"));
+    assert((await article.textContent()).includes("New V2, not purchased"),
+      "canonical administrator reader must open CURRENT sealed V2");
+    assert.equal(await article.locator(".reader-content__image-frame").count(), 0,
+      "V2 has no image; historical V1 image must not leak into current edition");
+    const history = page.locator('select[aria-label="История зашифрованных редакций"]');
+    await history.waitFor({ timeout: 30000 });
+    assert.equal(await history.locator("option").count(), 2,
+      "only V1 and V2 sealed editions are attached");
+    await history.selectOption(String(historical_version_id));
+    await page.locator("[data-admin-status]").filter({
+      hasText: "Редакция " + historical_version_id + " · Защищённый просмотр",
+    }).waitFor({ timeout: 30000 });
+    assert((await article.textContent()).includes("Оплаченная V1: кириллица"),
+      "historical V1 must decrypt through its own scoped S3 grant");
+    assert(!(await article.textContent()).includes("New V2, not purchased"),
+      "switching edition must clear previous decrypted chapter");
     assert.equal(await article.locator(".reader-save-button").count(), 0,
       "admin inspection is not personal reading progress");
     const frame = article.locator(".reader-content__image-frame");
@@ -165,8 +188,9 @@ async function positive(browser, viewport, device) {
     assert(!html.includes("asset:") && !html.includes("X-Amz-Signature") &&
       !html.includes("ciphertext_url"), "rendered HTML cannot contain bearer metadata");
     assert.deepEqual(observed, {
-      textGrant: 1, imageGrant: 1, chapterS3: 1, imageS3: 1, progressWrites: 0,
-    }, "exactly one real signed chapter/image fetch, no progress writes");
+      textGrant: 1, imageGrant: 0, chapterS3: 2, imageS3: 1,
+      historicalTextGrant: 1, historicalImageGrant: 1, progressWrites: 0,
+    }, "current V2 and historical V1/PNG require their own real signed grants, no progress writes");
     assertNoMoney();
 
     await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
@@ -219,7 +243,8 @@ async function main() {
           data,
           headers: { origin, "x-csrf-token": token },
         });
-      for (const endpoint of [chapterGrant, assetGrant]) {
+      for (const endpoint of [chapterGrant, assetGrant,
+    historyList, historyChapter, historyImage]) {
         const forbiddenOrigin = await privileged.request.post(SITE + endpoint, {
           data: { source: "administrator" },
           headers: { origin: "https://foreign.invalid", "x-csrf-token": csrf },
@@ -248,10 +273,13 @@ async function main() {
       chapter_id, pg, count, contextFor, assertNoMoney,
     });
 
-    stage = "sealed historical edition and PNG on real MinIO";
+    // Separate mixed-current regression: an unsealed working V3 cannot
+    // authorize historical sealed V1 except via the administrator-only path.
+    stage = "sealed V1 history from current unsealed draft on real MinIO";
     await require("./s065_admin_sealed_history_chromium.cjs")({
       browser, SITE, S3, admin_id, admin_session, outsider_session,
-      chapter_id, version_id, asset_object_id, pg, count, contextFor, assertNoMoney,
+      chapter_id, version_id: historical_version_id, asset_object_id,
+      pg, count, contextFor, assertNoMoney,
     });
 
     stage = "revoked admin denial";
