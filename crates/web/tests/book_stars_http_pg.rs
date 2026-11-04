@@ -260,6 +260,11 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
             .status(),
         StatusCode::FORBIDDEN
     );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND,
+        "anonymous Book detail never gains an adult rating projection"
+    );
     pg(
         &url,
         &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
@@ -268,6 +273,12 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
         StatusCode::OK
     );
+    // The Book itself was already authorized by the canonical session reader;
+    // rating/like projections must not then turn it into a 404.
+    let adult_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(adult_detail.status(), StatusCode::OK);
+    assert!(html(adult_detail).await.contains("5.00"));
+
     pg(
         &url,
         &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
@@ -291,6 +302,10 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
         StatusCode::OK
     );
+    let pro_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(pro_detail.status(), StatusCode::OK);
+    assert!(html(pro_detail).await.contains("5.00"));
+
     pg(
         &url,
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
