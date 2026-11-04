@@ -96,3 +96,28 @@ async fn s020_rec_tickets_recheck_age_after_issue_and_before_click() {
     .unwrap();
     assert_eq!(attributed, 0);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s020_suspended_actor_cannot_issue_activate_or_record() {
+    let (pool, store, actor, book) = fixture("s020-suspended-assignment").await;
+    enable(&store, actor).await;
+    let ticket = assignment(&store, actor, book).await;
+    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.issue_tickets(actor, &[7; 32], Surface::Home, feed(book)).await,
+        Err(FeedbackError::Forbidden)
+    );
+    assert_eq!(
+        store.activate(actor, &[7; 32], &ticket).await,
+        Err(FeedbackError::Forbidden)
+    );
+    assert_eq!(
+        store.record_book_open(actor, &[7; 32], book).await,
+        Err(FeedbackError::Forbidden)
+    );
+}
