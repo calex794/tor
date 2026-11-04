@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::{
-    repositories::scoped_actions::ScopedActionAdmission, services::security::{generate_session_token, session_token_digest},
+    repositories::scoped_actions::ScopedActionAdmission,
+    services::security::{generate_session_token, session_token_digest},
 };
 use tor_discussions::{
     domain::{
@@ -241,10 +242,7 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
-    let comments = match store
-        .list_for_actor(actor, book_id, query.after, 25)
-        .await
-    {
+    let comments = match store.list_for_actor(actor, book_id, query.after, 25).await {
         Ok(Some(comments)) => comments,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

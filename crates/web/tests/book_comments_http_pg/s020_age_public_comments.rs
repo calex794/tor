@@ -79,7 +79,11 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
     };
 
     // A leaked URL and an existing comment do not grant an 18+ reader gate.
-    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}")).await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &path, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
@@ -97,7 +101,11 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
     let denied_mentions = html(call(&app, "GET", &discover, &cookie, ORIGIN, "").await).await;
     assert!(!denied_mentions.contains("Second Reader"));
 
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer}")).await;
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer}"),
+    )
+    .await;
     let readable = call(&app, "GET", &path, &cookie, ORIGIN, "").await;
     assert_eq!(readable.status(), StatusCode::OK);
     let body = html(readable).await;
@@ -111,7 +119,11 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
     );
     let mentions = html(call(&app, "GET", &discover, &cookie, ORIGIN, "").await).await;
     assert!(mentions.contains("Second Reader"));
-    pg(&url, &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer}")).await;
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer}"),
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
@@ -120,7 +132,11 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
     assert!(!revoked_mentions.contains("Second Reader"));
 
     // A 21+ grant is independent from the 18+ toggle.
-    pg(&url, &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}")).await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    )
+    .await;
     assert_eq!(
         call(&app, "POST", &path, &cookie, ORIGIN, &form("denied"))
             .await
@@ -157,7 +173,11 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
     );
 
     // Legacy NULL must be fail-closed even if it has retained comments.
-    pg(&url, &format!("UPDATE books SET access_level=NULL WHERE id={book}")).await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
@@ -169,15 +189,31 @@ async fn s020_public_comment_and_mention_age_rights_rechecked_on_every_request()
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}")).await,
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}")
+        )
+        .await,
         "3",
         "revocations did not delete legitimate prior comments or add forbidden comments"
     );
 
     pg(&url, &format!("DELETE FROM discussion_comment_mentions WHERE comment_id IN (SELECT id FROM discussion_comments WHERE book_id={book})")).await;
-    pg(&url, &format!("DELETE FROM discussion_comments WHERE book_id={book}")).await;
-    pg(&url, &format!("DELETE FROM user_level_grants WHERE user_id={writer}")).await;
-    pg(&url, &format!("DELETE FROM users WHERE id IN ({writer},{second})")).await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE book_id={book}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={writer}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN ({writer},{second})"),
+    )
+    .await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
     pool.close().await;
 }
