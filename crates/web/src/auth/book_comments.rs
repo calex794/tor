@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::{
-    repositories::scoped_actions::ScopedActionAdmission, services::security::generate_session_token,
+    repositories::scoped_actions::ScopedActionAdmission, services::security::{generate_session_token, session_token_digest},
 };
 use tor_discussions::{
     domain::{
@@ -223,20 +223,31 @@ pub(super) async fn page(
     if book_id <= 0 || query.after.is_some_and(|id| id <= 0) {
         return deny(StatusCode::NOT_FOUND);
     }
-    let visible = match state.reader.public_book_page(book_id as u64, 1, None).await {
+    let actor = match session_user(&state, &headers).await {
+        Ok(actor) => actor,
+        Err(status) => return deny(status),
+    };
+    let digest = state
+        .cookies
+        .session_token(&headers)
+        .map(|token| session_token_digest(&token));
+    let visible = match state
+        .reader
+        .public_book_page_for_session(book_id as u64, 1, None, digest.as_ref())
+        .await
+    {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
-    let comments = match store.list(book_id, query.after, 25).await {
+    let comments = match store
+        .list_for_actor(actor, book_id, query.after, 25)
+        .await
+    {
         Ok(Some(comments)) => comments,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let actor = match session_user(&state, &headers).await {
-        Ok(actor) => actor,
-        Err(status) => return deny(status),
     };
     let (token, cookies) = if actor.is_some() {
         let (token, cookies) = state.cookies.csrf_for_page(&headers);
