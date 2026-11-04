@@ -877,10 +877,10 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
         .unwrap();
     }
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
          VALUES
-          (825101,'ci:e05:public','ru','Книга <script>','public',825001),
-          (825102,'ci:e05:draft','ru','Скрытая книга','draft',825003)",
+          (825101,'ci:e05:public','ru','Книга <script>','public',825001,'basic'),
+          (825102,'ci:e05:draft','ru','Скрытая книга','draft',825003,'basic')",
     )
     .execute(&pool)
     .await
