@@ -1870,6 +1870,27 @@
       "source": "crates/web/src/auth/moderation_books.rs",
       "handler": "submit_visibility",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_sealed_history::list",
+      "policy": "admin_reader"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_sealed_history::grant",
+      "policy": "admin_reader"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_sealed_history::asset",
+      "policy": "admin_reader"
     }
   ]
 }

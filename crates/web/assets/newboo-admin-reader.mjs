@@ -60,6 +60,23 @@ async function adminHistory(chapter, csrf, version = null) {
   return response.json();
 }
 
+async function adminSealedHistory(chapter, csrf, version = null, image = null) {
+  const base = "/api/v1/reader/chapters/" + chapter + "/admin-sealed-history";
+  const path = version === null ? base : base + "/" + version +
+    (image === null ? "/delivery-grants" :
+      "/assets/" + image + "/delivery-grants");
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrf },
+    credentials: "same-origin",
+    redirect: "error",
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  });
+  requireValue(response.ok && response.status === 200);
+  return response.json();
+}
+
 export async function startAdministratorReader(root) {
   const chapter = root.dataset.chapterId;
   const csrf = root.dataset.csrfToken;
@@ -80,6 +97,10 @@ export async function startAdministratorReader(root) {
   let observer = null;
   const tasks = [];
   const known = new Map();
+  let selectedHistorical = false;
+  let renderSequence = 0;
+  let unsealedHistorySelect = null;
+  let sealedHistorySelect = null;
 
   const clear = () => {
     closed = true;
@@ -96,19 +117,24 @@ export async function startAdministratorReader(root) {
     if (event.persisted) location.reload();
   });
 
-  const { versionId, text } = unsealed
+  let { versionId, text } = unsealed
     ? await adminUnsealed(chapter, csrf)
     : await decryptPaidGrant(await adminGrant(chapter, csrf), chapter, s3Origin);
   if (closed) return;
 
   async function show({ frame, id, alt }) {
     if (closed || !frame.isConnected) return;
+    const atVersion = versionId;
+    const historical = selectedHistorical;
+    const atSequence = renderSequence;
     try {
-      const asset = await adminGrant(chapter, csrf, id);
+      const asset = historical
+        ? await adminSealedHistory(chapter, csrf, atVersion, id)
+        : await adminGrant(chapter, csrf, id);
       const blob = await decryptPaidAsset(
-        asset, chapter, versionId, id, s3Origin
+        asset, chapter, atVersion, id, s3Origin
       );
-      if (closed || !frame.isConnected) return;
+      if (closed || !frame.isConnected || atSequence !== renderSequence) return;
       while (liveUrls.size >= 12) {
         const [oldFrame, oldUrl] = liveUrls.entries().next().value;
         liveUrls.delete(oldFrame);
@@ -166,16 +192,28 @@ export async function startAdministratorReader(root) {
   // "save place" buttons: admin inspection is not a purchased reading fact.
   // Unsealed drafts may contain asset markers without B/G attachments:
   // render those markers as inert text rather than guessing private assets.
-  const onImage = unsealed ? null : (frame, id, alt) => {
+  const onImage = (frame, id, alt) => {
     requireValue(known.size < 64);
     known.set(frame, { frame, id, alt });
     if (observer) observer.observe(frame);
     else schedule(frame);
   };
-  renderPaidBlocks(article, text, () => {}, onImage);
+  renderPaidBlocks(article, text, () => {}, unsealed ? null : onImage);
   for (const button of article.querySelectorAll(".reader-save-button")) {
     button.remove();
   }
+  // Both history selectors share a generation, so a stale response can never
+  // repaint another revision or reveal private content after a later choice.
+  const beginVersionChange = () => {
+    const request = ++renderSequence;
+    observer?.disconnect();
+    tasks.length = 0;
+    known.clear();
+    for (const url of liveUrls.values()) URL.revokeObjectURL(url);
+    liveUrls.clear();
+    article.replaceChildren();
+    return request;
+  };
   status.textContent = "Редакция " + versionId + " · Защищённая загрузка завершена";
   // Historical versions are a separate, audited administrator-only POST.
   // No history ID is allowed to enter buyer/Layer grants or signed S3 URLs.
@@ -200,13 +238,14 @@ export async function startAdministratorReader(root) {
         select.append(option);
       }
       if (select.options.length) {
+        unsealedHistorySelect = select;
         label.append(select);
         status.after(label);
-        let latest = 0;
         select.addEventListener("change", async () => {
-          const request = ++latest;
+          const request = beginVersionChange();
           const chosen = select.value;
-          article.replaceChildren();
+          if (sealedHistorySelect) sealedHistorySelect.selectedIndex = -1;
+          selectedHistorical = false;
           status.textContent = "Проверка доступа к редакции…";
           try {
             const old = await adminHistory(chapter, csrf, chosen);
@@ -214,12 +253,13 @@ export async function startAdministratorReader(root) {
               old.chapter_id === chapter && old.version_id === chosen &&
               typeof old.body_markdown === "string" &&
               old.body_markdown.length > 0 && old.body_markdown.length <= 200000);
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
+            versionId = chosen;
             renderPaidBlocks(article, old.body_markdown, () => {}, null);
             for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
             status.textContent = "Редакция " + chosen + " · Административный просмотр";
           } catch {
-            if (closed || request !== latest) return;
+            if (closed || request !== renderSequence) return;
             article.replaceChildren();
             status.textContent = "Не удалось открыть редакцию.";
           }
@@ -227,6 +267,64 @@ export async function startAdministratorReader(root) {
       }
     } catch {
       // The current revision remains readable even when history is unavailable.
+    }
+  }
+  if (s3Origin) {
+    try {
+      const history = await adminSealedHistory(chapter, csrf);
+      requireValue(history.schema === "tor.admin_sealed_history.v1" &&
+        history.chapter_id === chapter && Array.isArray(history.versions) &&
+        history.versions.length <= 100);
+      if (closed) return;
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "История зашифрованных редакций");
+      const label = document.createElement("label");
+      label.textContent = "Редакция: ";
+      for (const entry of history.versions) {
+        requireValue(/^[1-9][0-9]{0,18}$/.test(entry.version_id || "") &&
+          Number.isInteger(entry.version_no));
+        const option = document.createElement("option");
+        option.value = entry.version_id;
+        option.textContent = "Версия " + entry.version_no;
+        option.selected = entry.version_id === versionId;
+        select.append(option);
+      }
+      // A current unsealed draft has no selected sealed edition. Browsers
+      // otherwise auto-select the first option, making a single historical
+      // edition impossible to choose through a native "change" event.
+      if (!history.versions.some(entry => entry.version_id === versionId)) {
+        select.selectedIndex = -1;
+      }
+      if (select.options.length) {
+        sealedHistorySelect = select;
+        label.append(select);
+        status.after(label);
+        select.addEventListener("change", async () => {
+          const request = beginVersionChange();
+          const chosen = select.value;
+          if (unsealedHistorySelect) unsealedHistorySelect.selectedIndex = -1;
+          status.textContent = "Проверка доступа к редакции…";
+          try {
+            const grant = await adminSealedHistory(chapter, csrf, chosen);
+            requireValue(grant.schema === "tor.paid_delivery.v1" &&
+              grant.chapter_id === chapter && grant.version_id === chosen);
+            const result = await decryptPaidGrant(grant, chapter, s3Origin);
+            requireValue(result.versionId === chosen);
+            if (closed || request !== renderSequence) return;
+            versionId = chosen;
+            selectedHistorical = true;
+            renderPaidBlocks(article, result.text, () => {}, onImage);
+            for (const button of article.querySelectorAll(".reader-save-button")) button.remove();
+            status.textContent = "Редакция " + chosen + " · Защищённый просмотр";
+          } catch {
+            if (closed || request !== renderSequence) return;
+            article.replaceChildren();
+            status.textContent = "Не удалось открыть редакцию.";
+          }
+        });
+      }
+    } catch {
+      // Current edition stays readable if history is unavailable.
     }
   }
 }

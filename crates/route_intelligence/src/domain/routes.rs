@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 265] = [
+const ROUTES: [RouteRegistration; 268] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -275,6 +275,9 @@ const ROUTES: [RouteRegistration; 265] = [
     RouteRegistration::new("/moderation/books/{id}/visibility", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 262
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 263
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 264
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 265
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 266
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, TrafficSurface::Admin, Reading, Write), // 267
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
