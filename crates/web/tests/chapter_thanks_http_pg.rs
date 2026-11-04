@@ -210,9 +210,7 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookie, ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -226,9 +224,7 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookie, ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::OK
     );
     pg(
@@ -236,9 +232,7 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookie, ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -253,9 +247,7 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"),
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookie, ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::OK
     );
     pg(
@@ -263,9 +255,7 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookie, ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     pg(

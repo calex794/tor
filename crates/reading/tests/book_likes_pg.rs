@@ -91,7 +91,6 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         LikeMutation::Added
     );
 
-
     // S020/P0 #486: neither a historical like nor a valid session is an
     // exemption from the Book's live 18+/21+ reader tier.
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")

@@ -224,7 +224,6 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     assert!(!mine_html.contains("Заголовок <like>"));
     assert!(!mine_html.contains("user_id"));
 
-
     // S020: a bookmarked like cannot reveal the title or accept writes after
     // revoking Book age access. Both 18+ and independent 21+ are live facts.
     pg(
