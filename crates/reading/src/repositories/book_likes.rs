@@ -29,27 +29,65 @@ impl PgBookLikes {
         Self { pool }
     }
 
-    /// Anonymous count is indexable basic-only, not an actor entitlement.
-    /// Never expose hidden/held/age-restricted Books through the counter.
+    /// Anonymous discovery counter: only indexable BASIC books are visible.
+    /// No page or bookmark can make this a reading entitlement.
     pub async fn public_count(&self, book_id: i64) -> Result<Option<i64>, sqlx::Error> {
+        self.count_for_view(book_id, false).await
+    }
+
+    /// The direct Book page is distinct from anonymous discovery. NEwBOO keeps
+    /// an otherwise readable Book directly viewable during pending_deletion.
+    /// This method is only for an already-authorized direct Book detail route.
+    pub async fn direct_view_count(&self, book_id: i64) -> Result<Option<i64>, sqlx::Error> {
+        self.count_for_view(book_id, true).await
+    }
+
+    async fn count_for_view(
+        &self,
+        book_id: i64,
+        allow_pending_deletion: bool,
+    ) -> Result<Option<i64>, sqlx::Error> {
         if book_id <= 0 {
             return Ok(None);
         }
         sqlx::query_scalar(
             "SELECT (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT
              FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion' AND b.access_level='basic'",
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.lifecycle_status<>'pending_deletion' OR $2::boolean)
+               AND b.access_level='basic'",
         )
         .bind(book_id)
+        .bind(allow_pending_deletion)
         .fetch_optional(&self.pool)
         .await
     }
 
     /// Read the title and current like state under the same live actor age gate.
+    /// The public action and existing like page still exclude pending deletion.
     pub async fn visible_summary(
         &self,
         user_id: i64,
         book_id: i64,
+    ) -> Result<Option<LikeSummary>, sqlx::Error> {
+        self.summary_for_view(user_id, book_id, false).await
+    }
+
+    /// Age-authorized direct Book detail only; this does not re-enable likes
+    /// or make a pending-deletion Book publicly discoverable.
+    pub async fn direct_view_summary(
+        &self,
+        user_id: i64,
+        book_id: i64,
+    ) -> Result<Option<LikeSummary>, sqlx::Error> {
+        self.summary_for_view(user_id, book_id, true).await
+    }
+
+    async fn summary_for_view(
+        &self,
+        user_id: i64,
+        book_id: i64,
+        allow_pending_deletion: bool,
     ) -> Result<Option<LikeSummary>, sqlx::Error> {
         if user_id <= 0 || book_id <= 0 {
             return Ok(None);
@@ -62,7 +100,8 @@ impl PgBookLikes {
              FROM books b
              JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.lifecycle_status<>'pending_deletion' OR $3::boolean)
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (
@@ -74,6 +113,7 @@ impl PgBookLikes {
         )
         .bind(book_id)
         .bind(user_id)
+        .bind(allow_pending_deletion)
         .fetch_optional(&self.pool)
         .await?;
         row.map(|row| {
