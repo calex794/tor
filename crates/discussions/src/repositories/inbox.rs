@@ -39,6 +39,7 @@ impl PgInbox {
                FROM discussion_comments reply
                LEFT JOIN discussion_comments parent ON parent.id=reply.parent_id
                JOIN books b ON b.id=reply.book_id
+               JOIN users u ON u.id=$1 AND u.account_state='active'
                LEFT JOIN discussion_reply_reads seen
                  ON seen.recipient_user_id=$1 AND seen.reply_comment_id=reply.id
                LEFT JOIN discussion_comment_mentions mention
@@ -50,7 +51,17 @@ impl PgInbox {
                        AND parent.version_id IS NULL AND parent.visibility='visible'))
                  AND reply.chapter_id IS NULL AND reply.version_id IS NULL
                  AND reply.visibility='visible'
-                 AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+                 AND b.visibility='public' AND b.visibility_status='active'
+                 AND b.lifecycle_status<>'pending_deletion'
+                 AND NOT b.admin_hold AND NOT b.is_deleted
+                 AND (b.access_level='basic'
+                      OR (b.access_level='adult' AND u.adult_enabled)
+                      OR (b.access_level='pro_adult' AND EXISTS (
+                          SELECT 1 FROM user_level_grants age
+                          WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active))
+                      OR EXISTS (
+                          SELECT 1 FROM account_roles role
+                          WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active))
                  AND ($2::BIGINT IS NULL OR reply.id < $2)
                  AND ($3::BOOLEAN IS NULL OR (seen.reply_comment_id IS NOT NULL) = $3)
                ORDER BY reply.id DESC LIMIT $4"#,
