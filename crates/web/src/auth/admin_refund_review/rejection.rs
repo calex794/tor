@@ -217,7 +217,11 @@ pub(super) async fn submit(
                        {}. Финансовые операции не выполнялись.</p>
                        <p><a href="/admin/finance/refunds">К заявкам</a></p>"#,
                     receipt.request_id,
-                    if receipt.replayed { "Повтор решения" } else { "Решение сохранено" },
+                    if receipt.replayed {
+                        "Повтор решения"
+                    } else {
+                        "Решение сохранено"
+                    },
                 ),
                 &[],
             )
