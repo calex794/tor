@@ -29,8 +29,8 @@ impl PgBookLikes {
         Self { pool }
     }
 
-    /// Only show counts for discoverable books. Never expose hidden/held
-    /// books through a differently shaped like-counter response.
+    /// Anonymous count is indexable basic-only, not an actor entitlement.
+    /// Never expose hidden/held/age-restricted Books through the counter.
     pub async fn public_count(&self, book_id: i64) -> Result<Option<i64>, sqlx::Error> {
         if book_id <= 0 {
             return Ok(None);
@@ -38,13 +38,14 @@ impl PgBookLikes {
         sqlx::query_scalar(
             "SELECT (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT
              FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND NOT b.admin_hold AND NOT b.is_deleted AND b.access_level='basic'",
         )
         .bind(book_id)
         .fetch_optional(&self.pool)
         .await
     }
 
+    /// Read the title and current like state under the same live actor age gate.
     pub async fn visible_summary(
         &self,
         user_id: i64,
@@ -58,8 +59,18 @@ impl PgBookLikes {
                     (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT AS count,
                     EXISTS (SELECT 1 FROM book_likes l
                             WHERE l.book_id=b.id AND l.user_id=$2) AS liked
-             FROM books b WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted",
+             FROM books b
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                     SELECT 1 FROM user_level_grants g
+                     WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                 OR EXISTS (
+                     SELECT 1 FROM account_roles role
+                     WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))",
         )
         .bind(book_id)
         .bind(user_id)
@@ -75,6 +86,8 @@ impl PgBookLikes {
         .transpose()
     }
 
+    /// Live age rights and public visibility are checked in the same SQL
+    /// mutation; a saved like never becomes an age access grant.
     /// Both public visibility and the mutation are checked in one SQL
     /// statement. A unique primary key, not an in-memory counter, protects
     /// against duplicate clicks and simultaneous devices.
@@ -90,9 +103,18 @@ impl PgBookLikes {
         let row = if liked {
             sqlx::query(
                 "WITH visible AS (
-                     SELECT id FROM books
-                     WHERE id=$1 AND visibility='public' AND visibility_status='active'
-                       AND NOT admin_hold AND NOT is_deleted
+                     SELECT b.id FROM books b
+                     JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+                     WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+                       AND NOT b.admin_hold AND NOT b.is_deleted
+                       AND (b.access_level='basic'
+                         OR (b.access_level='adult' AND viewer.adult_enabled)
+                         OR (b.access_level='pro_adult' AND EXISTS (
+                             SELECT 1 FROM user_level_grants g
+                             WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                         OR EXISTS (
+                             SELECT 1 FROM account_roles role
+                             WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
                  ), added AS (
                      INSERT INTO book_likes (book_id,user_id)
                      SELECT id,$2 FROM visible
@@ -109,9 +131,18 @@ impl PgBookLikes {
         } else {
             sqlx::query(
                 "WITH visible AS (
-                     SELECT id FROM books
-                     WHERE id=$1 AND visibility='public' AND visibility_status='active'
-                       AND NOT admin_hold AND NOT is_deleted
+                     SELECT b.id FROM books b
+                     JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+                     WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+                       AND NOT b.admin_hold AND NOT b.is_deleted
+                       AND (b.access_level='basic'
+                         OR (b.access_level='adult' AND viewer.adult_enabled)
+                         OR (b.access_level='pro_adult' AND EXISTS (
+                             SELECT 1 FROM user_level_grants g
+                             WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active))
+                         OR EXISTS (
+                             SELECT 1 FROM account_roles role
+                             WHERE role.user_id=viewer.id AND role.role='administrator' AND role.is_active))
                  ), removed AS (
                      DELETE FROM book_likes
                      WHERE book_id IN (SELECT id FROM visible) AND user_id=$2
