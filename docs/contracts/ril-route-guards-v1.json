@@ -1739,6 +1739,20 @@
       "policy": "admin_reader"
     },
     {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-history",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_history::list",
+      "policy": "admin_reader"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_history::read",
+      "policy": "admin_reader"
+    },
+    {
       "method": "GET",
       "template": "/me/books/{id}/settings/project-status",
       "source": "crates/web/src/auth/book_project_status.rs",

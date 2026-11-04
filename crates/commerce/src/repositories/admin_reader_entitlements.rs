@@ -60,6 +60,83 @@ impl PgAdministratorReaderEntitlements {
                 version_id,
             }))
     }
+
+    /// A historical unsealed edition is not a purchase or a public preview.
+    /// Both the chapter/version relation and the live A administrator session
+    /// must hold in the same query that identifies the private text.
+    pub async fn unsealed_historical_version(
+        &self,
+        actor: Actor,
+        chapter_id: PositiveId,
+        version_id: PositiveId,
+    ) -> Result<Option<ChapterVersionRef>, DeliveryError> {
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT v.id
+             FROM chapter_versions v
+             JOIN chapters c ON c.id=v.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN users u ON u.id=$3 AND u.account_state='active'
+             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$4
+               AND s.revoked_at IS NULL AND s.expires_at>now()
+             JOIN account_roles r ON r.user_id=u.id
+               AND r.role='administrator' AND r.is_active
+             WHERE v.chapter_id=$1 AND v.id=$2
+               AND v.storage_object_id IS NULL
+               AND length(v.body_markdown) BETWEEN 1 AND 200000
+             LIMIT 1",
+        )
+        .bind(chapter_id.get())
+        .bind(version_id.get())
+        .bind(actor.user_id.get())
+        .bind(self.session_digest.as_slice())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        Ok(found
+            .filter(|id| *id == version_id.get())
+            .map(|_| ChapterVersionRef {
+                chapter_id,
+                version_id,
+            }))
+    }
+
+    /// Bounded metadata-only history of unsealed editions for the private
+    /// administrator reader. Sealed historic objects are not silently linked
+    /// to a public or direct-buyer grant.
+    pub async fn unsealed_history(
+        &self,
+        actor: Actor,
+        chapter_id: PositiveId,
+    ) -> Result<Vec<(PositiveId, i32)>, DeliveryError> {
+        let rows: Vec<(i64, i32)> = sqlx::query_as(
+            "SELECT v.id,v.version_no
+             FROM chapter_versions v
+             JOIN chapters c ON c.id=v.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN users u ON u.id=$2 AND u.account_state='active'
+             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3
+               AND s.revoked_at IS NULL AND s.expires_at>now()
+             JOIN account_roles r ON r.user_id=u.id
+               AND r.role='administrator' AND r.is_active
+             WHERE v.chapter_id=$1 AND v.storage_object_id IS NULL
+               AND length(v.body_markdown) BETWEEN 1 AND 200000
+             ORDER BY v.version_no DESC,v.id DESC
+             LIMIT 100",
+        )
+        .bind(chapter_id.get())
+        .bind(actor.user_id.get())
+        .bind(self.session_digest.as_slice())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        rows.into_iter()
+            .map(|(id, version_no)| {
+                PositiveId::new(id)
+                    .map(|version_id| (version_id, version_no))
+                    .map_err(|_| DeliveryError::Unavailable)
+            })
+            .collect()
+    }
 }
 
 #[async_trait]

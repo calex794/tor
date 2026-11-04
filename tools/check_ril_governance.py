@@ -216,6 +216,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    # C-12 private history handlers delegate session, role and CSRF to a
+    # narrowly named helper in the same Rust file. Only exact reviewed
+    # admin-history bindings can use its evidence.
+    history_handlers = {
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history", "admin_history::list"),
+        ("POST", "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}", "admin_history::read"),
+    }
+    history_binding = (entry["method"], entry["template"], entry["handler"]) in history_handlers
+    if history_binding and entry["source"] == "crates/web/src/paid_grants_http.rs":
+        if not re.search(r"\bauthorize\s*\(\s*&state\s*,\s*&headers\s*\)", body):
+            errors.append(f"{label}: historical reader must invoke the verified helper")
+        else:
+            evidence += "\n" + functions.get("authorize", "")
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -492,8 +505,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and entry["source"] == "crates/web/src/paid_grants_http.rs"
             and entry["handler"] == "admin_unsealed::read"
         )
-        if not (allowed_shell or allowed_unsealed):
+        allowed_history = history_binding and entry["source"] == "crates/web/src/paid_grants_http.rs"
+        if not (allowed_shell or allowed_unsealed or allowed_history):
             errors.append(f"{label}: unreviewed site administrator reader route")
+        if allowed_history and not (
+            "unsealed_historical_version(" in evidence
+            or "unsealed_history(" in evidence
+        ):
+            errors.append(f"{label}: history must use a live chapter-version entitlement")
+        if allowed_history and not (
+            "state.cookies.same_origin(headers)" in evidence
+            and "state.cookies.valid_csrf(headers" in evidence
+            and "StatusCode::UNAUTHORIZED" in evidence
+            and "StatusCode::FORBIDDEN" in evidence
+        ):
+            errors.append(f"{label}: history lacks required A/CSRF denial")
         common = (
             "session_token_digest(&session)",
             "session_actor(&digest)",

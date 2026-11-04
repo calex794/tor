@@ -1,6 +1,7 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
+mod admin_history;
 mod admin_reader;
 mod admin_unsealed;
 mod asset_grants;
@@ -104,6 +105,7 @@ struct AdminReaderState {
     accounts: PgAccounts,
     admin_unsealed: PgAdminUnsealedText,
     admin_audit: PgAdminChapterAccessAudit,
+    history_rate_limits: Arc<Mutex<RateLimits>>,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
     reader_s3_origin: Option<String>,
@@ -363,6 +365,7 @@ fn administrator_routes(
     let state = AdminReaderState {
         admin_unsealed: PgAdminUnsealedText::new(accounts.pool().clone()),
         admin_audit: PgAdminChapterAccessAudit::new(accounts.pool().clone()),
+        history_rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         accounts,
         cookies,
         rate_limits,
@@ -370,6 +373,14 @@ fn administrator_routes(
     };
     Router::new()
         .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-history",
+            post(admin_history::list),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}",
+            post(admin_history::read),
+        )
         .route(
             "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
             post(admin_unsealed::read),
