@@ -4,14 +4,16 @@
 use crate::domain::cover::CoverError;
 use crate::services::cover_jobs::CoverObjectStore;
 use async_trait::async_trait;
-use aws_sdk_s3::{primitives::ByteStream, Client};
+use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
 #[derive(Clone)]
 pub struct S3CoverStore {
     client: Client,
     private_bucket: String,
+    direct_origin: Option<String>,
 }
 impl S3CoverStore {
     pub fn new(client: Client, private_bucket: String) -> Result<Self, CoverError> {
@@ -21,8 +23,36 @@ impl S3CoverStore {
         Ok(Self {
             client,
             private_bucket,
+            direct_origin: None,
         })
     }
+    /// The operator configures the exact browser-visible S3 origin.
+    /// No client-supplied URL, credentials or internal S3 endpoint escapes.
+    pub fn with_direct_origin(mut self, origin: String) -> Result<Self, CoverError> {
+        let local_test =
+            origin.starts_with("http://127.0.0.1:") || origin.starts_with("http://localhost:");
+        let secure = origin.starts_with("https://");
+        let host_part = if secure {
+            &origin[8..]
+        } else if local_test {
+            &origin[7..]
+        } else {
+            ""
+        };
+        if host_part.is_empty()
+            || host_part.contains('/')
+            || host_part.contains('@')
+            || host_part.contains('?')
+            || host_part.contains('#')
+            || host_part.bytes().any(|b| b.is_ascii_whitespace())
+            || origin.ends_with('/')
+        {
+            return Err(CoverError::Invalid);
+        }
+        self.direct_origin = Some(origin);
+        Ok(self)
+    }
+
     fn permitted(key: &str) -> bool {
         key.starts_with("staging/covers/")
             && key.len() <= 512
@@ -40,6 +70,33 @@ impl S3CoverStore {
 
 #[async_trait]
 impl CoverObjectStore for S3CoverStore {
+    fn direct_read_origin(&self) -> Option<&str> {
+        self.direct_origin.as_deref()
+    }
+
+    async fn presign_variant_get(&self, key: &str, ttl: Duration) -> Result<String, CoverError> {
+        let origin = self.direct_origin.as_deref().ok_or(CoverError::Forbidden)?;
+        if !key.starts_with("staging/covers/variants/")
+            || !Self::permitted(key)
+            || ttl.as_secs() == 0
+            || ttl.as_secs() > 120
+        {
+            return Err(CoverError::Invalid);
+        }
+        let signed = self
+            .client
+            .get_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .presigned(PresigningConfig::expires_in(ttl).map_err(|_| CoverError::Invalid)?)
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let url = signed.uri().to_string();
+        if !url.starts_with(&format!("{origin}/")) {
+            return Err(CoverError::Unavailable);
+        }
+        Ok(url)
+    }
     async fn put_source_verified(
         &self,
         key: &str,
@@ -185,5 +242,70 @@ impl CoverObjectStore for S3CoverStore {
                 .metadata()
                 .and_then(|m| m.get("sha256"))
                 .is_some_and(|s| s == &expected))
+    }
+}
+
+#[cfg(test)]
+mod direct_cover_tests {
+    use super::*;
+    use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+
+    fn store() -> S3CoverStore {
+        let config = aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("test-region"))
+            .credentials_provider(Credentials::new("test", "test", None, None, "unit"))
+            .endpoint_url("http://127.0.0.1:9000")
+            .force_path_style(true)
+            .build();
+        S3CoverStore::new(Client::from_conf(config), "private-covers".into()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn direct_covers_default_off_and_reject_untrusted_keys() {
+        let disabled = store();
+        assert_eq!(disabled.direct_read_origin(), None);
+        assert!(matches!(
+            disabled
+                .presign_variant_get("staging/covers/variants/safe.webp", Duration::from_secs(60))
+                .await,
+            Err(CoverError::Forbidden)
+        ));
+
+        for origin in [
+            "http://example.com",
+            "https://example.com/path",
+            "https://name@example.com",
+            "https://example.com?x=1",
+            "https://example.com/",
+            "ftp://example.com",
+        ] {
+            assert!(store().with_direct_origin(origin.into()).is_err());
+        }
+
+        let enabled = store()
+            .with_direct_origin("http://127.0.0.1:9000".into())
+            .unwrap();
+        assert_eq!(enabled.direct_read_origin(), Some("http://127.0.0.1:9000"));
+        for key in [
+            "staging/covers/sources/private.png",
+            "staging/covers/variants/../private.webp",
+            "staging/covers/variants//bad.webp",
+        ] {
+            assert!(matches!(
+                enabled
+                    .presign_variant_get(key, Duration::from_secs(60))
+                    .await,
+                Err(CoverError::Invalid)
+            ));
+        }
+        for ttl in [Duration::ZERO, Duration::from_secs(121)] {
+            assert!(matches!(
+                enabled
+                    .presign_variant_get("staging/covers/variants/valid.webp", ttl)
+                    .await,
+                Err(CoverError::Invalid)
+            ));
+        }
     }
 }
