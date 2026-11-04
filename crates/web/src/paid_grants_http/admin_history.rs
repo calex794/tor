@@ -42,7 +42,7 @@ pub(super) async fn list(
         Some(id) => id,
         None => return deny(StatusCode::NOT_FOUND),
     };
-    if !state.rate_limits.lock().await.allow(actor.get(), Instant::now()) {
+    if !state.history_rate_limits.lock().await.allow(actor.get(), Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let history = match authority.unsealed_history(Actor { user_id: actor }, chapter).await {
@@ -76,7 +76,7 @@ pub(super) async fn read(
     let (Some(chapter), Some(version)) = (positive(&raw_chapter), positive(&raw_version)) else {
         return deny(StatusCode::NOT_FOUND);
     };
-    if !state.rate_limits.lock().await.allow(actor.get(), Instant::now()) {
+    if !state.history_rate_limits.lock().await.allow(actor.get(), Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let current = match authority.unsealed_historical_version(
