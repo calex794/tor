@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 267)  # Two added admin-history POST routes; no public exposure.
-        self.assertEqual(report["route_pairs"], 263)  # No per-chapter moderation route pair.
+        self.assertEqual(report["route_pairs"], 265)  # Two bounded administrator history routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
