@@ -221,5 +221,17 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
     // Timings are emitted for CI evidence; do not invent an environment-neutral
     // hard millisecond SLA from one disposable runner.
     eprintln!("BR-060 10k archive: first page {first_ms} ms, deep page {deep_ms} ms");
+    // Leave no 10k-row fixture behind for later PostgreSQL suites in this job.
+    library.remove_book(actor, book).await.unwrap();
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
