@@ -292,6 +292,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/progress/archived-free"), "GET") => Some(277),
         (Some("/api/v1/me/progress/archived-free"), "PUT") => Some(278),
         (Some("/assets/newboo-archive-progress.js"), "GET") => Some(279),
+        (Some("/moderation/covers"), "GET") => Some(280),
+        (Some("/moderation/covers/{id}/preview"), "GET") => Some(281),
+        (Some("/moderation/covers/{id}/decision"), "POST") => Some(282),
+        (Some("/moderation/books/{id}/cover-history"), "GET") => Some(283),
         _ => None,
     };
     index
