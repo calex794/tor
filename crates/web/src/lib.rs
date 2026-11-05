@@ -259,6 +259,18 @@ async fn book_error(state: &AppState, status: StatusCode) -> Response {
     book_error_pages::public_book_error(state, status).await
 }
 
+// Keep the reviewed security-policy handler identity stable. The implementation
+// lives in a separate module to respect the repository source-size limit.
+async fn book_detail(
+    state: State<AppState>,
+    id: Path<u64>,
+    uri: OriginalUri,
+    query: Query<TocQuery>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    book_detail_http::book_detail(state, id, uri, query, headers).await
+}
+
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
@@ -424,7 +436,7 @@ fn make_router_with_paid_checkout(
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
     // This layer runs *after* book_detail has accepted public visibility.
-    let book_router = Router::new().route("/books/{id}", get(book_detail_http::book_detail));
+    let book_router = Router::new().route("/books/{id}", get(book_detail));
     let book_router = if let Some(control) = follow_control.clone() {
         book_router.route_layer(axum::middleware::from_fn_with_state(
             control,
