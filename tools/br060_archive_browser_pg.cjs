@@ -105,7 +105,11 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
     owner.getByRole('button', { name: 'Начать удаление' }).click(),
   ]);
   assert.equal(submitted.status(), 303, 'owner must confirm a valid deletion request');
-  assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'pending_deletion');
+  assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'in_progress');
+  assert.equal(pg('SELECT visibility FROM books WHERE id=' + book), 'public',
+    'owner request must not deindex before independent site approval');
+  assert.equal((await reader.goto(base + '/books/' + book)).status(), 200,
+    'readers must retain previously approved public access until moderation');
   assert.equal(pg('SELECT COUNT(*) FROM book_ordinary_deletion_decisions WHERE book_id=' + book), '0');
   const pending = await owner.goto(url);
   assert.equal(pending.status(), 200);
@@ -118,7 +122,7 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
   const pendingReview = pg(
     'SELECT COUNT(*) FROM book_ordinary_deletion_requests r JOIN books b ' +
     'ON b.id=r.book_id AND b.lifecycle_revision=r.request_revision ' +
-    'WHERE r.book_id=' + book + " AND b.lifecycle_status='pending_deletion'"
+    'WHERE r.book_id=' + book + " AND b.lifecycle_status=r.previous_lifecycle_status"
   );
   assert.equal(pendingReview, '1', 'owner request not committed at current Book revision');
   const queue = await reviewer.goto(base + '/moderation/books/deletions');
@@ -143,7 +147,7 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
     const eligible = pg(
       'SELECT COUNT(*) FROM book_ordinary_deletion_requests r ' +
       'JOIN books b ON b.id=r.book_id WHERE r.book_id=' + book +
-      " AND b.lifecycle_status='pending_deletion'" +
+      " AND b.lifecycle_status=r.previous_lifecycle_status" +
       ' AND b.lifecycle_revision=r.request_revision AND NOT b.is_deleted' +
       " AND r.owner_user_id<>" + reviewerId +
       ' AND NOT EXISTS (SELECT 1 FROM book_ordinary_deletion_decisions d ' +

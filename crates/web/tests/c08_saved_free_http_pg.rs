@@ -355,6 +355,21 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(!pending_form.contains("value=\"complete\""));
     assert!(pending_form.contains("Заявка направлена на модерацию"));
     assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT lifecycle_status || ':' || visibility FROM books WHERE id={book}")
+        ),
+        "in_progress:public",
+        "an unreviewed owner request cannot remove the Book from the public site"
+    );
+    assert_eq!(
+        call(&app, "GET", &format!("/books/{book}"), &outsider_cookie, "")
+            .await
+            .status(),
+        StatusCode::OK,
+        "review request must leave the approved public Book readable"
+    );
+    assert_eq!(
         call(
             &app, "POST", &deletion, &reader_cookie,
             &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")

@@ -31,6 +31,8 @@ class Br060ArchiveBrowserTests(unittest.TestCase):
             "request_revision",
             "INSERT INTO account_roles",
             "book_ordinary_deletion_decisions",
+            "owner request must not deindex before independent site approval",
+            "readers must retain previously approved public access until moderation",
             "independent moderation approval refused",
             "reader.waitForResponse(response =>",
             "response.request().method() === 'PUT'",

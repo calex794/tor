@@ -203,7 +203,19 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(vis, "draft");
+    assert_eq!(vis, "public", "request must not deindex before site approval");
+    let original_lifecycle: String =
+        sqlx::query_scalar("SELECT lifecycle_status FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(original_lifecycle, "in_progress");
+    assert_eq!(
+        repo.update_lifecycle(owner, book, 2, "completed").await,
+        Err(AuthorError::Forbidden),
+        "owner cannot overwrite the open review by changing lifecycle"
+    );
     // Owner credentials are not a substitute for a distinct site-moderator
     // decision on this exact request; even a live owner must wait.
     assert_eq!(
@@ -256,7 +268,7 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         "INSERT INTO book_ordinary_deletion_events
            (book_id,actor_user_id,action,previous_status,next_status,
             previous_revision,next_revision)
-         VALUES($1,$2,'complete','pending_deletion','ordinary_deleted',2,3)",
+         VALUES($1,$2,'complete','in_progress','ordinary_deleted',2,3)",
     )
     .bind(book)
     .bind(stranger)
