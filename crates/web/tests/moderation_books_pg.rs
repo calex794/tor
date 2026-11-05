@@ -164,7 +164,10 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         false,
         ORIGIN.to_owned(),
     );
-    let path = "/moderation/books";
+    let home = request(&app, "GET", "/moderation/books", &mod_cookie, ORIGIN, "").await;
+    assert_eq!(home.status(), StatusCode::SEE_OTHER);
+    assert_eq!(home.headers()[header::LOCATION], "/moderation/books/registrations");
+    let path = "/moderation/books/control";
     let action = format!("/moderation/books/{book}/hold");
     let mod_cookie = format!("tor-dev-session={moderator_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
@@ -368,7 +371,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         request(
             &app,
             "GET",
-            "/moderation/books?before=-1",
+            "/moderation/books/control?before=-1",
             &mod_cookie,
             ORIGIN,
             ""
