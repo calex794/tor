@@ -204,7 +204,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let existing = sqlx::query(
                 "SELECT payload_hash, book_id FROM book_create_commands
@@ -452,7 +451,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let row = sqlx::query(
                 "SELECT payload_hash, chapter_id, version_id, saved_revision
