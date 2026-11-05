@@ -182,9 +182,16 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        request(&app, "GET", "/moderation/books", &outsider_cookie, ORIGIN, "")
-            .await
-            .status(),
+        request(
+            &app,
+            "GET",
+            "/moderation/books",
+            &outsider_cookie,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
 
