@@ -124,7 +124,11 @@ impl PgCoverReview {
     }
 
     pub async fn pending_count(&self, session: &[u8; 32]) -> Result<i64, CoverReviewError> {
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let count = sqlx::query_scalar(
             "SELECT COUNT(*) FROM book_cover_review_requests WHERE state='pending'",
