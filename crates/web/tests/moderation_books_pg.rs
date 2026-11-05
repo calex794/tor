@@ -694,8 +694,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             .status(),
         StatusCode::FORBIDDEN
     );
-    let history_response =
-        request(&app, "GET", &history_path, &admin_cookie, ORIGIN, "").await;
+    let history_response = request(&app, "GET", &history_path, &admin_cookie, ORIGIN, "").await;
     assert_eq!(history_response.status(), StatusCode::OK);
     assert_eq!(
         history_response.headers()[header::CACHE_CONTROL],
