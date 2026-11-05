@@ -188,7 +188,6 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/reading/tests/library_postgres.rs",
     "crates/reading/tests/library_age_pg.rs",
     "crates/reading/tests/library_saved_free_pg.rs",
-    "crates/reading/tests/library_archive_scale_pg.rs",
     "crates/web/tests/c08_saved_free_http_pg.rs",
     "crates/web/tests/c08_pending_library_http_pg.rs",
     "crates/web/tests/book_follow_http_pg.rs",
