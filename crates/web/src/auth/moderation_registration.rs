@@ -20,6 +20,7 @@ use tor_accounts::{
 #[serde(deny_unknown_fields)]
 pub(super) struct RegistrationQuery {
     before: Option<i64>,
+    q: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -54,8 +55,10 @@ fn render(
     csrf: &str,
     covers_count: i64,
     deletions_count: i64,
+    search: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
+    let search = pages::escape_html(search.unwrap_or(""));
     let mut cards = String::new();
     for item in items {
         let title = pages::escape_html(&item.title);
@@ -67,6 +70,9 @@ fn render(
             <h2>{title}</h2>
             <p>Книга #{book} · Владелец #{owner} · Ревизия {rev}</p>
             <p><a href="/moderation/books/{book}/history">Все решения модерации</a></p>
+            <details class="moderation-review-confirm" open>
+            <summary>Подтвердить решение по регистрации книги #{book}</summary>
+            <p>Проверьте название и ревизию. Одобрение не публикует авторский черновик.</p>
             <form method="post" action="/moderation/books/{book}/registration">
               <input type="hidden" name="csrf_token" value="{token}">
               <input type="hidden" name="expected_revision" value="{rev}">
@@ -75,7 +81,7 @@ fn render(
                         maxlength="2000" rows="2"></textarea>
               <button type="submit" name="action" value="approve">Одобрить регистрацию</button>
               <button type="submit" name="action" value="reject">Отклонить</button>
-            </form></article>"#,
+            </form></details></article>"#,
             book = item.book_id,
             rev = item.revision,
         ));
@@ -86,7 +92,10 @@ fn render(
     if items.len() == 40 {
         if let Some(last) = items.last() {
             cards.push_str(&format!(
-                r#"<a href="/moderation/books/registrations?before={}">Следующие заявки</a>"#,
+                r#"<form method="get" action="/moderation/books/registrations">
+                <input type="hidden" name="before" value="{}">
+                <input type="hidden" name="q" value="{search}">
+                <button type="submit">Следующие заявки</button></form>"#,
                 last.book_id
             ));
         }
@@ -101,11 +110,18 @@ fn render(
               <a href="/moderation/books/registrations" aria-current="page">Регистрация ({count})</a>
               <a href="/moderation/covers">Обложки ({covers_count})</a>
               <a href="/moderation/books/deletions">Удаление ({deletions_count})</a>
+              <a href="/moderation/books/control">Контроль</a>
             </nav>
+            <form method="get" action="/moderation/books/registrations">
+              <label for="registration-search">Поиск по названию или ID книги</label>
+              <input id="registration-search" name="q" maxlength="120" value="{search}">
+              <button type="submit">Найти</button>
+              <a href="/moderation/books/registrations">Сбросить</a>
+            </form>
             <p>Одобрение регистрации не публикует авторский черновик,
                а новые главы не проходят отдельную модерацию.</p>
             {cards}
-            <p><a href="/moderation/books">Контроль и удержания книг</a></p>
+            <p><a href="/moderation/books/control">Контроль и удержания книг</a></p>
             </div></section>"#
         ),
     )
@@ -154,7 +170,7 @@ pub(super) async fn queue(
     };
     let rows = match state
         .accounts
-        .moderation_registration_queue(&digest, query.before)
+        .moderation_registration_queue_filtered(&digest, query.before, query.q.as_deref())
         .await
     {
         Ok(rows) => rows,
@@ -162,7 +178,14 @@ pub(super) async fn queue(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        Html(render(&rows, count, &csrf, covers_count, deletions_count)),
+        Html(render(
+            &rows,
+            count,
+            &csrf,
+            covers_count,
+            deletions_count,
+            query.q.as_deref(),
+        )),
         &cookies,
     );
     response.headers_mut().insert(
@@ -204,7 +227,7 @@ pub(super) async fn decide(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/registrations"), &[]),
-        Err(e) => deny(error_code(e)),
+        Err(e) => super::decision_error(error_code(e), "/moderation/books/registrations"),
     }
 }
 
@@ -266,10 +289,12 @@ mod tests {
             owner_user_id: Some(37),
             revision: 1,
         }];
-        let body = render(&rows, 1, "csrf", 2, 3);
+        let body = render(&rows, 1, "csrf", 2, 3, None);
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
+        assert!(body.contains("moderation-review-confirm"));
+        assert!(body.contains("name=\"q\""));
         assert!(body.contains("Обложки (2)"));
         assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));

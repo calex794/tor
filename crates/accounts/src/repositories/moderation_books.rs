@@ -285,9 +285,23 @@ impl PgAccounts {
         session: &[u8; 32],
         before: Option<i64>,
     ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
-        if before.is_some_and(|id| id <= 0) {
+        self.moderation_pending_deletions_filtered(session, before, None)
+            .await
+    }
+
+    /// Filter all pending requests in SQL before the bounded keyset LIMIT.
+    pub async fn moderation_pending_deletions_filtered(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+    ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
+        if before.is_some_and(|id| id <= 0)
+            || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+        {
             return Err(ModerationBooksError::Invalid);
         }
+        let search = search.map(str::trim).filter(|q| !q.is_empty());
         let mut tx = self
             .pool()
             .begin()
@@ -303,6 +317,8 @@ impl PgAccounts {
                AND NOT b.is_deleted
                AND r.owner_user_id<>$1
                AND ($2::bigint IS NULL OR r.book_id<$2)
+               AND ($3::text IS NULL OR r.book_id::text=$3
+                    OR position(lower($3) in lower(b.title))>0)
                AND NOT EXISTS (
                  SELECT 1 FROM book_ordinary_deletion_decisions d
                  WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
@@ -311,6 +327,7 @@ impl PgAccounts {
         )
         .bind(reviewer)
         .bind(before)
+        .bind(search)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
