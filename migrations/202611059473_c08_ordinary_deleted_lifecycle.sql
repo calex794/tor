@@ -12,6 +12,8 @@ ALTER TABLE books ADD CONSTRAINT books_lifecycle_status_check
 ALTER TABLE books ADD COLUMN ordinary_deleted_at TIMESTAMPTZ;
 ALTER TABLE books ADD CONSTRAINT books_ordinary_deleted_timestamp_ck
     CHECK ((lifecycle_status='ordinary_deleted') = (ordinary_deleted_at IS NOT NULL));
+ALTER TABLE books ADD CONSTRAINT books_ordinary_deleted_nonpublic_ck
+    CHECK (lifecycle_status<>'ordinary_deleted' OR visibility<>'public');
 
 -- Do not touch books.is_deleted: that is the hard/legal/admin security gate
 -- and must never be overloaded to represent ordinary reader-safe removal.
