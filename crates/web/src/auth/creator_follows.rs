@@ -46,7 +46,7 @@ fn profile_path(name: &str) -> String {
     path
 }
 
-async fn change_profile(
+async fn write(
     state: &AuthState,
     target_id: u64,
     headers: &HeaderMap,
@@ -95,7 +95,7 @@ pub(super) async fn subscribe_profile(
     headers: HeaderMap,
     Form(form): Form<CsrfForm>,
 ) -> Response {
-    change_profile(&state, target_id, &headers, &form, true).await
+    write(&state, target_id, &headers, &form, true).await
 }
 
 pub(super) async fn unsubscribe_profile(
@@ -104,7 +104,7 @@ pub(super) async fn unsubscribe_profile(
     headers: HeaderMap,
     Form(form): Form<CsrfForm>,
 ) -> Response {
-    change_profile(&state, target_id, &headers, &form, false).await
+    write(&state, target_id, &headers, &form, false).await
 }
 
 fn error_status(error: CreatorFollowError) -> StatusCode {
