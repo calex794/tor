@@ -235,6 +235,11 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
         .purchased_allowed(buyer, purchase, chapter, v1)
         .await
         .unwrap());
+    assert!(sync
+        .purchased_body_for_validation(buyer, purchase, chapter, v1)
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(buyer)
         .execute(&pool)
