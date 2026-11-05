@@ -10,6 +10,8 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+#[path = "moderation_registration.rs"]
+mod registration;
 use tor_accounts::{
     repositories::moderation_books::{ModerationBook, ModerationBooksError},
     services::security::session_token_digest,
@@ -43,6 +45,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
+        .merge(registration::router())
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
