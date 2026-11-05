@@ -127,10 +127,32 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
     'unexpected navigation while opening moderator queue');
   const form = reviewer.locator('form[action="/moderation/books/' + book + '/deletion"]');
   const forms = await form.count();
-  assert.equal(forms, 1, 'exact owner request missing in moderator queue; ' +
-    'page=' + (await reviewer.locator('h1').first().textContent()) +
-    ', queue-title=' + (await reviewer.getByText('Архивная книга BR-060 ' + nonce).count()) +
-    ', forms=' + (await reviewer.locator('form').count()));
+  if (forms !== 1) {
+    // Never block diagnostic output on a missing H1: capture the actual page
+    // structure and independently prove the request exists in the disposable DB.
+    const diagnosis = await reviewer.evaluate(() => ({
+      title: document.title,
+      headings: [...document.querySelectorAll('h1')].map(h => h.textContent?.trim()).slice(0, 3),
+      formActions: [...document.forms].map(f => f.getAttribute('action')).slice(0, 8),
+      emptyQueue: document.body?.textContent?.includes('Ожидающих решения заявок нет.'),
+      pageLength: document.documentElement.outerHTML.length,
+    }));
+    const ownerId = id(pg(
+      'SELECT owner_user_id FROM book_ordinary_deletion_requests WHERE book_id=' + book
+    ));
+    const eligible = pg(
+      'SELECT COUNT(*) FROM book_ordinary_deletion_requests r ' +
+      'JOIN books b ON b.id=r.book_id WHERE r.book_id=' + book +
+      " AND b.lifecycle_status='pending_deletion'" +
+      ' AND b.lifecycle_revision=r.request_revision AND NOT b.is_deleted' +
+      " AND r.owner_user_id<>" + ownerId +
+      ' AND NOT EXISTS (SELECT 1 FROM book_ordinary_deletion_decisions d ' +
+      ' WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision)'
+    );
+    assert.equal(forms, 1,
+      'pending request missing in moderator UI: ' +
+      JSON.stringify({ diagnosis, queueStatus: queue.status(), pendingReview, eligible }));
+  }
   const revision = await form.locator('[name=request_revision]').inputValue();
   assert.match(revision, /^[1-9]\d*$/);
   const [decision] = await Promise.all([
