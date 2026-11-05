@@ -66,6 +66,67 @@ async fn save_free_v1_before_removal(
     );
 }
 
+/// A true second A login after ordinary deletion: the first session cookie
+/// is not forwarded to the grant or archive reader. No test-only actor header.
+struct FreshBuyerLogin {
+    session: String,
+    csrf: String,
+}
+
+fn login_cookie(response: &Response, name: &str) -> String {
+    let prefix = format!("{name}=");
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|header| header.to_str().ok())
+        .find_map(|cookie| {
+            cookie
+                .strip_prefix(&prefix)
+                .and_then(|value| value.split(';').next())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| panic!("missing {name} Set-Cookie"))
+}
+
+async fn fresh_buyer_login(app: &Router) -> FreshBuyerLogin {
+    let login = private_get(app, "/login", None).await;
+    assert_eq!(login.status(), StatusCode::OK);
+    let csrf_cookie = login_cookie(&login, "tor-dev-csrf");
+    let page = html_body(login).await;
+    let form_csrf = page
+        .split("name=\"csrf_token\" value=\"")
+        .nth(1)
+        .expect("real login must provide CSRF")
+        .split('"')
+        .next()
+        .expect("login CSRF value");
+    let email_form = BR060_BUYER_EMAIL.replace('@', "%40");
+    let body = format!(
+        "email={email_form}&password=S034RealStorageE2EPassword2026&csrf_token={form_csrf}"
+    );
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/login")
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::COOKIE, format!("tor-dev-csrf={csrf_cookie}"))
+        .body(Body::from(body))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41009,
+        ))));
+    let login_response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(login_response.status(), StatusCode::SEE_OTHER);
+    FreshBuyerLogin {
+        session: login_cookie(&login_response, "tor-dev-session"),
+        csrf: csrf_cookie,
+    }
+}
+
 /// Return a grant issued *after* removal: a stale URL or SQL purchase is not
 /// sufficient for the downstream real S3/WebCrypto acceptance.
 pub(super) async fn verify(
@@ -144,6 +205,42 @@ pub(super) async fn verify(
     assert!(buyer_library.contains("Удалена"));
     assert!(buyer_library.contains(&archive));
 
+    // The existing signed session is not enough: after completed deletion,
+    // recover both immutable editions through a *new* real HTTP login.
+    let fresh = fresh_buyer_login(app).await;
+    assert!(
+        fresh.session != buyer_cookie,
+        "login must create a new session"
+    );
+    let recovered = private_get(app, &archive, Some(&fresh.session)).await;
+    assert_eq!(recovered.status(), StatusCode::OK);
+    let recovered_toc = html_body(recovered).await;
+    assert!(recovered_toc.contains(&format!("href=\"/me/library/saved/{free_chapter}\"")));
+    assert!(recovered_toc.contains(&format!(
+        "href=\"/read/paid/{chapter}?purchase_id={purchase_id}\""
+    )));
+    assert!(!recovered_toc.contains("UNPINNED FREE V2"));
+    assert!(!recovered_toc.contains(MARKDOWN));
+    let recovered_free = private_get(
+        app,
+        &format!("/me/library/saved/{free_chapter}"),
+        Some(&fresh.session),
+    )
+    .await;
+    assert_eq!(recovered_free.status(), StatusCode::OK);
+    let recovered_text = html_body(recovered_free).await;
+    assert!(recovered_text.contains("Real public free content"));
+    assert!(!recovered_text.contains("UNPINNED FREE V2"));
+    let recovered_paid = paid_page(app, chapter, purchase_id, &fresh.session).await;
+    assert_eq!(recovered_paid.status(), StatusCode::OK);
+    assert!(html_body(recovered_paid)
+        .await
+        .contains("data-paid-chapter-reader"));
+    let fresh_library =
+        html_body(private_get(app, "/me/library", Some(&fresh.session)).await).await;
+    assert!(fresh_library.contains("Удалена"));
+    assert!(fresh_library.contains(&archive));
+
     let outsider_toc = html_body(private_get(app, &archive, Some(stranger_cookie)).await).await;
     assert!(!outsider_toc.contains(&format!("/read/paid/{chapter}?purchase_id=")));
     assert!(!outsider_toc.contains(&format!("/me/library/saved/{free_chapter}")));
@@ -198,6 +295,22 @@ pub(super) async fn verify(
                 .status(),
             StatusCode::OK
         );
+        let fresh_denied = html_body(private_get(app, &archive, Some(&fresh.session)).await).await;
+        assert!(!fresh_denied.contains(&format!("/me/library/saved/{free_chapter}")));
+        assert!(!fresh_denied.contains(&format!("/read/paid/{chapter}?purchase_id=")));
+        assert_ne!(
+            post_grant(
+                app,
+                chapter,
+                Some(&fresh.session),
+                Some(&fresh.csrf),
+                ORIGIN,
+                "{}"
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
     }
     pg(
         url,
@@ -209,7 +322,17 @@ pub(super) async fn verify(
     assert!(archived_html.contains("data-paid-chapter-reader"));
     assert!(!archived_html.contains("data-toc-state=\"free\""));
     assert!(!archived_html.contains("data-toc-state=\"locked\""));
-    let authorized = post_grant(app, chapter, Some(buyer_cookie), Some(csrf), ORIGIN, "{}").await;
+    // This newly signed grant belongs to the second login and is consumed by
+    // the existing real MinIO/WebCrypto fixture after the helper returns.
+    let authorized = post_grant(
+        app,
+        chapter,
+        Some(&fresh.session),
+        Some(&fresh.csrf),
+        ORIGIN,
+        "{}",
+    )
+    .await;
     assert_eq!(authorized.status(), StatusCode::OK);
     let grant = decode(authorized).await;
     assert_eq!(grant["version_id"], v1.to_string());
