@@ -20,6 +20,7 @@ pub(super) struct CoverQueueQuery {
     before: Option<i64>,
     q: Option<String>,
     kind: Option<String>,
+    level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -64,9 +65,17 @@ fn queue_body(
     deletion_count: i64,
     search: Option<&str>,
     kind: Option<&str>,
+    level: Option<&str>,
 ) -> String {
     let search = pages::escape_html(search.unwrap_or(""));
     let kind = kind.unwrap_or("");
+    let level = level.unwrap_or("");
+    let selected = |tier: &str| if level == tier { " selected" } else { "" };
+    let level_all = selected("");
+    let level_basic = selected("basic");
+    let level_adult = selected("adult");
+    let level_pro = selected("pro_adult");
+    let level_legacy = selected("legacy");
     let first_selected = if kind == "first" { " selected" } else { "" };
     let replacement_selected = if kind == "replacement" {
         " selected"
@@ -121,6 +130,7 @@ fn queue_body(
                  <input type=\"hidden\" name=\"before\" value=\"{}\">
                  <input type=\"hidden\" name=\"q\" value=\"{search}\">
                  <input type=\"hidden\" name=\"kind\" value=\"{kind}\">
+                 <input type=\"hidden\" name=\"level\" value=\"{level}\">
                  <button type=\"submit\">Следующая страница</button></form>",
                 last.id
             ));
@@ -146,6 +156,14 @@ fn queue_body(
                   <option value=""{all_selected}>Все обложки</option>
                   <option value="first"{first_selected}>Первичная обложка</option>
                   <option value="replacement"{replacement_selected}>Замена обложки</option>
+                </select>
+                <label for="cover-level">Возрастная категория книги</label>
+                <select id="cover-level" name="level">
+                  <option value=""{level_all}>Все уровни</option>
+                  <option value="basic"{level_basic}>Без ограничений</option>
+                  <option value="adult"{level_adult}>18+</option>
+                  <option value="pro_adult"{level_pro}>21+</option>
+                  <option value="legacy"{level_legacy}>Не указан</option>
                 </select>
                 <button type="submit">Найти</button>
                 <a href="/moderation/covers">Сбросить</a>
@@ -193,11 +211,12 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let items = match repo
-        .pending_filtered(
+        .pending_with_access_level(
             &digest,
             query.before,
             query.q.as_deref(),
             query.kind.as_deref().filter(|kind| !kind.is_empty()),
+            query.level.as_deref().filter(|level| !level.is_empty()),
         )
         .await
     {
@@ -214,6 +233,7 @@ pub(super) async fn page(
             deletion_count,
             query.q.as_deref(),
             query.kind.as_deref(),
+            query.level.as_deref(),
         )),
         &cookies,
     );
@@ -371,13 +391,14 @@ mod tests {
             submitted_by_user_id: 13,
             expected_slot_revision: 0,
         }];
-        let html = queue_body(&rows, 1, "csrf", 2, 3, None, None);
+        let html = queue_body(&rows, 1, "csrf", 2, 3, None, None, None);
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("/moderation/covers/9/preview"));
         assert!(html.contains("Первая обложка"));
         assert!(html.contains("moderation-review-confirm"));
         assert!(html.contains("name=\"kind\""));
+        assert!(html.contains("name=\"level\""));
         assert!(html.contains("Регистрация (2)"));
         assert!(html.contains("Удаление (3)"));
         assert!(!html.contains("staging/covers/"));
