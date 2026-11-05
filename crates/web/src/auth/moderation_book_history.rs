@@ -97,7 +97,7 @@ pub(super) async fn book_history(
 #[cfg(test)]
 mod moderation_history_tests {
     use super::*;
-    use tor_accounts::repositories::moderation_books::BookModerationHistoryEntry;
+    use tor_accounts::repositories::moderation_book_history::BookModerationHistoryEntry;
 
     #[test]
     fn internal_history_escapes_reviewer_name_and_reason() {
