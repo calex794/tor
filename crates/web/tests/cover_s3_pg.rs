@@ -58,7 +58,6 @@ impl CdnPurgeProvider for LocalCdnPurge {
     }
 }
 
-
 fn source_png() -> Vec<u8> {
     let image = RgbImage::from_fn(120, 190, |x, y| Rgb([41, x as u8, y as u8]));
     let mut output = Cursor::new(Vec::new());
