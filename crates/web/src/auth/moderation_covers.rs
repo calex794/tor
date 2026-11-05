@@ -105,9 +105,9 @@ fn queue_body(items: &[PendingCoverReview], count: i64, csrf: &str) -> String {
             r#"<section class="me-page"><div class="container">
               <h1>Модерация книг</h1>
               <nav aria-label="Очереди модератора">
-                <a href="/moderation/books?tab=registration">Регистрация</a>
+                <a href="/moderation/books/registrations">Регистрация</a>
                 <a href="/moderation/covers" aria-current="page">Обложки ({count})</a>
-                <a href="/moderation/books?tab=deletion">Удаление</a>
+                <a href="/moderation/books/deletions">Удаление</a>
               </nav>
               <p>Обработанное изображение не становится публичным без отдельного решения.</p>
               {cards}</div></section>"#
