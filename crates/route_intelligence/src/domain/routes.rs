@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 273] = [
+const ROUTES: [RouteRegistration; 275] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -281,8 +281,10 @@ const ROUTES: [RouteRegistration; 273] = [
     RouteRegistration::new("/api/v1/covers/{id}/{variant}/direct-grant", "GET", "/api/v1/covers/", Prefix, Api, ProductArea::Storage, Read), // 268
     RouteRegistration::new("/users/{target_user_id}/subscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 269
     RouteRegistration::new("/users/{target_user_id}/unsubscribe", "POST", "/users/", Prefix, Page, Dashboard, Write), // 270
-    RouteRegistration::new("/me/library/{id}/saved", "GET", "/me/library/", Prefix, Page, Reading, Read), // 271
-    RouteRegistration::new("/me/library/saved/{id}", "GET", "/me/library/", Prefix, Page, Reading, Read), // 272
+    RouteRegistration::new("/me/books/{id}/settings/access-level", "GET", "/me/", Prefix, Page, Dashboard, Read), // 271
+    RouteRegistration::new("/me/books/{id}/settings/access-level", "POST", "/me/", Prefix, Page, Dashboard, Write), // 272
+    RouteRegistration::new("/me/library/{id}/saved", "GET", "/me/library/", Prefix, Page, Reading, Read), // 273
+    RouteRegistration::new("/me/library/saved/{id}", "GET", "/me/library/", Prefix, Page, Reading, Read), // 274
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

@@ -269,6 +269,16 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(reserved.id, again.id);
         assert_eq!(reserved.job_id, job);
         assert_eq!(reserved.slot_revision, 1);
+        // A reservation is not proof of S3 copy completion, even when
+        // Book/slot/variant are all public and attached.
+        assert!(
+            ledger
+                .current_cdn_copies(&[BOOK_ID], kind)
+                .await
+                .unwrap()
+                .is_empty(),
+            "reserved CDN copy is not a publishable URL"
+        );
         // An aged reservation belonging to a still-public Book must never be
         // reclaimed for deletion: the publisher could be retrying after a crash.
         pg_sql(
@@ -308,6 +318,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     ));
     let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()))
         .with_publication_registry(ledger.clone());
+    // The adapter cannot expose a CDN URL without an explicitly installed
+    // B-owned publication registry, even when an origin is configured.
+    assert!(matches!(
+        unregistered
+            .current_cdn_urls(&[BOOK_ID as u64], PublicCoverKind::Card)
+            .await,
+        Err(tor_ingest::domain::cover::CoverError::Forbidden)
+    ));
     let mut public_urls = Vec::new();
     for variant in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let url = direct
@@ -331,6 +349,20 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             head.cache_control(),
             Some("public, max-age=31536000, immutable")
         );
+    }
+    for kind in [PublicCoverKind::Card, PublicCoverKind::Main] {
+        let urls = direct
+            .current_cdn_urls(&[BOOK_ID as u64, 951], kind)
+            .await
+            .expect("current copied public BASIC cover only");
+        assert_eq!(urls.len(), 1);
+        let expected_url = public_urls
+            .iter()
+            .find(|(variant, _)| *variant == kind)
+            .map(|(_, url)| url)
+            .unwrap();
+        assert_eq!(urls.get(&(BOOK_ID as u64)), Some(expected_url));
+        assert!(!urls.contains_key(&951));
     }
     let card_original = store
         .get_bounded(&card.storage_key, card.size_bytes as usize)
@@ -376,6 +408,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={BOOK_ID}"),
     )
     .await;
+    assert!(
+        direct
+            .current_cdn_urls(&[BOOK_ID as u64], PublicCoverKind::Card)
+            .await
+            .unwrap()
+            .is_empty(),
+        "hidden books must no longer expose permanent CDN URLs"
+    );
     // A bounded origin-cleanup worker claims two durable PG records, removes
     // exact public S3 keys, and leaves private originals untouched.
     let cleanup = CoverOriginCleanup::new(ledger.clone(), Arc::new(publisher.clone()));
