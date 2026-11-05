@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 284)  # BR-060 includes the moderated ordinary-deletion review GET/POST routes.
-        self.assertEqual(report["route_pairs"], 280)  # Includes exact-pinned BR-060 archive GET/PUT and script route.
+        self.assertEqual(report["route_pairs"], 282)  # Plus two independent reviewed moderation actions.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
