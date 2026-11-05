@@ -93,7 +93,11 @@ impl PgReadingSync {
             return Err(SyncError::Invalid);
         }
         checked_place(place, expected_revision)?;
-        let mut tx = self.pool.begin().await.map_err(|_| SyncError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         // Hold a consistent access decision until the position is committed.
         // Concurrent pin removal, Book blocking or session revocation must
         // serialize with this operation rather than authorizing a stale write.
