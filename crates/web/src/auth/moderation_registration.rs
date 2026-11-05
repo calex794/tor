@@ -66,6 +66,7 @@ fn render(
             r#"<article class="me-now-card">
             <h2>{title}</h2>
             <p>Книга #{book} · Владелец #{owner} · Ревизия {rev}</p>
+            <p><a href="/moderation/books/{book}/history">Все решения модерации</a></p>
             <form method="post" action="/moderation/books/{book}/registration">
               <input type="hidden" name="csrf_token" value="{token}">
               <input type="hidden" name="expected_revision" value="{rev}">
