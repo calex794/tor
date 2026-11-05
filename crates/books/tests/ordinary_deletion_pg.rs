@@ -173,7 +173,7 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 1, "complete", &owner_token, hash)
             .await,
-        Err(AuthorError::Conflict)
+        Err(AuthorError::Invalid)
     );
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 1, "start", &owner_token, "$argon2id$wrong")
@@ -209,7 +209,7 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 2, "complete", &owner_token, hash)
             .await,
-        Err(AuthorError::Conflict)
+        Err(AuthorError::Invalid)
     );
     assert!(
         !repo
@@ -228,27 +228,25 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .await
     .unwrap();
     assert_eq!(original.1, "public");
+    // Exercise the real moderator decision: approval itself completes
+    // removal, with a distinct reviewer recorded in the audit transaction.
     sqlx::query(
-        "INSERT INTO book_ordinary_deletion_decisions
-         (book_id,request_revision,moderator_user_id,decision)
-         VALUES($1,2,$2,'approve')",
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'moderator',TRUE)",
     )
-    .bind(book)
     .bind(stranger)
     .execute(&pool)
     .await
     .unwrap();
-    assert!(
-        repo.ordinary_deletion_view(owner, book)
-            .await
-            .unwrap()
-            .unwrap()
-            .moderator_approved
-    );
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
+    accounts
+        .moderate_ordinary_deletion(&stranger_token, book, 2, "approve", "")
+        .await
+        .unwrap();
     assert_eq!(
-        repo.advance_ordinary_deletion(owner, book, 2, "complete", &owner_token, hash)
+        repo.advance_ordinary_deletion(owner, book, 3, "complete", &owner_token, hash)
             .await,
-        Ok(3)
+        Err(AuthorError::Invalid)
     );
     let final_state = repo
         .ordinary_deletion_view(owner, book)
@@ -307,7 +305,7 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 3, "complete", &owner_token, hash)
             .await,
-        Err(AuthorError::Missing)
+        Err(AuthorError::Invalid)
     );
     pool.close().await;
 }

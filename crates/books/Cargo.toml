@@ -16,4 +16,5 @@ tor-contracts = { path = "../contracts" }
 
 [dev-dependencies]
 tokio.workspace = true
+tor-accounts = { path = "../accounts" }
 hex = "0.4"

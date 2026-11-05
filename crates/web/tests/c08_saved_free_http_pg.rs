@@ -357,8 +357,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::CONFLICT,
-        "an owner password is not a site moderator approval"
+        StatusCode::BAD_REQUEST,
+        "owners cannot finalize deletion even after approval"
     );
     // Even a site moderator who owns the Book cannot self-approve deletion.
     pg(
@@ -448,9 +448,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         "a decision is immutable and cannot be applied twice"
     );
     let approved_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
-    assert!(approved_form.contains("value=\"complete\""));
+    assert!(!approved_form.contains("value=\"complete\""));
+    assert!(approved_form.contains("удалена"));
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
-    assert!(pending_library.contains("Ожидает удаления"));
+    assert!(pending_library.contains("Удалена"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending
         .replace("<span id=\"saved-resume\"></span>", "")
@@ -478,7 +479,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::SEE_OTHER
+        StatusCode::BAD_REQUEST
     );
     let events = pg(
         &url,
@@ -517,7 +518,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &reject_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=reject")
+            &format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied")
         )
         .await
         .status(),
@@ -540,7 +541,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::CONFLICT
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         call(
