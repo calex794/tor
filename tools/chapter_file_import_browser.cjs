@@ -270,7 +270,7 @@ function makeDocxXml(xml) {
           }).count() === 0, name + ': rejected unsafe ZIP leaked into publication');
           const first = publicPage.getByRole('link', { name: /Глава 1(?![0-9])/ });
           const readHref = await first.getAttribute('href');
-          assert(/^\\/reader\\/[1-9][0-9]*$/.test(readHref || ''),
+          assert(new RegExp('^/reader/[1-9][0-9]*$').test(readHref || ''),
             name + ': imported chapter points to invalid public reader route');
           await first.click();
           await publicPage.waitForURL(base + readHref);
