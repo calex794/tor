@@ -277,7 +277,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Ожидает удаления"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(pending.contains("Pinned ORIGINAL V1"));
+    assert!(pending
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
     // A completed ordinary deletion deindexes public pages but keeps the
@@ -326,7 +328,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
     let still_saved = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(still_saved.contains("Pinned ORIGINAL V1"));
+    assert!(still_saved
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
     assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
     // A second, real HTTP login after final ordinary deletion must recover
     // exactly the pre-deletion V1 and its saved UTF-16 reading position.
@@ -359,7 +363,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
     let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
-    assert!(fresh_read.contains("Pinned ORIGINAL V1"));
+    assert!(fresh_read
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
     assert!(fresh_read.contains("href=\"#saved-resume\""));
     assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
 
