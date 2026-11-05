@@ -78,7 +78,7 @@ SCOPE_CALLS = {
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
-    "list_owned_books", "create_owned_book", "owned_book",
+    "list_owned_books", "create_owned_book", "owned_book", "owner_registration_status",
     "ordinary_deletion_view", "advance_ordinary_deletion",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
