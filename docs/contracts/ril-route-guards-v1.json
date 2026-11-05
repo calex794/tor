@@ -2059,6 +2059,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "author_book_page::registration_status",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/reviews",
+      "source": "crates/web/src/auth/moderation_book_history.rs",
+      "handler": "reviewed_index",
+      "policy": "scoped"
     }
   ]
 }
