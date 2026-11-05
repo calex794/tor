@@ -97,7 +97,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .unwrap();
-    let outsider = accounts
+    let _outsider = accounts
         .register_with_session(
             &format!("c08-outsider-{marker}@example.invalid"),
             "C08 outsider",
