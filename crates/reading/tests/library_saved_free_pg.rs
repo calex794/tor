@@ -264,7 +264,11 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
             .len(),
         3
     );
-    assert!(library.pinned_free_chapter(user_b, free1, &token_b).await.unwrap().is_some());
+    assert!(library
+        .pinned_free_chapter(user_b, free1, &token_b)
+        .await
+        .unwrap()
+        .is_some());
 
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(book)
