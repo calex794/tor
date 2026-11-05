@@ -50,7 +50,7 @@ fn pg(url: &str, sql: &str) -> String {
 }
 
 async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -> Response {
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method(method)
         .uri(url)
         .header(header::COOKIE, cookie)
@@ -58,7 +58,23 @@ async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap();
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41001,
+        ))));
     app.clone().oneshot(req).await.unwrap()
+}
+
+fn auth_cookie(response: &Response, prefix: &str) -> String {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.starts_with(prefix))
+        .map(|value| value.split(';').next().unwrap_or_default().to_owned())
+        .expect("auth Set-Cookie")
 }
 
 async fn html(response: Response) -> String {
@@ -197,6 +213,18 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::OK
     );
 
+    // The position is recorded on genuinely published V1, prior to author
+    // publishing V2 and permanently withdrawing this Book.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_book_positions
+             (user_id,book_id,chapter_id,chapter_no,chapter_revision,
+              version_id,block_index,char_offset)
+             VALUES({actor},{book},{chapter},1,1,{v1},1,6)"
+        ),
+    );
+
     let v2: i64 = pg(
         &url,
         &format!(
@@ -249,7 +277,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Ожидает удаления"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(pending.contains("Pinned ORIGINAL V1"));
+    assert!(pending
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
     // A completed ordinary deletion deindexes public pages but keeps the
@@ -298,8 +328,47 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
     let still_saved = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(still_saved.contains("Pinned ORIGINAL V1"));
+    assert!(still_saved
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
     assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
+    // A second, real HTTP login after final ordinary deletion must recover
+    // exactly the pre-deletion V1 and its saved UTF-16 reading position.
+    let login_page = call(&app, "GET", "/login", "", "").await;
+    assert_eq!(login_page.status(), StatusCode::OK);
+    let login_cookie = auth_cookie(&login_page, "tor-dev-csrf=");
+    let login_html = html(login_page).await;
+    let login_csrf = login_html
+        .split("name=\"csrf_token\" value=\"")
+        .nth(1)
+        .expect("login CSRF input")
+        .split('"')
+        .next()
+        .expect("login CSRF token");
+    let logged = call(
+        &app,
+        "POST",
+        "/login",
+        &login_cookie,
+        &format!(
+            "email=c08-reader-{marker}%40example.invalid&password=C08SavedReader2026&csrf_token={login_csrf}"
+        ),
+    )
+    .await;
+    assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    let fresh_session = auth_cookie(&logged, "tor-dev-session=");
+    assert_ne!(fresh_session, format!("tor-dev-session={token}"));
+    let new_reader_cookie = format!("{fresh_session}; {login_cookie}");
+    let fresh_library = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
+    assert!(fresh_library.contains("Удалена"));
+    assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
+    let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
+    assert!(fresh_read
+        .replace("<span id=\"saved-resume\"></span>", "")
+        .contains("Pinned ORIGINAL V1"));
+    assert!(fresh_read.contains("href=\"#saved-resume\""));
+    assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
+
     assert_eq!(
         call(&app, "GET", &read, &outsider_cookie, "")
             .await
@@ -327,20 +396,38 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &url,
         &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
     );
+    // The old session cannot read the archive after logout/revocation;
+    // the second login still can, until the reader removes the saved Book.
+    assert!(PgAccounts::from_pool(pool.clone())
+        .revoke_session(&session_token_digest(&token))
+        .await
+        .unwrap());
+    assert_ne!(
+        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "GET", &read, &new_reader_cookie, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(
         call(
             &app,
             "POST",
             &format!("/me/library/{book}/remove"),
-            &reader_cookie,
-            &format!("csrf_token={csrf}")
+            &new_reader_cookie,
+            &format!("csrf_token={login_csrf}")
         )
         .await
         .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        call(&app, "GET", &read, &new_reader_cookie, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 
