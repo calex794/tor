@@ -235,5 +235,39 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         ),
         "1"
     );
+    // The owner learns *why* registration was rejected, not who reviewed it.
+    let refused_status_path = format!("/me/books/{refused}/registration-status");
+    assert_eq!(
+        request(&app, "GET", &refused_status_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", &refused_status_path, &admin_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "site-role alone does not grant owner-facing application data"
+    );
+    let owner_status = request(
+        &app, "GET", &refused_status_path, &owner_cookie, ORIGIN, "",
+    ).await;
+    assert_eq!(owner_status.status(), StatusCode::OK);
+    assert_eq!(owner_status.headers()[header::CACHE_CONTROL], "no-store");
+    let owner_reason = html(owner_status).await;
+    assert!(owner_reason.contains("Причина отказа"));
+    assert!(owner_reason.contains("Incorrect book"));
+    assert!(!owner_reason.contains("Site Moderator"));
+    assert!(!owner_reason.contains(&format!("(#{admin})")));
+    let accepted_status = html(
+        request(
+            &app, "GET",
+            &format!("/me/books/{book}/registration-status"),
+            &owner_cookie, ORIGIN, "",
+        ).await,
+    ).await;
+    assert!(accepted_status.contains("Регистрация одобрена"));
+    assert!(!accepted_status.contains("Site Moderator"));
     pool.close().await;
 }
