@@ -132,8 +132,7 @@ pub(super) async fn catalog(
             &covers,
         );
         let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
-        let (html, origin) =
-            cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
+        let (html, origin) = cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
         let response = if digest.is_some() {
             // Personalized 18+/21+ metadata must never be cached for guests.
             auth_cookies::private_response(html, &[])
