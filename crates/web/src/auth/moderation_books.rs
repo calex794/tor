@@ -26,6 +26,7 @@ use tor_accounts::{
 pub(super) struct PageQuery {
     before: Option<i64>,
     q: Option<String>,
+    level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -351,9 +352,17 @@ fn render_deletion_queue(
     cover_count: i64,
     deletion_count: i64,
     search: Option<&str>,
+    level: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
     let search = pages::escape_html(search.unwrap_or(""));
+    let level = level.unwrap_or("");
+    let selected = |tier: &str| if level == tier { " selected" } else { "" };
+    let level_all = selected("");
+    let level_basic = selected("basic");
+    let level_adult = selected("adult");
+    let level_pro = selected("pro_adult");
+    let level_legacy = selected("legacy");
     let mut cards = String::new();
     for item in rows {
         let title = pages::escape_html(&item.title);
@@ -387,6 +396,7 @@ fn render_deletion_queue(
                 "<form method=\"get\" action=\"/moderation/books/deletions\">
                  <input type=\"hidden\" name=\"before\" value=\"{}\">
                  <input type=\"hidden\" name=\"q\" value=\"{search}\">
+                 <input type=\"hidden\" name=\"level\" value=\"{level}\">
                  <button type=\"submit\">Следующая страница</button></form>",
                 last.book_id
             ));
@@ -408,6 +418,14 @@ fn render_deletion_queue(
                <form method="get" action="/moderation/books/deletions">
                  <label for="deletion-search">Поиск по названию или ID книги</label>
                  <input id="deletion-search" name="q" maxlength="120" value="{search}">
+                 <label for="deletion-level">Возрастная категория книги</label>
+                 <select id="deletion-level" name="level">
+                   <option value=""{level_all}>Все уровни</option>
+                   <option value="basic"{level_basic}>Без ограничений</option>
+                   <option value="adult"{level_adult}>18+</option>
+                   <option value="pro_adult"{level_pro}>21+</option>
+                   <option value="legacy"{level_legacy}>Не указан</option>
+                 </select>
                  <button type="submit">Найти</button>
                  <a href="/moderation/books/deletions">Сбросить</a>
                </form>
@@ -463,7 +481,12 @@ pub(super) async fn deletion_queue(
     };
     let rows = match state
         .accounts
-        .moderation_pending_deletions_filtered(&digest, query.before, query.q.as_deref())
+        .moderation_pending_deletions_with_access_level(
+            &digest,
+            query.before,
+            query.q.as_deref(),
+            query.level.as_deref().filter(|level| !level.is_empty()),
+        )
         .await
     {
         Ok(rows) => rows,
@@ -478,6 +501,7 @@ pub(super) async fn deletion_queue(
             cover_count,
             deletion_count,
             query.q.as_deref(),
+            query.level.as_deref(),
         )),
         &cookies,
     );
@@ -569,7 +593,7 @@ mod deletion_queue_tests {
             owner_user_id: 7,
             request_revision: 2,
         }];
-        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None);
+        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None, None);
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
@@ -578,6 +602,7 @@ mod deletion_queue_tests {
         assert!(page.contains("Удаление (3)"));
         assert!(page.contains("value=\"approve\""));
         assert!(page.contains("moderation-review-confirm"));
+        assert!(page.contains("name=\"level\""));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
         let response = private_response(Html(page), &[]);
