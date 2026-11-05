@@ -50,6 +50,11 @@ class CandidateCutoverGuardTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 DRILL.select_previous_binary(
                     {"TOR_S061_PREVIOUS_BINARY": str(outside)}, root, new)
+            # A lexical path under runner temp must not escape through '..'.
+            traversal = root / ".." / outside.name
+            with self.assertRaises(RuntimeError):
+                DRILL.select_previous_binary(
+                    {"TOR_S061_PREVIOUS_BINARY": str(traversal)}, root, new)
             old.unlink()
             old.symlink_to(new)
             with self.assertRaises(RuntimeError):
