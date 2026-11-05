@@ -40,10 +40,13 @@ pub(super) async fn list(
     let session_digest = tor_accounts::services::security::session_token_digest(&token);
     let result = state
         .bookmarks
-        .pinned_free_chapters(actor, book_id, 50, query.after, &session_digest)
+.saved_archive_chapters(actor, book_id, 50, query.after, &session_digest)
         .await;
     match result {
-        Ok(page) => private_response(pages::saved_free_list(book_id, &page), &[]),
+        Ok(page) => private_response(
+            pages::saved_archive_list(book_id, &page, state.paid_reader_available),
+            &[],
+        ),
         Err(LibraryError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
