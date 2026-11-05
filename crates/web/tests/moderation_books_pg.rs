@@ -828,7 +828,9 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     let body = format!("csrf_token={csrf}&expected_revision=1&action=approve");
 
     assert_eq!(
-        request(&app, "GET", queue_path, "", ORIGIN, "").await.status(),
+        request(&app, "GET", queue_path, "", ORIGIN, "")
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
