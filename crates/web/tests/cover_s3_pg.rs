@@ -249,25 +249,45 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(snapshot.timeouts, 0);
     assert_eq!(snapshot.errors, 0);
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), None);
-    assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"),
-        "processed artifacts must wait for site moderation");
+    assert_eq!(
+        jobs.job_status(job).await.unwrap().as_deref(),
+        Some("done"),
+        "processed artifacts must wait for site moderation"
+    );
     let accounts = tor_accounts::repositories::PgAccounts::from_pool(catalog.pool());
     let token = tor_accounts::services::security::generate_session_token();
     let digest = tor_accounts::services::security::session_token_digest(&token);
-    let reviewer = accounts.register_with_session(
-        &format!("obs09-cover-moderator-{}@example.invalid",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
-        "Cover reviewer",
-        &tor_accounts::services::security::hash_password("Obs09CoverMod2026!").unwrap(),
-        &digest,
-        std::num::NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    pg_sql(&url, &format!(
-        "INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"
-    )).await;
+    let reviewer = accounts
+        .register_with_session(
+            &format!(
+                "obs09-cover-moderator-{}@example.invalid",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            "Cover reviewer",
+            &tor_accounts::services::security::hash_password("Obs09CoverMod2026!").unwrap(),
+            &digest,
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg_sql(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"
+        ),
+    )
+    .await;
     let reviews = PgCoverReview::new(catalog.pool());
-    let review_request = reviews.pending(&digest, None).await.unwrap().into_iter()
-        .find(|r| r.job_id==job).expect("private cover candidate");
+    let review_request = reviews
+        .pending(&digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.job_id == job)
+        .expect("private cover candidate");
     assert_eq!(review_request.expected_slot_revision, 0);
     assert_eq!(review_request.book_id, BOOK_ID);
     assert_eq!(
@@ -294,8 +314,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         StatusCode::UNAUTHORIZED
     );
     let queue = moderation_request(
-        &moderator_app, "GET", "/moderation/covers", &cookie, origin, "",
-    ).await;
+        &moderator_app,
+        "GET",
+        "/moderation/covers",
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
     assert_eq!(queue.status(), StatusCode::OK);
     assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
     let html = to_bytes(queue.into_body(), 262144).await.unwrap();
@@ -304,36 +330,55 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &moderator_app,
         "GET",
         &format!("/moderation/covers/{}/preview", review_request.id),
-        &cookie, origin, "",
-    ).await;
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
     assert_eq!(preview.status(), StatusCode::OK);
     assert_eq!(preview.headers()[header::CONTENT_TYPE], "image/webp");
-    assert_eq!(preview.headers()[header::CACHE_CONTROL], "private, no-store");
-    let preview_bytes = to_bytes(preview.into_body(), 8 * 1024 * 1024).await.unwrap();
+    assert_eq!(
+        preview.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let preview_bytes = to_bytes(preview.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
     assert!(preview_bytes.starts_with(b"RIFF"));
     assert_eq!(
         moderation_request(
-            &moderator_app, "POST",
+            &moderator_app,
+            "POST",
             &format!("/moderation/covers/{}/decision", review_request.id),
-            &cookie, "https://evil.invalid",
+            &cookie,
+            "https://evil.invalid",
             &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     let approved = moderation_request(
-        &moderator_app, "POST",
+        &moderator_app,
+        "POST",
         &format!("/moderation/covers/{}/decision", review_request.id),
-        &cookie, origin,
+        &cookie,
+        origin,
         &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
-    ).await;
+    )
+    .await;
     assert_eq!(approved.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         moderation_request(
-            &moderator_app, "POST",
+            &moderator_app,
+            "POST",
             &format!("/moderation/covers/{}/decision", review_request.id),
-            &cookie, origin,
+            &cookie,
+            origin,
             &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "repeat review must not create a second approval"
     );
