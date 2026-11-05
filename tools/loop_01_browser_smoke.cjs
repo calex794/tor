@@ -44,13 +44,17 @@ async function screenshot(page, screen, step) {
     ]) {
       const ownerContext = await browser.newContext({ viewport: { width, height } });
       const readerContext = await browser.newContext({ viewport: { width, height } });
+      const profileContext = await browser.newContext({ viewport: { width, height } });
       try {
         const owner = await ownerContext.newPage();
         const reader = await readerContext.newPage();
+        const profileFollower = await profileContext.newPage();
         const nonce = (process.env.GITHUB_RUN_ID || 'local') + '-' +
           Date.now() + '-' + screen;
+        const authorName = 'Автор петли ' + nonce;
+        const profileUrl = base + '/users/' + encodeURIComponent(authorName);
 
-        await register(owner, 'Автор петли', 'loop1.author.' + nonce + '@example.invalid');
+        await register(owner, authorName, 'loop1.author.' + nonce + '@example.invalid');
         await owner.goto(base + '/me/books');
         await owner.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
         await owner.waitForURL(base + '/me/books/new');
@@ -91,6 +95,18 @@ async function screenshot(page, screen, step) {
         await register(reader, 'Читатель петли', 'loop1.reader.' + nonce + '@example.invalid');
         await reader.goto(base + '/books/' + bookId);
         await reader.getByRole('button', { name: 'Следить за книгой' }).click();
+
+        // S014: a separate reader follows the author from the public profile,
+        // without ever creating a Book follow or purchasing a chapter.
+        await register(profileFollower, 'Читатель автора ' + nonce,
+          'loop1.profile.' + nonce + '@example.invalid');
+        const authorProfile = await profileFollower.goto(profileUrl);
+        assert(authorProfile && authorProfile.status() === 200,
+          screen + ': author profile is unavailable to signed reader');
+        await profileFollower.getByRole('button', { name: 'Подписаться', exact: true }).click();
+        assert(await profileFollower.getByRole('button', {
+          name: 'Отписаться', exact: true,
+        }).isVisible(), screen + ': profile follow did not persist');
         await reader.goto(base + '/read/' + firstChapter);
         assert(await reader.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
           screen + ': no real end-of-chapter completion control');
@@ -116,6 +132,27 @@ async function screenshot(page, screen, step) {
         await owner.getByLabel('Текст главы').fill('Продолжение истории петли.');
         await owner.getByRole('button', { name: 'Сохранить главу' }).click();
         await owner.waitForURL(base + '/me/books/' + bookId);
+
+        // Verify the profile-only subscription receives this fresh release.
+        await profileFollower.goto(base + '/me/library');
+        const profileUpdate = profileFollower.locator('#new-chapters .library-card')
+          .filter({ hasText: 'Второй выпуск петли' });
+        assert(await profileUpdate.count() === 1,
+          screen + ': profile-only author release missing or duplicated');
+        const profileChapter = await profileUpdate.getByRole('link', { name: 'Читать' })
+          .getAttribute('href');
+        assert(/^\/read\/\d+$/.test(profileChapter || ''),
+          screen + ': profile-follow update has no readable chapter link');
+        await profileUpdate.getByRole('link', { name: 'Читать' }).click();
+        await profileFollower.waitForURL(base + profileChapter);
+        assert(await profileFollower.getByText('Продолжение истории петли.').isVisible(),
+          screen + ': profile-follow release cannot be read');
+        await screenshot(profileFollower, screen, 'profile-follow-return');
+        await profileFollower.goto(profileUrl);
+        await profileFollower.getByRole('button', { name: 'Отписаться', exact: true }).click();
+        assert(await profileFollower.getByRole('button', {
+          name: 'Подписаться', exact: true,
+        }).isVisible(), screen + ': profile unsubscribe did not persist');
 
         await reader.goto(base + '/me/library');
         let update = reader.locator('#new-chapters .library-card')
@@ -153,6 +190,7 @@ async function screenshot(page, screen, step) {
       } finally {
         await ownerContext.close();
         await readerContext.close();
+        await profileContext.close();
       }
     }
   } finally {
@@ -160,7 +198,7 @@ async function screenshot(page, screen, step) {
   }
   console.log(
     'TOR Loop 01 Chromium PASS: desktop/mobile real accounts, demand, owner release, ' +
-    'on-site update, read-state receipt and completed private-reader return'
+    'on-site update, profile-only author follow, read-state and completed reader return'
   );
 })().catch(error => {
   console.error(error);
