@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
 fs.mkdirSync(out, { recursive: true });
@@ -239,11 +240,54 @@ function makeDocxXml(xml) {
         } finally {
           await guest.close();
         }
+
+        // Loop 15: an imported translation must become an actual public Book,
+        // not merely editable private drafts. Approval remains a separate
+        // site-moderator action, simulated only in disposable tor_ci.
+        await page.goto(base + '/me/books/' + id);
+        await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
+        await page.waitForURL(base + '/books/' + id);
+        const pending = await page.goto(base + '/books/' + id);
+        assert(pending && pending.status() === 404,
+          name + ': imported book bypassed site moderation');
+        approvePendingBookForIsolatedCi(id);
+        const publicReader = await browser.newContext({ viewport: { width, height } });
+        try {
+          const publicPage = await publicReader.newPage();
+          const published = await publicPage.goto(base + '/books/' + id);
+          assert(published && published.status() === 200,
+            name + ': imported book not publicly readable after approval');
+          assert(await publicPage.getByRole('heading', {
+            name: 'Импортированный сборник ' + name,
+          }).isVisible(), name + ': public imported Book title missing');
+          for (const number of [1, 2, 3, 4, 5, 10]) {
+            assert(await publicPage.getByRole('link', {
+              name: new RegExp('Глава ' + number + '(?![0-9])'),
+            }).isVisible(), name + ': imported chapter ' + number + ' missing in public TOC');
+          }
+          assert(await publicPage.getByRole('link', {
+            name: /Глава 6(?![0-9])/, // rejected ZIP must not create a chapter
+          }).count() === 0, name + ': rejected unsafe ZIP leaked into publication');
+          const first = publicPage.getByRole('link', { name: /Глава 1(?![0-9])/ });
+          const readHref = await first.getAttribute('href');
+          assert(new RegExp('^/reader/[1-9][0-9]*$').test(readHref || ''),
+            name + ': imported chapter points to invalid public reader route');
+          await first.click();
+          await publicPage.waitForURL(base + readHref);
+          assert(await publicPage.getByText('Первый', { exact: false }).isVisible(),
+            name + ': imported TXT chapter body missing from public reader');
+          await publicPage.screenshot({
+            path: path.join(out, 'chapter-import-' + name + '-public-reader.png'),
+            fullPage: true,
+          });
+        } finally {
+          await publicReader.close();
+        }
       } finally {
         await context.close();
       }
     }
-    console.log('TOR H-09 chapter TXT/MD/DOCX/ZIP import browser PASS: desktop/mobile, preview, confirm, private drafts');
+    console.log('TOR Loop 15 import-to-public-read browser PASS: TXT/MD/DOCX/ZIP, desktop/mobile, moderation, reader');
   } finally {
     await browser.close();
   }
