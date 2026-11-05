@@ -145,12 +145,40 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         .await
         .unwrap()
         .is_none());
+    // A separate, live SITE moderator, not the Book owner, approves
+    // registration at this exact pending revision. No direct SQL bypass.
     pg(
         &url,
         &format!(
-            "UPDATE books SET visibility_status='active'
-             WHERE id={book_id} AND visibility_status='pending_moderation'"
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({outsider},'moderator',TRUE)"
         ),
+    );
+    let pending_revision: i64 = sqlx::query_scalar(
+        "SELECT visibility_status_revision FROM books WHERE id=$1
+         AND visibility_status='pending_moderation'",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    accounts
+        .moderate_book_registration(
+            &session_token_digest(&outsider_token),
+            book_id,
+            pending_revision,
+            "approve",
+            "",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_registration_decisions
+                      WHERE book_id={book_id} AND outcome='approved'")
+        ),
+        "1"
     );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
