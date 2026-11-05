@@ -168,8 +168,8 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
             &csrf
         )
         .await,
-        StatusCode::FORBIDDEN,
-        "self-follow denied",
+        StatusCode::BAD_REQUEST,
+        "NEwBOO self-follow is invalid input, not an authorization error",
     );
     assert_eq!(
         post(
