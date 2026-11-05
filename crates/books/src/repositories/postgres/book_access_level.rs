@@ -315,7 +315,11 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        assert!(repo.manageable_access_level(owner, book).await.unwrap().is_none());
+        assert!(repo
+            .manageable_access_level(owner, book)
+            .await
+            .unwrap()
+            .is_none());
         assert_eq!(
             repo.verified_upgrade_book_access_level(owner, book, "pro_adult", "pro_adult")
                 .await,
