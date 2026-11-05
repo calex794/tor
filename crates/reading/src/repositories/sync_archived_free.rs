@@ -164,7 +164,12 @@ impl PgReadingSync {
             r#"INSERT INTO reader_book_positions AS saved
                    (user_id,book_id,chapter_id,chapter_no,chapter_revision,
                     version_id,block_index,char_offset,revision)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1)
+               SELECT $1,$2,$3,$4,$5,$6,$7,$8,1
+               WHERE $9=0 OR EXISTS (
+                   SELECT 1 FROM reader_book_positions AS current
+                   WHERE current.user_id=$1 AND current.book_id=$2
+                     AND current.revision=$9
+               )
                ON CONFLICT (user_id,book_id) DO UPDATE SET
                    chapter_id=EXCLUDED.chapter_id,
                    chapter_no=EXCLUDED.chapter_no,
