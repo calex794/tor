@@ -88,6 +88,7 @@ mod paid_completion;
 mod password_change;
 mod password_reset;
 mod private_reader;
+mod saved_free_chapters;
 mod profile_http;
 mod public_profile;
 mod rankings;
@@ -303,6 +304,14 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .route(
+            "/me/library/{id}/saved",
+            get(saved_free_chapters::list),
+        )
+        .route(
+            "/me/library/saved/{id}",
+            get(saved_free_chapters::read),
+        )
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
