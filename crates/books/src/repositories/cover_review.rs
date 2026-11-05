@@ -76,9 +76,25 @@ impl PgCoverReview {
         session: &[u8; 32],
         before: Option<i64>,
     ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
-        if before.is_some_and(|value| value <= 0) {
+        self.pending_filtered(session, before, None, None).await
+    }
+
+    /// Real PostgreSQL filtering before keyset paging. `kind` distinguishes
+    /// the initial placeholder from a replacement of an approved cover.
+    pub async fn pending_filtered(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        kind: Option<&str>,
+    ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
+        if before.is_some_and(|value| value <= 0)
+            || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+            || kind.is_some_and(|k| !matches!(k, "first" | "replacement"))
+        {
             return Err(CoverReviewError::Invalid);
         }
+        let search = search.map(str::trim).filter(|q| !q.is_empty());
         let mut tx = self
             .pool
             .begin()
@@ -91,9 +107,16 @@ impl PgCoverReview {
              FROM book_cover_review_requests r
              JOIN books b ON b.id=r.book_id
              WHERE r.state='pending' AND ($1::BIGINT IS NULL OR r.id<$1)
+               AND ($2::text IS NULL OR r.book_id::text=$2
+                    OR position(lower($2) in lower(b.title))>0)
+               AND ($3::text IS NULL
+                    OR ($3='first' AND r.expected_slot_revision=0)
+                    OR ($3='replacement' AND r.expected_slot_revision>0))
              ORDER BY r.id DESC LIMIT 40",
         )
         .bind(before)
+        .bind(search)
+        .bind(kind)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;

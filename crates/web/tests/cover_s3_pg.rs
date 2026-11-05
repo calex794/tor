@@ -388,6 +388,41 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(history[0].reviewer_user_id, reviewer);
     assert_eq!(history[0].outcome, "approved");
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
+    let decision_history_path = format!("/moderation/books/{BOOK_ID}/history");
+    assert_eq!(
+        moderation_request(
+            &moderator_app,
+            "GET",
+            &decision_history_path,
+            "",
+            origin,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let history_response = moderation_request(
+        &moderator_app,
+        "GET",
+        &decision_history_path,
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(history_response.status(), StatusCode::OK);
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let history_page = to_bytes(history_response.into_body(), 262144)
+        .await
+        .unwrap();
+    let history_page = String::from_utf8_lossy(&history_page);
+    assert!(history_page.contains("Обложка: Одобрено"));
+    assert!(history_page.contains(&format!("(#{reviewer})")));
+    assert!(!history_page.contains("staging/covers/"));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);

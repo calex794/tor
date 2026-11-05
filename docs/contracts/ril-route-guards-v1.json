@@ -1833,7 +1833,7 @@
       "method": "GET",
       "template": "/moderation/books",
       "source": "crates/web/src/auth/moderation_books.rs",
-      "handler": "page",
+      "handler": "home",
       "policy": "scoped"
     },
     {
@@ -1978,6 +1978,13 @@
     },
     {
       "method": "GET",
+      "template": "/moderation/books/control",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/moderation/books/deletions",
       "source": "crates/web/src/auth/moderation_books.rs",
       "handler": "deletion_queue",
@@ -2037,6 +2044,13 @@
       "template": "/moderation/books/{id}/registration-history",
       "source": "crates/web/src/auth/moderation_registration.rs",
       "handler": "history",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/history",
+      "source": "crates/web/src/auth/moderation_book_history.rs",
+      "handler": "book_history",
       "policy": "scoped"
     },
     {

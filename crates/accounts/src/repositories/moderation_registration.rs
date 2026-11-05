@@ -28,9 +28,24 @@ impl PgAccounts {
         session: &[u8; 32],
         before: Option<i64>,
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
-        if before.is_some_and(|id| id <= 0) {
+        self.moderation_registration_queue_filtered(session, before, None)
+            .await
+    }
+
+    /// Search is evaluated in PostgreSQL before keyset LIMIT 40, never on a
+    /// clipped HTML result set. Site authorization remains inside the query tx.
+    pub async fn moderation_registration_queue_filtered(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        if before.is_some_and(|id| id <= 0)
+            || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+        {
             return Err(ModerationBooksError::Invalid);
         }
+        let search = search.map(str::trim).filter(|q| !q.is_empty());
         let mut tx = self
             .pool()
             .begin()
@@ -43,9 +58,12 @@ impl PgAccounts {
              WHERE registration_requires_review AND visibility_status='pending_moderation'
                AND registration_approval_decision_id IS NULL AND NOT is_deleted
                AND ($1::bigint IS NULL OR id<$1)
+               AND ($2::text IS NULL OR id::text=$2
+                    OR position(lower($2) in lower(title))>0)
              ORDER BY id DESC LIMIT 40",
         )
         .bind(before)
+        .bind(search)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
