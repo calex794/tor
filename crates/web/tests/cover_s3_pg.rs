@@ -9,7 +9,7 @@ use aws_sdk_s3::{
 };
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
 };
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
@@ -65,6 +65,29 @@ async fn request(app: &axum::Router, path: &str) -> axum::response::Response {
         .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
         .await
         .expect("local router must return HTTP response")
+}
+
+async fn moderation_request(
+    app: &axum::Router,
+    method: &str,
+    path: &str,
+    cookie: &str,
+    origin: &str,
+    body: &str,
+) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::COOKIE, cookie)
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
 }
 
 // Run lifecycle mutations outside the async PostgreSQL executor. A synchronous
@@ -252,7 +275,72 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         StatusCode::NOT_FOUND,
         "completed image processing cannot publish without moderation"
     );
-    reviews.decide(&digest, review_request.id, 0, true, "").await.unwrap();
+    // The live site-role/CSRF HTTP path must approve; no synthetic B call.
+    let origin = "http://127.0.0.1:3098";
+    let moderator_app = tor_web::router_with_postgres_reading_auth_cover_uploads(
+        catalog.clone(),
+        PgReader::new(catalog.pool()),
+        accounts.clone(),
+        false,
+        origin.to_owned(),
+        Arc::new(store.clone()),
+    );
+    let csrf = tor_accounts::services::security::generate_session_token();
+    let cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
+    assert_eq!(
+        moderation_request(&moderator_app, "GET", "/moderation/covers", "", origin, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let queue = moderation_request(
+        &moderator_app, "GET", "/moderation/covers", &cookie, origin, "",
+    ).await;
+    assert_eq!(queue.status(), StatusCode::OK);
+    assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
+    let html = to_bytes(queue.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&html).contains("Первая обложка"));
+    let preview = moderation_request(
+        &moderator_app,
+        "GET",
+        &format!("/moderation/covers/{}/preview", review_request.id),
+        &cookie, origin, "",
+    ).await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()[header::CONTENT_TYPE], "image/webp");
+    assert_eq!(preview.headers()[header::CACHE_CONTROL], "private, no-store");
+    let preview_bytes = to_bytes(preview.into_body(), 8 * 1024 * 1024).await.unwrap();
+    assert!(preview_bytes.starts_with(b"RIFF"));
+    assert_eq!(
+        moderation_request(
+            &moderator_app, "POST",
+            &format!("/moderation/covers/{}/decision", review_request.id),
+            &cookie, "https://evil.invalid",
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        ).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let approved = moderation_request(
+        &moderator_app, "POST",
+        &format!("/moderation/covers/{}/decision", review_request.id),
+        &cookie, origin,
+        &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+    ).await;
+    assert_eq!(approved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        moderation_request(
+            &moderator_app, "POST",
+            &format!("/moderation/covers/{}/decision", review_request.id),
+            &cookie, origin,
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        ).await.status(),
+        StatusCode::CONFLICT,
+        "repeat review must not create a second approval"
+    );
+    let history = reviews.private_history(&digest, BOOK_ID).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].reviewer_user_id, reviewer);
+    assert_eq!(history[0].outcome, "approved");
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
