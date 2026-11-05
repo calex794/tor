@@ -66,6 +66,32 @@ async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -
     app.clone().oneshot(req).await.unwrap()
 }
 
+async fn json_call(
+    app: &Router,
+    method: &str,
+    url: &str,
+    cookie: &str,
+    csrf: &str,
+    body: &str,
+) -> Response {
+    let mut request = Request::builder()
+        .method(method)
+        .uri(url)
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-csrf-token", csrf)
+        .body(Body::from(body.to_owned()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41002,
+        ))));
+    app.clone().oneshot(request).await.unwrap()
+}
+
 fn auth_cookie(response: &Response, prefix: &str) -> String {
     response
         .headers()
@@ -367,7 +393,116 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .replace("<span id=\"saved-resume\"></span>", "")
         .contains("Pinned ORIGINAL V1"));
     assert!(fresh_read.contains("href=\"#saved-resume\""));
+    assert!(fresh_read.contains("data-free-progress-archive=\"1\""));
+    assert!(fresh_read.contains("data-free-progress-version=\""));
+    assert!(fresh_read.contains("/assets/newboo-archive-progress.js"));
     assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
+
+    // After a real second login, the user can advance the old V1 position.
+    // The API is independently scoped to the exact pin, not public V2.
+    let archived_url = "/api/v1/me/progress/archived-free";
+    let state_url = format!("{archived_url}?chapter_id={chapter}&version_id={v1}");
+    let first_state = call(&app, "GET", &state_url, &new_reader_cookie, "").await;
+    assert_eq!(first_state.status(), StatusCode::OK);
+    let value: serde_json::Value =
+        serde_json::from_str(&html(first_state).await).unwrap();
+    let revision = value["revision"].as_i64().unwrap();
+    assert_eq!(value["version_id"].as_str(), Some(v1.to_string().as_str()));
+    assert_eq!(value["char_offset"].as_i64(), Some(6));
+    let saved_command = serde_json::json!({
+        "chapter_id": chapter.to_string(),
+        "version_id": v1.to_string(),
+        "block_id": 1,
+        "char_offset": 10,
+        "expected_revision": revision,
+    })
+    .to_string();
+    let advanced = json_call(
+        &app,
+        "PUT",
+        archived_url,
+        &new_reader_cookie,
+        login_csrf,
+        &saved_command,
+    )
+    .await;
+    assert_eq!(advanced.status(), StatusCode::OK);
+    let receipt: serde_json::Value =
+        serde_json::from_str(&html(advanced).await).unwrap();
+    assert!(receipt["revision"].as_i64().unwrap() > revision);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT char_offset FROM reader_book_positions WHERE user_id={actor} AND book_id={book}"
+            )
+        ),
+        "10"
+    );
+    assert_eq!(
+        json_call(
+            &app,
+            "PUT",
+            archived_url,
+            &new_reader_cookie,
+            login_csrf,
+            &saved_command,
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "a replay with stale CAS revision must be rejected"
+    );
+    assert_eq!(
+        json_call(
+            &app,
+            "PUT",
+            archived_url,
+            &new_reader_cookie,
+            "wrong-token",
+            &saved_command,
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        json_call(
+            &app,
+            "PUT",
+            archived_url,
+            &outsider_cookie,
+            &csrf,
+            &saved_command,
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("{archived_url}?chapter_id={chapter}&version_id={v2}"),
+            &new_reader_cookie,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM reader_chapter_completions WHERE user_id={actor} AND chapter_id={chapter}"
+            )
+        ),
+        "0",
+        "saved scrolling is never an assertion that a chapter was finished"
+    );
+    let moved = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
+    assert!(moved.contains("href=\"#saved-resume\""));
 
     assert_eq!(
         call(&app, "GET", &read, &outsider_cookie, "")
