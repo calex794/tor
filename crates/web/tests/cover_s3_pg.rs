@@ -2,6 +2,7 @@
 //! + public HTTP, all on a disposable local CI instance. Never run on a VPS.
 #![cfg(feature = "s3-covers")]
 
+use async_trait::async_trait;
 use aws_sdk_s3::{
     config::{retry::RetryConfig, BehaviorVersion, Credentials, Region},
     primitives::ByteStream,
@@ -16,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::{io::Cursor, sync::Arc, time::Duration};
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
+    cover_purge_queue::PgCdnPurgeQueue,
     cover_slots::{PgCoverSlots, PublicCoverKind},
     PgCatalog,
 };
@@ -28,14 +30,34 @@ use tor_ingest::{
 };
 use tor_reading::repositories::PgReader;
 use tor_web::{
+    cover_cdn_purge_worker::{CdnPurgeProvider, CdnPurgeWorker},
     cover_delivery::CoverDelivery,
     cover_worker::{CoverRunner, CoverRunnerMonitor},
+    yandex_cdn_purge::PurgeState,
 };
 use tower::ServiceExt;
 
 const BUCKET: &str = "tor-private-obs09-ci";
 const BOOK_ID: i64 = 950;
 const SOURCE_KEY: &str = "staging/covers/sources/obs09-owner-950.png";
+
+/// No external Cloud calls: exercise durable POST/Get stages against PG18.
+struct LocalCdnPurge;
+
+#[async_trait]
+impl CdnPurgeProvider for LocalCdnPurge {
+    async fn submit(&self, path: &str) -> Result<String, tor_ingest::domain::cover::CoverError> {
+        assert!(path.starts_with("/public/covers/950/1/"));
+        assert!(path.ends_with(".webp*"));
+        Ok("ci-purge".into())
+    }
+
+    async fn poll(&self, id: &str) -> Result<PurgeState, tor_ingest::domain::cover::CoverError> {
+        assert_eq!(id, "ci-purge");
+        Ok(PurgeState::Succeeded)
+    }
+}
+
 
 fn source_png() -> Vec<u8> {
     let image = RgbImage::from_fn(120, 190, |x, y| Rgb([41, x as u8, y as u8]));
@@ -377,11 +399,30 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .await
             .unwrap());
         assert!(!ledger.purge_completed(item.id, "wrong").await.unwrap());
-        assert!(ledger.purge_submitted(item.id, "ci-purge").await.unwrap());
-        assert!(!ledger.purge_completed(item.id, "other").await.unwrap());
-        assert!(ledger.purge_completed(item.id, "ci-purge").await.unwrap());
     }
     assert!(ledger.claim_removals(10).await.unwrap().is_empty());
+    let purge = CdnPurgeWorker::new(
+        PgCdnPurgeQueue::new(catalog.pool()),
+        Arc::new(LocalCdnPurge),
+    );
+    let submitted = purge.run_batch().await.unwrap();
+    assert_eq!(submitted.claimed, 2);
+    assert_eq!(submitted.submitted, 2);
+    assert_eq!(submitted.completed, 0);
+    // Only an explicit Operation.Get can complete a CDN purge, not POST.
+    for id in &publication_ids {
+        assert!(!ledger.purge_completed(*id, "other").await.unwrap());
+    }
+    pg_sql(
+        &url,
+        "UPDATE public_cover_publications SET retry_after=now()-interval '1 second'
+         WHERE state='purge_submitted'",
+    )
+    .await;
+    let polled = purge.run_batch().await.unwrap();
+    assert_eq!(polled.claimed, 2);
+    assert_eq!(polled.completed, 2);
+    assert_eq!(purge.run_batch().await.unwrap().claimed, 0);
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
