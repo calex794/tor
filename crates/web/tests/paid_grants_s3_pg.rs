@@ -76,6 +76,7 @@ const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <scr
 const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
+const BR060_BUYER_EMAIL: &str = "s034-minio-buyer@tor-ci.example";
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(
@@ -229,7 +230,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
-    let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
+    let (buyer, buyer_cookie) = user(&accounts, BR060_BUYER_EMAIL).await;
     let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
         user(&accounts, "s035-private-desktop@tor-ci.example").await;
