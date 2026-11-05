@@ -21,7 +21,9 @@ if [[ "${TOR_REC_REUSE_PLAYWRIGHT:-0}" == 1 ]]; then
   node_path="$PWD/node_modules"
 else
   npm install --prefix "$root/node" --no-save playwright@1.56.1
-  "$root/node/node_modules/.bin/playwright" install --with-deps chromium
+  # Standalone REC acceptance uses the same real headless Chromium as the
+  # mandatory PG job. Avoid optional Ubuntu fonts downloaded via apt mirrors.
+  "$root/node/node_modules/.bin/playwright" install --only-shell chromium
   node_path="$root/node/node_modules"
 fi
 TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
