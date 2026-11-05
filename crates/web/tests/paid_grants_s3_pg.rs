@@ -44,6 +44,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/asset_fixture.rs"]
 mod asset_fixture;
+#[path = "paid_grants_s3_pg/br060_ordinary_deleted.rs"]
+mod br060_ordinary_deleted;
 #[path = "paid_grants_s3_pg/completion_helpers.rs"]
 mod completion_helpers;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -880,8 +882,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (&layer_cookie, &csrf),
     )
     .await;
+    let archived_v1 = br060_ordinary_deleted::verify(
+        &app,
+        &url,
+        book,
+        (chapter, purchase_id, v1),
+        (&buyer_cookie, &stranger_cookie),
+        &csrf,
+    )
+    .await;
     fixture_writer::save_ephemeral_fixture(
-        still_v1,
+        archived_v1,
         v1,
         purchase_id,
         (visible_html, reader_csp),
