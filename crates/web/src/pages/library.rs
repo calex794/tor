@@ -74,7 +74,25 @@ fn my_library_inner(
             } else {
                 "Глава обновлена — проверьте новое содержание".to_owned()
             };
-            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">Продолжить чтение</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"/read/{}{bookmark}\">Продолжить</a></article>", item.chapter_no, item.chapter_id).expect("write HTML");
+            // Deleted Books never link back to the public /read endpoint.
+            // The private pinned reader rechecks session, age and legal holds.
+            let (target, mode) = if item.archived_saved {
+                let anchor = if item.block_index > 0 {
+                    "#saved-resume"
+                } else {
+                    ""
+                };
+                (
+                    format!("/me/library/saved/{}{anchor}", item.chapter_id),
+                    "Сохранённая редакция · Удалена",
+                )
+            } else {
+                (
+                    format!("/read/{}{bookmark}", item.chapter_id),
+                    "Продолжить чтение",
+                )
+            };
+            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">{mode}</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"{target}\">Продолжить</a></article>", item.chapter_no).expect("write HTML");
         }
     }
     let token = escape_html(csrf);
@@ -365,5 +383,56 @@ mod pending_library_tests {
         assert!(html.contains("href=\"/me/library/55/saved\""));
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
+    }
+}
+
+
+#[cfg(test)]
+mod archived_continue_tests {
+    use super::*;
+    use tor_reading::{
+        repositories::follow_updates::FollowedReleasePage,
+        services::{
+            library::SavedBookPage,
+            progress::ContinueReading,
+        },
+    };
+
+    #[test]
+    fn archived_free_v1_resume_never_links_to_public_reader() {
+        let saved = SavedBookPage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let updates = FollowedReleasePage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let items = [ContinueReading {
+            book_id: 44,
+            book_title: "Удалённая <книга>".into(),
+            chapter_id: 71,
+            chapter_no: 2,
+            chapter_title: "Сохранённая глава".into(),
+            block_index: 3,
+            archived_saved: true,
+        }];
+        let html = my_library_with_updates(
+            &items, &saved, "csrf", false, false, &updates, &[],
+        ).0;
+        assert!(html.contains("href=\"/me/library/saved/71#saved-resume\""));
+        assert!(html.contains("Сохранённая редакция · Удалена"));
+        assert!(html.contains("&lt;книга&gt;"));
+        assert!(!html.contains("href=\"/read/71"));
+
+        let public = [ContinueReading {
+            archived_saved: false,
+            ..items[0].clone()
+        }];
+        let current = my_library_with_updates(
+            &public, &saved, "csrf", false, false, &updates, &[],
+        ).0;
+        assert!(current.contains("href=\"/read/71#p-3\""));
+        assert!(!current.contains("href=\"/me/library/saved/71"));
     }
 }
