@@ -38,6 +38,7 @@ pub struct CoverDecisionHistory {
     pub request_id: i64,
     pub job_id: i64,
     pub reviewer_user_id: i64,
+    pub reviewer_name: String,
     pub outcome: String,
     pub reason: Option<String>,
     pub decided_unix: i64,
@@ -387,9 +388,10 @@ impl PgCoverReview {
             .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let rows = sqlx::query(
-            "SELECT d.request_id,d.job_id,d.reviewer_user_id,d.outcome,d.reason,
-                    EXTRACT(EPOCH FROM d.decided_at)::bigint AS decided_unix
-             FROM book_cover_review_decisions d WHERE d.book_id=$1
+            "SELECT d.request_id,d.job_id,d.reviewer_user_id,u.display_name AS reviewer_name,
+                    d.outcome,d.reason,EXTRACT(EPOCH FROM d.decided_at)::bigint AS decided_unix
+             FROM book_cover_review_decisions d
+             JOIN users u ON u.id=d.reviewer_user_id WHERE d.book_id=$1
              ORDER BY d.id DESC LIMIT 100",
         )
         .bind(book_id)
@@ -411,7 +413,10 @@ impl PgCoverReview {
                     reviewer_user_id: r
                         .try_get("reviewer_user_id")
                         .map_err(|_| CoverReviewError::Unavailable)?,
-                    outcome: r
+                    reviewer_name: r
+                    .try_get("reviewer_name")
+                    .map_err(|_| CoverReviewError::Unavailable)?,
+                outcome: r
                         .try_get("outcome")
                         .map_err(|_| CoverReviewError::Unavailable)?,
                     reason: r
