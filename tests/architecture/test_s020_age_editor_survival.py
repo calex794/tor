@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 ROUTE = "/me/books/{id}/settings/access-level"
 PG_TEST = "cargo test -p tor-web --test s020_age_editor_http_pg -- --ignored --test-threads=1"
+BROWSER_PG_TEST = "cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1"
 
 
 class S020GatedEditorSurvival(unittest.TestCase):
@@ -44,6 +45,16 @@ class S020GatedEditorSurvival(unittest.TestCase):
         for path in (".github/workflows/tor-integration.yml",
                      ".github/workflows/tor-pg-runtime.yml"):
             self.assertEqual(self.read(path).count(PG_TEST), 1, path)
+        self.assertIn(
+            "s020_owner_age_editor_real_chromium_mobile_and_desktop",
+            self.read("crates/web/tests/s020_age_editor_browser_pg.rs"),
+        )
+        browser = self.read("tools/s020_age_editor_chromium.cjs")
+        self.assertIn("chromium.launch", browser)
+        self.assertIn("S020 owner age editor Chromium PASS: desktop, mobile, grant, revoke", browser)
+        for path in (".github/workflows/tor-integration.yml",
+                     ".github/workflows/tor-pg-runtime.yml"):
+            self.assertEqual(self.read(path).count(BROWSER_PG_TEST), 1, path)
         registry = self.read("crates/route_intelligence/src/domain/routes.rs")
         self.assertIn(f'RouteRegistration::new("{ROUTE}", "GET"', registry)
         self.assertIn(f'RouteRegistration::new("{ROUTE}", "POST"', registry)
