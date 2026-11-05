@@ -1833,7 +1833,7 @@
       "method": "GET",
       "template": "/moderation/books",
       "source": "crates/web/src/auth/moderation_books.rs",
-      "handler": "page",
+      "handler": "landing",
       "policy": "scoped"
     },
     {
@@ -2044,6 +2044,13 @@
       "template": "/moderation/books/{id}/history",
       "source": "crates/web/src/auth/moderation_book_history.rs",
       "handler": "book_history",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/control",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "page",
       "policy": "scoped"
     }
   ]
