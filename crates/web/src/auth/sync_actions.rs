@@ -22,6 +22,12 @@ pub(super) struct FreeLookup {
 }
 
 #[derive(Deserialize)]
+pub(super) struct ArchivedFreeLookup {
+    chapter_id: String,
+    version_id: String,
+}
+
+#[derive(Deserialize)]
 pub(super) struct PurchasedLookup {
     purchase_id: String,
     chapter_id: String,
@@ -208,6 +214,82 @@ pub(super) async fn put_free(
             version_id,
             place,
             command.expected_revision,
+        )
+        .await
+    {
+        Ok(receipt) => private_response(
+            Json(response(chapter_id, version_id, Some(place), Some(receipt))),
+            &[],
+        ),
+        Err(error) => deny(status(error)),
+    }
+}
+
+/// Read a CAS receipt from the exact immutable saved-free edition only.
+/// A previous public V2 position may supply revision, never an archive grant.
+pub(super) async fn get_archived_free(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<ArchivedFreeLookup>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    let (chapter_id, version_id) = match (id(&query.chapter_id), id(&query.version_id)) {
+        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+        (Err(error), _) | (_, Err(error)) => return deny(error),
+    };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    match state
+        .sync
+        .archived_free_state(actor, chapter_id, version_id, &digest)
+        .await
+    {
+        Ok(saved) => private_response(Json(actual_state(chapter_id, version_id, saved)), &[]),
+        Err(error) => deny(status(error)),
+    }
+}
+
+/// Save only deliberate scroll progress. No new completion/ranking evidence.
+pub(super) async fn put_archived_free(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(command): Json<FreeSave>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    if !csrf(&state, &headers) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let (chapter_id, version_id) = match (id(&command.chapter_id), id(&command.version_id)) {
+        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+        (Err(error), _) | (_, Err(error)) => return deny(error),
+    };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let place = ReadingPlace {
+        block_index: command.block_id,
+        char_offset: command.char_offset,
+    };
+    match state
+        .sync
+        .save_archived_free(
+            actor,
+            chapter_id,
+            version_id,
+            place,
+            command.expected_revision,
+            &digest,
         )
         .await
     {
