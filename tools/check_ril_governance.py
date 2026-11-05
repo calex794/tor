@@ -484,7 +484,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             operation = cover_ops.get(entry["handler"])
             scoped = bool(
                 operation
-                and re.search(rf"\\.{operation}\\s*\\(\\s*&digest", evidence)
+                and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
                 and "session(&state, &headers)" in evidence
                 and "session_actor(&digest)" in evidence
                 and "actor.moderator || actor.administrator" in evidence
