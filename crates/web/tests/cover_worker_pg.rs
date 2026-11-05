@@ -317,6 +317,39 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     assert_eq!(fresh.status(), StatusCode::OK);
     let bytes = to_bytes(fresh.into_body(), 8 * 1024 * 1024).await.unwrap();
     assert_eq!(digest(&bytes), current.sha256);
+
+    // Rejection of a replacement must never overwrite an approved public slot.
+    let rejected_bytes = png(111);
+    let rejected_key = "staging/covers/ci-book-901-rejected.png";
+    store.add(rejected_key, rejected_bytes.clone());
+    let rejected_source = jobs.register_verified_source(
+        901, 901, rejected_key, "image/png", rejected_bytes.len() as i64,
+        &digest(&rejected_bytes),
+    ).await.unwrap();
+    let rejected_job = jobs.enqueue(
+        rejected_source, 901, 901, 2, RECIPE_VERSION,
+    ).await.unwrap();
+    assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
+    assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
+    let pending = reviews.pending(&reviewer_digest, None).await.unwrap().into_iter()
+        .find(|r| r.job_id == rejected_job).unwrap();
+    assert_eq!(
+        reviews.decide(&reviewer_digest, pending.id, 2, false, "").await,
+        Err(CoverReviewError::Invalid),
+        "a rejected image requires a recorded reason"
+    );
+    reviews.decide(&reviewer_digest, pending.id, 2, false, "Unsuitable cover").await.unwrap();
+    assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
+    assert_eq!(
+        reviews.decide(&reviewer_digest, pending.id, 2, true, "").await,
+        Err(CoverReviewError::Stale),
+        "two different decisions cannot be applied to the same candidate"
+    );
+    let history = reviews.private_history(&reviewer_digest, 901).await.unwrap();
+    assert!(history.iter().any(|row| row.job_id == rejected_job
+        && row.outcome == "rejected" && row.reviewer_user_id == reviewer));
+    assert!(history.iter().any(|row| row.job_id == second
+        && row.outcome == "approved" && row.reviewer_user_id == reviewer));
     assert_eq!(
         jobs.existing_variants(job).await.unwrap().len(),
         2,
