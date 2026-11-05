@@ -1,6 +1,6 @@
 //! BR-060 owner-only two-phase ordinary deletion, disposable PG runtime.
 use sqlx::{PgPool, Row};
-use tor_books::repositories::PgAuthoring;
+use tor_books::repositories::postgres::PgAuthoring;
 use tor_books::services::authoring::AuthorError;
 
 #[tokio::test]
