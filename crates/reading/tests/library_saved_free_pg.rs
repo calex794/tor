@@ -152,9 +152,10 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     assert_eq!(pins(&pool, user_a).await.len(), 2);
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await.len(), 3);
-    assert!(!pins(&pool, user_a).await.iter().any(|(id, _)| {
-        [paid, future, held, deleted, unreleased].contains(id)
-    }));
+    assert!(!pins(&pool, user_a)
+        .await
+        .iter()
+        .any(|(id, _)| { [paid, future, held, deleted, unreleased].contains(id) }));
 
     library.add_book(user_b, book).await.unwrap();
     assert_eq!(pins(&pool, user_b).await.len(), 3);
