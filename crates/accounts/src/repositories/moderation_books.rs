@@ -312,7 +312,11 @@ impl PgAccounts {
         {
             return Err(ModerationBooksError::Invalid);
         }
-        let mut tx = self.pool().begin().await.map_err(|_| ModerationBooksError::Unavailable)?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
         let reviewer = current_moderator(&mut tx, session).await?;
         // Recheck and lock the *current* active owner, not just historical request data.
         let row: Option<(String, i64, i64, String, String, Option<i64>, bool, String)> =
@@ -334,8 +338,14 @@ impl PgAccounts {
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         let (
-            status, revision, request_owner, previous_status, previous_visibility,
-            current_owner, admin_hold, visibility_status,
+            status,
+            revision,
+            request_owner,
+            previous_status,
+            previous_visibility,
+            current_owner,
+            admin_hold,
+            visibility_status,
         ) = row.ok_or(ModerationBooksError::Missing)?;
         if reviewer == request_owner {
             return Err(ModerationBooksError::Denied);
@@ -417,7 +427,9 @@ impl PgAccounts {
         if changed != 1 {
             return Err(ModerationBooksError::Stale);
         }
-        tx.commit().await.map_err(|_| ModerationBooksError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
     }
 }
