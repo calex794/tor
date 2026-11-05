@@ -386,16 +386,12 @@ mod pending_library_tests {
     }
 }
 
-
 #[cfg(test)]
 mod archived_continue_tests {
     use super::*;
     use tor_reading::{
         repositories::follow_updates::FollowedReleasePage,
-        services::{
-            library::SavedBookPage,
-            progress::ContinueReading,
-        },
+        services::{library::SavedBookPage, progress::ContinueReading},
     };
 
     #[test]
@@ -417,9 +413,7 @@ mod archived_continue_tests {
             block_index: 3,
             archived_saved: true,
         }];
-        let html = my_library_with_updates(
-            &items, &saved, "csrf", false, false, &updates, &[],
-        ).0;
+        let html = my_library_with_updates(&items, &saved, "csrf", false, false, &updates, &[]).0;
         assert!(html.contains("href=\"/me/library/saved/71#saved-resume\""));
         assert!(html.contains("Сохранённая редакция · Удалена"));
         assert!(html.contains("&lt;книга&gt;"));
@@ -429,9 +423,8 @@ mod archived_continue_tests {
             archived_saved: false,
             ..items[0].clone()
         }];
-        let current = my_library_with_updates(
-            &public, &saved, "csrf", false, false, &updates, &[],
-        ).0;
+        let current =
+            my_library_with_updates(&public, &saved, "csrf", false, false, &updates, &[]).0;
         assert!(current.contains("href=\"/read/71#p-3\""));
         assert!(!current.contains("href=\"/me/library/saved/71"));
     }
