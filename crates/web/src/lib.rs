@@ -21,8 +21,8 @@ mod author_chapter_images;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
-mod book_error_pages;
 mod book_detail_http;
+mod book_error_pages;
 mod book_follow_page;
 mod book_rating_context;
 mod book_related_public;
@@ -31,9 +31,9 @@ mod chapter_import_assets;
 pub mod chapter_import_queue_http;
 pub mod chapter_import_worker;
 pub mod cover_cdn_cleanup;
+mod cover_cdn_html;
 pub mod cover_cdn_purge;
 pub mod cover_delivery;
-mod cover_cdn_html;
 mod cover_http;
 mod layer_reader_assets;
 mod layer_reader_pages;
@@ -494,8 +494,7 @@ fn make_router_with_paid_checkout(
         .map(tor_search::api::router)
         .unwrap_or_default();
     // Flag off by default, independent from origin storage and publishing.
-    let requested_cdn_html =
-        std::env::var("TOR_COVER_CDN_HTML_ENABLED").as_deref() == Ok("1");
+    let requested_cdn_html = std::env::var("TOR_COVER_CDN_HTML_ENABLED").as_deref() == Ok("1");
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
         let enable = requested_cdn_html && store.public_cdn_origin().is_some();
         let delivery = cover_delivery::CoverDelivery::new(
@@ -513,7 +512,9 @@ fn make_router_with_paid_checkout(
         }
     });
     let cover_cdn_html_enabled = requested_cdn_html
-        && covers.as_ref().is_some_and(|delivery| delivery.has_publication_registry());
+        && covers
+            .as_ref()
+            .is_some_and(|delivery| delivery.has_publication_registry());
     let rec_runtime = follow_control.as_ref().map(|control| {
         let (accounts, cookies) = control.browser_context();
         recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
