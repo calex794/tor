@@ -28,7 +28,9 @@ function fixtureBook(visibility) {
   return id;
 }
 module.exports = async (browser, base, out) => {
-  for (const [name, width] of [['desktop', 1440], ['mobile', 390]]) {
+  // Desktop and mobile own separate browser contexts, users, conversations,
+  // notifications and book fixtures. Run both complete journeys concurrently.
+  await Promise.all([['desktop', 1440], ['mobile', 390]].map(async ([name, width]) => {
     const clients = [];
     try {
       for (const suffix of ['a', 'b', 'c', 'd']) {
@@ -441,5 +443,5 @@ module.exports = async (browser, base, out) => {
       console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline/disband PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
-  }
+  }));
 };

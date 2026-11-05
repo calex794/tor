@@ -105,7 +105,7 @@ jobs:
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000

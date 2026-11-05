@@ -103,7 +103,7 @@ pub(super) async fn read(
     // Only the finalized archive opts into the self-hosted cursor script.
     // Earlier saved-free views remain script-free.
     let csp = if saved.ordinary_deleted {
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     } else {
         "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     };
