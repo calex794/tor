@@ -118,24 +118,48 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     );
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PostgreSQL test URL");
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    // Independent, active site moderator: exercise the real registration
+    // decision repository rather than bypassing the SQL approval trigger.
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let token = tor_accounts::services::security::generate_session_token();
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let reviewer = accounts
+        .register_with_session(
+            &format!("modreg-b04-{book_id}@tor-ci.example"),
+            "CI site registration reviewer",
+            &tor_accounts::services::security::hash_password("ModregB04Reviewer2026!").unwrap(),
+            &digest,
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let role_sql = format!(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES({reviewer},'moderator',TRUE)"
+    );
+    let role = std::process::Command::new("psql")
+        .args([
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", &url, "--command", &role_sql,
+        ])
+        .output()
+        .expect("psql installed on disposable CI");
+    assert!(
+        role.status.success(),
+        "{}",
+        String::from_utf8_lossy(&role.stderr)
+    );
     let sql = format!(
-        "UPDATE books SET visibility_status='active',
-         visibility_status_revision=visibility_status_revision+1
-         WHERE id={book_id} AND visibility='public' AND visibility_status='pending_moderation'
-         RETURNING id;"
+        "SELECT visibility_status_revision FROM books
+         WHERE id={book_id} AND visibility='public'
+         AND visibility_status='pending_moderation'"
     );
     let output = std::process::Command::new("psql")
         .args([
-            "-X",
-            "-A",
-            "-t",
-            "-q",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "--dbname",
-            &url,
-            "--command",
-            &sql,
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", &url, "--command", &sql,
         ])
         .output()
         .expect("psql installed on disposable CI");
@@ -144,11 +168,20 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let expected_revision: i64 = String::from_utf8(output.stdout)
+        .expect("psql UTF-8")
+        .trim()
+        .parse()
+        .expect("one pending Book revision");
+    accounts
+        .moderate_book_registration(&digest, book_id, expected_revision, "approve", "")
+        .await
+        .expect("independent site moderator approves registration");
     assert_eq!(
-        String::from_utf8(output.stdout)
-            .expect("psql output")
-            .trim(),
-        book_id.to_string(),
-        "exactly one pending book must be approved"
+        send(app, request("GET", &path, "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK,
+        "approved registration keeps the author's released Book visible"
     );
 }
