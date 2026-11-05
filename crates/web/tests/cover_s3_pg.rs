@@ -337,10 +337,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     .await;
     assert_eq!(preview.status(), StatusCode::OK);
     assert_eq!(preview.headers()[header::CONTENT_TYPE], "image/webp");
-    assert_eq!(
-        preview.headers()[header::CACHE_CONTROL],
-        "private, no-store"
-    );
+    assert_eq!(preview.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(preview.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     let preview_bytes = to_bytes(preview.into_body(), 8 * 1024 * 1024)
         .await
         .unwrap();
