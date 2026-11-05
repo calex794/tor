@@ -84,6 +84,7 @@ mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
 mod moderation_books;
+mod moderation_covers;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
@@ -230,6 +231,7 @@ fn router_inner(
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
         cover_jobs,
+        cover_preview_storage: storage.clone(),
         cover_upload_enabled,
         age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
@@ -263,6 +265,7 @@ fn router_inner(
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
         .merge(moderation_books::router())
+        .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
         .merge(book_ordinary_deletion::router())
         .merge(book_related::router().merge(book_origin_metadata::router()))
@@ -577,6 +580,7 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
+
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -589,11 +593,5 @@ async fn logout(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
+    session_security::logout(State(state), headers, Form(form)).await
 }

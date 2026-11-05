@@ -1989,6 +1989,55 @@
       "source": "crates/web/src/auth/moderation_books.rs",
       "handler": "review_deletion",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/covers",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/covers/{id}/preview",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "preview",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/covers/{id}/decision",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "decide",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/cover-history",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "history",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/registrations",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "queue",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/books/{id}/registration",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "decide",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/registration-history",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "history",
+      "policy": "scoped"
     }
   ]
 }

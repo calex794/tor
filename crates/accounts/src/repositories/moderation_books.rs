@@ -207,6 +207,22 @@ impl PgAccounts {
         if revision != expected_revision || previous != expected_status {
             return Err(ModerationBooksError::Stale);
         }
+        // First registration approval cannot be substituted by visibility edit.
+        if previous == "pending_moderation" || requested_status == "active" {
+            let required: (bool, Option<i64>) = sqlx::query_as(
+                "SELECT registration_requires_review,registration_approval_decision_id
+                 FROM books WHERE id=$1",
+            )
+            .bind(book_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+            if (previous == "pending_moderation" && required.0)
+                || (requested_status == "active" && required.0 && required.1.is_none())
+            {
+                return Err(ModerationBooksError::Stale);
+            }
+        }
         let next = revision.checked_add(1).ok_or(ModerationBooksError::Stale)?;
         sqlx::query(
             "UPDATE books SET visibility_status=$2,visibility_status_revision=$3

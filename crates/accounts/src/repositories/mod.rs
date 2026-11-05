@@ -8,6 +8,7 @@ pub use postgres::PgAccounts;
 pub mod authority;
 mod credentials;
 pub mod moderation_books;
+pub mod moderation_registration;
 pub use credentials::{PasswordRotation, SessionLoginAudit};
 mod password_reset;
 pub mod profile;
