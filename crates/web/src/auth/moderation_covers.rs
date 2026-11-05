@@ -18,6 +18,8 @@ use tor_books::repositories::cover_review::{CoverReviewError, PendingCoverReview
 #[serde(deny_unknown_fields)]
 pub(super) struct CoverQueueQuery {
     before: Option<i64>,
+    q: Option<String>,
+    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -60,7 +62,14 @@ fn queue_body(
     csrf: &str,
     registration_count: i64,
     deletion_count: i64,
+    search: Option<&str>,
+    kind: Option<&str>,
 ) -> String {
+    let search = pages::escape_html(search.unwrap_or(""));
+    let kind = kind.unwrap_or("");
+    let first_selected = if kind == "first" { " selected" } else { "" };
+    let replacement_selected = if kind == "replacement" { " selected" } else { "" };
+    let all_selected = if kind.is_empty() { " selected" } else { "" };
     let mut cards = String::new();
     for item in items {
         let label = if item.expected_slot_revision == 0 {
@@ -99,7 +108,11 @@ fn queue_body(
     if items.len() == 40 {
         if let Some(last) = items.last() {
             cards.push_str(&format!(
-                "<p><a href=\"/moderation/covers?before={}\">Следующая страница</a></p>",
+                "<form method=\"get\" action=\"/moderation/covers\">
+                 <input type=\"hidden\" name=\"before\" value=\"{}\">
+                 <input type=\"hidden\" name=\"q\" value=\"{search}\">
+                 <input type=\"hidden\" name=\"kind\" value=\"{kind}\">
+                 <button type=\"submit\">Следующая страница</button></form>",
                 last.id
             ));
         }
@@ -116,6 +129,18 @@ fn queue_body(
                 <a href="/moderation/books/deletions">Удаление ({deletion_count})</a>
                 <a href="/moderation/books/control">Контроль</a>
               </nav>
+              <form method="get" action="/moderation/covers">
+                <label for="cover-search">Поиск по названию или ID книги</label>
+                <input id="cover-search" name="q" maxlength="120" value="{search}">
+                <label for="cover-kind">Тип заявки</label>
+                <select id="cover-kind" name="kind">
+                  <option value=""{all_selected}>Все обложки</option>
+                  <option value="first"{first_selected}>Первичная обложка</option>
+                  <option value="replacement"{replacement_selected}>Замена обложки</option>
+                </select>
+                <button type="submit">Найти</button>
+                <a href="/moderation/covers">Сбросить</a>
+              </form>
               <p>Обработанное изображение не становится публичным без отдельного решения.</p>
               {cards}</div></section>"#
         ),
@@ -158,7 +183,15 @@ pub(super) async fn page(
         Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let items = match repo.pending(&digest, query.before).await {
+    let items = match repo
+        .pending_filtered(
+            &digest,
+            query.before,
+            query.q.as_deref(),
+            query.kind.as_deref().filter(|kind| !kind.is_empty()),
+        )
+        .await
+    {
         Ok(items) => items,
         Err(error) => return deny(error_code(error)),
     };
@@ -170,6 +203,8 @@ pub(super) async fn page(
             &pages::escape_html(&csrf),
             registration_count,
             deletion_count,
+            query.q.as_deref(),
+            query.kind.as_deref(),
         )),
         &cookies,
     );
@@ -325,7 +360,7 @@ mod tests {
             submitted_by_user_id: 13,
             expected_slot_revision: 0,
         }];
-        let html = queue_body(&rows, 1, "csrf", 2, 3);
+        let html = queue_body(&rows, 1, "csrf", 2, 3, None, None);
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("/moderation/covers/9/preview"));
