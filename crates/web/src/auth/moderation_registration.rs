@@ -69,6 +69,9 @@ fn render(
             r#"<article class="me-now-card">
             <h2>{title}</h2>
             <p>Книга #{book} · Владелец #{owner} · Ревизия {rev}</p>
+            <details class="moderation-review-confirm">
+            <summary>Подтвердить решение по регистрации книги #{book}</summary>
+            <p>Проверьте название и ревизию. Одобрение не публикует авторский черновик.</p>
             <form method="post" action="/moderation/books/{book}/registration">
               <input type="hidden" name="csrf_token" value="{token}">
               <input type="hidden" name="expected_revision" value="{rev}">
@@ -77,7 +80,7 @@ fn render(
                         maxlength="2000" rows="2"></textarea>
               <button type="submit" name="action" value="approve">Одобрить регистрацию</button>
               <button type="submit" name="action" value="reject">Отклонить</button>
-            </form></article>"#,
+            </form></details></article>"#,
             book = item.book_id,
             rev = item.revision,
         ));
@@ -223,7 +226,7 @@ pub(super) async fn decide(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/registrations"), &[]),
-        Err(e) => deny(error_code(e)),
+        Err(e) => super::decision_error(error_code(e), "/moderation/books/registrations"),
     }
 }
 
@@ -289,6 +292,8 @@ mod tests {
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
+        assert!(body.contains("moderation-review-confirm"));
+        assert!(body.contains("name=\"q\""));
         assert!(body.contains("Обложки (2)"));
         assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));
