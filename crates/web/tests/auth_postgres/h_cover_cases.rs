@@ -437,7 +437,10 @@ pub(super) async fn upload_and_show(
         .await,
     )
     .await;
-    assert!(owned.contains("Обложка готова."));
+    assert!(
+        owned.contains("Обложка одобрена модератором."),
+        "owner must see the independently approved cover, not just a processed job"
+    );
     let settings = send(
         app,
         request(

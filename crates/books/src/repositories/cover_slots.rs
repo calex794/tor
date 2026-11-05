@@ -20,6 +20,40 @@ impl PgCoverSlots {
             .transpose()
     }
 
+    /// Owner-facing status: worker completion is NOT moderation approval.
+    /// The WHERE clause independently binds the Book's current owner and
+    /// the latest job actor. No private object key or reviewer ID is returned.
+    pub async fn owner_latest_status(
+        &self,
+        book_id: i64,
+        owner_id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if book_id <= 0 || owner_id <= 0 {
+            return Ok(None);
+        }
+        sqlx::query_scalar(
+            "SELECT CASE WHEN j.status='done' THEN
+                 CASE
+                   WHEN r.state='approved' THEN 'moderation_approved'
+                   WHEN r.state='rejected' THEN 'moderation_rejected'
+                   WHEN r.state='superseded' THEN 'moderation_superseded'
+                   WHEN s.job_id IS NOT NULL AND r.id IS NULL THEN 'moderation_legacy'
+                   ELSE 'moderation_pending'
+                 END
+               ELSE j.status END
+             FROM cover_variant_jobs j
+             JOIN books b ON b.id=j.book_id
+             LEFT JOIN book_cover_review_requests r ON r.job_id=j.id
+             LEFT JOIN book_cover_slots s ON s.book_id=j.book_id AND s.job_id=j.id
+             WHERE j.book_id=$1 AND j.actor_user_id=$2 AND b.owner_user_id=$2
+             ORDER BY j.id DESC LIMIT 1",
+        )
+        .bind(book_id)
+        .bind(owner_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     /// Worker-completed variants are staged for SITE moderation only.
     /// A G job no longer changes the public B cover slot.
     /// The legacy method name preserves the G worker interface; true means

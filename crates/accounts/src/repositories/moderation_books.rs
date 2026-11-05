@@ -13,7 +13,17 @@ pub enum ModerationBooksError {
 }
 
 // Row shape remains private to the bounded site-moderation queue.
-type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
+type ModerationBookRow = (
+    i64,
+    String,
+    String,
+    String,
+    i64,
+    bool,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+);
 type ModerationDeletionReviewRow = (String, i64, i64, String, String, Option<i64>, bool, String);
 
 #[derive(Debug)]
@@ -25,6 +35,8 @@ pub struct ModerationBook {
     pub visibility: String,
     pub admin_hold: bool,
     pub owner_user_id: Option<i64>,
+    pub approved_by_user_id: Option<i64>,
+    pub approved_by_name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -75,11 +87,16 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         current_moderator(&mut tx, session).await?;
         let rows: Vec<ModerationBookRow> = sqlx::query_as(
-            "SELECT id,title,visibility,visibility_status,visibility_status_revision,
-                    admin_hold,owner_user_id
-             FROM books WHERE NOT is_deleted
-               AND ($1::bigint IS NULL OR id < $1)
-             ORDER BY id DESC LIMIT 40",
+            "SELECT b.id,b.title,b.visibility,b.visibility_status,b.visibility_status_revision,
+                    b.admin_hold,b.owner_user_id,d.reviewer_user_id,u.display_name
+             FROM books b
+             LEFT JOIN book_registration_decisions d
+               ON d.id=b.registration_approval_decision_id
+              AND d.book_id=b.id AND d.outcome='approved'
+             LEFT JOIN users u ON u.id=d.reviewer_user_id
+             WHERE NOT b.is_deleted
+               AND ($1::bigint IS NULL OR b.id<$1)
+             ORDER BY b.id DESC LIMIT 40",
         )
         .bind(before)
         .fetch_all(&mut *tx)
@@ -99,6 +116,8 @@ impl PgAccounts {
                     visibility_status_revision,
                     admin_hold,
                     owner_user_id,
+                    approved_by_user_id,
+                    approved_by_name,
                 )| ModerationBook {
                     id,
                     title,
@@ -107,6 +126,8 @@ impl PgAccounts {
                     visibility_status_revision,
                     admin_hold,
                     owner_user_id,
+                    approved_by_user_id,
+                    approved_by_name,
                 },
             )
             .collect())
@@ -207,6 +228,22 @@ impl PgAccounts {
         if revision != expected_revision || previous != expected_status {
             return Err(ModerationBooksError::Stale);
         }
+        // First registration approval cannot be substituted by visibility edit.
+        if previous == "pending_moderation" || requested_status == "active" {
+            let required: (bool, Option<i64>) = sqlx::query_as(
+                "SELECT registration_requires_review,registration_approval_decision_id
+                 FROM books WHERE id=$1",
+            )
+            .bind(book_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+            if (previous == "pending_moderation" && required.0)
+                || (requested_status == "active" && required.0 && required.1.is_none())
+            {
+                return Err(ModerationBooksError::Stale);
+            }
+        }
         let next = revision.checked_add(1).ok_or(ModerationBooksError::Stale)?;
         sqlx::query(
             "UPDATE books SET visibility_status=$2,visibility_status_revision=$3
@@ -291,6 +328,39 @@ impl PgAccounts {
                 },
             )
             .collect())
+    }
+
+    /// Exact private counter for the current reviewer: never includes their
+    /// own Book and never reveals pending requests to public endpoints.
+    pub async fn moderation_pending_deletion_count(
+        &self,
+        session: &[u8; 32],
+    ) -> Result<i64, ModerationBooksError> {
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        let reviewer = current_moderator(&mut tx, session).await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM book_ordinary_deletion_requests r
+             JOIN books b ON b.id=r.book_id
+             WHERE b.lifecycle_status='pending_deletion'
+               AND b.lifecycle_revision=r.request_revision
+               AND NOT b.is_deleted AND r.owner_user_id<>$1
+               AND NOT EXISTS (
+                 SELECT 1 FROM book_ordinary_deletion_decisions d
+                 WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+               )",
+        )
+        .bind(reviewer)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        Ok(count)
     }
 
     /// Independent, single-decision approval or rejection for one exact

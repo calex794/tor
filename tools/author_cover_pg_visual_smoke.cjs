@@ -73,6 +73,41 @@ function pg(sql) {
     '--dbname', ciDb, '--command', sql,
   ], { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
+async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width, height) {
+  await reviewer.setViewportSize({ width, height });
+  const tabs = [
+    ['/moderation/books/registrations', /^Регистрация \(\d+\)$/],
+    ['/moderation/covers', /^Обложки \(\d+\)$/],
+    ['/moderation/books/deletions', /^Удаление \(\d+\)$/],
+  ];
+  for (const [url, label] of tabs) {
+    const denied = await owner.context().request.get(base + url);
+    assert(denied.status() === 403,
+      viewport + '/' + scheme + ': ordinary Book owner opened a site queue');
+    const response = await reviewer.goto(base + url);
+    assert(response && response.status() === 200,
+      viewport + '/' + scheme + ': independent site reviewer cannot open ' + url);
+    const nav = reviewer.getByRole('navigation', { name: 'Очереди модератора' });
+    assert(await nav.count() === 1, 'moderator workbench has no common three-tab nav');
+    assert(await nav.getByRole('link', { name: label }).count() === 1,
+      viewport + '/' + scheme + ': expected queue/counter missing on ' + url);
+    assert(await nav.locator('a[aria-current="page"]').count() === 1,
+      'site moderator must know which queue is selected');
+    const metrics = await reviewer.evaluate(() => ({
+      width: document.documentElement.clientWidth,
+      doc: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+    }));
+    assert(metrics.doc <= metrics.width + 1 && metrics.body <= metrics.width + 1,
+      viewport + '/' + scheme + ': moderator queue overflows: ' + JSON.stringify(metrics));
+    await reviewer.screenshot({
+      path: path.join(output, ['moderator-workbench', viewport, scheme,
+        url.split('/').pop()].join('-') + '.png'),
+      fullPage: false,
+    });
+  }
+}
+
 async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
   const prefix = '/covers/' + bookId + '/main.webp';
   assert((await owner.context().request.get(base + prefix)).status() === 404,
@@ -119,13 +154,13 @@ async function readyCover(page, bookId, viewport, scheme) {
     const response = await page.goto(base + '/me/books/' + bookId + '/settings/covers');
     assert(response && response.status() === 200,
       viewport + '/' + scheme + ': owner settings lost authorization while processing');
-    if (await page.getByText('Обложка готова.').isVisible()) {
+    if (await page.getByText('Обложка одобрена модератором.').isVisible()) {
       assert(await page.locator('img[data-cover-picker-image]').getAttribute('src')
         === '/covers/' + bookId + '/main.webp',
       'Ready cover must use the B-owned published WebP');
       return;
     }
-    assert(!(await page.getByText(/Ошибка обработки обложки/).isVisible()),
+    assert(!(await page.getByText(/Ошибка обработки обложки|Модератор отклонил обложку/).isVisible()),
       viewport + '/' + scheme + ': worker rejected image');
     await page.waitForTimeout(1000);
   }
@@ -362,6 +397,7 @@ async function readyCover(page, bookId, viewport, scheme) {
 
         await page.getByRole('button', { name: 'Загрузить обложку' }).click();
         await page.waitForURL(base + '/me/books/' + bookId + '/settings/covers');
+        await verifyModeratorWorkbench(moderator, page, viewport, scheme, width, height);
         await approveReadyCover(moderator, page, bookId, viewport, scheme);
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');

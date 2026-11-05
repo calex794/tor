@@ -21,7 +21,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
-use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
+use tor_ingest::services::cover_jobs::CoverObjectStore;
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::PgReader;
 use tor_reading::repositories::{
@@ -201,7 +201,6 @@ fn router_inner(
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let refund_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
@@ -230,7 +229,6 @@ fn router_inner(
         cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
-        cover_jobs,
         cover_preview_storage: storage.clone(),
         cover_upload_enabled,
         age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
@@ -501,14 +499,11 @@ async fn cover_settings(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let latest = match state.cover_jobs.as_ref() {
-        Some(jobs) => match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        },
-        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
     let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let latest = match slots.owner_latest_status(id, actor).await {
+        Ok(latest) => latest,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

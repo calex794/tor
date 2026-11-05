@@ -101,7 +101,12 @@ fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
     assert!(settings.contains("Обложка 1"));
     assert!(!settings.contains("/covers/42/main.webp"));
     let ready = cover_settings(&book, "secret", Some("done"), true).0;
-    assert!(ready.contains("Обложка готова"));
+    assert!(ready.contains("ожидает модератора"));
+    let approved = cover_settings(&book, "secret", Some("moderation_approved"), true).0;
+    assert!(approved.contains("Обложка одобрена модератором."));
+    let rejected = cover_settings(&book, "secret", Some("moderation_rejected"), true).0;
+    assert!(rejected.contains("Модератор отклонил обложку."));
+    assert!(rejected.contains("src=\"/covers/42/main.webp\""));
     assert!(ready.contains("src=\"/covers/42/main.webp\""));
     assert!(ready.contains("Заменить"));
 }

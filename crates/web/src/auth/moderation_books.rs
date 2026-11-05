@@ -10,6 +10,8 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+#[path = "moderation_registration.rs"]
+mod registration;
 use tor_accounts::{
     repositories::moderation_books::{
         ModerationBook, ModerationBooksError, ModerationDeletionRequest,
@@ -57,6 +59,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
         .route("/moderation/books/deletions", get(deletion_queue))
         .route("/moderation/books/{id}/deletion", post(review_deletion))
+        .merge(registration::router())
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
@@ -87,10 +90,21 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         let owner = row
             .owner_user_id
             .map_or_else(|| "—".to_owned(), |id| id.to_string());
+        let registration_reviewer = match (row.approved_by_user_id, row.approved_by_name.as_deref())
+        {
+            (Some(id), Some(name)) => format!(
+                "Первичную регистрацию одобрил {} (#{id})",
+                pages::escape_html(name)
+            ),
+            _ => "Первоначальное решение не установлено".to_owned(),
+        };
         list.push_str(&format!(
             r#"<article class="me-now-card">
                <h2>{title}</h2><p>Книга #{id} · Владелец #{owner} ·
                Публикация: {visibility} · {current}</p>
+               <p>{registration_reviewer}
+                 · <a href="/moderation/books/{id}/registration-history">
+                 Системная история регистрации</a></p>
                <form method="post" action="/moderation/books/{id}/hold">
                <input type="hidden" name="csrf_token" value="{csrf}">
                <input type="hidden" name="expected_hold" value="{held}">
@@ -146,8 +160,13 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         "Контроль видимости и удержаний без изменения публикации и покупок.",
         &format!(
             r#"<section class="me-page"><div class="container">
-              <h1>Модерация книг</h1>
-              <p><a href="/moderation/books/deletions">Заявки на удаление книг</a></p>
+              <h1>Контроль книг модератором</h1>
+              <nav aria-label="Очереди модератора">
+                <a href="/moderation/books/registrations">Регистрация</a>
+                <a href="/moderation/covers">Обложки</a>
+                <a href="/moderation/books/deletions">Удаление</a>
+              </nav>
+              <p>Контроль видимости и удержаний — не подтверждение заявки.</p>
               <p>Удержание не меняет авторскую публикацию и не создаёт
               административное право на платные главы.</p>
               {list}</div></section>"#
@@ -250,7 +269,13 @@ pub(super) async fn submit_visibility(
     }
 }
 
-fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> String {
+fn render_deletion_queue(
+    rows: &[ModerationDeletionRequest],
+    csrf: &str,
+    registration_count: i64,
+    cover_count: i64,
+    deletion_count: i64,
+) -> String {
     let token = pages::escape_html(csrf);
     let mut cards = String::new();
     for item in rows {
@@ -287,7 +312,13 @@ fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> Stri
         "Одобрение заявок на обычное удаление книги.",
         &format!(
             r#"<section class="me-page"><div class="container">
-               <h1>Заявки на удаление книг</h1>
+               <h1>Кабинет модератора</h1>
+               <nav aria-label="Очереди модератора">
+                 <a href="/moderation/books/registrations">Регистрация ({registration_count})</a>
+                 <a href="/moderation/covers">Обложки ({cover_count})</a>
+                 <a href="/moderation/books/deletions" aria-current="page">Удаление ({deletion_count})</a>
+               </nav>
+               <h2>Заявки на удаление книг</h2>
                <p>Это решение не удаляет главы и не предоставляет платные права.
                   После одобрения книга удаляется из публичного доступа сразу.
                   Купленные и сохранённые главы остаются в личных библиотеках.</p>
@@ -313,6 +344,31 @@ pub(super) async fn deletion_queue(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+    let registration_count = match state
+        .accounts
+        .moderation_registration_pending_count(&digest)
+        .await
+    {
+        Ok(count) => count,
+        Err(error) => return deny(error_code(error)),
+    };
+    let cover_count = match tor_books::repositories::cover_review::PgCoverReview::new(
+        state.accounts.pool().clone(),
+    )
+    .pending_count(&digest)
+    .await
+    {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let deletion_count = match state
+        .accounts
+        .moderation_pending_deletion_count(&digest)
+        .await
+    {
+        Ok(count) => count,
+        Err(error) => return deny(error_code(error)),
+    };
     let rows = match state
         .accounts
         .moderation_pending_deletions(&digest, query.before)
@@ -322,7 +378,16 @@ pub(super) async fn deletion_queue(
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(Html(render_deletion_queue(&rows, &csrf)), &cookies);
+    let mut response = private_response(
+        Html(render_deletion_queue(
+            &rows,
+            &csrf,
+            registration_count,
+            cover_count,
+            deletion_count,
+        )),
+        &cookies,
+    );
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -379,10 +444,15 @@ mod tests {
             visibility_status_revision: 2,
             admin_hold: false,
             owner_user_id: None,
+            approved_by_user_id: Some(17),
+            approved_by_name: Some("<script>reviewer</script>".into()),
         }];
         let html = render(&rows, "csrf");
         assert!(html.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
+        assert!(html.contains("Первичную регистрацию одобрил"));
+        assert!(html.contains("&lt;script&gt;reviewer&lt;/script&gt;"));
+        assert!(html.contains("/moderation/books/42/registration-history"));
         assert!(!html.contains("value=\"draft\""));
         assert!(html.contains("name=\"new_hold\" value=\"true\""));
         assert!(!html.contains("name=\"visibility\""));
@@ -406,10 +476,13 @@ mod deletion_queue_tests {
             owner_user_id: 7,
             request_revision: 2,
         }];
-        let page = render_deletion_queue(&rows, "csrf");
+        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3);
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
+        assert!(page.contains("Регистрация (1)"));
+        assert!(page.contains("Обложки (2)"));
+        assert!(page.contains("Удаление (3)"));
         assert!(page.contains("value=\"approve\""));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
