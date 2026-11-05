@@ -296,8 +296,21 @@ impl PgAccounts {
         before: Option<i64>,
         search: Option<&str>,
     ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
+        self.moderation_pending_deletions_with_access_level(session, before, search, None)
+            .await
+    }
+
+    /// Apply Book age rating before the limited private pending-request page.
+    pub async fn moderation_pending_deletions_with_access_level(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+    ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
         if before.is_some_and(|id| id <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+            || access_level.is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
         {
             return Err(ModerationBooksError::Invalid);
         }
@@ -319,6 +332,8 @@ impl PgAccounts {
                AND ($2::bigint IS NULL OR r.book_id<$2)
                AND ($3::text IS NULL OR r.book_id::text=$3
                     OR position(lower($3) in lower(b.title))>0)
+               AND ($4::text IS NULL OR b.access_level=$4
+                    OR ($4='legacy' AND b.access_level IS NULL))
                AND NOT EXISTS (
                  SELECT 1 FROM book_ordinary_deletion_decisions d
                  WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
@@ -328,6 +343,7 @@ impl PgAccounts {
         .bind(reviewer)
         .bind(before)
         .bind(search)
+        .bind(access_level)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
