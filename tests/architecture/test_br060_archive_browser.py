@@ -30,7 +30,7 @@ class Br060ArchiveBrowserTests(unittest.TestCase):
             "['complete', 'Окончательно удалить книгу']",
             "reader.waitForResponse(response =>",
             "response.request().method() === 'PUT'",
-            "progressRestored === '1'",
+            "freeProgressRestored === '1'",
             "reader_chapter_completions",
             "await register(outsider,",
         ):
