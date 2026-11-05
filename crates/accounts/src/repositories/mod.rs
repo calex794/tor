@@ -7,6 +7,7 @@ pub mod scoped_actions;
 pub use postgres::PgAccounts;
 pub mod authority;
 mod credentials;
+pub mod moderation_book_history;
 pub mod moderation_books;
 pub mod moderation_registration;
 pub use credentials::{PasswordRotation, SessionLoginAudit};

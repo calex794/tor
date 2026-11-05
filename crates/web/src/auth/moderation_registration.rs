@@ -69,6 +69,7 @@ fn render(
             r#"<article class="me-now-card">
             <h2>{title}</h2>
             <p>Книга #{book} · Владелец #{owner} · Ревизия {rev}</p>
+            <p><a href="/moderation/books/{book}/history">Все решения модерации</a></p>
             <details class="moderation-review-confirm" open>
             <summary>Подтвердить решение по регистрации книги #{book}</summary>
             <p>Проверьте название и ревизию. Одобрение не публикует авторский черновик.</p>
