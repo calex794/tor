@@ -73,9 +73,7 @@ async fn page(app: &Router, path: &str, cookie: &str) -> (StatusCode, String) {
         .await
         .unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), 256 * 1024)
-        .await
-        .unwrap();
+    let body = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 
@@ -259,9 +257,15 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     assert!(free_html.contains(&free_marker));
     let (paid_status, paid_html) = page(&app, &paid_path, "").await;
     assert_eq!(paid_status, StatusCode::OK);
-    assert!(!paid_html.contains(&paid_marker), "paid plaintext must not leak");
+    assert!(
+        !paid_html.contains(&paid_marker),
+        "paid plaintext must not leak"
+    );
     assert!(paid_html.contains("S020 paid preview"));
-    assert_eq!(get(&app, &free_path, &stranger_cookie).await, StatusCode::OK);
+    assert_eq!(
+        get(&app, &free_path, &stranger_cookie).await,
+        StatusCode::OK
+    );
     assert_eq!(
         submit(
             &app,
