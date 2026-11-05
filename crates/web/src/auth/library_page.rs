@@ -71,8 +71,7 @@ pub(super) async fn my_library(
         &csrf,
         (state.paid_reader_available, state.layer_pages_enabled),
         state.paid_checkout_enabled,
-        &updates,
-        &owned,
+        (&updates, &owned),
         &purchase_books,
     );
     private_response(page, &cookies)

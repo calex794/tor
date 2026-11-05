@@ -66,10 +66,13 @@ pub fn my_library_with_updates_and_layers_and_purchased_only(
     csrf: &str,
     availability: (bool, bool),
     checkout_enabled: bool,
-    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
-    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    updates_and_owned: (
+        &tor_reading::repositories::follow_updates::FollowedReleasePage,
+        &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    ),
     purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
 ) -> Html<String> {
+    let (updates, owned) = updates_and_owned;
     if purchased_only.items.is_empty() {
         return my_library_with_updates_and_layers(
             items,
@@ -565,8 +568,7 @@ mod purchase_only_book_tests {
             "csrf",
             (true, false),
             false,
-            &updates,
-            &[],
+            (&updates, &[]),
             &only_bought,
         )
         .0;
@@ -587,8 +589,7 @@ mod purchase_only_book_tests {
             "csrf",
             (false, false),
             false,
-            &updates,
-            &[],
+            (&updates, &[]),
             &only_bought,
         )
         .0;

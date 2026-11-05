@@ -234,9 +234,9 @@ impl PgLibrary {
                AND (b.access_level='basic' \
                  OR (b.access_level='adult' AND viewer.adult_enabled) \
                  OR (b.access_level='pro_adult' AND EXISTS ( \
-                     SELECT 1 FROM user_level_grants AS grant \
-                     WHERE grant.user_id=viewer.id AND grant.level='pro_adult' \
-                       AND grant.is_active))) \
+                     SELECT 1 FROM user_level_grants AS age_grant \
+                     WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' \
+                       AND age_grant.is_active))) \
                AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id) \
              ORDER BY b.id DESC LIMIT $4",
         )
