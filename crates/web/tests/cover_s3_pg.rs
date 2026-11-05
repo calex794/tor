@@ -249,7 +249,17 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap()
         .with_public_cdn(PUBLIC_BUCKET.to_owned(), "https://cdn.example".to_owned())
         .unwrap();
-    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()));
+    // An S3 adapter with a configured CDN is not enough for permission to
+    // publish: the durable B-owned publication ledger is mandatory.
+    let unregistered = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()));
+    assert!(matches!(
+        unregistered
+            .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
+            .await,
+        Err(tor_ingest::domain::cover::CoverError::Forbidden)
+    ));
+    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()))
+        .with_publication_registry(ledger.clone());
     let mut public_urls = Vec::new();
     for variant in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let url = direct
