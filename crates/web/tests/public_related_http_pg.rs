@@ -128,6 +128,40 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert!(!html.contains("Скрытый том"));
     assert!(!html.contains("Заблокированный том"));
 
+    // A Book pending deletion is unlisted, even when a public bilateral link
+    // was created before the lifecycle transition. Management keeps that link.
+    sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={target}"),
+    );
+    let (status, unlisted) = page(app.clone(), source).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!unlisted.contains(&format!("href=\"/books/{target}\"")));
+    assert!(!unlisted.contains(&format!("Том {stamp}")));
+    sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={target}"),
+    );
+    assert!(page(app.clone(), source)
+        .await
+        .1
+        .contains(&format!("href=\"/books/{target}\"")));
+
+    sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={source}"),
+    );
+    // This test covers public related-card discovery, NOT direct Book reading.
+    // NEwBOO allows a direct Book view during pending_deletion until hard delete;
+    // a 404 assertion here would silently canonize the wrong reader policy.
+    let (reverse_status, reverse) = page(app.clone(), target).await;
+    assert_eq!(reverse_status, StatusCode::OK);
+    assert!(!reverse.contains(&format!("href=\"/books/{source}\"")));
+    sql(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={source}"),
+    );
+
     let (back_status, back) = page(app.clone(), target).await;
     assert_eq!(back_status, StatusCode::OK, "{back}");
     assert!(back.contains(&format!("href=\"/books/{source}\"")));

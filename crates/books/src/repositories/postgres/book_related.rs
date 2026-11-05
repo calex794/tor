@@ -249,7 +249,8 @@ impl PgAuthoring {
 }
 /// Explicit NEwBOO related-book links, not automatically inferred recommendations.
 /// Both the source and every target must still pass the live public-book gate.
-/// One indexed query, bounded to 12 cards; a hidden target never leaks a title.
+/// One indexed query, bounded to 12 cards. Pending-deletion Books are unlisted
+/// on both sides; the separate authorized management view is unchanged.
 impl PgCatalog {
     pub async fn public_related_books(
         &self,
@@ -268,8 +269,10 @@ impl PgCatalog {
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE source.id=$1
                AND source.visibility='public' AND source.visibility_status='active'
+               AND source.lifecycle_status<>'pending_deletion'
                AND NOT source.admin_hold AND NOT source.is_deleted
                AND target.visibility='public' AND target.visibility_status='active' AND target.access_level='basic'
+               AND target.lifecycle_status<>'pending_deletion'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 12",
         )
