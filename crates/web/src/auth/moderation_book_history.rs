@@ -11,7 +11,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::{
     repositories::moderation_reviewed::{
-        ReviewedCursor, ReviewedModerationDecision, ReviewedModerationPage,
+        ReviewedCursor, ReviewedModerationPage,
     },
     services::security::session_token_digest,
 };
@@ -257,6 +257,7 @@ pub(super) async fn book_history(
 mod moderation_history_tests {
     use super::*;
     use tor_accounts::repositories::moderation_book_history::BookModerationHistoryEntry;
+    use tor_accounts::repositories::moderation_reviewed::ReviewedModerationDecision;
 
     #[test]
     fn reviewed_list_keeps_reviewers_private_and_escapes_untrusted_content() {
