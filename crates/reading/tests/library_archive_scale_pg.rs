@@ -108,9 +108,10 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
     assert_eq!(first.items[0].chapter_no, 1);
     assert_eq!(first.items[99].chapter_no, 100);
     assert_eq!(first.next_cursor, Some(100));
-    assert!(first.items.iter().all(|item| {
-        item.saved_free_version_no == Some(1) && item.purchased.is_none()
-    }));
+    assert!(first
+        .items
+        .iter()
+        .all(|item| { item.saved_free_version_no == Some(1) && item.purchased.is_none() }));
 
     let started = Instant::now();
     let deep = library
@@ -122,9 +123,10 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
     assert_eq!(deep.items[0].chapter_no, 9901);
     assert_eq!(deep.items[99].chapter_no, 10_000);
     assert_eq!(deep.next_cursor, None);
-    assert!(deep.items.iter().all(|item| {
-        item.saved_free_version_no == Some(1) && item.purchased.is_none()
-    }));
+    assert!(deep
+        .items
+        .iter()
+        .all(|item| { item.saved_free_version_no == Some(1) && item.purchased.is_none() }));
 
     let middle = library
         .saved_archive_chapters(actor, book, 30, Some(9950), &digest)
@@ -149,7 +151,10 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
         .items
         .is_empty());
     assert_eq!(
-        library.saved_archive_chapters(actor, book, 101, None, &digest).await.err(),
+        library
+            .saved_archive_chapters(actor, book, 101, None, &digest)
+            .await
+            .err(),
         Some(LibraryError::Invalid)
     );
 
