@@ -97,7 +97,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .unwrap();
-    let outsider = accounts
+    let _outsider = accounts
         .register_with_session(
             &format!("c08-outsider-{marker}@example.invalid"),
             "C08 outsider",
@@ -110,8 +110,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
-             VALUES('ci:c08:reader:{marker}','ru','Archived <unsafe>','public','basic')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+             VALUES('ci:c08:reader:{marker}','ru','Archived <unsafe>','public','basic',{actor})
              RETURNING id"
         ),
     )
@@ -211,23 +211,77 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    pg(
-        &url,
-        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
+    let deletion = format!("/me/books/{book}/settings/delete");
+    assert_eq!(
+        call(&app, "GET", &deletion, &outsider_cookie, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
     );
+    let first_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
+    assert!(first_form.contains("value=\"start\""));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
+            &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=wrong")
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
+            &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let pending_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
+    assert!(pending_form.contains("value=\"complete\""));
+    let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    assert!(pending_library.contains("Ожидает удаления"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending.contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
     // A completed ordinary deletion deindexes public pages but keeps the
     // saved exact private edition and Book tombstone for its original reader.
-    pg(
-        &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='ordinary_deleted',
-             ordinary_deleted_at=now(), visibility='draft' WHERE id={book}"
-        ),
+    assert_eq!(
+        call(
+            &app, "POST", &deletion, &outsider_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
     );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let events = pg(
+        &url,
+        &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"),
+    );
+    assert_eq!(events, "2");
+    let deleted_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
+    assert!(!deleted_form.contains("type=\"password\""));
     assert_eq!(
         call(&app, "GET", &format!("/books/{book}"), "", "")
             .await
@@ -290,10 +344,33 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::NOT_FOUND
     );
 
-    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
-    pg(
-        &url,
-        &format!("DELETE FROM users WHERE id IN ({actor},{outsider})"),
+    // Ordinary deletion retains the Book as an audited tombstone.
+    // The disposable tor_ci database is discarded after this job, so fixture
+    // cleanup must not physically delete records protected by RESTRICT.
+    let deletion_sql = format!("DELETE FROM books WHERE id={book}");
+    let refused = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url.as_str(),
+            "--command",
+            deletion_sql.as_str(),
+        ])
+        .output()
+        .expect("psql client");
+    assert!(
+        !refused.status.success()
+            && String::from_utf8_lossy(&refused.stderr).contains("book_members_book_id_fkey"),
+        "ordinary deletion must not physically erase a Book with protected membership"
+    );
+    assert_eq!(
+        pg(&url, &format!("SELECT COUNT(*) FROM books WHERE id={book}")),
+        "1"
     );
     pool.close().await;
 }

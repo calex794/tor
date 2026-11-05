@@ -287,6 +287,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/settings/access-level"), "POST") => Some(272),
         (Some("/me/library/{id}/saved"), "GET") => Some(273),
         (Some("/me/library/saved/{id}"), "GET") => Some(274),
+        (Some("/me/books/{id}/settings/delete"), "GET") => Some(275),
+        (Some("/me/books/{id}/settings/delete"), "POST") => Some(276),
         _ => None,
     };
     index
