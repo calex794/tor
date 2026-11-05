@@ -100,11 +100,12 @@ fn render(
               <a href="/moderation/books/registrations" aria-current="page">Регистрация ({count})</a>
               <a href="/moderation/covers">Обложки ({covers_count})</a>
               <a href="/moderation/books/deletions">Удаление ({deletions_count})</a>
+              <a href="/moderation/books/control">Контроль</a>
             </nav>
             <p>Одобрение регистрации не публикует авторский черновик,
                а новые главы не проходят отдельную модерацию.</p>
             {cards}
-            <p><a href="/moderation/books">Контроль и удержания книг</a></p>
+            <p><a href="/moderation/books/control">Контроль и удержания книг</a></p>
             </div></section>"#
         ),
     )
