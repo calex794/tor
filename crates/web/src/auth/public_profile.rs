@@ -43,6 +43,20 @@ pub(super) async fn page(
         let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
         cookies = issued_cookies;
         let token = pages::escape_html(&token);
+        let following = match state.creator_follows.is_following(actor, recipient).await {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        let (suffix, label) = if following {
+            ("unsubscribe", "Отписаться")
+        } else {
+            ("subscribe", "Подписаться")
+        };
+        // This action targets the active account, independently of Book discovery
+        // and without conferring a chapter purchase or age entitlement.
+        action.push_str(&format!(
+            "<form method=\"post\" action=\"/users/{recipient}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">{label}</button></form>"
+        ));
         // The source shows mail on logged-in, non-self profiles.
         // The server's block/send guard remains authoritative after a click.
         action.push_str(&format!("<form method=\"post\" action=\"/mail/start/{recipient}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\" class=\"ui-button ui-button--ghost\">Почта</button></form>"));
