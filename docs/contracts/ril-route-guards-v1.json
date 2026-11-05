@@ -2042,7 +2042,7 @@
     {
       "method": "GET",
       "template": "/moderation/books/{id}/history",
-      "source": "crates/web/src/auth/moderation_books.rs",
+      "source": "crates/web/src/auth/moderation_book_history.rs",
       "handler": "book_history",
       "policy": "scoped"
     }
