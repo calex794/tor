@@ -10,9 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::{
-    repositories::moderation_reviewed::{
-        ReviewedCursor, ReviewedModerationPage,
-    },
+    repositories::moderation_reviewed::{ReviewedCursor, ReviewedModerationPage},
     services::security::session_token_digest,
 };
 
@@ -89,7 +87,11 @@ fn render_reviewed(
     ]
     .into_iter()
     .map(|(value, label)| {
-        let selected = if selected_kind == value { " selected" } else { "" };
+        let selected = if selected_kind == value {
+            " selected"
+        } else {
+            ""
+        };
         format!("<option value=\"{value}\"{selected}>{label}</option>")
     })
     .collect::<Vec<_>>()
@@ -101,7 +103,11 @@ fn render_reviewed(
     ]
     .into_iter()
     .map(|(value, label)| {
-        let selected = if selected_outcome == value { " selected" } else { "" };
+        let selected = if selected_outcome == value {
+            " selected"
+        } else {
+            ""
+        };
         format!("<option value=\"{value}\"{selected}>{label}</option>")
     })
     .collect::<Vec<_>>()
@@ -145,7 +151,10 @@ pub(super) async fn reviewed_index(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let kind = match read_filter(query.kind.as_deref(), &["registration", "cover", "deletion"]) {
+    let kind = match read_filter(
+        query.kind.as_deref(),
+        &["registration", "cover", "deletion"],
+    ) {
         Ok(kind) => kind,
         Err(()) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -153,7 +162,12 @@ pub(super) async fn reviewed_index(
         Ok(outcome) => outcome,
         Err(()) => return deny(StatusCode::BAD_REQUEST),
     };
-    let before = match query.before.as_deref().map(ReviewedCursor::parse).transpose() {
+    let before = match query
+        .before
+        .as_deref()
+        .map(ReviewedCursor::parse)
+        .transpose()
+    {
         Ok(value) => value,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -285,7 +299,10 @@ mod moderation_history_tests {
         assert!(html.contains("&lt;svg/onload=alert(1)&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("kind=cover&outcome=rejected&before=1800000000000000.cover.31.91"));
-        assert_eq!(read_filter(Some("other"), &["approved", "rejected"]), Err(()));
+        assert_eq!(
+            read_filter(Some("other"), &["approved", "rejected"]),
+            Err(())
+        );
     }
 
     #[test]
