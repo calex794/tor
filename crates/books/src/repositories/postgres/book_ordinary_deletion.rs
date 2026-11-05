@@ -78,8 +78,8 @@ impl PgAuthoring {
             "SELECT b.lifecycle_status,b.lifecycle_revision
              FROM books b
              JOIN users u ON u.id=$1 AND u.account_state='active'
-                 AND u.password_hash=$5
-             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$4::bytea
+                 AND u.password_hash=$4
+             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3::bytea
                  AND s.revoked_at IS NULL AND s.expires_at>now()
              WHERE b.id=$2 AND b.owner_user_id=$1
                AND b.visibility_status='active'
@@ -88,7 +88,6 @@ impl PgAuthoring {
         )
         .bind(actor)
         .bind(book_id)
-        .bind(expected_revision)
         .bind(session_digest.as_slice())
         .bind(expected_password_hash)
         .fetch_optional(&mut *tx)
