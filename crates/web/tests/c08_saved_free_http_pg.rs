@@ -360,6 +360,24 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::CONFLICT,
         "an owner password is not a site moderator approval"
     );
+    // Even a site moderator who owns the Book cannot self-approve deletion.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({actor},'moderator',TRUE)"
+        ),
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &format!("/moderation/books/{book}/deletion"),
+            &reader_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
     let moderator_queue = "/moderation/books/deletions";
     assert_eq!(
         call(&app, "GET", moderator_queue, &outsider_cookie, "")
