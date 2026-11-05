@@ -23,10 +23,16 @@ async fn save_free_v1_before_removal(
         )
         .body(Body::from(format!("csrf_token={csrf}")))
         .unwrap();
-    request.extensions_mut().insert(axum::extract::ConnectInfo(
-        std::net::SocketAddr::from(([127, 0, 0, 1], 41003)),
-    ));
-    assert_eq!(app.clone().oneshot(request).await.unwrap().status(), StatusCode::NO_CONTENT);
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41003,
+        ))));
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
 
     let original_v1 = pg(
         url,
@@ -99,7 +105,10 @@ pub(super) async fn verify(
     let archive = format!("/me/library/{book}/saved");
     let archive_response = private_get(app, &archive, Some(buyer_cookie)).await;
     assert_eq!(archive_response.status(), StatusCode::OK);
-    assert_eq!(archive_response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        archive_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
     let toc = html_body(archive_response).await;
     assert!(toc.contains(&format!("href=\"/me/library/saved/{free_chapter}\"")));
     assert!(toc.contains("Сохранённая бесплатная редакция 1"));
@@ -107,13 +116,19 @@ pub(super) async fn verify(
         "href=\"/read/paid/{chapter}?purchase_id={purchase_id}\""
     )));
     assert!(toc.contains("Купленная редакция 1"));
-    assert!(toc.contains("&lt;img"), "free chapter titles must be escaped");
+    assert!(
+        toc.contains("&lt;img"),
+        "free chapter titles must be escaped"
+    );
     assert!(!toc.contains("<img src=x"));
     assert!(!toc.contains(&format!("/reader/{locked_chapter}")));
     assert!(!toc.contains(&format!("/read/paid/{locked_chapter}")));
     assert!(!toc.contains(&format!("/me/library/saved/{draft_chapter}")));
     assert!(!toc.contains("UNPINNED FREE V2"));
-    assert!(!toc.contains(MARKDOWN), "private TOC cannot expose paid body");
+    assert!(
+        !toc.contains(MARKDOWN),
+        "private TOC cannot expose paid body"
+    );
 
     let saved = private_get(
         app,
@@ -160,7 +175,10 @@ pub(super) async fn verify(
     // Reverting the test fixture returns to the original basic rights before
     // the real MinIO grant is issued; it cannot create a new purchase.
     for tier in ["adult", "pro_adult"] {
-        pg(url, &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"));
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
+        );
         let denied_archive = html_body(private_get(app, &archive, Some(buyer_cookie)).await).await;
         assert!(!denied_archive.contains(&format!("/me/library/saved/{free_chapter}")));
         assert!(!denied_archive.contains(&format!("/read/paid/{chapter}?purchase_id=")));
@@ -181,7 +199,10 @@ pub(super) async fn verify(
             StatusCode::OK
         );
     }
-    pg(url, &format!("UPDATE books SET access_level='basic' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
     assert_eq!(archived_reader.status(), StatusCode::OK);
     let archived_html = html_body(archived_reader).await;
@@ -207,11 +228,14 @@ pub(super) async fn verify_refund_archive(
 ) {
     let (chapter, purchase_id) = purchased;
     let toc = html_body(
-        private_get(app, &format!("/me/library/{book}/saved"), Some(buyer_cookie)).await,
+        private_get(
+            app,
+            &format!("/me/library/{book}/saved"),
+            Some(buyer_cookie),
+        )
+        .await,
     )
     .await;
     assert!(toc.contains(&format!("/me/library/saved/{free_chapter}")));
-    assert!(!toc.contains(&format!(
-        "/read/paid/{chapter}?purchase_id={purchase_id}"
-    )));
+    assert!(!toc.contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
 }
