@@ -161,7 +161,7 @@ impl PgCreatorFollows {
             return Err(CreatorFollowError::Invalid);
         }
         if follower == creator {
-            return Err(CreatorFollowError::Forbidden);
+            return Err(CreatorFollowError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
