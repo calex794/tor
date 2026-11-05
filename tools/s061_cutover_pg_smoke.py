@@ -261,7 +261,7 @@ def run() -> None:
             events.append("postgresql_and_acl_survived")
             report = {
                 "scenario": "S061",
-                "head_sha": os.environ.get("GITHUB_SHA", ""),
+                "checked_out_sha": os.environ.get("GITHUB_SHA", ""),
                 "database": "disposable PostgreSQL 18 tor_ci",
                 "separate_candidate": True,
                 "precutover_rejection": True,
