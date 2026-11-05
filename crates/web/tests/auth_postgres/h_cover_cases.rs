@@ -9,8 +9,10 @@ use std::{
     num::NonZeroU32,
     sync::{Arc, Mutex},
 };
+use tor_accounts::services::security::{
+    generate_session_token, hash_password, session_token_digest,
+};
 use tor_books::repositories::{cover_review::PgCoverReview, cover_slots::PgCoverSlots};
-use tor_accounts::services::security::{generate_session_token, hash_password, session_token_digest};
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
@@ -286,8 +288,16 @@ pub(super) async fn upload_and_show(
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
     let assigned = std::process::Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url.as_str(), "--command", role_sql.as_str(),
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url.as_str(),
+            "--command",
+            role_sql.as_str(),
         ])
         .output()
         .unwrap();
@@ -379,9 +389,7 @@ pub(super) async fn upload_and_show(
         request(
             "POST",
             &format!("/moderation/covers/{}/decision", candidate.id),
-            &format!(
-                "csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"
-            ),
+            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"),
             &reviewer_cookie,
             ORIGIN,
         ),
