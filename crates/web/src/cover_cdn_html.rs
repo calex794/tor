@@ -1,8 +1,8 @@
 //! S025: opt-in read-only projection of ledger-confirmed CDN cover URLs.
 //! Never copy to S3 or purge its cache on an HTML request.
+use crate::cover_delivery::CoverDelivery;
 use axum::{http::StatusCode, response::Html};
 use tor_books::repositories::cover_slots::PublicCoverKind;
-use crate::cover_delivery::CoverDelivery;
 
 pub(super) async fn render_confirmed(
     enabled: bool,
