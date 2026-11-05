@@ -135,9 +135,7 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
 
     pg(
         &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"
-        ),
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
     );
     let after = call(&app, "GET", "/me/library", &cookie, "").await;
     assert_eq!(after.status(), StatusCode::OK);
@@ -186,10 +184,16 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
         "existing saved Book cannot be newly added during pending deletion"
     );
 
-    pg(&url, &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
+    );
     let held = body(call(&app, "GET", "/me/library", &cookie, "").await).await;
     assert!(!held.contains("Архив &lt;script&gt;"));
-    pg(&url, &format!("UPDATE books SET admin_hold=FALSE WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=FALSE WHERE id={book}"),
+    );
     assert_eq!(
         call(
             &app,
