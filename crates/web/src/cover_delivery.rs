@@ -71,6 +71,68 @@ impl CoverDelivery {
         Ok(Some((signed, object.sha256, object.size_bytes)))
     }
 
+    /// Publish an immutable public CDN copy only while B authorizes the cover.
+    /// This is a privileged operation; never call it for private book previews.
+    /// A later unpublish needs explicit CDN purge and object removal.
+    pub async fn publish_cdn_variant(
+        &self,
+        book_id: u64,
+        kind: PublicCoverKind,
+    ) -> Result<Option<String>, CoverError> {
+        if self.objects.public_cdn_origin().is_none() {
+            return Err(CoverError::Forbidden);
+        }
+        let book_id_i64 = i64::try_from(book_id).map_err(|_| CoverError::Invalid)?;
+        let object = self
+            .slots
+            .public_variant(book_id_i64, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let Some(object) = object else {
+            return Ok(None);
+        };
+        let variant = match kind {
+            PublicCoverKind::Card => "card",
+            PublicCoverKind::Main => "main",
+        };
+        // Two B projections cannot form an atomic S3 transaction; this extra
+        // check prevents publishing already-replaced/hidden variants before I/O.
+        if self
+            .slots
+            .public_variant(book_id_i64, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?
+            .as_ref()
+            != Some(&object)
+        {
+            return Ok(None);
+        }
+        let url = self
+            .objects
+            .publish_public_cover(
+                book_id,
+                object.revision,
+                variant,
+                &object.storage_key,
+                &object.sha256,
+                object.size_bytes,
+            )
+            .await?;
+        if self
+            .slots
+            .public_variant(book_id_i64, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?
+            .as_ref()
+            != Some(&object)
+        {
+            // The object may now be public in S3. Caller MUST NOT return its
+            // address; future publication revocation is handled separately.
+            return Ok(None);
+        }
+        Ok(Some(url))
+    }
+
     /// Return None for invisible, stale or unknown covers. Return Unavailable
     /// for failed private storage and integrity checks, never partial bytes.
     pub async fn read(

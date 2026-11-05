@@ -26,7 +26,10 @@ use tor_ingest::{
     },
 };
 use tor_reading::repositories::PgReader;
-use tor_web::cover_worker::{CoverRunner, CoverRunnerMonitor};
+use tor_web::{
+    cover_delivery::CoverDelivery,
+    cover_worker::{CoverRunner, CoverRunnerMonitor},
+};
 use tower::ServiceExt;
 
 const BUCKET: &str = "tor-private-obs09-ci";
@@ -210,6 +213,42 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap()
         .expect("published verified cover");
     assert_eq!(card.revision, 1);
+    // The CDN bucket is a separate destination: never publish source PNGs or
+    // use the private cover bucket as a publicly-readable bucket.
+    const PUBLIC_BUCKET: &str = "tor-public-cover-cdn-ci";
+    client
+        .create_bucket()
+        .bucket(PUBLIC_BUCKET)
+        .send()
+        .await
+        .expect("create disposable public-target bucket");
+    let publisher = S3CoverStore::new(client.clone(), BUCKET.to_owned())
+        .unwrap()
+        .with_public_cdn(PUBLIC_BUCKET.to_owned(), "https://cdn.example".to_owned())
+        .unwrap();
+    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher));
+    for variant in [PublicCoverKind::Card, PublicCoverKind::Main] {
+        let url = direct
+            .publish_cdn_variant(BOOK_ID as u64, variant)
+            .await
+            .unwrap()
+            .expect("only an attached public variant can be published");
+        assert!(url.starts_with("https://cdn.example/public/covers/950/1/"));
+        assert!(url.ends_with(".webp"));
+        let key = url.strip_prefix("https://cdn.example/").unwrap();
+        let head = client
+            .head_object()
+            .bucket(PUBLIC_BUCKET)
+            .key(key)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(head.content_type(), Some("image/webp"));
+        assert_eq!(
+            head.cache_control(),
+            Some("public, max-age=31536000, immutable")
+        );
+    }
     let card_original = store
         .get_bounded(&card.storage_key, card.size_bytes as usize)
         .await
@@ -254,6 +293,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={BOOK_ID}"),
     )
     .await;
+    assert!(
+        direct
+            .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
+            .await
+            .unwrap()
+            .is_none(),
+        "a hidden book cannot publish further public CDN copies"
+    );
     assert!(
         slots
             .public_card_ids(&[BOOK_ID as u64])

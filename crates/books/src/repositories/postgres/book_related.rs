@@ -118,7 +118,9 @@ impl PgAuthoring {
         let rows = sqlx::query(
             "SELECT id, title FROM books
              WHERE id<>$1
-               AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
+               AND visibility='public' AND visibility_status='active'
+               AND lifecycle_status<>'pending_deletion'
+               AND NOT admin_hold AND NOT is_deleted
                AND book_registration_legacy_title_key(title)=$2
              ORDER BY id LIMIT 20",
         )
@@ -154,7 +156,7 @@ impl PgAuthoring {
         // Deterministic row lock order avoids A->B / B->A link deadlocks.
         // A concurrent visibility/hold change must not race this insertion.
         let rows = sqlx::query(
-            "SELECT id, visibility, visibility_status, admin_hold, is_deleted
+            "SELECT id, visibility, visibility_status, lifecycle_status, admin_hold, is_deleted
              FROM books WHERE id=ANY($1::bigint[])
              ORDER BY id FOR UPDATE",
         )
@@ -184,7 +186,14 @@ impl PgAuthoring {
                 let moderation: String = row
                     .try_get("visibility_status")
                     .map_err(|_| AuthorError::Unavailable)?;
-                target_ok = visibility == "public" && moderation == "active" && !held && !deleted;
+                let lifecycle: String = row
+                    .try_get("lifecycle_status")
+                    .map_err(|_| AuthorError::Unavailable)?;
+                target_ok = visibility == "public"
+                    && moderation == "active"
+                    && lifecycle != "pending_deletion"
+                    && !held
+                    && !deleted;
             }
         }
         // Uniform 404 avoids probing unpublished targets or private owners.
