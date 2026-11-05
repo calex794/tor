@@ -199,13 +199,16 @@ mod tests {
             book_id: 20,
             decision_id: 37,
         };
-        assert_eq!(ReviewedCursor::parse(&cursor.token()), Ok(cursor));
+        assert_eq!(ReviewedCursor::parse(&cursor.token()).unwrap(), cursor);
         for invalid in [
             "", "1", "0.cover.1.1", "1.pending.1.1", "1.cover.0.1",
             "1.cover.1.0", "1.cover.1.1.extra", "1.cover.1.1%20",
             "999999999999999999999.cover.1.1",
         ] {
-            assert_eq!(ReviewedCursor::parse(invalid), Err(ModerationBooksError::Invalid));
+            assert!(matches!(
+                ReviewedCursor::parse(invalid),
+                Err(ModerationBooksError::Invalid)
+            ));
         }
     }
 }
