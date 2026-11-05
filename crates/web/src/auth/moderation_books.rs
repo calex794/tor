@@ -10,6 +10,8 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+#[path = "moderation_book_history.rs"]
+mod history;
 #[path = "moderation_registration.rs"]
 mod registration;
 use tor_accounts::{
@@ -59,6 +61,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
         .route("/moderation/books/deletions", get(deletion_queue))
         .route("/moderation/books/{id}/deletion", post(review_deletion))
+        .merge(history::router())
         .merge(registration::router())
 }
 
@@ -104,7 +107,8 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                Публикация: {visibility} · {current}</p>
                <p>{registration_reviewer}
                  · <a href="/moderation/books/{id}/registration-history">
-                 Системная история регистрации</a></p>
+                 Системная история регистрации</a>
+                 · <a href="/moderation/books/{id}/history">Все решения модерации</a></p>
                <form method="post" action="/moderation/books/{id}/hold">
                <input type="hidden" name="csrf_token" value="{csrf}">
                <input type="hidden" name="expected_hold" value="{held}">
@@ -283,6 +287,7 @@ fn render_deletion_queue(
         cards.push_str(&format!(
             r#"<article class="me-now-card"><h2>{title}</h2>
                <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
+               <p><a href="/moderation/books/{book}/history">История решений по книге</a></p>
                <form method="post" action="/moderation/books/{book}/deletion">
                  <input type="hidden" name="csrf_token" value="{token}">
                  <input type="hidden" name="request_revision" value="{revision}">

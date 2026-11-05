@@ -2038,6 +2038,13 @@
       "source": "crates/web/src/auth/moderation_registration.rs",
       "handler": "history",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/history",
+      "source": "crates/web/src/auth/moderation_book_history.rs",
+      "handler": "book_history",
+      "policy": "scoped"
     }
   ]
 }
