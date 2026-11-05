@@ -174,7 +174,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("mail.${name}.${suffix}@example.test", mail)
         for filename in (CI_WORKFLOW, "tor-reader-visual.yml"):
             reader = job_sections((WORKFLOWS / filename).read_text())["reader-browser"]
-            self.assertIn("node tools/reader_visual_smoke.cjs", reader)
+            self.assertIn("ci_timed_browser tools/reader_visual_smoke.cjs", reader)
+            self.assertIn('if node "$scenario" "$@"; then', reader)
 
     def test_rec13_reuses_browser_only_in_pg_jobs(self):
         script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
