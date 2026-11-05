@@ -1,7 +1,7 @@
 //! S020 P0: draft HTTP age settings accept only live scoped, monotonic Book tiers.
 //! Mutations are off by default; this fixture uses disposable PostgreSQL tor_ci.
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     http::{header, Request, StatusCode},
     Router,
 };
@@ -60,6 +60,23 @@ async fn get(app: &Router, path: &str, cookie: &str) -> StatusCode {
     reply.status()
 }
 
+async fn page(app: &Router, path: &str, cookie: &str) -> (StatusCode, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    (status, String::from_utf8_lossy(&body).into_owned())
+}
+
 async fn submit(
     app: &Router,
     path: &str,
@@ -114,7 +131,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         )
         .await
         .unwrap();
-    accounts
+    let outsider = accounts
         .register_with_session(
             &format!("s020-age-stranger-{marker}@example.invalid"),
             "S020 age stranger",
@@ -134,6 +151,49 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     )
     .parse()
     .unwrap();
+    // The same published free text, TOC metadata and paid preview must all
+    // react to the live Book tier changed by this exact settings POST.
+    let free: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'S020 free chapter','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let paid: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},2,'S020 paid preview','public','paid',100) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let free_marker = format!("S020-AGE-FREE-TEXT-{marker}");
+    let paid_marker = format!("S020-AGE-PAID-SECRET-{marker}");
+    for (chapter, marker_text) in [(free, free_marker.as_str()), (paid, paid_marker.as_str())] {
+        let version: i64 = pg(
+            &url,
+            &format!(
+                "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+                 VALUES({chapter},1,'{marker_text}') RETURNING id"
+            ),
+        )
+        .parse()
+        .unwrap();
+        pg(
+            &url,
+            &format!(
+                "INSERT INTO chapter_publications(chapter_id,version_id)
+                 VALUES({chapter},{version})"
+            ),
+        );
+    }
+    let free_path = format!("/reader/{free}");
+    let paid_path = format!("/reader/{paid}");
+    let toc_path = format!("/api/v1/books/{book}/toc");
     let path = format!("/me/books/{book}/settings/access-level");
     let public = format!("/books/{book}");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
@@ -191,6 +251,21 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(get(&app, &public, "").await, StatusCode::OK);
+    assert_eq!(get(&app, &toc_path, "").await, StatusCode::OK);
+    let (free_status, free_html) = page(&app, &free_path, "").await;
+    assert_eq!(free_status, StatusCode::OK);
+    assert!(free_html.contains(&free_marker));
+    let (paid_status, paid_html) = page(&app, &paid_path, "").await;
+    assert_eq!(paid_status, StatusCode::OK);
+    assert!(
+        !paid_html.contains(&paid_marker),
+        "paid plaintext must not leak"
+    );
+    assert!(paid_html.contains("S020 paid preview"));
+    assert_eq!(
+        get(&app, &free_path, &stranger_cookie).await,
+        StatusCode::OK
+    );
     assert_eq!(
         submit(
             &app,
@@ -242,6 +317,31 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         "adult",
     );
     assert_eq!(get(&app, &public, "").await, StatusCode::NOT_FOUND);
+    for candidate in [&public, &toc_path, &free_path, &paid_path] {
+        assert_eq!(get(&app, candidate, "").await, StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let (denied, denied_html) = page(&app, &free_path, "").await;
+    assert_eq!(denied, StatusCode::NOT_FOUND);
+    assert!(!denied_html.contains(&free_marker));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={outsider}"),
+    );
+    for candidate in [&public, &toc_path, &free_path, &paid_path] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
+    }
+    assert!(page(&app, &free_path, &stranger_cookie)
+        .await
+        .1
+        .contains(&free_marker));
+    assert!(!page(&app, &paid_path, &stranger_cookie)
+        .await
+        .1
+        .contains(&paid_marker));
     assert_eq!(
         submit(
             &app,
@@ -299,6 +399,49 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         ),
         "pro_adult",
     );
+    // An 18+ account is not automatically entitled to 21+ chapter text,
+    // public metadata, paid previews or TOC after the same Book is upgraded.
+    for candidate in [&public, &toc_path, &free_path, &paid_path] {
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
+    }
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({outsider},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    for candidate in [&public, &toc_path, &free_path, &paid_path] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
+    }
+    assert!(page(&app, &free_path, &stranger_cookie)
+        .await
+        .1
+        .contains(&free_marker));
+    assert!(!page(&app, &paid_path, &stranger_cookie)
+        .await
+        .1
+        .contains(&paid_marker));
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE
+             WHERE user_id={outsider} AND level='pro_adult'"
+        ),
+    );
+    for candidate in [&public, &toc_path, &free_path, &paid_path] {
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert!(!page(&app, &free_path, &stranger_cookie)
+        .await
+        .1
+        .contains(&free_marker));
     // Revocation closes reader access; the signed-in Book settings permission
     // is independent of reader age eligibility.
     pg(
