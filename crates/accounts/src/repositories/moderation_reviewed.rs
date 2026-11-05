@@ -201,8 +201,14 @@ mod tests {
         };
         assert_eq!(ReviewedCursor::parse(&cursor.token()).unwrap(), cursor);
         for invalid in [
-            "", "1", "0.cover.1.1", "1.pending.1.1", "1.cover.0.1",
-            "1.cover.1.0", "1.cover.1.1.extra", "1.cover.1.1%20",
+            "",
+            "1",
+            "0.cover.1.1",
+            "1.pending.1.1",
+            "1.cover.0.1",
+            "1.cover.1.0",
+            "1.cover.1.1.extra",
+            "1.cover.1.1%20",
             "999999999999999999999.cover.1.1",
         ] {
             assert!(matches!(
