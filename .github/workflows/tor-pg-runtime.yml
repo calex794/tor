@@ -354,10 +354,10 @@ jobs:
           git fetch --no-tags origin "$PREVIOUS_SHA"
           git merge-base --is-ancestor "$PREVIOUS_SHA" "$(git rev-parse HEAD)"
           git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"
-          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \\
-            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \\
+          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
+            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
             -p tor-web --bin tor-web
-          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \\
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
             "$RUNNER_TEMP/s061-previous-tor-web"
       - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
         env:
