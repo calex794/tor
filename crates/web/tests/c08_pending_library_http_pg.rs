@@ -157,7 +157,7 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
     assert!(!body(call(&app, "GET", "/me/library", "", "").await)
         .await
         .contains("Архив &lt;script&gt;"));
-    assert_eq!(other > 0, true);
+    assert!(other > 0);
 
     let payload = format!("csrf_token={csrf}");
     assert_eq!(
