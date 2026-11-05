@@ -379,9 +379,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
     );
     assert_eq!(
-        call(&app, "GET", &detail, "", ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -419,9 +417,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         ),
     );
     assert_eq!(
-        call(&app, "GET", &detail, "", ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -429,9 +425,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"),
     );
     assert_eq!(
-        call(&app, "GET", &detail, "", ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -441,9 +435,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         ),
     );
     assert_eq!(
-        call(&app, "GET", &detail, "", ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::OK
     );
 
@@ -465,9 +457,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &detail, "", ORIGIN, "")
-            .await
-            .status(),
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
