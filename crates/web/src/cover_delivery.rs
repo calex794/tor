@@ -145,12 +145,7 @@ impl CoverDelivery {
                 // B already revoked this identity. Even if deletion fails,
                 // the durable row is queued for retry after a new worker starts.
                 self.objects
-                    .remove_public_cover(
-                        book_id,
-                        reserved.slot_revision,
-                        variant,
-                        &reserved.sha256,
-                    )
+                    .remove_public_cover(book_id, reserved.slot_revision, variant, &reserved.sha256)
                     .await?;
                 Ok(None)
             }
@@ -159,12 +154,7 @@ impl CoverDelivery {
                 // the prior committed reservation remains recoverable.
                 let _ = self
                     .objects
-                    .remove_public_cover(
-                        book_id,
-                        reserved.slot_revision,
-                        variant,
-                        &reserved.sha256,
-                    )
+                    .remove_public_cover(book_id, reserved.slot_revision, variant, &reserved.sha256)
                     .await;
                 Err(CoverError::Unavailable)
             }
