@@ -367,6 +367,88 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .replace("<span id=\"saved-resume\"></span>", "")
         .contains("Pinned ORIGINAL V1"));
     assert!(fresh_read.contains("href=\"#saved-resume\""));
+
+    // Post-deletion V1 is writable only for the owning fresh session and
+    // exact immutable pin; no public current-V2 publication is consulted.
+    let archive_place = format!("{read}/place");
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &outsider_cookie,
+            &format!("csrf_token={csrf}&version_id={v1}&block_index=1&char_offset=7")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &new_reader_cookie,
+            &format!("csrf_token=invalid&version_id={v1}&block_index=1&char_offset=7")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &new_reader_cookie,
+            &format!("csrf_token={login_csrf}&version_id={v2}&block_index=1&char_offset=7")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &new_reader_cookie,
+            &format!("csrf_token={login_csrf}&version_id={v1}&block_index=1&char_offset=999")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &new_reader_cookie,
+            &format!("csrf_token={login_csrf}&version_id={v1}&block_index=1&char_offset=7")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT version_id::text || ':' || block_index::text || ':' || char_offset::text
+                 FROM reader_book_positions WHERE user_id={actor} AND book_id={book}"
+            )
+        ),
+        format!("{v1}:1:7")
+    );
+    let after_save = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
+    assert!(after_save.contains("href=\"#saved-resume\""));
+    assert!(after_save.contains("name=\"char_offset\" min=\"0\" max=\"100000\" required value=\"7\""));
+    // Never move backwards on a delayed request.
+    assert_eq!(
+        call(
+            &app, "POST", &archive_place, &new_reader_cookie,
+            &format!("csrf_token={login_csrf}&version_id={v1}&block_index=1&char_offset=6")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT char_offset FROM reader_book_positions
+                 WHERE user_id={actor} AND book_id={book}"
+            )
+        ),
+        "7"
+    );
     assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
 
     assert_eq!(
