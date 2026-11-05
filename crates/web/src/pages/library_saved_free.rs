@@ -2,41 +2,78 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_reading::services::library::{SavedFreeChapter, SavedFreeChapterPage};
+use tor_reading::services::library::SavedFreeChapter;
 
-pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String> {
+/// Chapter navigation is actor-scoped metadata. Both choices are displayed
+/// when a reader owns two distinct immutable editions of the same chapter.
+pub fn saved_archive_list(
+    book_id: i64,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+) -> Html<String> {
     let mut rows = String::new();
     for item in &page.items {
         let title = escape_html(&item.chapter_title);
+        let mut choices = String::new();
+        if let Some(version_no) = item.saved_free_version_no {
+            write!(
+                choices,
+                "<a href=\"/me/library/saved/{}\">Сохранённая бесплатная редакция {version_no}</a>",
+                item.chapter_id
+            )
+            .expect("free archive link");
+        }
+        if let Some(paid) = &item.purchased {
+            if !choices.is_empty() {
+                choices.push_str(" · ");
+            }
+            if paid_reader_available {
+                write!(
+                    choices,
+                    "<a href=\"/read/paid/{}?purchase_id={}\">Купленная редакция {}</a>",
+                    item.chapter_id, paid.purchase_id, paid.version_no
+                )
+                .expect("paid archive link");
+            } else {
+                write!(
+                    choices,
+                    "<span>Купленная редакция {} — чтение временно недоступно</span>",
+                    paid.version_no
+                )
+                .expect("paid archive unavailable");
+            }
+        }
         write!(
             rows,
-            "<li><a href=\"/me/library/saved/{}\">Глава {}. {title}</a> \
-             <span class=\"library-card__place\">Сохранённая редакция {}</span></li>",
-            item.chapter_id, item.chapter_no, item.version_no
+            "<li>Глава {}. {title}<p class=\"library-card__place\">{choices}</p></li>",
+            item.chapter_no
         )
-        .expect("write saved free link");
+        .expect("archive chapter row");
     }
     if rows.is_empty() {
-        rows.push_str("<li>Сохранённых бесплатных глав пока нет.</li>");
+        rows.push_str("<li>Сейчас нет доступных ранее сохранённых или купленных редакций.</li>");
     }
     let next = page
         .next_cursor
-        .map(|id| {
-            format!("<p><a href=\"/me/library/{book_id}/saved?after={id}\">Следующие главы</a></p>")
+        .map(|number| {
+            format!(
+                "<p><a href=\"/me/library/{book_id}/saved?after={number}\">Следующие главы</a></p>"
+            )
         })
         .unwrap_or_default();
     let content = format!(
         "<section class=\"section auth-section\"><div class=\"container\">\
-         <h1>Сохранённые бесплатные главы</h1>\
-         <p>Здесь доступны только ранее закреплённые редакции. \
-         Новые главы и платные тексты автоматически не открываются.</p>\
+         <h1>Мои сохранённые главы</h1>\
+         <p>Здесь перечислены только ваши закреплённые бесплатные редакции и \
+         купленные редакции с действующим правом чтения. \
+         Новые версии и главы автоматически не открываются.</p>\
          <ul>{rows}</ul>{next}\
          <p><a href=\"/me/library\">Вернуться в библиотеку</a></p>\
          </div></section>"
     );
     layout(
         "Сохранённые главы",
-        "Личная библиотека, сохранённые редакции.",
+        "Личная библиотека, архив бесплатных и купленных редакций.",
         &content,
     )
 }
@@ -162,6 +199,39 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_archive_keeps_distinct_free_and_paid_versions_and_escapes_titles() {
+        use tor_reading::services::library::{
+            SavedArchiveChapter, SavedArchivePage, SavedPurchasedEdition,
+        };
+        let page = SavedArchivePage {
+            items: vec![SavedArchiveChapter {
+                chapter_id: 6,
+                chapter_no: 3,
+                chapter_title: "<script>alert(1)</script> & chapter".into(),
+                saved_free_version_no: Some(1),
+                purchased: Some(SavedPurchasedEdition {
+                    purchase_id: 42,
+                    version_no: 2,
+                }),
+            }],
+            next_cursor: Some(3),
+        };
+        let html = saved_archive_list(9, &page, true).0;
+        assert!(html.contains("/me/library/saved/6"));
+        assert!(html.contains("/read/paid/6?purchase_id=42"));
+        assert!(html.contains("бесплатная редакция 1"));
+        assert!(html.contains("Купленная редакция 2"));
+        assert!(html.contains("href=\"/me/library/9/saved?after=3\""));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+
+        let unavailable = saved_archive_list(9, &page, false).0;
+        assert!(unavailable.contains("чтение временно недоступно"));
+        assert!(!unavailable.contains("/read/paid/6?purchase_id=42"));
+        assert!(unavailable.contains("/me/library/saved/6"));
+    }
 
     #[test]
     fn archived_free_text_uses_sanitized_renderer_and_escapes_titles() {
