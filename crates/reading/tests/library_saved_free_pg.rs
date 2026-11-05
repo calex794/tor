@@ -409,8 +409,11 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
     .fetch_one(&pool)
     .await
     .unwrap();
-    let digest = [17_u8; 32];
-    let other_digest = [31_u8; 32];
+    let mut digest = [0_u8; 32];
+    digest[..16].copy_from_slice(&nonce.to_le_bytes());
+    digest[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut other_digest = digest;
+    other_digest[31] ^= 0x5a;
     sqlx::query(
         "INSERT INTO sessions(user_id,token_hash,expires_at)
          VALUES($1,$2,now()+interval '1 hour'),($3,$4,now()+interval '1 hour')",
