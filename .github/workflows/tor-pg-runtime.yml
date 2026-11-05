@@ -328,13 +328,15 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # The D-04 step already built this exact debug binary in this job.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_restart_smoke.sh
       - name: I-11 PostgreSQL 18 backup and clean restore drill
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # Reuse the verified binary without two additional Cargo invocations.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
       - name: Line A credential and login audit PostgreSQL checks
         run: |
