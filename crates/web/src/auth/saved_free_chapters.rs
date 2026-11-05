@@ -17,6 +17,11 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/me/library/{id}/saved", get(list))
         .route("/me/library/saved/{id}", get(read))
         .route("/assets/newboo-archive-progress.js", get(progress_script))
+        .route(
+            "/api/v1/me/progress/archived-free",
+            get(super::sync_actions::get_archived_free)
+                .put(super::sync_actions::put_archived_free),
+        )
 }
 
 // One self-hosted static script; its archive mode can never bypass SQL pins.
