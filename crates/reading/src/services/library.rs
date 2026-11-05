@@ -9,6 +9,9 @@ pub struct SavedBook {
     pub cursor_id: i64,
     pub book_id: i64,
     pub title: String,
+    /// A previously saved Book is still shown privately while awaiting deletion.
+    /// This is not a chapter entitlement or a completed archival copy.
+    pub pending_deletion: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +37,7 @@ mod tests {
             cursor_id: 3,
             book_id: 7,
             title: "Книга".to_owned(),
+            pending_deletion: false,
         };
         assert_eq!(bookmark.book_id, 7);
         assert_eq!(DEFAULT_LIBRARY_LIMIT, 30);
