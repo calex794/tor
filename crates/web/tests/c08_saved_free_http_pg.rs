@@ -264,7 +264,11 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let saved = call(&app, "GET", &read, &reader_cookie, "").await;
     assert_eq!(saved.status(), StatusCode::OK);
     assert_eq!(saved.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(saved.headers().contains_key("content-security-policy"));
+    let before_csp = saved.headers()["content-security-policy"]
+        .to_str()
+        .expect("pre-deletion CSP");
+    assert!(before_csp.contains("script-src 'none'"));
+    assert!(!before_csp.contains("connect-src 'self'"));
     let text = html(saved).await;
     assert!(text.contains("Pinned ORIGINAL V1"));
     assert!(text.contains("Archived &lt;unsafe&gt;"));
@@ -415,7 +419,14 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let tombstone = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
-    let still_saved = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
+    let archived_response = call(&app, "GET", &read, &reader_cookie, "").await;
+    let archive_csp = archived_response.headers()["content-security-policy"]
+        .to_str()
+        .expect("archived CSP");
+    assert!(archive_csp.contains("script-src 'self'"));
+    assert!(archive_csp.contains("connect-src 'self'"),
+        "archived Chromium autosave must be allowed to connect to same-origin API");
+    let still_saved = html(archived_response).await;
     assert!(still_saved
         .replace("<span id=\"saved-resume\"></span>", "")
         .contains("Pinned ORIGINAL V1"));
