@@ -23,7 +23,18 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, query: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
     let result = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", query])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
+        ])
         .output()
         .expect("postgres client");
     assert!(
@@ -58,9 +69,8 @@ async fn submit(
     expected: &str,
     requested: &str,
 ) -> StatusCode {
-    let encoded = format!(
-        "csrf_token={csrf}&expected_level={expected}&requested_level={requested}"
-    );
+    let encoded =
+        format!("csrf_token={csrf}&expected_level={expected}&requested_level={requested}");
     let reply = app
         .clone()
         .oneshot(
@@ -137,13 +147,28 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         false,
         ORIGIN.to_owned(),
     );
-    assert_eq!(get(&disabled, &path, &owner_cookie).await, StatusCode::NOT_FOUND);
     assert_eq!(
-        submit(&disabled, &path, &owner_cookie, ORIGIN, &csrf, "basic", "adult").await,
+        get(&disabled, &path, &owner_cookie).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        submit(
+            &disabled,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "basic",
+            "adult"
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        pg(&url, &format!("SELECT access_level FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT access_level FROM books WHERE id={book}")
+        ),
         "basic",
     );
 
@@ -161,18 +186,48 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
 
     assert_eq!(get(&app, &path, "").await, StatusCode::SEE_OTHER);
     assert_eq!(get(&app, &path, &owner_cookie).await, StatusCode::OK);
-    assert_eq!(get(&app, &path, &stranger_cookie).await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        get(&app, &path, &stranger_cookie).await,
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(get(&app, &public, "").await, StatusCode::OK);
     assert_eq!(
-        submit(&app, &path, &stranger_cookie, ORIGIN, &csrf, "basic", "adult").await,
+        submit(
+            &app,
+            &path,
+            &stranger_cookie,
+            ORIGIN,
+            &csrf,
+            "basic",
+            "adult"
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        submit(&app, &path, &owner_cookie, "https://wrong.invalid", &csrf, "basic", "adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            "https://wrong.invalid",
+            &csrf,
+            "basic",
+            "adult"
+        )
+        .await,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        submit(&app, &path, &owner_cookie, ORIGIN, "forged", "basic", "adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            "forged",
+            "basic",
+            "adult"
+        )
+        .await,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
@@ -180,12 +235,24 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        pg(&url, &format!("SELECT access_level FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT access_level FROM books WHERE id={book}")
+        ),
         "adult",
     );
     assert_eq!(get(&app, &public, "").await, StatusCode::NOT_FOUND);
     assert_eq!(
-        submit(&app, &path, &owner_cookie, ORIGIN, &csrf, "basic", "pro_adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "basic",
+            "pro_adult"
+        )
+        .await,
         StatusCode::CONFLICT,
     );
     assert_eq!(
@@ -193,7 +260,16 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        submit(&app, &path, &owner_cookie, ORIGIN, &csrf, "adult", "pro_adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "adult",
+            "pro_adult"
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     pg(
@@ -204,11 +280,23 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         ),
     );
     assert_eq!(
-        submit(&app, &path, &owner_cookie, ORIGIN, &csrf, "adult", "pro_adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "adult",
+            "pro_adult"
+        )
+        .await,
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        pg(&url, &format!("SELECT access_level FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT access_level FROM books WHERE id={book}")
+        ),
         "pro_adult",
     );
     // Revocation closes reader access; the signed-in Book settings permission
@@ -217,19 +305,29 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         &url,
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={owner}"),
     );
-    assert_eq!(get(&app, &public, &owner_cookie).await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        get(&app, &public, &owner_cookie).await,
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(get(&app, &path, &owner_cookie).await, StatusCode::OK);
 
     // Deletion cannot be edited through the ordinary settings route.
     pg(
         &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"
-        ),
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
     );
     assert_eq!(get(&app, &path, &owner_cookie).await, StatusCode::NOT_FOUND);
     assert_eq!(
-        submit(&app, &path, &owner_cookie, ORIGIN, &csrf, "pro_adult", "pro_adult").await,
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "pro_adult",
+            "pro_adult"
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     pool.close().await;
