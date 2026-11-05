@@ -174,10 +174,8 @@ async fn s020_owner_age_editor_real_chromium_mobile_and_desktop() {
         String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
     );
-    assert!(
-        String::from_utf8_lossy(&result.stdout)
-            .contains("S020 owner age editor Chromium PASS: desktop, mobile, grant, revoke")
-    );
+    assert!(String::from_utf8_lossy(&result.stdout)
+        .contains("S020 owner age editor Chromium PASS: desktop, mobile, grant, revoke"));
     // Persisted facts: no refund, purchase or wallet row was constructed.
     assert_eq!(
         pg(
