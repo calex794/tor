@@ -14,7 +14,10 @@ cargo build -p tor-web
 # headless Chromium shell. Reuse them only when explicitly requested; keep
 # this acceptance script self-contained for its independent workflow.
 if [[ "${TOR_REC_REUSE_PLAYWRIGHT:-0}" == 1 ]]; then
-  node -e "const fs=require('node:fs'); const p=require('playwright'); if (require('playwright/package.json').version !== '1.56.1') process.exit(1); fs.accessSync(p.chromium.executablePath(), fs.constants.X_OK)"
+  # Playwright's executablePath() points to *headed* Chromium, which is
+  # intentionally absent in --only-shell mode. Launch the real headless shell
+  # instead, so missing browser dependencies fail before starting the test.
+  node -e "const p=require('playwright'); if (require('playwright/package.json').version !== '1.56.1') process.exit(1); p.chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
   node_path="$PWD/node_modules"
 else
   npm install --prefix "$root/node" --no-save playwright@1.56.1
