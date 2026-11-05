@@ -114,6 +114,7 @@ fn queue_body(
                 <a href="/moderation/books/registrations">Регистрация ({registration_count})</a>
                 <a href="/moderation/covers" aria-current="page">Обложки ({count})</a>
                 <a href="/moderation/books/deletions">Удаление ({deletion_count})</a>
+                <a href="/moderation/books/control">Контроль</a>
               </nav>
               <p>Обработанное изображение не становится публичным без отдельного решения.</p>
               {cards}</div></section>"#
