@@ -197,8 +197,7 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String>
             chapter.version_id,
             escape_html(csrf)
         );
-        progress_notice =
-            "<p data-free-progress-notice hidden role=\"status\"></p>".to_owned();
+        progress_notice = "<p data-free-progress-notice hidden role=\"status\"></p>".to_owned();
         script = "<script defer src=\"/assets/newboo-archive-progress.js\"></script>".to_owned();
     }
 
