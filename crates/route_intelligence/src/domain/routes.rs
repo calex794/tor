@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 283] = [
+const ROUTES: [RouteRegistration; 285] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -290,9 +290,11 @@ const ROUTES: [RouteRegistration; 283] = [
     RouteRegistration::new("/api/v1/me/progress/archived-free", "GET", "/api/v1/me/progress/", Exact, Api, Reading, Read), // 277
     RouteRegistration::new("/api/v1/me/progress/archived-free", "PUT", "/api/v1/me/progress/", Exact, Api, Reading, Write), // 278
     RouteRegistration::new("/assets/newboo-archive-progress.js", "GET", "/assets/", Exact, Static, System, Free), // 279
-    RouteRegistration::new("/moderation/books/registrations", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 280
-    RouteRegistration::new("/moderation/books/{id}/registration", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 281
-    RouteRegistration::new("/moderation/books/{id}/registration-history", "GET", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 282
+    RouteRegistration::new("/moderation/books/deletions", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 280
+    RouteRegistration::new("/moderation/books/{id}/deletion", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 281
+    RouteRegistration::new("/moderation/books/registrations", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 282
+    RouteRegistration::new("/moderation/books/{id}/registration", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 283
+    RouteRegistration::new("/moderation/books/{id}/registration-history", "GET", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 284
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
