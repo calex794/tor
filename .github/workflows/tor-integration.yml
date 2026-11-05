@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      s061_previous_sha:
+        description: 'Optional 40-char old TOR SHA for real two-binary rollback test'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -95,7 +100,7 @@ jobs:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && 75 || 30 }}
     services:
       postgres:
         image: postgres:18
@@ -418,11 +423,28 @@ jobs:
           # Reuse the verified binary without two additional Cargo invocations.
           test -x ./target/debug/tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: S061 build previous binary (manual opt-in only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' }}
+        env:
+          PREVIOUS_SHA: ${{ inputs.s061_previous_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PREVIOUS_SHA" != "$(git rev-parse HEAD)" ]]
+          git fetch --no-tags origin "$PREVIOUS_SHA"
+          git merge-base --is-ancestor "$PREVIOUS_SHA" "$(git rev-parse HEAD)"
+          git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
+            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
+            -p tor-web --bin tor-web
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
+            "$RUNNER_TEMP/s061-previous-tor-web"
       - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
         env:
           GITHUB_ACTIONS: 'true'
+          TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
         run: |
-          # Reuse D-04 binary; no extra Cargo build or staging/VPS permissions.
+          # Use the existing D-04 binary; build a second only for manual two-SHA tests.
           test -x ./target/debug/tor-web
           python3 tools/s061_cutover_pg_smoke.py
       - name: Preserve S061 real cutover evidence
@@ -453,6 +475,7 @@ jobs:
         run: |
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
+
   migrations:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}

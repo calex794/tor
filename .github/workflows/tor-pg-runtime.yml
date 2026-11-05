@@ -20,7 +20,7 @@ jobs:
     needs: select
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && 75 || 30 }}
     services:
       postgres:
         image: postgres:18
