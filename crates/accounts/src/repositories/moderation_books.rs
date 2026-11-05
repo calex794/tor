@@ -26,7 +26,6 @@ pub struct ModerationBook {
     pub owner_user_id: Option<i64>,
 }
 
-
 #[derive(Debug)]
 pub struct ModerationDeletionRequest {
     pub book_id: i64,
@@ -240,7 +239,6 @@ impl PgAccounts {
     }
 }
 
-
 impl PgAccounts {
     /// The site-moderator queue contains only pending, undecided deletion
     /// requests. A Book-team moderator alone has no site-review authority.
@@ -283,14 +281,14 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(book_id, title, owner_user_id, request_revision)| {
-                ModerationDeletionRequest {
+            .map(
+                |(book_id, title, owner_user_id, request_revision)| ModerationDeletionRequest {
                     book_id,
                     title,
                     owner_user_id,
                     request_revision,
-                }
-            })
+                },
+            )
             .collect())
     }
 
@@ -304,10 +302,7 @@ impl PgAccounts {
         request_revision: i64,
         decision: &str,
     ) -> Result<(), ModerationBooksError> {
-        if book_id <= 0
-            || request_revision <= 1
-            || !matches!(decision, "approve" | "reject")
-        {
+        if book_id <= 0 || request_revision <= 1 || !matches!(decision, "approve" | "reject") {
             return Err(ModerationBooksError::Invalid);
         }
         let mut tx = self
