@@ -186,8 +186,8 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
 
     // A book pending deletion is not publicly discoverable in NEwBOO.
-    // Existing likes remain for recovery, but counters, titles and mutations
-    // must not reveal that the book exists.
+    // Existing likes remain for recovery, but public reactions and mutations
+    // must not disclose them. Direct Book reading is a separate entitlement.
     sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -195,6 +195,15 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), None);
     assert!(likes.visible_summary(first, book).await.unwrap().is_none());
+    assert_eq!(likes.direct_view_count(book).await.unwrap(), Some(2));
+    assert_eq!(
+        likes
+            .direct_view_summary(first, book)
+            .await
+            .unwrap()
+            .map(|summary| summary.count),
+        Some(2)
+    );
     assert_eq!(
         likes.set_like(first, book, false).await.unwrap(),
         LikeMutation::NotVisible

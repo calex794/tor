@@ -31,12 +31,15 @@ pub(super) async fn for_book(
     };
 
     let likes = PgBookLikes::new(catalog.pool().clone());
+    // The already-authorized direct Book page may remain visible during
+    // pending_deletion even though catalog, public-like pages and mutations
+    // must unlist it. Independently recheck the live Book and actor age gate.
     let count = match actor {
         Some(actor) => likes
-            .visible_summary(actor, book_id)
+            .direct_view_summary(actor, book_id)
             .await
             .map(|summary| summary.map(|summary| summary.count)),
-        None => likes.public_count(book_id).await,
+        None => likes.direct_view_count(book_id).await,
     }
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(count.map(|count| (summary, count)))

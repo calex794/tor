@@ -339,6 +339,106 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .await
         .contains("Нравится: 2"));
 
+    // NEwBOO S020: pending_deletion unlists public discovery and reactions,
+    // but the canonical direct Book page remains readable until hard deletion.
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
+    );
+    assert_eq!(likes.public_count(book).await.unwrap(), None);
+    assert!(likes.visible_summary(user_a, book).await.unwrap().is_none());
+    assert_eq!(likes.direct_view_count(book).await.unwrap(), Some(2));
+    assert_eq!(
+        likes
+            .direct_view_summary(user_a, book)
+            .await
+            .unwrap()
+            .map(|summary| summary.count),
+        Some(2),
+    );
+    let pending_direct = call(&app, "GET", &detail, "", ORIGIN, "").await;
+    assert_eq!(pending_direct.status(), StatusCode::OK);
+    assert!(html(pending_direct)
+        .await
+        .contains("Заголовок &lt;like&gt;"));
+    assert_eq!(
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &like, &cookie_a, ORIGIN, &add)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    // Direct availability is never an age bypass, even with a saved like.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user_a}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user_a}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    // Hidden and blocked moderation remain hard direct-view refusals.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET access_level='basic',lifecycle_status='in_progress',visibility_status='hidden' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
