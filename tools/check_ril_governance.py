@@ -67,7 +67,6 @@ SCOPE_CALLS = {
     "manageable_book_source_links", "update_book_source_links",
     "manageable_lifecycle", "update_lifecycle",
     "manageable_access_level", "verified_upgrade_book_access_level",
-    "ordinary_deletion_view", "advance_ordinary_deletion",
     "moderation_books", "moderate_book_hold", "moderate_book_visibility",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
@@ -75,6 +74,7 @@ SCOPE_CALLS = {
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
     "list_owned_books", "create_owned_book", "owned_book",
+    "ordinary_deletion_view", "advance_ordinary_deletion",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
