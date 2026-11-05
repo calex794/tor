@@ -160,7 +160,10 @@ pub(super) async fn queue(
         Err(e) => return deny(error_code(e)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(Html(render(&rows, count, &csrf, covers_count, deletions_count)), &cookies);
+    let mut response = private_response(
+        Html(render(&rows, count, &csrf, covers_count, deletions_count)),
+        &cookies,
+    );
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
