@@ -414,9 +414,9 @@ impl PgCoverReview {
                         .try_get("reviewer_user_id")
                         .map_err(|_| CoverReviewError::Unavailable)?,
                     reviewer_name: r
-                    .try_get("reviewer_name")
-                    .map_err(|_| CoverReviewError::Unavailable)?,
-                outcome: r
+                        .try_get("reviewer_name")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    outcome: r
                         .try_get("outcome")
                         .map_err(|_| CoverReviewError::Unavailable)?,
                     reason: r
