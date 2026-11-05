@@ -344,10 +344,22 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::NOT_FOUND
     );
 
-    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
-    pg(
-        &url,
-        &format!("DELETE FROM users WHERE id IN ({actor},{outsider})"),
+    // Ordinary deletion retains the Book as an audited tombstone.
+    // The disposable tor_ci database is discarded after this job, so fixture
+    // cleanup must not physically delete records protected by RESTRICT.
+    assert!(
+        sqlx::query("DELETE FROM books WHERE id=$1")
+            .bind(book)
+            .execute(&pool)
+            .await
+            .is_err(),
+        "ordinary deletion must not physically erase audited Book records"
     );
+    let retained: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM books WHERE id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(retained, 1);
     pool.close().await;
 }
