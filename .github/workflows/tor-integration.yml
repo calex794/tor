@@ -135,7 +135,9 @@ jobs:
       - name: Chromium for S037 swap acceptance
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          # All PostgreSQL Chromium journeys use the default headless shell.
+          # Preserve Linux system dependencies and screenshot fonts.
+          npx playwright install --with-deps --only-shell chromium
       - name: PostgreSQL client
         run: |
           sudo apt-get update -qq
