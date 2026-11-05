@@ -563,7 +563,6 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
     pool.close().await;
 }
 
-
 /// BR-060 acceptance: the private archive must reach deep chapters without
 /// offset pagination, leaking unpublished versions, or unbounded page size.
 /// The fixture runs only against the disposable tor_ci DB in mandatory PG CI.
@@ -667,10 +666,9 @@ async fn br060_archived_10k_keyset_keeps_exact_version() {
 
     // Midpoint and last page are addressed by Chapter keyset, never offset
     // or insertion ID. All results must remain immutable original V1.
-    for (after, first_number, last_number, next_cursor) in [
-        (5000, 5001, 5050, Some(5050)),
-        (9950, 9951, 10000, None),
-    ] {
+    for (after, first_number, last_number, next_cursor) in
+        [(5000, 5001, 5050, Some(5050)), (9950, 9951, 10000, None)]
+    {
         let page = library
             .saved_archive_chapters(actor, book, 50, Some(after), &digest)
             .await
@@ -680,7 +678,10 @@ async fn br060_archived_10k_keyset_keeps_exact_version() {
         assert_eq!(page.items.last().unwrap().chapter_no, last_number);
         assert_eq!(page.next_cursor, next_cursor);
         for (position, item) in page.items.iter().enumerate() {
-            assert_eq!(item.chapter_no, first_number + i32::try_from(position).unwrap());
+            assert_eq!(
+                item.chapter_no,
+                first_number + i32::try_from(position).unwrap()
+            );
             assert_eq!(item.saved_free_version_no, Some(1));
             assert!(item.purchased.is_none());
         }
