@@ -152,9 +152,24 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .iter()
         .any(|b| b.book_id == ids[2]));
 
-    // Pending deletion is a separate, live Book lifecycle restriction,
-    // even when a previously saved Book still has the allowed basic age tier.
+    // Existing personal bookmarks must not disappear from the private shelf
+    // during ordinary pending deletion. A new bookmark is still not allowed.
     sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let pending = library.list_books(user, 10, None).await.unwrap();
+    assert_eq!(pending.items.len(), 1);
+    assert_eq!(pending.items[0].book_id, ids[0]);
+    assert!(pending.items[0].pending_deletion);
+    assert_eq!(
+        library.add_book(user, ids[0]).await,
+        Err(LibraryError::NotFound)
+    );
+
+    // Existing bookmarks do not override a hard admin hold or deletion.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(ids[0])
         .execute(&pool)
         .await
@@ -165,24 +180,27 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .unwrap()
         .items
         .is_empty());
-    assert_eq!(
-        library.add_book(user, ids[0]).await,
-        Err(LibraryError::NotFound)
-    );
-    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+    sqlx::query("UPDATE books SET admin_hold=FALSE, is_deleted=TRUE WHERE id=$1")
         .bind(ids[0])
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        library
-            .list_books(user, 10, None)
-            .await
-            .unwrap()
-            .items
-            .len(),
-        1
-    );
+    assert!(library
+        .list_books(user, 10, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query(
+        "UPDATE books SET is_deleted=FALSE, lifecycle_status='in_progress' WHERE id=$1",
+    )
+    .bind(ids[0])
+    .execute(&pool)
+    .await
+    .unwrap();
+    let restored = library.list_books(user, 10, None).await.unwrap();
+    assert_eq!(restored.items.len(), 1);
+    assert!(!restored.items[0].pending_deletion);
 
     // The Book tier is rechecked too: basic -> adult immediately hides the
     // previously saved book from a reader who has not opted in.
