@@ -137,15 +137,15 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
       emptyQueue: document.body?.textContent?.includes('Ожидающих решения заявок нет.'),
       pageLength: document.documentElement.outerHTML.length,
     }));
-    const ownerId = id(pg(
-      'SELECT owner_user_id FROM book_ordinary_deletion_requests WHERE book_id=' + book
+    const reviewerId = id(pg(
+      "SELECT id FROM users WHERE email_normalized='" + address('reviewer') + "'"
     ));
     const eligible = pg(
       'SELECT COUNT(*) FROM book_ordinary_deletion_requests r ' +
       'JOIN books b ON b.id=r.book_id WHERE r.book_id=' + book +
       " AND b.lifecycle_status='pending_deletion'" +
       ' AND b.lifecycle_revision=r.request_revision AND NOT b.is_deleted' +
-      " AND r.owner_user_id<>" + ownerId +
+      " AND r.owner_user_id<>" + reviewerId +
       ' AND NOT EXISTS (SELECT 1 FROM book_ordinary_deletion_decisions d ' +
       ' WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision)'
     );
