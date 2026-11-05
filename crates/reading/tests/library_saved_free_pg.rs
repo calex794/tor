@@ -544,6 +544,95 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
         .unwrap();
     assert_eq!(pinned.version_id, free_v1);
 
+    // A reader may have paid for a chapter without ever bookmarking its Book.
+    // The ordinary-deleted Book must still appear as a private purchased-only
+    // group; it must not appear twice when a separate bookmark exists.
+    let bought_only_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Only purchased','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:bought-only:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (bought_chapter, bought_v1) =
+        chapter(&pool, bought_only_book, 1, "public", "paid", true).await;
+    let bought_purchase: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,12900,'RUB') RETURNING id",
+    )
+    .bind(actor)
+    .bind(bought_chapter)
+    .bind(bought_v1)
+    .bind(format!("br060-bought-only-purchase-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(bought_only_book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let bought_only = library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap();
+    assert_eq!(bought_only.items.len(), 1);
+    assert_eq!(bought_only.items[0].book_id, bought_only_book);
+    assert!(bought_only.items[0].ordinary_deleted);
+    assert!(!bought_only.items[0].pending_deletion);
+    assert!(bought_only.next_cursor.is_none());
+    assert_eq!(
+        library
+            .saved_archive_chapters(actor, bought_only_book, 30, None, &digest)
+            .await
+            .unwrap()
+            .items[0]
+            .purchased
+            .as_ref()
+            .unwrap()
+            .purchase_id,
+        bought_purchase
+    );
+    assert!(library
+        .purchased_only_books(outsider, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, Some(bought_only_book))
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // A refund suppresses paid navigation, but never erases the free pin.
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
@@ -560,5 +649,228 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
         .unwrap();
     assert_eq!(refunded.items.len(), 1);
     assert_eq!(refunded.items[0].chapter_id, free_id);
+    // Revoking the purchase removes the bought-only Book group without
+    // mutating the independent free pin in the other saved Book.
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(bought_purchase)
+    .bind(format!("br060-bought-only-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    pool.close().await;
+}
+
+/// BR-060 acceptance: the private archive must reach deep chapters without
+/// offset pagination, leaking unpublished versions, or unbounded page size.
+/// The fixture runs only against the disposable tor_ci DB in mandatory PG CI.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn br060_archived_10k_keyset_keeps_exact_version() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'BR060 10k reader','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-large-archive-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut digest = [0_u8; 32];
+    digest[..16].copy_from_slice(&nonce.to_le_bytes());
+    digest[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut different_digest = digest;
+    different_digest[0] ^= 0x5a;
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour')",
+    )
+    .bind(actor)
+    .bind(digest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Deep archive','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:large-archive:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Bulk construction uses exact published edition IDs and no paid grants.
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level)
+         SELECT $1,g.no,('Глава ' || g.no),'public','free'
+         FROM generate_series(1,10000) AS g(no)",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         SELECT id,1,'Pinned V1' FROM chapters WHERE book_id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id)
+         SELECT c.id,v.id FROM chapters c
+         JOIN chapter_versions v ON v.chapter_id=c.id AND v.version_no=1
+         WHERE c.book_id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         SELECT $1,c.id,v.id FROM chapters c
+         JOIN chapter_versions v ON v.chapter_id=c.id AND v.version_no=1
+         WHERE c.book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let library = PgLibrary::new(pool.clone());
+
+    let first = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 50);
+    assert_eq!(first.items.first().unwrap().chapter_no, 1);
+    assert_eq!(first.items.last().unwrap().chapter_no, 50);
+    assert_eq!(first.next_cursor, Some(50));
+
+    // Midpoint and last page are addressed by Chapter keyset, never offset
+    // or insertion ID. All results must remain immutable original V1.
+    for (after, first_number, last_number, next_cursor) in
+        [(5000, 5001, 5050, Some(5050)), (9950, 9951, 10000, None)]
+    {
+        let page = library
+            .saved_archive_chapters(actor, book, 50, Some(after), &digest)
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 50);
+        assert_eq!(page.items.first().unwrap().chapter_no, first_number);
+        assert_eq!(page.items.last().unwrap().chapter_no, last_number);
+        assert_eq!(page.next_cursor, next_cursor);
+        for (position, item) in page.items.iter().enumerate() {
+            assert_eq!(
+                item.chapter_no,
+                first_number + i32::try_from(position).unwrap()
+            );
+            assert_eq!(item.saved_free_version_no, Some(1));
+            assert!(item.purchased.is_none());
+        }
+    }
+    // Inspect the *actual* PgLibrary SQL prepared on this connection, then
+    // capture PostgreSQL's deep-page execution plan for the 10k-row fixture.
+    // Avoid a hand-written SQL proxy whose join order could diverge from C.
+    let prepared: String = sqlx::query_scalar(
+        "SELECT statement FROM pg_prepared_statements
+         WHERE statement LIKE 'WITH eligible_book AS MATERIALIZED%'
+           AND statement LIKE '%reader_saved_free_chapters%'
+         ORDER BY name DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the archive SQL must be prepared on the isolated PG backend");
+    let explain_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {prepared}");
+    let plan_lines: Vec<String> = sqlx::query_scalar(&explain_sql)
+        .bind(actor)
+        .bind(book)
+        .bind(Some(9950_i64))
+        .bind(51_i64)
+        .bind(digest.as_slice())
+        .fetch_all(&pool)
+        .await
+        .expect("EXPLAIN ANALYZE of the exact deep archive query");
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.lines().any(|line| {
+            line.trim_start().starts_with("Limit")
+                && line.contains("actual time=")
+                && line.contains("rows=50")
+        }),
+        "the deep-page query must return at most the final 50 owned V1 chapters"
+    );
+    assert!(plan.contains("Execution Time:"));
+    assert!(plan.contains("Buffers:"));
+    eprintln!("BR-060 10k archive, deep after=9950, actual EXPLAIN:\n{plan}");
+
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, Some(10000), &digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, None, &different_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 101, None, &digest)
+        .await
+        .is_err());
+
+    // The data is still present, but a live administrative block revokes all
+    // archive navigation without deleting historical pinned editions.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, Some(9950), &digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_saved_free_chapters f
+         JOIN chapters c ON c.id=f.chapter_id
+         WHERE f.user_id=$1 AND c.book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, 10000);
     pool.close().await;
 }
