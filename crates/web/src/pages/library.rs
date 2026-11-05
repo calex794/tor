@@ -346,7 +346,8 @@ mod pending_library_tests {
             items: Vec::new(),
             next_cursor: None,
         };
-        let html = my_library_with_updates(&[], &saved, "csrf-token", false, false, &updates, &[]).0;
+        let page = my_library_with_updates(&[], &saved, "csrf-token", false, false, &updates, &[]);
+        let html = page.0;
         assert!(html.contains("Ожидает удаления"));
         assert_eq!(html.matches("Ожидает удаления").count(), 1);
         assert!(!html.contains(">Удалена<"));
