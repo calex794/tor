@@ -33,18 +33,18 @@ fn render(id: i64, book: &OrdinaryDeletionView, csrf: &str) -> Html<String> {
     let title = pages::escape_html(&book.title);
     let (action, label, warning) = match book.status.as_str() {
         "pending_deletion" => (
-            "complete",
-            "Окончательно удалить книгу",
-            "Книга ожидает удаления. Завершение уберёт её из публичного доступа. \
-             Ранее сохранённые бесплатные редакции и действующие покупки \
-             останутся в личных библиотеках соответствующих читателей.",
+            "",
+            "",
+            "Заявка направлена на модерацию. При одобрении модератора
+             книга будет удалена автоматически; сохранённые редакции
+             останутся в личных библиотеках читателей.",
         ),
         "ordinary_deleted" => ("", "", "Книга удалена из публичного доступа."),
         _ => (
             "start",
             "Начать удаление",
-            "Вы начинаете удаление книги. Для окончательного завершения \
-             потребуется отдельное подтверждение паролем. \
+            "Вы подаёте заявку на удаление книги. После решения модератора \
+             книга либо будет удалена, либо останется доступной. \
              Ранее сохранённые главы и действующие покупки не стираются.",
         ),
     };
@@ -113,7 +113,7 @@ pub(super) async fn submit(
     }
     if id <= 0
         || form.expected_revision <= 0
-        || !matches!(form.action.as_str(), "start" | "complete")
+        || form.action != "start"
         || form.account_password.is_empty()
         || form.account_password.len() > 1024
     {
@@ -183,11 +183,12 @@ pub(super) async fn submit(
 mod tests {
     use super::*;
     #[test]
-    fn deletion_form_requires_distinct_confirmations_and_escapes_title() {
+    fn deletion_form_requires_request_and_moderation_and_escapes_title() {
         let book = OrdinaryDeletionView {
             title: "<script>x</script>".into(),
             status: "in_progress".into(),
             revision: 3,
+            moderator_approved: false,
         };
         let start = render(19, &book, "csrf").0;
         assert!(start.contains("value=\"start\""));
@@ -203,7 +204,19 @@ mod tests {
             "csrf",
         )
         .0;
-        assert!(pending.contains("value=\"complete\""));
+        assert!(!pending.contains("value=\"complete\""));
+        assert!(pending.contains("Заявка направлена на модерацию"));
+        let approved = render(
+            19,
+            &OrdinaryDeletionView {
+                status: "pending_deletion".into(),
+                moderator_approved: true,
+                ..book.clone()
+            },
+            "csrf",
+        )
+        .0;
+        assert!(!approved.contains("value=\"complete\""));
         let done = render(
             19,
             &OrdinaryDeletionView {

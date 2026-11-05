@@ -352,9 +352,110 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::SEE_OTHER
     );
     let pending_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
-    assert!(pending_form.contains("value=\"complete\""));
+    assert!(!pending_form.contains("value=\"complete\""));
+    assert!(pending_form.contains("Заявка направлена на модерацию"));
+    assert_eq!(
+        call(
+            &app, "POST", &deletion, &reader_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST,
+        "owners cannot finalize deletion even after approval"
+    );
+    // Even a site moderator who owns the Book cannot self-approve deletion.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({actor},'moderator',TRUE)"
+        ),
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/moderation/books/{book}/deletion"),
+            &reader_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let moderator_queue = "/moderation/books/deletions";
+    assert_eq!(
+        call(&app, "GET", moderator_queue, &outsider_cookie, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({outsider},'moderator',TRUE)"
+        ),
+    );
+    let queue_html = html(call(&app, "GET", moderator_queue, &outsider_cookie, "").await).await;
+    assert!(queue_html.contains("Archived &lt;unsafe&gt;"));
+    assert!(queue_html.contains(&format!("/moderation/books/{book}/deletion")));
+    let review_action = format!("/moderation/books/{book}/deletion");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &review_action,
+            &reader_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
+            "csrf_token=wrong&request_revision=2&decision=approve"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "a decision is immutable and cannot be applied twice"
+    );
+    let approved_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
+    assert!(!approved_form.contains("value=\"complete\""));
+    assert!(approved_form.contains("удалена"));
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
-    assert!(pending_library.contains("Ожидает удаления"));
+    assert!(pending_library.contains("Удалена"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending
         .replace("<span id=\"saved-resume\"></span>", "")
@@ -370,7 +471,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         call(
@@ -382,13 +483,108 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::SEE_OTHER
+        StatusCode::BAD_REQUEST
     );
     let events = pg(
         &url,
         &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"),
     );
     assert_eq!(events, "2");
+
+    // A separate ordinary deletion request can be rejected. Rejection
+    // restores both original lifecycle and original public visibility,
+    // and cannot be replayed as an approval for a later request.
+    let rejected_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,owner_user_id,
+                               visibility,access_level)
+             VALUES('ci:c08:reject:{marker}','ru','Rejected deletion',{actor},
+                    'public','basic') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let rejected_path = format!("/me/books/{rejected_book}/settings/delete");
+    assert_eq!(
+        call(
+            &app, "POST", &rejected_path, &reader_cookie,
+            &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let reject_action = format!("/moderation/books/{rejected_book}/deletion");
+    let missing_reason = format!("csrf_token={csrf}&request_revision=2&decision=reject");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
+            &missing_reason
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT lifecycle_status || ':' || visibility || ':' || lifecycle_revision::text
+                 FROM books WHERE id={rejected_book}"
+            )
+        ),
+        "in_progress:public:3"
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &rejected_path, &reader_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=3&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let second_start = html(call(&app, "GET", &rejected_path, &reader_cookie, "").await).await;
+    assert!(second_start.contains("value=\"start\""));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT decision FROM book_ordinary_deletion_decisions
+                 WHERE book_id={rejected_book} AND request_revision=2"
+            )
+        ),
+        "reject"
+    );
     pg(
         &url,
         &format!(
