@@ -394,7 +394,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         request(
             &app,
             "GET",
-            "/moderation/books?before=-1",
+            "/moderation/books/control?before=-1",
             &mod_cookie,
             ORIGIN,
             ""
