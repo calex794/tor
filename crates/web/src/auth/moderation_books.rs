@@ -356,7 +356,7 @@ fn render_deletion_queue(
         cards.push_str(&format!(
             r#"<article class="me-now-card"><h2>{title}</h2>
                <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
-               <details class="moderation-review-confirm">
+               <details class="moderation-review-confirm" open>
                  <summary>Рассмотреть заявку на удаление книги #{book}</summary>
                  <p>Проверьте книгу и ревизию. Одобрение окончательно удалит
                     её из публичного каталога; сохранённые главы читателей останутся доступны.</p>
