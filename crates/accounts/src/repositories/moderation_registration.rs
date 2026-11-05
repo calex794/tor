@@ -40,8 +40,22 @@ impl PgAccounts {
         before: Option<i64>,
         search: Option<&str>,
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        self.moderation_registration_queue_with_access_level(session, before, search, None)
+            .await
+    }
+
+    /// Age rating is the Book's attested access_level, not the reader's age.
+    /// Keep NULL legacy levels explicit instead of silently treating them as basic.
+    pub async fn moderation_registration_queue_with_access_level(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
         if before.is_some_and(|id| id <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+            || access_level.is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
         {
             return Err(ModerationBooksError::Invalid);
         }
@@ -60,10 +74,13 @@ impl PgAccounts {
                AND ($1::bigint IS NULL OR id<$1)
                AND ($2::text IS NULL OR id::text=$2
                     OR position(lower($2) in lower(title))>0)
+               AND ($3::text IS NULL OR access_level=$3
+                    OR ($3='legacy' AND access_level IS NULL))
              ORDER BY id DESC LIMIT 40",
         )
         .bind(before)
         .bind(search)
+        .bind(access_level)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
