@@ -23,6 +23,7 @@ use tor_accounts::{
 #[serde(deny_unknown_fields)]
 pub(super) struct PageQuery {
     before: Option<i64>,
+    q: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -296,8 +297,10 @@ fn render_deletion_queue(
     registration_count: i64,
     cover_count: i64,
     deletion_count: i64,
+    search: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
+    let search = pages::escape_html(search.unwrap_or(""));
     let mut cards = String::new();
     for item in rows {
         let title = pages::escape_html(&item.title);
@@ -323,7 +326,10 @@ fn render_deletion_queue(
     if rows.len() == 40 {
         if let Some(last) = rows.last() {
             cards.push_str(&format!(
-                "<p><a href=\"/moderation/books/deletions?before={}\">Следующая страница</a></p>",
+                "<form method=\"get\" action=\"/moderation/books/deletions\">
+                 <input type=\"hidden\" name=\"before\" value=\"{}\">
+                 <input type=\"hidden\" name=\"q\" value=\"{search}\">
+                 <button type=\"submit\">Следующая страница</button></form>",
                 last.book_id
             ));
         }
@@ -341,6 +347,12 @@ fn render_deletion_queue(
                  <a href="/moderation/books/control">Контроль</a>
                </nav>
                <h2>Заявки на удаление книг</h2>
+               <form method="get" action="/moderation/books/deletions">
+                 <label for="deletion-search">Поиск по названию или ID книги</label>
+                 <input id="deletion-search" name="q" maxlength="120" value="{search}">
+                 <button type="submit">Найти</button>
+                 <a href="/moderation/books/deletions">Сбросить</a>
+               </form>
                <p>Это решение не удаляет главы и не предоставляет платные права.
                   После одобрения книга удаляется из публичного доступа сразу.
                   Купленные и сохранённые главы остаются в личных библиотеках.</p>
@@ -393,7 +405,7 @@ pub(super) async fn deletion_queue(
     };
     let rows = match state
         .accounts
-        .moderation_pending_deletions(&digest, query.before)
+        .moderation_pending_deletions_filtered(&digest, query.before, query.q.as_deref())
         .await
     {
         Ok(rows) => rows,
@@ -407,6 +419,7 @@ pub(super) async fn deletion_queue(
             registration_count,
             cover_count,
             deletion_count,
+            query.q.as_deref(),
         )),
         &cookies,
     );
@@ -498,7 +511,7 @@ mod deletion_queue_tests {
             owner_user_id: 7,
             request_revision: 2,
         }];
-        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3);
+        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None);
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
