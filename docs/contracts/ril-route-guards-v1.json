@@ -1975,6 +1975,34 @@
       "source": "crates/web/src/auth/saved_free_chapters.rs",
       "handler": "progress_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/covers",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/covers/{id}/preview",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "preview",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/covers/{id}/decision",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "decide",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/cover-history",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "history",
+      "policy": "scoped"
     }
   ]
 }
