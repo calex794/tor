@@ -216,6 +216,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                 <a href="/moderation/books/deletions">Удаление</a>
                 <a href="/moderation/books/control" aria-current="page">Контроль</a>
               </nav>
+              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
               <p>Контроль видимости и удержаний — не подтверждение заявки.</p>
               <p>Удержание не меняет авторскую публикацию и не создаёт
               административное право на платные главы.</p>
@@ -404,6 +405,7 @@ fn render_deletion_queue(
                  <a href="/moderation/books/deletions" aria-current="page">Удаление ({deletion_count})</a>
                  <a href="/moderation/books/control">Контроль</a>
                </nav>
+              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
                <h2>Заявки на удаление книг</h2>
                <form method="get" action="/moderation/books/deletions">
                  <label for="deletion-search">Поиск по названию или ID книги</label>
