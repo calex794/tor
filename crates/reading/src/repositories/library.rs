@@ -78,7 +78,7 @@ impl PgLibrary {
             .pool
             .begin()
             .await
-            .map_err(|_| LibraryError::Unavailable)?
+            .map_err(|_| LibraryError::Unavailable)?;
         let _locked: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM reader_library_items \
              WHERE user_id=$1 AND book_id=$2 FOR UPDATE",
