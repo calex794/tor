@@ -90,10 +90,23 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         let owner = row
             .owner_user_id
             .map_or_else(|| "—".to_owned(), |id| id.to_string());
+        let registration_reviewer = match (
+            row.approved_by_user_id,
+            row.approved_by_name.as_deref(),
+        ) {
+            (Some(id), Some(name)) => format!(
+                "Первичную регистрацию одобрил {} (#{id})",
+                pages::escape_html(name)
+            ),
+            _ => "Первоначальное решение не установлено".to_owned(),
+        };
         list.push_str(&format!(
             r#"<article class="me-now-card">
                <h2>{title}</h2><p>Книга #{id} · Владелец #{owner} ·
                Публикация: {visibility} · {current}</p>
+               <p>{registration_reviewer}
+                 · <a href="/moderation/books/{id}/registration-history">
+                 Системная история регистрации</a></p>
                <form method="post" action="/moderation/books/{id}/hold">
                <input type="hidden" name="csrf_token" value="{csrf}">
                <input type="hidden" name="expected_hold" value="{held}">
@@ -433,10 +446,15 @@ mod tests {
             visibility_status_revision: 2,
             admin_hold: false,
             owner_user_id: None,
+            approved_by_user_id: Some(17),
+            approved_by_name: Some("<script>reviewer</script>".into()),
         }];
         let html = render(&rows, "csrf");
         assert!(html.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
+        assert!(html.contains("Первичную регистрацию одобрил"));
+        assert!(html.contains("&lt;script&gt;reviewer&lt;/script&gt;"));
+        assert!(html.contains("/moderation/books/42/registration-history"));
         assert!(!html.contains("value=\"draft\""));
         assert!(html.contains("name=\"new_hold\" value=\"true\""));
         assert!(!html.contains("name=\"visibility\""));
