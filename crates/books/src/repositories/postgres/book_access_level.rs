@@ -37,7 +37,7 @@ impl PgAuthoring {
             "SELECT b.title,b.access_level
              FROM books b
              WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
-               AND b.lifecycle_status<>'pending_deletion'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS (
                  SELECT 1 FROM book_members m
                  WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
@@ -74,7 +74,7 @@ impl PgAuthoring {
         let stored: Option<Option<String>> = sqlx::query_scalar(
             "SELECT access_level FROM books
              WHERE id=$1 AND NOT is_deleted AND NOT admin_hold
-               AND lifecycle_status<>'pending_deletion' FOR UPDATE",
+               AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') FOR UPDATE",
         )
         .bind(book_id)
         .fetch_optional(&mut *tx)
