@@ -233,6 +233,17 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(reserved.id, again.id);
         assert_eq!(reserved.job_id, job);
         assert_eq!(reserved.slot_revision, 1);
+        // An aged reservation belonging to a still-public Book must never be
+        // reclaimed for deletion: the publisher could be retrying after a crash.
+        pg_sql(
+            &url,
+            &format!(
+                "UPDATE public_cover_publications SET created_at=now()-interval '20 minutes' WHERE id={}",
+                reserved.id
+            ),
+        )
+        .await;
+        assert!(ledger.claim_removals(10).await.unwrap().is_empty());
         assert!(ledger.confirm_copy(reserved.id).await.unwrap());
         assert!(ledger.confirm_copy(reserved.id).await.unwrap());
         publication_ids.push(reserved.id);
