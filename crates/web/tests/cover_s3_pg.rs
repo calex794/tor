@@ -358,8 +358,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert!(publication_ids.contains(&item.id));
         assert_eq!(item.lease_epoch, 1);
         assert!(!ledger.origin_deleted(item.id, 0).await.unwrap());
-        assert!(ledger.origin_deleted(item.id, item.lease_epoch).await.unwrap());
-        assert!(!ledger.origin_deleted(item.id, item.lease_epoch).await.unwrap());
+        assert!(ledger
+            .origin_deleted(item.id, item.lease_epoch)
+            .await
+            .unwrap());
+        assert!(!ledger
+            .origin_deleted(item.id, item.lease_epoch)
+            .await
+            .unwrap());
         assert!(!ledger.purge_completed(item.id, "wrong").await.unwrap());
         assert!(ledger.purge_submitted(item.id, "ci-purge").await.unwrap());
         assert!(!ledger.purge_completed(item.id, "other").await.unwrap());
