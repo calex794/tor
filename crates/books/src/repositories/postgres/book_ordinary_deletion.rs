@@ -60,7 +60,9 @@ impl PgAuthoring {
         session_digest: &[u8; 32],
         expected_password_hash: &str,
     ) -> Result<i64, AuthorError> {
-        if actor <= 0 || book_id <= 0 || expected_revision <= 0
+        if actor <= 0
+            || book_id <= 0
+            || expected_revision <= 0
             || !matches!(action, "start" | "complete")
             || !expected_password_hash.starts_with("$argon2id$")
         {
