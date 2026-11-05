@@ -171,6 +171,23 @@ class WorkflowWiringTests(unittest.TestCase):
             reader = job_sections((WORKFLOWS / filename).read_text())["reader-browser"]
             self.assertIn("node tools/reader_visual_smoke.cjs", reader)
 
+    def test_rec13_reuses_browser_only_in_pg_jobs(self):
+        script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        self.assertIn("TOR_REC_REUSE_PLAYWRIGHT:-0", script)
+        self.assertIn("npm install --prefix", script)
+        self.assertIn("install --with-deps chromium", script)
+        self.assertIn("require('playwright/package.json').version !== '1.56.1'", script)
+        self.assertIn("p.chromium.launch({headless:true}).then(b=>b.close())", script)
+        self.assertNotIn("p.chromium.executablePath()", script)
+        self.assertIn('NODE_PATH="$node_path"', script)
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+            self.assertIn("npx playwright install --only-shell chromium", pg)
+            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", pg)
+        standalone = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", standalone)
+        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", standalone)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
