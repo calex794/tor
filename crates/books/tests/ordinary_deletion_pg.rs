@@ -106,7 +106,11 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(repo.ordinary_deletion_view(owner, book).await.unwrap().is_none());
+    assert!(repo
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 1, "start", &owner_token, hash)
             .await,
