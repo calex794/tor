@@ -182,10 +182,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
 
 /// Enter the three real review queues; hold/visibility remains a separate,
 /// explicitly named emergency-control surface, not the workbench homepage.
-pub(super) async fn landing(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn landing(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
