@@ -168,6 +168,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("npm install --prefix", script)
         self.assertIn("install --with-deps chromium", script)
         self.assertIn("require('playwright/package.json').version !== '1.56.1'", script)
+        self.assertIn("p.chromium.launch({headless:true}).then(b=>b.close())", script)
+        self.assertNotIn("p.chromium.executablePath()", script)
         self.assertIn('NODE_PATH="$node_path"', script)
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
