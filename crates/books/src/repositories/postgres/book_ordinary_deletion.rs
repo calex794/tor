@@ -23,7 +23,17 @@ impl PgAuthoring {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT b.title,b.lifecycle_status,b.lifecycle_revision,
+            "SELECT b.title,
+               CASE WHEN EXISTS (
+                 SELECT 1 FROM book_ordinary_deletion_requests r
+                 WHERE r.book_id=b.id AND r.request_revision=b.lifecycle_revision
+                   AND NOT EXISTS (
+                     SELECT 1 FROM book_ordinary_deletion_decisions d
+                     WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+                   )
+               ) THEN 'pending_deletion'
+                    ELSE b.lifecycle_status END AS lifecycle_status,
+               b.lifecycle_revision,
                EXISTS(
                  SELECT 1 FROM book_ordinary_deletion_decisions d
                  WHERE d.book_id=b.id AND d.request_revision=b.lifecycle_revision
@@ -61,8 +71,8 @@ impl PgAuthoring {
     /// Called ONLY after the web password worker has verified the submitted
     /// password against expected_password_hash. The DB repeats identity,
     /// password-hash and active-session checks within this exact mutation.
-    /// The first step deindexes a pending removal. Completion requires a
-    /// distinct, immutable approval from a live site moderator.
+    /// The owner's request creates a pending review without deindexing.
+    /// Only a separate live site moderator may end public availability.
     pub async fn advance_ordinary_deletion(
         &self,
         actor: i64,
@@ -89,7 +99,15 @@ impl PgAuthoring {
         // the Book transition; revoked/rotated sessions cannot win between
         // password check and committing deletion.
         let row = sqlx::query(
-            "SELECT b.lifecycle_status,b.lifecycle_revision,b.visibility
+            "SELECT b.lifecycle_status,b.lifecycle_revision,b.visibility,
+                    EXISTS (
+                 SELECT 1 FROM book_ordinary_deletion_requests r
+                 WHERE r.book_id=b.id AND r.request_revision=b.lifecycle_revision
+                   AND NOT EXISTS (
+                     SELECT 1 FROM book_ordinary_deletion_decisions d
+                     WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+                   )
+               ) AS pending_request
              FROM books b
              JOIN users u ON u.id=$1 AND u.account_state='active'
                  AND u.password_hash=$4
@@ -119,27 +137,24 @@ impl PgAuthoring {
         let previous_visibility: String = row
             .try_get("visibility")
             .map_err(|_| AuthorError::Unavailable)?;
-        if revision != expected_revision {
+        let pending_request: bool = row
+            .try_get("pending_request")
+            .map_err(|_| AuthorError::Unavailable)?;
+        if revision != expected_revision || pending_request {
             return Err(AuthorError::Conflict);
         }
-        // The owner can request removal, but only site moderation finalizes it.
-        let next_state = match before.as_str() {
-            "in_progress" | "completed" | "abandoned" | "on_hiatus" => "pending_deletion",
-            _ => return Err(AuthorError::Conflict),
-        };
+        // Only a moderation decision changes Book lifecycle/public visibility.
+        // The request increments its own exact Book revision for CAS, but the
+        // previously approved book stays readable and purchasable until review.
+        if !matches!(
+            before.as_str(),
+            "in_progress" | "completed" | "abandoned" | "on_hiatus"
+        ) {
+            return Err(AuthorError::Conflict);
+        }
         let next_revision = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
-        // Keep chapter records, immutable free version pins, paid purchase facts,
-        // and reader progress intact. Draft visibility removes all public paths
-        // without misusing moderation or hard/legal deletion flags.
-        sqlx::query(
-            "UPDATE books SET lifecycle_status=$2, lifecycle_revision=$3,
-                visibility='draft',
-                ordinary_deleted_at=CASE WHEN $2='ordinary_deleted'
-                    THEN clock_timestamp() ELSE NULL END
-             WHERE id=$1",
-        )
+        sqlx::query("UPDATE books SET lifecycle_revision=$2 WHERE id=$1")
         .bind(book_id)
-        .bind(next_state)
         .bind(next_revision)
         .execute(&mut *tx)
         .await
@@ -154,7 +169,7 @@ impl PgAuthoring {
         .bind(actor)
         .bind(action)
         .bind(&before)
-        .bind(next_state)
+        .bind(&before)
         .bind(revision)
         .bind(next_revision)
         .execute(&mut *tx)
