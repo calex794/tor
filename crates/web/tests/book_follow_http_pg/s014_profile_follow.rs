@@ -287,9 +287,25 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
          VALUES({chapter},{version},{author})"
         ),
     );
-    assert!(followed_page(&app, &reader_cookies)
+    // Complete the actual S014 return path, not just the inbox projection:
+    // the profile subscriber must be able to open the linked free chapter.
+    let updates = followed_page(&app, &reader_cookies).await;
+    assert!(updates.contains("S014 chapter from profile subscription"));
+    assert!(updates.contains(&format!("href=\"/read/{chapter}\"")));
+    let opened = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/read/{chapter}"))
+                .header(header::COOKIE, &reader_cookies)
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
-        .contains("S014 chapter from profile subscription"));
+        .unwrap();
+    assert_eq!(opened.status(), StatusCode::OK);
+    let body = to_bytes(opened.into_body(), 256 * 1024).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("Reader text"));
 
     assert_eq!(
         post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await,
