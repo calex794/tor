@@ -11,7 +11,9 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::{
-    repositories::moderation_books::{ModerationBook, ModerationBooksError, ModerationDeletionRequest},
+    repositories::moderation_books::{
+        ModerationBook, ModerationBooksError, ModerationDeletionRequest,
+    },
     services::security::session_token_digest,
 };
 
@@ -274,7 +276,6 @@ mod tests {
     }
 }
 
-
 fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> String {
     let token = pages::escape_html(csrf);
     let mut cards = String::new();
@@ -358,8 +359,7 @@ pub(super) async fn review_deletion(
     headers: HeaderMap,
     Form(form): Form<DeletionReviewForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
