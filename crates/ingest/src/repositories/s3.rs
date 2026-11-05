@@ -14,6 +14,7 @@ pub struct S3CoverStore {
     client: Client,
     private_bucket: String,
     direct_origin: Option<String>,
+    public_cdn: Option<(String, String)>,
 }
 impl S3CoverStore {
     pub fn new(client: Client, private_bucket: String) -> Result<Self, CoverError> {
@@ -24,6 +25,7 @@ impl S3CoverStore {
             client,
             private_bucket,
             direct_origin: None,
+            public_cdn: None,
         })
     }
     /// The operator configures the exact browser-visible S3 origin.
@@ -53,6 +55,31 @@ impl S3CoverStore {
         Ok(self)
     }
 
+    /// The Yandex CDN source bucket contains ONLY approved, immutable public
+    /// variants. It must never equal the private source/paid-content bucket.
+    pub fn with_public_cdn(mut self, bucket: String, origin: String) -> Result<Self, CoverError> {
+        let hostname = origin.strip_prefix("https://").ok_or(CoverError::Invalid)?;
+        if bucket.is_empty()
+            || bucket == self.private_bucket
+            || !bucket
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'.')
+            || hostname.is_empty()
+            || hostname.starts_with('.')
+            || hostname.ends_with('.')
+            || hostname.contains('/')
+            || hostname.contains(':')
+            || hostname.contains('@')
+            || hostname.contains('?')
+            || hostname.contains('#')
+            || hostname.bytes().any(|c| c.is_ascii_whitespace())
+        {
+            return Err(CoverError::Invalid);
+        }
+        self.public_cdn = Some((bucket, origin));
+        Ok(self)
+    }
+
     fn permitted(key: &str) -> bool {
         key.starts_with("staging/covers/")
             && key.len() <= 512
@@ -70,6 +97,69 @@ impl S3CoverStore {
 
 #[async_trait]
 impl CoverObjectStore for S3CoverStore {
+    fn public_cdn_origin(&self) -> Option<&str> {
+        self.public_cdn.as_ref().map(|(_, origin)| origin.as_str())
+    }
+
+    async fn publish_public_cover(
+        &self,
+        book_id: u64,
+        revision: i64,
+        variant: &str,
+        source_key: &str,
+        sha256: &[u8; 32],
+        size_bytes: i64,
+    ) -> Result<String, CoverError> {
+        let (bucket, origin) = self.public_cdn.as_ref().ok_or(CoverError::Forbidden)?;
+        if book_id == 0
+            || revision <= 0
+            || !matches!(variant, "main" | "card")
+            || !source_key.starts_with("staging/covers/variants/")
+            || !Self::permitted(source_key)
+            || !(1..=8 * 1024 * 1024).contains(&size_bytes)
+        {
+            return Err(CoverError::Invalid);
+        }
+        let verified = self.exists_verified(source_key, sha256, size_bytes).await?;
+        if !verified {
+            return Err(CoverError::Unavailable);
+        }
+        let hash = sha256
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        // Content-addressed storage means replacement never overwrites
+        // an earlier CDN cache entry, even when a book has many revisions.
+        let public_key = format!("public/covers/{book_id}/{revision}/{variant}-{hash}.webp");
+        self.client
+            .copy_object()
+            .bucket(bucket)
+            .key(&public_key)
+            .copy_source(format!("{}/{source_key}", self.private_bucket))
+            .metadata_directive(aws_sdk_s3::types::MetadataDirective::Replace)
+            .content_type("image/webp")
+            .cache_control("public, max-age=31536000, immutable")
+            .metadata("sha256", &hash)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let head = self
+            .client
+            .head_object()
+            .bucket(bucket)
+            .key(&public_key)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        if head.content_length() != Some(size_bytes)
+            || head.content_type() != Some("image/webp")
+            || head.metadata().and_then(|meta| meta.get("sha256")) != Some(&hash)
+        {
+            return Err(CoverError::Unavailable);
+        }
+        Ok(format!("{origin}/{public_key}"))
+    }
+
     fn direct_read_origin(&self) -> Option<&str> {
         self.direct_origin.as_deref()
     }
@@ -259,6 +349,59 @@ mod direct_cover_tests {
             .force_path_style(true)
             .build();
         S3CoverStore::new(Client::from_conf(config), "private-covers".into()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn yandex_public_cdn_is_disabled_and_requires_an_isolated_bucket() {
+        let disabled = store();
+        assert_eq!(disabled.public_cdn_origin(), None);
+        assert!(matches!(
+            disabled
+                .publish_public_cover(
+                    42,
+                    1,
+                    "card",
+                    "staging/covers/variants/test.webp",
+                    &[0_u8; 32],
+                    100,
+                )
+                .await,
+            Err(CoverError::Forbidden)
+        ));
+        for (bucket, origin) in [
+            ("private-covers", "https://cdn.example"),
+            ("public-covers", "http://cdn.example"),
+            ("public-covers", "https://cdn.example/path"),
+            ("public-covers", "https://name@cdn.example"),
+            ("public-covers", "https://cdn.example?x=1"),
+            ("public covers", "https://cdn.example"),
+        ] {
+            assert!(
+                store()
+                    .with_public_cdn(bucket.into(), origin.into())
+                    .is_err(),
+                "invalid Yandex CDN configuration must fail closed"
+            );
+        }
+        let enabled = store()
+            .with_public_cdn("public-covers".into(), "https://cdn.example".into())
+            .unwrap();
+        assert_eq!(enabled.public_cdn_origin(), Some("https://cdn.example"));
+        for (book_id, revision, variant, key, size) in [
+            (0, 1, "card", "staging/covers/variants/a.webp", 10),
+            (1, 0, "card", "staging/covers/variants/a.webp", 10),
+            (1, 1, "raw", "staging/covers/variants/a.webp", 10),
+            (1, 1, "card", "staging/covers/sources/secret.png", 10),
+            (1, 1, "main", "staging/covers/variants/../secret.webp", 10),
+            (1, 1, "card", "staging/covers/variants/a.webp", 0),
+        ] {
+            assert!(matches!(
+                enabled
+                    .publish_public_cover(book_id, revision, variant, key, &[0_u8; 32], size)
+                    .await,
+                Err(CoverError::Invalid)
+            ));
+        }
     }
 
     #[tokio::test]
