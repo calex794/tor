@@ -32,6 +32,12 @@ pub(super) fn router() -> Router<AuthState> {
 fn render(id: i64, book: &OrdinaryDeletionView, csrf: &str) -> Html<String> {
     let title = pages::escape_html(&book.title);
     let (action, label, warning) = match book.status.as_str() {
+        "pending_deletion" if !book.moderator_approved => (
+            "",
+            "",
+            "Заявка направлена на модерацию. Окончательное удаление невозможно
+             до одобрения отдельным модератором сайта.",
+        ),
         "pending_deletion" => (
             "complete",
             "Окончательно удалить книгу",
@@ -188,6 +194,7 @@ mod tests {
             title: "<script>x</script>".into(),
             status: "in_progress".into(),
             revision: 3,
+            moderator_approved: false,
         };
         let start = render(19, &book, "csrf").0;
         assert!(start.contains("value=\"start\""));
@@ -203,7 +210,19 @@ mod tests {
             "csrf",
         )
         .0;
-        assert!(pending.contains("value=\"complete\""));
+        assert!(!pending.contains("value=\"complete\""));
+        assert!(pending.contains("Заявка направлена на модерацию"));
+        let approved = render(
+            19,
+            &OrdinaryDeletionView {
+                status: "pending_deletion".into(),
+                moderator_approved: true,
+                ..book.clone()
+            },
+            "csrf",
+        )
+        .0;
+        assert!(approved.contains("value=\"complete\""));
         let done = render(
             19,
             &OrdinaryDeletionView {
