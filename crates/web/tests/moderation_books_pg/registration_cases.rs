@@ -297,5 +297,86 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     .await;
     assert!(accepted_status.contains("Регистрация одобрена"));
     assert!(!accepted_status.contains("Site Moderator"));
+    // A site moderator can browse approved/refused applications across all
+    // three queues, but neither the owner nor anonymous readers can inspect
+    // the reviewer ledger. Filters apply before the page size in PostgreSQL.
+    let reviewed_path = "/moderation/books/reviews";
+    assert_eq!(
+        request(&app, "GET", reviewed_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", reviewed_path, &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let reviewed = request(&app, "GET", reviewed_path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(reviewed.status(), StatusCode::OK);
+    assert_eq!(reviewed.headers()[header::CACHE_CONTROL], "no-store");
+    let reviewed_html = html(reviewed).await;
+    assert!(reviewed_html.contains("Рассмотренные заявки"));
+    assert!(reviewed_html.contains("Site Moderator"));
+    assert!(reviewed_html.contains("Incorrect book"));
+    assert!(reviewed_html.contains("&lt;script&gt;Await review&lt;/script&gt;"));
+
+    let rejected_only = html(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=registration&outcome=rejected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(rejected_only.contains("Регистрация: Отклонено"));
+    assert!(rejected_only.contains("Incorrect book"));
+    assert!(rejected_only.contains("Refused"));
+    assert!(!rejected_only.contains("&lt;script&gt;Await review&lt;/script&gt;"));
+
+    let covers_only = html(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=cover&outcome=rejected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(!covers_only.contains("Incorrect book"));
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?before=1.cover.0.2",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=unexpected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
     pool.close().await;
 }
