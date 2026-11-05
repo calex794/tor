@@ -348,7 +348,76 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::SEE_OTHER
     );
     let pending_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
-    assert!(pending_form.contains("value=\"complete\""));
+    assert!(!pending_form.contains("value=\"complete\""));
+    assert!(pending_form.contains("Заявка направлена на модерацию"));
+    assert_eq!(
+        call(
+            &app, "POST", &deletion, &reader_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "an owner password is not a site moderator approval"
+    );
+    let moderator_queue = "/moderation/books/deletions";
+    assert_eq!(
+        call(&app, "GET", moderator_queue, &outsider_cookie, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({outsider},'moderator',TRUE)"
+        ),
+    );
+    let queue_html =
+        html(call(&app, "GET", moderator_queue, &outsider_cookie, "").await).await;
+    assert!(queue_html.contains("Archived &lt;unsafe&gt;"));
+    assert!(queue_html.contains(&format!("/moderation/books/{book}/deletion")));
+    let review_action = format!("/moderation/books/{book}/deletion");
+    assert_eq!(
+        call(
+            &app, "POST", &review_action, &reader_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &review_action, &outsider_cookie,
+            &format!("csrf_token=wrong&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &review_action, &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &review_action, &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "a decision is immutable and cannot be applied twice"
+    );
+    let approved_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
+    assert!(approved_form.contains("value=\"complete\""));
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Ожидает удаления"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
