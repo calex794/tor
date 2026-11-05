@@ -54,7 +54,13 @@ fn session(state: &AuthState, headers: &HeaderMap) -> Option<[u8; 32]> {
         .map(|token| session_token_digest(&token))
 }
 
-fn queue_body(items: &[PendingCoverReview], count: i64, csrf: &str) -> String {
+fn queue_body(
+    items: &[PendingCoverReview],
+    count: i64,
+    csrf: &str,
+    registration_count: i64,
+    deletion_count: i64,
+) -> String {
     let mut cards = String::new();
     for item in items {
         let label = if item.expected_slot_revision == 0 {
@@ -105,9 +111,9 @@ fn queue_body(items: &[PendingCoverReview], count: i64, csrf: &str) -> String {
             r#"<section class="me-page"><div class="container">
               <h1>Модерация книг</h1>
               <nav aria-label="Очереди модератора">
-                <a href="/moderation/books/registrations">Регистрация</a>
+                <a href="/moderation/books/registrations">Регистрация ({registration_count})</a>
                 <a href="/moderation/covers" aria-current="page">Обложки ({count})</a>
-                <a href="/moderation/books/deletions">Удаление</a>
+                <a href="/moderation/books/deletions">Удаление ({deletion_count})</a>
               </nav>
               <p>Обработанное изображение не становится публичным без отдельного решения.</p>
               {cards}</div></section>"#
@@ -135,13 +141,35 @@ pub(super) async fn page(
         Ok(count) => count,
         Err(error) => return deny(error_code(error)),
     };
+    let registration_count = match state
+        .accounts
+        .moderation_registration_pending_count(&digest)
+        .await
+    {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let deletion_count = match state
+        .accounts
+        .moderation_pending_deletion_count(&digest)
+        .await
+    {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let items = match repo.pending(&digest, query.before).await {
         Ok(items) => items,
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        Html(queue_body(&items, count, &pages::escape_html(&csrf))),
+        Html(queue_body(
+            &items,
+            count,
+            &pages::escape_html(&csrf),
+            registration_count,
+            deletion_count,
+        )),
         &cookies,
     );
     response.headers_mut().insert(
@@ -296,11 +324,13 @@ mod tests {
             submitted_by_user_id: 13,
             expected_slot_revision: 0,
         }];
-        let html = queue_body(&rows, 1, "csrf");
+        let html = queue_body(&rows, 1, "csrf", 2, 3);
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("/moderation/covers/9/preview"));
         assert!(html.contains("Первая обложка"));
+        assert!(html.contains("Регистрация (2)"));
+        assert!(html.contains("Удаление (3)"));
         assert!(!html.contains("staging/covers/"));
         let response = private_response(Html(html), &[]);
         assert_eq!(
