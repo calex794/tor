@@ -887,6 +887,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         book,
         (chapter, purchase_id, v1),
+        (free_chapter, locked_chapter, draft_chapter),
         (&buyer_cookie, &stranger_cookie),
         &csrf,
     )
@@ -978,6 +979,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(revoked_finish.status(), StatusCode::NOT_FOUND);
+    br060_ordinary_deleted::verify_refund_archive(
+        &app,
+        book,
+        free_chapter,
+        (chapter, purchase_id),
+        &buyer_cookie,
+    )
+    .await;
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
     pool.close().await;

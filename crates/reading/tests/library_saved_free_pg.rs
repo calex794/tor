@@ -784,7 +784,11 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
 async fn br060_archived_10k_keyset_keeps_exact_version() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
-    let pool = PgPool::connect(&url).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -899,6 +903,41 @@ async fn br060_archived_10k_keyset_keeps_exact_version() {
             assert!(item.purchased.is_none());
         }
     }
+    // Inspect the *actual* PgLibrary SQL prepared on this connection, then
+    // capture PostgreSQL's deep-page execution plan for the 10k-row fixture.
+    // Avoid a hand-written SQL proxy whose join order could diverge from C.
+    let prepared: String = sqlx::query_scalar(
+        "SELECT statement FROM pg_prepared_statements
+         WHERE statement LIKE 'WITH eligible_book AS MATERIALIZED%'
+           AND statement LIKE '%reader_saved_free_chapters%'
+         ORDER BY name DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the archive SQL must be prepared on the isolated PG backend");
+    let explain_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {prepared}");
+    let plan_lines: Vec<String> = sqlx::query_scalar(&explain_sql)
+        .bind(actor)
+        .bind(book)
+        .bind(Some(9950_i64))
+        .bind(51_i64)
+        .bind(digest.as_slice())
+        .fetch_all(&pool)
+        .await
+        .expect("EXPLAIN ANALYZE of the exact deep archive query");
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.lines().any(|line| {
+            line.trim_start().starts_with("Limit")
+                && line.contains("actual time=")
+                && line.contains("rows=50")
+        }),
+        "the deep-page query must return at most the final 50 owned V1 chapters"
+    );
+    assert!(plan.contains("Execution Time:"));
+    assert!(plan.contains("Buffers:"));
+    eprintln!("BR-060 10k archive, deep after=9950, actual EXPLAIN:\n{plan}");
+
     assert!(library
         .saved_archive_chapters(actor, book, 50, Some(10000), &digest)
         .await

@@ -147,6 +147,21 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertNotIn("npx playwright install --with-deps chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
+    def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_filename in (
+            ("author-cover", "tor-cover-browser.yml"),
+            ("paid-private-e2e", "tor-paid-grant-e2e.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_filename).read_text())[job],
+                ):
+                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    self.assertIn("npm install --no-save playwright@1.56.1", body)
+
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
         mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
         self.assertIn("Promise.all([['desktop', 1440], ['mobile', 390]].map(async", mail)

@@ -315,7 +315,7 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
           cargo test -p tor-web --test c08_saved_free_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
@@ -547,7 +547,9 @@ jobs:
           # Fixed-ID book fixtures require a sequence correction by the migrator role.
           psql -X -v ON_ERROR_STOP=1 "$MIGRATION_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
       - name: Build the real PostgreSQL-backed server
-        run: cargo build -p tor-web
+        run: |
+          cargo build -p tor-web
+          cargo build -p tor-observability --bin tor-trace-store
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
@@ -578,6 +580,18 @@ jobs:
           node --check tools/referral_share_browser_smoke.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
           TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" node tools/referral_share_browser_smoke.cjs
+      - name: S059 real SQL delay, operator diagnostics and writer recovery
+        run: python3 tools/operator_trace_pg_smoke.py
+      - name: Preserve S059 measured acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s059-real-pg-diagnostics
+          path: |
+            ${{ runner.temp }}/s059-pg/report.json
+            ${{ runner.temp }}/s059-pg/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4
@@ -744,7 +758,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
@@ -1196,7 +1210,7 @@ jobs:
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000

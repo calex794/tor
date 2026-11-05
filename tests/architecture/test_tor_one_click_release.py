@@ -170,6 +170,29 @@ class OneClickReleaseTests(unittest.TestCase):
             )
             self.assertNotEqual(altered.returncode, 0)
 
+    def test_signed_trace_writer_reaches_root_owned_release_without_auto_start(self):
+        # The exact same three hashes must be signed on Actions, checked in
+        # the inbox, and checked again after root-owned installation.
+        self.assertIn("cargo build --release -p tor-observability --bin tor-trace-store", WORKFLOW)
+        self.assertIn("sha256sum target/release/tor-trace-store", WORKFLOW)
+        self.assertIn('cat "$RUNNER_TEMP/tor-trace-store.sha256"', WORKFLOW)
+        self.assertIn('target/release/tor-trace-store "$destination:$inbox/tor-trace-store"', WORKFLOW)
+        self.assertIn('"$RUNNER_TEMP/tor-trace-store.sha256" "$destination:$inbox/tor-trace-store.sha256"', WORKFLOW)
+        self.assertIn("sha256sum -c --status tor-trace-store.sha256", WORKFLOW)
+        self.assertIn("tor-trace-store.sha256", WORKFLOW.split("Сохранить контрольные суммы выпуска", 1)[1])
+        self.assertIn("for f in tor-web tor-migrate tor-trace-store tor-web.sha256", HELPER)
+        self.assertIn('cat "$inbox/tor-trace-store.sha256"', HELPER)
+        self.assertIn("unexpected trace-store checksum format", HELPER)
+        self.assertEqual(HELPER.count("sha256sum -c --status tor-trace-store.sha256"), 3)
+        self.assertIn('for f in tor-web tor-migrate tor-trace-store; do', HELPER)
+        self.assertIn('for f in tor-web.sha256 tor-migrate.sha256 tor-trace-store.sha256', HELPER)
+        self.assertIn('$(stat -c \'%U:%G\' "$target/tor-trace-store") == root:root', HELPER)
+        self.assertLess(HELPER.index("ssh-keygen -Y verify"),
+                        HELPER.index('cat "$inbox/tor-trace-store.sha256"'))
+        for file in (WORKFLOW, HELPER, BOOTSTRAP):
+            self.assertNotIn("systemctl enable tor-trace-store", file)
+            self.assertNotIn("systemctl start tor-trace-store", file)
+
     def test_backup_and_rollback_are_real_and_not_ddl_rollback(self):
         self.assertIn("pg_dump -Fc --no-owner --no-privileges", MIGRATE)
         self.assertIn("pg_restore -l", MIGRATE)
