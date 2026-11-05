@@ -154,13 +154,13 @@ async function readyCover(page, bookId, viewport, scheme) {
     const response = await page.goto(base + '/me/books/' + bookId + '/settings/covers');
     assert(response && response.status() === 200,
       viewport + '/' + scheme + ': owner settings lost authorization while processing');
-    if (await page.getByText('Обложка готова.').isVisible()) {
+    if (await page.getByText('Обложка одобрена модератором.').isVisible()) {
       assert(await page.locator('img[data-cover-picker-image]').getAttribute('src')
         === '/covers/' + bookId + '/main.webp',
       'Ready cover must use the B-owned published WebP');
       return;
     }
-    assert(!(await page.getByText(/Ошибка обработки обложки/).isVisible()),
+    assert(!(await page.getByText(/Ошибка обработки обложки|Модератор отклонил обложку/).isVisible()),
       viewport + '/' + scheme + ': worker rejected image');
     await page.waitForTimeout(1000);
   }
