@@ -125,11 +125,13 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     let accounts = PgAccounts::from_pool(pool.clone());
     let token = tor_accounts::services::security::generate_session_token();
     let digest = tor_accounts::services::security::session_token_digest(&token);
+    let reviewer_password =
+        tor_accounts::services::security::hash_password("ModregB04Reviewer2026!").unwrap();
     let reviewer = accounts
         .register_with_session(
             &format!("modreg-b04-{book_id}@tor-ci.example"),
             "CI site registration reviewer",
-            &tor_accounts::services::security::hash_password("ModregB04Reviewer2026!").unwrap(),
+            &reviewer_password,
             &digest,
             std::num::NonZeroU32::new(3600).unwrap(),
         )
@@ -141,8 +143,16 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     );
     let role = std::process::Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", &url, "--command", &role_sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            &url,
+            "--command",
+            &role_sql,
         ])
         .output()
         .expect("psql installed on disposable CI");
@@ -158,8 +168,16 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     );
     let output = std::process::Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", &url, "--command", &sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            &url,
+            "--command",
+            &sql,
         ])
         .output()
         .expect("psql installed on disposable CI");
