@@ -6,7 +6,10 @@ use axum::{
     response::Response,
     Router,
 };
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -47,7 +50,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let marker = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let marker = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let token = generate_session_token();
     let outsider_token = generate_session_token();
     let csrf = generate_session_token();
@@ -114,7 +120,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let read = format!("/me/library/saved/{chapter}");
     let list = format!("/me/library/{book}/saved");
 
-    assert_eq!(call(&app, "GET", &read, &reader_cookie, "").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(
         call(
             &app,
@@ -137,11 +146,22 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(!text.contains("Archived <unsafe>"));
     let contents = html(call(&app, "GET", &list, &reader_cookie, "").await).await;
     assert!(contents.contains(&format!("href=\"{read}\"")));
-    assert!(!contents.contains("Pinned ORIGINAL V1"), "TOC is metadata only");
+    assert!(
+        !contents.contains("Pinned ORIGINAL V1"),
+        "TOC is metadata only"
+    );
 
     // Private saved-free reader cannot be accessed by another signed-in reader.
-    assert_eq!(call(&app, "GET", &read, &outsider_cookie, "").await.status(), StatusCode::NOT_FOUND);
-    assert_ne!(call(&app, "GET", &read, "", "").await.status(), StatusCode::OK);
+    assert_eq!(
+        call(&app, "GET", &read, &outsider_cookie, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_ne!(
+        call(&app, "GET", &read, "", "").await.status(),
+        StatusCode::OK
+    );
 
     let v2: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
@@ -171,13 +191,19 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(call(&app, "GET", &read, &reader_cookie, "").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
     sqlx::query("UPDATE books SET admin_hold=FALSE, access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(call(&app, "GET", &read, &reader_cookie, "").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -185,14 +211,20 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .unwrap();
     assert_eq!(
         call(
-            &app, "POST", &format!("/me/library/{book}/remove"),
-            &reader_cookie, &format!("csrf_token={csrf}")
+            &app,
+            "POST",
+            &format!("/me/library/{book}/remove"),
+            &reader_cookie,
+            &format!("csrf_token={csrf}")
         )
         .await
         .status(),
         StatusCode::SEE_OTHER
     );
-    assert_eq!(call(&app, "GET", &read, &reader_cookie, "").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        call(&app, "GET", &read, &reader_cookie, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
 
     sqlx::query("DELETE FROM books WHERE id=$1")
         .bind(book)
