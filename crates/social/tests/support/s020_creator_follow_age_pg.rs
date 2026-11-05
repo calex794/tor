@@ -170,6 +170,11 @@ async fn e_05_s020_creator_source_book_age_revocation() {
     assert!(follows.list_active(reader, None).await.unwrap()[0]
         .source_book
         .is_none());
+    assert_eq!(
+        follows.follow_from_book(reader, book).await,
+        Err(CreatorFollowError::NotFound),
+        "direct source Book POST cannot re-subscribe to a pending-deletion Book",
+    );
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(book)
         .execute(&pool)

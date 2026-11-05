@@ -622,6 +622,50 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         ),
         "0"
     );
+    // A Book unlisted for pending deletion is not a new public subscription
+    // target even with a stale form and a still-valid, signed-in reader.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND,
+        "public Book follow POST must fail when the source was unlisted",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "1",
+        "old follow intent survives the lifecycle transition",
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER,
+        "unfollow must remain available after pending deletion",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "0",
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={restricted}"),
+    );
+
     // Defence in depth: an already-suspended user cannot create a follow
     // even through a future internal caller without a web-session check.
     pg(

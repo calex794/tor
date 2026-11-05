@@ -105,7 +105,9 @@ impl PgCreatorFollows {
             "SELECT b.owner_user_id FROM books AS b
              JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
              WHERE b.id=$1 AND b.owner_user_id IS NOT NULL
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
                AND (b.access_level='basic'
                  OR (b.access_level='adult' AND viewer.adult_enabled)
                  OR (b.access_level='pro_adult' AND EXISTS (

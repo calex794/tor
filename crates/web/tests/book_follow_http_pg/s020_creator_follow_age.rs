@@ -183,5 +183,52 @@ async fn e_05_s020_creator_follow_http_age_matrix() {
         "age revoke must not strand existing creator subscriptions",
     );
     assert!(!creator_page(&app, &cookies).await.contains("E05 author"));
+
+    // A source Book that was publicly available may be scheduled for deletion.
+    // A direct follow-creator POST must not re-create an intent from a stale
+    // book page while the canonical public card is suppressed.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET access_level='basic',lifecycle_status='in_progress' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
+    );
+    assert_eq!(
+        post(&app, &follow, &cookies, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    let no_source = creator_page(&app, &cookies).await;
+    assert!(!no_source.contains("E05 restricted source"));
+    assert!(no_source.contains(&format!("/me/creators/{author}/unfollow")));
+    assert_eq!(
+        post(
+            &app,
+            &format!("/me/creators/{author}/unfollow"),
+            &cookies,
+            ORIGIN,
+            &csrf,
+        )
+        .await,
+        StatusCode::SEE_OTHER,
+        "unfollow remains possible after Book lifecycle revocation",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM creator_follow_periods
+                 WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NULL"
+            ),
+        ),
+        "0",
+    );
     pool.close().await;
 }
