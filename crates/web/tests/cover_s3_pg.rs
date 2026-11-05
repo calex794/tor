@@ -28,6 +28,7 @@ use tor_ingest::{
 };
 use tor_reading::repositories::PgReader;
 use tor_web::{
+    cover_cdn_cleanup::CoverOriginCleanup,
     cover_delivery::CoverDelivery,
     cover_worker::{CoverRunner, CoverRunnerMonitor},
 };
@@ -328,9 +329,14 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={BOOK_ID}"),
     )
     .await;
-    // An operator-owned lifecycle worker can now remove the precise published
-    // copies without touching the private originals. An automatic durable
-    // revoke queue and Yandex purge are deliberately not enabled yet.
+    // A bounded origin-cleanup worker claims two durable PG records, removes
+    // exact public S3 keys, and leaves private originals untouched.
+    let cleanup = CoverOriginCleanup::new(ledger.clone(), Arc::new(publisher.clone()));
+    let clean = cleanup.run_batch().await.unwrap();
+    assert_eq!(clean.claimed, 2);
+    assert_eq!(clean.origin_deleted, 2);
+    assert_eq!(clean.retry_scheduled, 0);
+    assert_eq!(cleanup.run_batch().await.unwrap().claimed, 0);
     for (kind, public_url) in &public_urls {
         let name = match kind {
             PublicCoverKind::Card => "card",
@@ -340,13 +346,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .iter()
             .find(|item| item.name == name)
             .unwrap();
-        for _ in 0..2 {
-            let revoked_url = publisher
-                .remove_public_cover(BOOK_ID as u64, card.revision, name, &image.sha256)
-                .await
-                .expect("exact public removal is idempotent");
-            assert_eq!(revoked_url, *public_url);
-        }
         let key = public_url.strip_prefix("https://cdn.example/").unwrap();
         assert!(client
             .head_object()
@@ -360,28 +359,13 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .await
             .unwrap());
     }
-    // Hiding the Book turns copied public keys into durable, exclusively
-    // leased deletion jobs. A stale holder cannot acknowledge another lease.
-    let claims = ledger.claim_removals(10).await.unwrap();
-    assert_eq!(claims.len(), 2);
-    for item in &claims {
-        assert!(publication_ids.contains(&item.id));
-        assert_eq!(item.lease_epoch, 1);
-        assert!(!ledger.origin_deleted(item.id, 0).await.unwrap());
-        assert!(ledger
-            .origin_deleted(item.id, item.lease_epoch)
-            .await
-            .unwrap());
-        assert!(!ledger
-            .origin_deleted(item.id, item.lease_epoch)
-            .await
-            .unwrap());
-        assert!(!ledger.purge_completed(item.id, "wrong").await.unwrap());
-        assert!(ledger.purge_submitted(item.id, "ci-purge").await.unwrap());
-        assert!(!ledger.purge_completed(item.id, "other").await.unwrap());
-        assert!(ledger.purge_completed(item.id, "ci-purge").await.unwrap());
+    // CDN purge remains an explicit next stage, distinct from S3 deletion.
+    for id in publication_ids {
+        assert!(!ledger.purge_completed(id, "ci-purge").await.unwrap());
+        assert!(ledger.purge_submitted(id, "ci-purge").await.unwrap());
+        assert!(!ledger.purge_completed(id, "wrong").await.unwrap());
+        assert!(ledger.purge_completed(id, "ci-purge").await.unwrap());
     }
-    assert!(ledger.claim_removals(10).await.unwrap().is_empty());
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
