@@ -22,6 +22,7 @@ mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
+mod book_detail_http;
 mod book_follow_page;
 mod book_rating_context;
 mod book_related_public;
@@ -32,6 +33,7 @@ pub mod chapter_import_worker;
 pub mod cover_cdn_cleanup;
 pub mod cover_cdn_purge;
 pub mod cover_delivery;
+mod cover_cdn_html;
 mod cover_http;
 mod layer_reader_assets;
 mod layer_reader_pages;
@@ -83,6 +85,7 @@ struct AppState {
     private_admin_sealed_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
+    cover_cdn_html_enabled: bool,
 }
 /// Wiring mode is explicit; availability of a private admin shell does not
 /// enable wallet checkout, encrypted S3 grants or Layer reading.
@@ -171,7 +174,16 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::home_recent_with_covers(&cards, &covers));
+        let html = pages::home_recent_with_covers(&cards, &covers);
+        let ids = cards.iter().map(|book| book.id).collect::<Vec<_>>();
+        return cover_cdn_html::render_confirmed(
+            state.cover_cdn_html_enabled,
+            state.covers.as_ref(),
+            html,
+            &ids,
+            tor_books::repositories::cover_slots::PublicCoverKind::Card,
+        )
+        .await;
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
@@ -247,86 +259,6 @@ async fn book_error(state: &AppState, status: StatusCode) -> Response {
     book_error_pages::public_book_error(state, status).await
 }
 
-async fn book_detail(
-    State(state): State<AppState>,
-    Path(id): Path<u64>,
-    OriginalUri(uri): OriginalUri,
-    Query(query): Query<TocQuery>,
-    headers: axum::http::HeaderMap,
-) -> Response {
-    // Require the canonical numeric spelling before consulting public book data.
-    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
-        .is_some_and(|book_url| book_url.matches_path(uri.path()))
-    {
-        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
-    }
-    if let Some(reader) = state.reader.as_ref() {
-        let limit = query.limit.unwrap_or(100);
-        let digest = public_reader_http::reader_session_digest(&state, &headers);
-        let book = match reader
-            .public_book_page_for_session(id, limit, query.after.as_deref(), digest.as_ref())
-            .await
-        {
-            Ok(Some(book)) => book,
-            Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-            Err(error) => return book_error(&state, reading_status(error)).await,
-        };
-        let has_cover = if let Some(delivery) = state.covers.as_ref() {
-            match delivery.available_card_ids(&[book.id]).await {
-                Ok(ids) => ids.contains(&book.id),
-                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-            }
-        } else {
-            false
-        };
-        if let Some(catalog) = state.postgres.as_ref() {
-            let id = match i64::try_from(book.id) {
-                Ok(id) => id,
-                Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
-            };
-            let (stars, count) =
-                match book_rating_context::for_book(catalog, id, digest.as_ref()).await {
-                    Ok(Some(context)) => context,
-                    Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-                    Err(status) => return book_error(&state, status).await,
-                };
-            let html = if state.paid_batch_browser_enabled {
-                pages::book_detail_with_chapters_cover_stars_batch(
-                    &book, limit, has_cover, &stars, true,
-                )
-            } else {
-                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
-            };
-            let html = match book_related_public::attach(catalog, book.id, count, html).await {
-                Ok(html) => html,
-                Err(status) => return book_error(&state, status).await,
-            };
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
-        }
-        let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
-        let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
-        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
-    }
-    let repo = state.books.as_ref();
-    let book = match GetPublicBook::new(repo).execute(id).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-        Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-    };
-    let html = pages::book_detail(&pages::PublicBookCard {
-        id: book.id(),
-        title: book.title().into(),
-        language: book.key().target_language().into(),
-        author_name: None,
-        genres: Vec::new(),
-    });
-    Html(
-        html.0
-            .replace("<!--BOOK_FOLLOW_ACTION-->", "")
-            .replace("<!--BOOK_LIKES-->", ""),
-    )
-    .into_response()
-}
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
@@ -492,7 +424,7 @@ fn make_router_with_paid_checkout(
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
     // This layer runs *after* book_detail has accepted public visibility.
-    let book_router = Router::new().route("/books/{id}", get(book_detail));
+    let book_router = Router::new().route("/books/{id}", get(book_detail_http::book_detail));
     let book_router = if let Some(control) = follow_control.clone() {
         book_router.route_layer(axum::middleware::from_fn_with_state(
             control,
@@ -561,12 +493,27 @@ fn make_router_with_paid_checkout(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
+    // Flag off by default, independent from origin storage and publishing.
+    let requested_cdn_html =
+        std::env::var("TOR_COVER_CDN_HTML_ENABLED").as_deref() == Ok("1");
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
-        cover_delivery::CoverDelivery::new(
+        let enable = requested_cdn_html && store.public_cdn_origin().is_some();
+        let delivery = cover_delivery::CoverDelivery::new(
             tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
             store,
-        )
+        );
+        if enable {
+            delivery.with_publication_registry(
+                tor_books::repositories::cover_publications::PgPublicCoverPublications::new(
+                    catalog.pool(),
+                ),
+            )
+        } else {
+            delivery
+        }
     });
+    let cover_cdn_html_enabled = requested_cdn_html
+        && covers.as_ref().is_some_and(|delivery| delivery.has_publication_registry());
     let rec_runtime = follow_control.as_ref().map(|control| {
         let (accounts, cookies) = control.browser_context();
         recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
@@ -588,6 +535,7 @@ fn make_router_with_paid_checkout(
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
+            cover_cdn_html_enabled,
             follow_control,
         })
         .merge(api)

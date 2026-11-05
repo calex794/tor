@@ -1,5 +1,5 @@
 //! TOR F-02 catalogue HTTP projection, kept separate from routing shell.
-use super::{auth_cookies, cover_http, pages, public_cards, public_reader_http, AppState};
+use super::{auth_cookies, cover_cdn_html, cover_http, pages, public_cards, public_reader_http, AppState};
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -131,6 +131,15 @@ pub(super) async fn catalog(
             },
             &covers,
         );
+        let ids = cards.iter().map(|book| book.id).collect::<Vec<_>>();
+        let html = cover_cdn_html::render_confirmed(
+            state.cover_cdn_html_enabled,
+            state.covers.as_ref(),
+            html,
+            &ids,
+            tor_books::repositories::cover_slots::PublicCoverKind::Card,
+        )
+        .await?;
         return Ok(if digest.is_some() {
             // Personalized 18+/21+ metadata must never be cached for guests.
             auth_cookies::private_response(html, &[])

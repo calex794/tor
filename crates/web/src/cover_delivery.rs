@@ -40,6 +40,10 @@ impl CoverDelivery {
         self
     }
 
+    pub fn has_publication_registry(&self) -> bool {
+        self.publications.is_some() && self.objects.public_cdn_origin().is_some()
+    }
+
     pub async fn available_card_ids(&self, ids: &[u64]) -> Result<HashSet<u64>, CoverError> {
         self.slots
             .public_card_ids(ids)
