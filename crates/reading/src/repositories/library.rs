@@ -270,12 +270,12 @@ impl PgLibrary {
                 body_markdown: r
                     .try_get("body_markdown")
                     .map_err(|_| LibraryError::Unavailable)?,
-                saved_place: saved_block.zip(saved_offset).map(|(block_index, char_offset)| {
-                    ReadingPlace {
+                saved_place: saved_block
+                    .zip(saved_offset)
+                    .map(|(block_index, char_offset)| ReadingPlace {
                         block_index,
                         char_offset,
-                    }
-                }),
+                    }),
             })
         })
         .transpose()
