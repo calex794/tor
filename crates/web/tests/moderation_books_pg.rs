@@ -628,6 +628,24 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         )
         .await
         .status(),
+        StatusCode::CONFLICT,
+        "generic visibility editor cannot approve an unreviewed Book registration"
+    );
+    // Only the separate site registration approval action can publish the
+    // moderation decision. Chapter release remains outside this review.
+    let registration_action = format!("/moderation/books/{fresh}/registration");
+    let registration_approve = format!("csrf_token={csrf}&expected_revision=1&action=approve");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &registration_action,
+            &admin_cookie,
+            ORIGIN,
+            &registration_approve
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
@@ -642,7 +660,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         .await
         .status(),
         StatusCode::CONFLICT,
-        "repeated approval must fail CAS"
+        "repeated generic approval must fail CAS"
     );
     assert!(PgReader::new(pool.clone())
         .public_book_page(fresh as u64, 10, None)
