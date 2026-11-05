@@ -13,7 +13,17 @@ pub enum ModerationBooksError {
 }
 
 // Row shape remains private to the bounded site-moderation queue.
-type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
+type ModerationBookRow = (
+    i64,
+    String,
+    String,
+    String,
+    i64,
+    bool,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+);
 type ModerationDeletionReviewRow = (String, i64, i64, String, String, Option<i64>, bool, String);
 
 #[derive(Debug)]
@@ -25,6 +35,8 @@ pub struct ModerationBook {
     pub visibility: String,
     pub admin_hold: bool,
     pub owner_user_id: Option<i64>,
+    pub approved_by_user_id: Option<i64>,
+    pub approved_by_name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -75,11 +87,16 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         current_moderator(&mut tx, session).await?;
         let rows: Vec<ModerationBookRow> = sqlx::query_as(
-            "SELECT id,title,visibility,visibility_status,visibility_status_revision,
-                    admin_hold,owner_user_id
-             FROM books WHERE NOT is_deleted
-               AND ($1::bigint IS NULL OR id < $1)
-             ORDER BY id DESC LIMIT 40",
+            "SELECT b.id,b.title,b.visibility,b.visibility_status,b.visibility_status_revision,
+                    b.admin_hold,b.owner_user_id,d.reviewer_user_id,u.display_name
+             FROM books b
+             LEFT JOIN book_registration_decisions d
+               ON d.id=b.registration_approval_decision_id
+              AND d.book_id=b.id AND d.outcome='approved'
+             LEFT JOIN users u ON u.id=d.reviewer_user_id
+             WHERE NOT b.is_deleted
+               AND ($1::bigint IS NULL OR b.id<$1)
+             ORDER BY b.id DESC LIMIT 40",
         )
         .bind(before)
         .fetch_all(&mut *tx)
@@ -99,6 +116,8 @@ impl PgAccounts {
                     visibility_status_revision,
                     admin_hold,
                     owner_user_id,
+                    approved_by_user_id,
+                    approved_by_name,
                 )| ModerationBook {
                     id,
                     title,
@@ -107,6 +126,8 @@ impl PgAccounts {
                     visibility_status_revision,
                     admin_hold,
                     owner_user_id,
+                    approved_by_user_id,
+                    approved_by_name,
                 },
             )
             .collect())
