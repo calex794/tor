@@ -29,6 +29,19 @@ UPDATE books SET registration_requires_review=TRUE
 CREATE FUNCTION verify_registration_approval_on_book()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
+    IF TG_OP='UPDATE'
+       AND OLD.registration_requires_review
+       AND NOT NEW.registration_requires_review THEN
+        RAISE EXCEPTION 'initial registration review cannot be disabled'
+            USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='UPDATE'
+       AND OLD.registration_approval_decision_id IS NOT NULL
+       AND OLD.registration_approval_decision_id IS DISTINCT FROM
+           NEW.registration_approval_decision_id THEN
+        RAISE EXCEPTION 'initial registration approver is immutable'
+            USING ERRCODE='23514';
+    END IF;
     IF NEW.registration_approval_decision_id IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM book_registration_decisions d
         WHERE d.id=NEW.registration_approval_decision_id
