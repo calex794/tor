@@ -120,12 +120,27 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     let library = PgLibrary::new(pool.clone());
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
-    let saved_first = library.pinned_free_chapter(user_a, free1).await.unwrap().unwrap();
+    let saved_first = library
+        .pinned_free_chapter(user_a, free1)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(saved_first.version_id, v1);
     assert_eq!(saved_first.body_markdown, "Original chapter 1");
-    assert!(library.pinned_free_chapter(user_b, free1).await.unwrap().is_none());
-    assert!(library.pinned_free_chapter(user_a, paid).await.unwrap().is_none());
-    let one = library.pinned_free_chapters(user_a, book, 1, None).await.unwrap();
+    assert!(library
+        .pinned_free_chapter(user_b, free1)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(library
+        .pinned_free_chapter(user_a, paid)
+        .await
+        .unwrap()
+        .is_none());
+    let one = library
+        .pinned_free_chapters(user_a, book, 1, None)
+        .await
+        .unwrap();
     assert_eq!(one.items.len(), 1);
     assert!(one.next_cursor.is_some());
     let next = library
@@ -156,7 +171,11 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
-    let historical = library.pinned_free_chapter(user_a, free1).await.unwrap().unwrap();
+    let historical = library
+        .pinned_free_chapter(user_a, free1)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(historical.version_id, v1);
     assert_eq!(historical.body_markdown, "Original chapter 1");
 
@@ -192,14 +211,22 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     assert_eq!(saved.items.len(), 1);
     assert!(saved.items[0].pending_deletion);
     assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
-    let still_readable = library.pinned_free_chapter(user_a, free1).await.unwrap().unwrap();
+    let still_readable = library
+        .pinned_free_chapter(user_a, free1)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(still_readable.version_id, v1);
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(library.pinned_free_chapter(user_a, free1).await.unwrap().is_none());
+    assert!(library
+        .pinned_free_chapter(user_a, free1)
+        .await
+        .unwrap()
+        .is_none());
     assert!(library
         .pinned_free_chapters(user_a, book, 50, None)
         .await
