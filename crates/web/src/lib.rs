@@ -171,11 +171,7 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        let html = pages::home_recent_with_covers(&cards, &covers);
-        let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
-        let (html, _) =
-            cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
-        return Ok(html);
+        return cover_http::homepage_with_cdn(&state, &cards, &covers).await;
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
