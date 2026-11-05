@@ -7,6 +7,8 @@ use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
+    routing::{get, post},
+    Router,
 };
 use serde::Deserialize;
 use tor_social::services::follow::CreatorFollowError;
@@ -19,6 +21,90 @@ pub(super) struct Cursor {
 #[derive(Deserialize)]
 pub(super) struct CsrfForm {
     csrf_token: Option<String>,
+}
+
+pub(super) fn router() -> Router<AuthState> {
+    Router::new()
+        .route("/me/creators", get(page))
+        .route("/me/creators/{id}/unfollow", post(unfollow))
+        .route("/users/{target_user_id}/subscribe", post(subscribe_profile))
+        .route(
+            "/users/{target_user_id}/unsubscribe",
+            post(unsubscribe_profile),
+        )
+}
+
+fn profile_path(name: &str) -> String {
+    let mut path = String::from("/users/");
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            path.push(char::from(byte));
+        } else {
+            path.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    path
+}
+
+async fn write(
+    state: &AuthState,
+    target_id: u64,
+    headers: &HeaderMap,
+    form: &CsrfForm,
+    subscribe: bool,
+) -> Response {
+    if !state.cookies.same_origin(headers)
+        || !state
+            .cookies
+            .valid_csrf(headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(state, headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let creator = match i64::try_from(target_id) {
+        Ok(creator) if creator > 0 => creator,
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
+    let result = if subscribe {
+        state
+            .creator_follows
+            .follow_profile(actor, creator)
+            .await
+            .map(|_| ())
+    } else {
+        state.creator_follows.unfollow(actor, creator).await
+    };
+    if let Err(error) = result {
+        return deny(error_status(error));
+    }
+    let destination = match state.accounts.user_display_name(creator).await {
+        Ok(Some(name)) => profile_path(&name),
+        Ok(None) => "/me/creators".to_owned(),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    private_response(Redirect::to(&destination), &[])
+}
+
+pub(super) async fn subscribe_profile(
+    State(state): State<AuthState>,
+    Path(target_id): Path<u64>,
+    headers: HeaderMap,
+    Form(form): Form<CsrfForm>,
+) -> Response {
+    write(&state, target_id, &headers, &form, true).await
+}
+
+pub(super) async fn unsubscribe_profile(
+    State(state): State<AuthState>,
+    Path(target_id): Path<u64>,
+    headers: HeaderMap,
+    Form(form): Form<CsrfForm>,
+) -> Response {
+    write(&state, target_id, &headers, &form, false).await
 }
 
 fn error_status(error: CreatorFollowError) -> StatusCode {

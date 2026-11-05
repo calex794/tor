@@ -411,8 +411,8 @@
     {
       "method": "GET",
       "template": "/me/creators",
-      "source": "crates/web/src/auth.rs",
-      "handler": "creator_follows::page",
+      "source": "crates/web/src/auth/creator_follows.rs",
+      "handler": "page",
       "policy": "session"
     },
     {
@@ -873,8 +873,8 @@
     {
       "method": "POST",
       "template": "/me/creators/{id}/unfollow",
-      "source": "crates/web/src/auth.rs",
-      "handler": "creator_follows::unfollow",
+      "source": "crates/web/src/auth/creator_follows.rs",
+      "handler": "unfollow",
       "policy": "session"
     },
     {
@@ -1135,6 +1135,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "friendship::block",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/users/{target_user_id}/subscribe",
+      "source": "crates/web/src/auth/creator_follows.rs",
+      "handler": "subscribe_profile",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/users/{target_user_id}/unsubscribe",
+      "source": "crates/web/src/auth/creator_follows.rs",
+      "handler": "unsubscribe_profile",
+      "policy": "session"
     },
     {
       "method": "POST",
