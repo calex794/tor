@@ -57,21 +57,19 @@ impl PgCoverSlots {
         let book_id: i64 = job.try_get("book_id")?;
         let expected: i64 = job.try_get("expected_slot_revision")?;
         let actor: i64 = job.try_get("actor_user_id")?;
-        let current_revision: Option<i64> = sqlx::query_scalar(
-            "SELECT revision FROM book_cover_slots WHERE book_id=$1 FOR UPDATE",
-        )
-        .bind(book_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let current_revision: Option<i64> =
+            sqlx::query_scalar("SELECT revision FROM book_cover_slots WHERE book_id=$1 FOR UPDATE")
+                .bind(book_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         if current_revision.unwrap_or(0) != expected {
             return Ok(false);
         }
-        let existing: Option<String> = sqlx::query_scalar(
-            "SELECT state FROM book_cover_review_requests WHERE job_id=$1",
-        )
-        .bind(job_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let existing: Option<String> =
+            sqlx::query_scalar("SELECT state FROM book_cover_review_requests WHERE job_id=$1")
+                .bind(job_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         if let Some(state) = existing {
             if state != "pending" {
                 return Ok(false);
