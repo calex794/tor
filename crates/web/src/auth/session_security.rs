@@ -1,5 +1,5 @@
 //! A-03: browser-only session ownership and explicit revocation.
-use super::AuthState;
+use super::{AuthState, LogoutForm};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, State},
