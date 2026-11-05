@@ -5,7 +5,7 @@ use axum::{http::StatusCode, response::Response};
 
 /// Display a non-leaking explanation for moderation decisions that lost a
 /// revision race or failed validation. Preserve the real HTTP error status.
-pub(super) fn decision_error(status: StatusCode, return_to: &'static str) -> Response {
+pub(crate) fn decision_error(status: StatusCode, return_to: &'static str) -> Response {
     let (heading, explanation) = match status {
         StatusCode::CONFLICT => (
             "Заявка уже изменилась",
