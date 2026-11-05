@@ -191,6 +191,15 @@ pub(super) async fn home(State(state): State<AuthState>, headers: HeaderMap) -> 
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+    // The queue read revalidates this session/role in PostgreSQL, rather than
+    // treating a web-only role bit as sufficient authority.
+    if let Err(error) = state
+        .accounts
+        .moderation_registration_pending_count(&digest)
+        .await
+    {
+        return deny(error_code(error));
+    }
     private_response(Redirect::to("/moderation/books/registrations"), &[])
 }
 
