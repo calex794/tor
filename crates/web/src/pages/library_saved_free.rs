@@ -22,9 +22,7 @@ pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String
     let next = page
         .next_cursor
         .map(|id| {
-            format!(
-                "<p><a href=\"/me/library/{book_id}/saved?after={id}\">Следующие главы</a></p>"
-            )
+            format!("<p><a href=\"/me/library/{book_id}/saved?after={id}\">Следующие главы</a></p>")
         })
         .unwrap_or_default();
     let content = format!(
@@ -36,7 +34,11 @@ pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String
          <p><a href=\"/me/library\">Вернуться в библиотеку</a></p>\
          </div></section>"
     );
-    layout("Сохранённые главы", "Личная библиотека, сохранённые редакции.", &content)
+    layout(
+        "Сохранённые главы",
+        "Личная библиотека, сохранённые редакции.",
+        &content,
+    )
 }
 
 pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
@@ -53,7 +55,11 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
          </div></section>",
         chapter.version_no, chapter.chapter_no, chapter.book_id
     );
-    layout(&chapter.chapter_title, "Ранее сохранённая бесплатная редакция.", &content)
+    layout(
+        &chapter.chapter_title,
+        "Ранее сохранённая бесплатная редакция.",
+        &content,
+    )
 }
 
 #[cfg(test)]
