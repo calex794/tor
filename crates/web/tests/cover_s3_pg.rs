@@ -256,7 +256,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     );
     let accounts = tor_accounts::repositories::PgAccounts::from_pool(catalog.pool());
     let token = tor_accounts::services::security::generate_session_token();
-    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let session_digest = tor_accounts::services::security::session_token_digest(&token);
     let reviewer = accounts
         .register_with_session(
             &format!(
@@ -268,7 +268,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             ),
             "Cover reviewer",
             &tor_accounts::services::security::hash_password("Obs09CoverMod2026!").unwrap(),
-            &digest,
+            &session_digest,
             std::num::NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -282,7 +282,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     .await;
     let reviews = PgCoverReview::new(catalog.pool());
     let review_request = reviews
-        .pending(&digest, None)
+        .pending(&session_digest, None)
         .await
         .unwrap()
         .into_iter()
@@ -382,7 +382,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         StatusCode::CONFLICT,
         "repeat review must not create a second approval"
     );
-    let history = reviews.private_history(&digest, BOOK_ID).await.unwrap();
+    let history = reviews.private_history(&session_digest, BOOK_ID).await.unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].reviewer_user_id, reviewer);
     assert_eq!(history[0].outcome, "approved");
