@@ -243,16 +243,16 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         "INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"
     )).await;
     let reviews = PgCoverReview::new(catalog.pool());
-    let request = reviews.pending(&digest, None).await.unwrap().into_iter()
+    let review_request = reviews.pending(&digest, None).await.unwrap().into_iter()
         .find(|r| r.job_id==job).expect("private cover candidate");
-    assert_eq!(request.expected_slot_revision, 0);
-    assert_eq!(request.book_id, BOOK_ID);
+    assert_eq!(review_request.expected_slot_revision, 0);
+    assert_eq!(review_request.book_id, BOOK_ID);
     assert_eq!(
         request(&app, "/covers/950/card.webp").await.status(),
         StatusCode::NOT_FOUND,
         "completed image processing cannot publish without moderation"
     );
-    reviews.decide(&digest, request.id, 0, true, "").await.unwrap();
+    reviews.decide(&digest, review_request.id, 0, true, "").await.unwrap();
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
