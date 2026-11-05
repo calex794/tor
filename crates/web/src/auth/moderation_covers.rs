@@ -306,7 +306,9 @@ pub(super) async fn decide(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/covers"), &[]),
-        Err(error) => super::moderation_books::decision_error(error_code(error), "/moderation/covers"),
+        Err(error) => {
+            super::moderation_books::decision_error(error_code(error), "/moderation/covers")
+        }
     }
 }
 
