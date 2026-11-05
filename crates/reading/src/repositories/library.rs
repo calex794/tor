@@ -74,7 +74,11 @@ impl PgLibrary {
         // Lock a saved Book link first to serialize an in-flight add, then
         // remove only the reader's free pins. Purchased versions and financial
         // records are independent, and must remain untouched by unbookmarking.
-        let mut tx = self.pool.begin().await.map_err(|_| LibraryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LibraryError::Unavailable)?
         let _locked: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM reader_library_items \
              WHERE user_id=$1 AND book_id=$2 FOR UPDATE",
