@@ -137,7 +137,8 @@ impl PgLibrary {
              JOIN books AS b ON b.id = li.book_id \
              JOIN users AS u ON u.id=li.user_id AND u.account_state='active' \
              WHERE li.user_id = $1 AND ($2::BIGINT IS NULL OR li.id < $2) \
-               AND (b.visibility='public' OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                    OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
                AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted \
                AND (b.access_level='basic' \
                     OR (b.access_level='adult' AND u.adult_enabled) \
