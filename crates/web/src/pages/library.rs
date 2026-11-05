@@ -70,6 +70,17 @@ pub fn my_library_with_updates_and_layers_and_purchased_only(
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
     purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
 ) -> Html<String> {
+    if purchased_only.items.is_empty() {
+        return my_library_with_updates_and_layers(
+            items,
+            saved,
+            csrf,
+            availability,
+            checkout_enabled,
+            updates,
+            owned,
+        );
+    }
     let (purchased_available, layers_available) = availability;
     let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available);
