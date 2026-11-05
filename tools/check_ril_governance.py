@@ -343,7 +343,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing support requester capability boundary")
     if entry["template"].startswith("/moderation/"):
         allowed_moderation = {
-            ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books", "landing"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books/control", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
             ("GET", "/moderation/books/deletions", "deletion_queue"): "crates/web/src/auth/moderation_books.rs",
@@ -510,9 +511,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
 
             }.get(entry["handler"], "__unreviewed_moderation_operation__")
             scoped = (
+                (entry["handler"] == "landing"
+                 and "session_actor(&digest)" in evidence
+                 and "actor.moderator || actor.administrator" in evidence)
+                or (
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
                 and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
+                )
             )
         else:
             scoped = _contains_scoped_call(evidence, proof)
