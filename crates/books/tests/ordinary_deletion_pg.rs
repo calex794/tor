@@ -203,7 +203,10 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(vis, "public", "request must not deindex before site approval");
+    assert_eq!(
+        vis, "public",
+        "request must not deindex before site approval"
+    );
     let original_lifecycle: String =
         sqlx::query_scalar("SELECT lifecycle_status FROM books WHERE id=$1")
             .bind(book)
