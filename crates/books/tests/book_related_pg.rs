@@ -171,7 +171,10 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .await
         .unwrap()
         .is_empty());
-    assert_eq!(repo.add_related_book(owner, a, b).await, Err(AuthorError::Missing));
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(b)
         .execute(&pool)
