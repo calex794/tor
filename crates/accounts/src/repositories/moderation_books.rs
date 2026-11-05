@@ -261,7 +261,7 @@ impl PgAccounts {
             "SELECT r.book_id,b.title,r.owner_user_id,r.request_revision
              FROM book_ordinary_deletion_requests r
              JOIN books b ON b.id=r.book_id
-             WHERE b.lifecycle_status='pending_deletion'
+             WHERE b.lifecycle_status=r.previous_lifecycle_status
                AND b.lifecycle_revision=r.request_revision
                AND NOT b.is_deleted
                AND r.owner_user_id<>$1
@@ -350,7 +350,7 @@ impl PgAccounts {
         if reviewer == request_owner {
             return Err(ModerationBooksError::Denied);
         }
-        if status != "pending_deletion"
+        if status != previous_status
             || revision != request_revision
             || current_owner != Some(request_owner)
         {
@@ -381,13 +381,14 @@ impl PgAccounts {
                 "UPDATE books SET lifecycle_status='ordinary_deleted',
                         lifecycle_revision=$2,visibility='draft',
                         ordinary_deleted_at=clock_timestamp()
-                 WHERE id=$1 AND lifecycle_status='pending_deletion'
+                 WHERE id=$1 AND lifecycle_status=$4
                    AND lifecycle_revision=$3 AND visibility_status='active'
                    AND NOT admin_hold AND NOT is_deleted",
             )
             .bind(book_id)
             .bind(next_revision)
             .bind(revision)
+            .bind(&previous_status)
             .execute(&mut *tx)
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
@@ -396,12 +397,13 @@ impl PgAccounts {
                     "INSERT INTO book_ordinary_deletion_events
                        (book_id,actor_user_id,action,previous_status,next_status,
                         previous_revision,next_revision)
-                     VALUES($1,$2,'complete','pending_deletion','ordinary_deleted',$3,$4)",
+                     VALUES($1,$2,'complete',$5,'ordinary_deleted',$3,$4)",
                 )
                 .bind(book_id)
                 .bind(reviewer)
                 .bind(revision)
                 .bind(next_revision)
+                .bind(&previous_status)
                 .execute(&mut *tx)
                 .await
                 .map_err(|_| ModerationBooksError::Unavailable)?;
@@ -411,7 +413,7 @@ impl PgAccounts {
             sqlx::query(
                 "UPDATE books SET lifecycle_status=$2,lifecycle_revision=$3,
                         visibility=$4,ordinary_deleted_at=NULL
-                 WHERE id=$1 AND lifecycle_status='pending_deletion'
+                 WHERE id=$1 AND lifecycle_status=$2
                    AND lifecycle_revision=$5",
             )
             .bind(book_id)

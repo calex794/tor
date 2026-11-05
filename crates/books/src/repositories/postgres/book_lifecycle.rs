@@ -29,7 +29,17 @@ impl PgAuthoring {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT b.title, b.lifecycle_status, b.lifecycle_revision
+            "SELECT b.title,
+                    CASE WHEN EXISTS (
+                 SELECT 1 FROM book_ordinary_deletion_requests r
+                 WHERE r.book_id=b.id AND r.request_revision=b.lifecycle_revision
+                   AND NOT EXISTS (
+                     SELECT 1 FROM book_ordinary_deletion_decisions d
+                     WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+                   )
+               ) THEN 'pending_deletion'
+                         ELSE b.lifecycle_status END AS lifecycle_status,
+                    b.lifecycle_revision
              FROM books b WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
                AND EXISTS (
                  SELECT 1 FROM book_members m WHERE m.book_id=b.id
@@ -101,6 +111,24 @@ impl PgAuthoring {
             .map_err(|_| AuthorError::Unavailable)?;
         if revision != expected_revision {
             return Err(AuthorError::Conflict);
+        }
+        let pending_request: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+               SELECT 1 FROM book_ordinary_deletion_requests r
+               WHERE r.book_id=$1 AND r.request_revision=$2
+                 AND NOT EXISTS (
+                   SELECT 1 FROM book_ordinary_deletion_decisions d
+                   WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+                 )
+             )",
+        )
+        .bind(book_id)
+        .bind(revision)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        if pending_request {
+            return Err(AuthorError::Forbidden);
         }
         let next = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
         sqlx::query(
