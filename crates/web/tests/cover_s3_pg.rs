@@ -23,6 +23,7 @@ use std::{
 };
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
+    cover_review::PgCoverReview,
     cover_slots::{PgCoverSlots, PublicCoverKind},
     PgCatalog,
 };
@@ -224,8 +225,35 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(snapshot.attached, 1);
     assert_eq!(snapshot.timeouts, 0);
     assert_eq!(snapshot.errors, 0);
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), None);
+    assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"),
+        "processed artifacts must wait for site moderation");
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(catalog.pool());
+    let token = tor_accounts::services::security::generate_session_token();
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let reviewer = accounts.register_with_session(
+        &format!("obs09-cover-moderator-{}@example.invalid",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
+        "Cover reviewer",
+        &tor_accounts::services::security::hash_password("Obs09CoverMod2026!").unwrap(),
+        &digest,
+        std::num::NonZeroU32::new(3600).unwrap(),
+    ).await.unwrap();
+    pg_sql(&url, &format!(
+        "INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"
+    )).await;
+    let reviews = PgCoverReview::new(catalog.pool());
+    let request = reviews.pending(&digest, None).await.unwrap().into_iter()
+        .find(|r| r.job_id==job).expect("private cover candidate");
+    assert_eq!(request.expected_slot_revision, 0);
+    assert_eq!(request.book_id, BOOK_ID);
+    assert_eq!(
+        request(&app, "/covers/950/card.webp").await.status(),
+        StatusCode::NOT_FOUND,
+        "completed image processing cannot publish without moderation"
+    );
+    reviews.decide(&digest, request.id, 0, true, "").await.unwrap();
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
-    assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);
