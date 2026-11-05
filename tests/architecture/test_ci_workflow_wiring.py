@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
+    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -83,6 +83,30 @@ class WorkflowWiringTests(unittest.TestCase):
                 )
                 self.assertNotEqual(manual, expected)
                 self.assertEqual(sections[job_id], expected)
+
+    def test_exact_postgres_test_file_selection_matches_real_job_invocations(self):
+        # A new job invoking a mapped test must update the authority map and
+        # trigger full CI rather than silently skipping the new consumer.
+        combined = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        standalone = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())
+        pg = combined["postgres-runtime"]
+        manual_pg = standalone["postgres-runtime"]
+        other_jobs = "\n".join(body for job, body in combined.items()
+                               if job != "postgres-runtime")
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 95)
+        for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file())
+                parts = Path(path).parts
+                self.assertEqual((parts[0], parts[2]), ("crates", "tests"))
+                package = "tor-" + parts[1]
+                test_target = Path(path).stem
+                invocation = (r"\bcargo test -p " + re.escape(package)
+                              + r"(?: [^\n]*?)? --test " + re.escape(test_target)
+                              + r"(?=\s|$)")
+                self.assertRegex(pg, invocation)
+                self.assertRegex(manual_pg, invocation)
+                self.assertNotRegex(other_jobs, invocation)
 
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
