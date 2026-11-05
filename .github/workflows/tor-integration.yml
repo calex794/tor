@@ -418,6 +418,21 @@ jobs:
           # Reuse the verified binary without two additional Cargo invocations.
           test -x ./target/debug/tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          # Reuse D-04 binary; no extra Cargo build or staging/VPS permissions.
+          test -x ./target/debug/tor-web
+          python3 tools/s061_cutover_pg_smoke.py
+      - name: Preserve S061 real cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s061-real-cutover-pg
+          path: ${{ runner.temp }}/s061-real-cutover/report.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
