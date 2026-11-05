@@ -175,7 +175,12 @@ pub(super) async fn queue(
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
         Html(render(
-            &rows, count, &csrf, covers_count, deletions_count, query.q.as_deref(),
+            &rows,
+            count,
+            &csrf,
+            covers_count,
+            deletions_count,
+            query.q.as_deref(),
         )),
         &cookies,
     );
