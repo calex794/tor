@@ -219,6 +219,38 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(pending.contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
+    // A completed ordinary deletion deindexes public pages but keeps the
+    // saved exact private edition and Book tombstone for its original reader.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now(), visibility='draft' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        call(&app, "GET", &format!("/books/{book}"), "", "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &format!("/reader/{chapter}"), "", "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let tombstone = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    assert!(tombstone.contains("Удалена"));
+    assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
+    let still_saved = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
+    assert!(still_saved.contains("Pinned ORIGINAL V1"));
+    assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
+    assert_eq!(
+        call(&app, "GET", &read, &outsider_cookie, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
