@@ -4,6 +4,7 @@ use super::{
     moderation_books::{current_moderator, ModerationBooksError},
     PgAccounts,
 };
+use sqlx::Row;
 /// Site-only immutable decision record, combining registration, cover
 /// moderation and ordinary deletion without exposing identities in Book DTOs.
 #[derive(Debug)]
