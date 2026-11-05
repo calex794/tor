@@ -164,14 +164,29 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         false,
         ORIGIN.to_owned(),
     );
-    let home = request(&app, "GET", "/moderation/books", &mod_cookie, ORIGIN, "").await;
-    assert_eq!(home.status(), StatusCode::SEE_OTHER);
-    assert_eq!(home.headers()[header::LOCATION], "/moderation/books/registrations");
     let path = "/moderation/books/control";
     let action = format!("/moderation/books/{book}/hold");
     let mod_cookie = format!("tor-dev-session={moderator_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let outsider_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
+    let home = request(&app, "GET", "/moderation/books", &mod_cookie, ORIGIN, "").await;
+    assert_eq!(home.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        home.headers()[header::LOCATION],
+        "/moderation/books/registrations"
+    );
+    assert_eq!(
+        request(&app, "GET", "/moderation/books", "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", "/moderation/books", &outsider_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
 
     // Book review is the only moderation entrypoint. No chapter queue exists.
     for (method, path) in [
