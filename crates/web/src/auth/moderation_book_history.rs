@@ -2,16 +2,175 @@
 use super::{deny, error_code, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Html, Response},
     routing::get,
     Router,
 };
-use tor_accounts::services::security::session_token_digest;
+use serde::Deserialize;
+use tor_accounts::{
+    repositories::moderation_reviewed::{
+        ReviewedCursor, ReviewedModerationDecision, ReviewedModerationPage,
+    },
+    services::security::session_token_digest,
+};
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/moderation/books/{id}/history", get(book_history))
+    Router::new()
+        .route("/moderation/books/{id}/history", get(book_history))
+        .route("/moderation/books/reviews", get(reviewed_index))
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ReviewedQuery {
+    kind: Option<String>,
+    outcome: Option<String>,
+    before: Option<String>,
+}
+
+fn read_filter<'a>(value: Option<&'a str>, allowed: &[&str]) -> Result<Option<&'a str>, ()> {
+    match value {
+        None | Some("") | Some("all") => Ok(None),
+        Some(item) if allowed.contains(&item) => Ok(Some(item)),
+        _ => Err(()),
+    }
+}
+
+fn render_reviewed(
+    page: &ReviewedModerationPage,
+    kind: Option<&str>,
+    outcome: Option<&str>,
+) -> String {
+    let selected_kind = kind.unwrap_or("all");
+    let selected_outcome = outcome.unwrap_or("all");
+    let mut entries = String::new();
+    for item in &page.items {
+        let label = match item.cursor.kind.as_str() {
+            "registration" => "Регистрация",
+            "cover" => "Обложка",
+            "deletion" => "Удаление",
+            _ => "Неизвестный тип",
+        };
+        let result = if item.outcome == "approved" {
+            "Одобрено"
+        } else {
+            "Отклонено"
+        };
+        let title = pages::escape_html(&item.book_title);
+        let reviewer = pages::escape_html(&item.reviewer_name);
+        let reason = pages::escape_html(&item.reason);
+        entries.push_str(&format!(
+            "<li><strong>{label}: {result}</strong> · \
+             <a href=\"/moderation/books/{book_id}/history\">{title} (#{book_id})</a> · \
+             Модератор {reviewer} (#{reviewer_id}) · \
+             Время Unix {time} · Причина: {reason}</li>",
+            book_id = item.cursor.book_id,
+            reviewer_id = item.reviewer_user_id,
+            time = item.cursor.decided_us / 1_000_000,
+        ));
+    }
+    if entries.is_empty() {
+        entries.push_str("<li>Рассмотренных заявок по фильтру нет.</li>");
+    }
+    let more = page.next_cursor.as_ref().map_or_else(String::new, |cursor| {
+        format!(
+            "<p><a href=\"/moderation/books/reviews?kind={selected_kind}&outcome={selected_outcome}&before={}\">\
+             Следующие решения</a></p>",
+            cursor.token()
+        )
+    });
+    let kind_options = [
+        ("all", "Все типы"),
+        ("registration", "Регистрация"),
+        ("cover", "Обложки"),
+        ("deletion", "Удаление"),
+    ]
+    .into_iter()
+    .map(|(value, label)| {
+        let selected = if selected_kind == value { " selected" } else { "" };
+        format!("<option value=\"{value}\"{selected}>{label}</option>")
+    })
+    .collect::<Vec<_>>()
+    .join("");
+    let outcome_options = [
+        ("all", "Все решения"),
+        ("approved", "Одобрено"),
+        ("rejected", "Отклонено"),
+    ]
+    .into_iter()
+    .map(|(value, label)| {
+        let selected = if selected_outcome == value { " selected" } else { "" };
+        format!("<option value=\"{value}\"{selected}>{label}</option>")
+    })
+    .collect::<Vec<_>>()
+    .join("");
+    pages::layout(
+        "Рассмотренные заявки модерации",
+        "Закрытая история решений по регистрации, обложкам и удалению.",
+        &format!(
+            "<section class=\"me-page\"><div class=\"container\">\
+             <h1>Рассмотренные заявки</h1>\
+             <p>Закрытый журнал решений модераторов сайта. \
+             Это история, а не дополнительная очередь одобрения.</p>\
+             <form method=\"get\" action=\"/moderation/books/reviews\">\
+             <label for=\"reviewed-kind\">Тип заявки</label>\
+             <select id=\"reviewed-kind\" name=\"kind\">{kind_options}</select>\
+             <label for=\"reviewed-outcome\">Результат</label>\
+             <select id=\"reviewed-outcome\" name=\"outcome\">{outcome_options}</select>\
+             <button type=\"submit\">Применить фильтры</button></form>\
+             <ol>{entries}</ol>{more}\
+             <p><a href=\"/moderation/books/registrations\">Регистрация</a> · \
+             <a href=\"/moderation/covers\">Обложки</a> · \
+             <a href=\"/moderation/books/deletions\">Удаление</a></p>\
+             </div></section>"
+        ),
+    )
+    .0
+}
+
+pub(super) async fn reviewed_index(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<ReviewedQuery>,
+) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let kind = match read_filter(query.kind.as_deref(), &["registration", "cover", "deletion"]) {
+        Ok(kind) => kind,
+        Err(()) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let outcome = match read_filter(query.outcome.as_deref(), &["approved", "rejected"]) {
+        Ok(outcome) => outcome,
+        Err(()) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let before = match query.before.as_deref().map(ReviewedCursor::parse).transpose() {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let rows = match state
+        .accounts
+        .private_reviewed_moderation_decisions(&digest, kind, outcome, before.as_ref())
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(error_code(error)),
+    };
+    let mut response = private_response(Html(render_reviewed(&rows, kind, outcome)), &[]);
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
 }
 
 fn render_book_history(
@@ -98,6 +257,35 @@ pub(super) async fn book_history(
 mod moderation_history_tests {
     use super::*;
     use tor_accounts::repositories::moderation_book_history::BookModerationHistoryEntry;
+
+    #[test]
+    fn reviewed_list_keeps_reviewers_private_and_escapes_untrusted_content() {
+        let cursor = ReviewedCursor {
+            decided_us: 1_800_000_000_000_000,
+            kind: "cover".into(),
+            book_id: 31,
+            decision_id: 91,
+        };
+        let page = ReviewedModerationPage {
+            items: vec![ReviewedModerationDecision {
+                cursor: cursor.clone(),
+                book_title: "<script>alert(1)</script>".into(),
+                outcome: "rejected".into(),
+                reviewer_user_id: 17,
+                reviewer_name: "<img src=x>".into(),
+                reason: "<svg/onload=alert(1)>".into(),
+            }],
+            next_cursor: Some(cursor),
+        };
+        let html = render_reviewed(&page, Some("cover"), Some("rejected"));
+        assert!(html.contains("Обложка: Отклонено"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(html.contains("&lt;img src=x&gt;"));
+        assert!(html.contains("&lt;svg/onload=alert(1)&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("kind=cover&outcome=rejected&before=1800000000000000.cover.31.91"));
+        assert_eq!(read_filter(Some("other"), &["approved", "rejected"]), Err(()));
+    }
 
     #[test]
     fn internal_history_escapes_reviewer_name_and_reason() {
