@@ -8,6 +8,7 @@ use axum::{
 };
 use std::{
     num::NonZeroU32,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -19,6 +20,34 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
+
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.ends_with("/tor_ci"), "production DB forbidden");
+    let result = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("psql client");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout)
+        .expect("UTF-8")
+        .trim()
+        .to_owned()
+}
 
 async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -> Response {
     let req = Request::builder()
@@ -78,36 +107,41 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
-         VALUES($1,'ru','Archived <unsafe>','public','basic') RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:c08:reader:{marker}','ru','Archived <unsafe>','public','basic')
+             RETURNING id"
+        ),
     )
-    .bind(format!("ci:c08:reader:{marker}"))
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level)
-         VALUES($1,1,'Title <unsafe>','public','free') RETURNING id",
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level)
+             VALUES({book},1,'Title <unsafe>','public','free') RETURNING id"
+        ),
     )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let v1: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'Pinned ORIGINAL V1') RETURNING id",
+    let v1: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'Pinned ORIGINAL V1') RETURNING id"
+        ),
     )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(v1)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({chapter},{v1})"
+        ),
+    );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -163,52 +197,50 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::OK
     );
 
-    let v2: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,2,'Current V2 should stay outside private V1 pin') RETURNING id",
+    let v2: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},2,'Current V2 should stay outside private V1 pin')
+             RETURNING id"
+        ),
     )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
-        .bind(chapter)
-        .bind(v2)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
+    );
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending.contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
-    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
+    );
     assert_eq!(
         call(&app, "GET", &read, &reader_cookie, "").await.status(),
         StatusCode::NOT_FOUND
     );
-    sqlx::query("UPDATE books SET admin_hold=FALSE, access_level='adult' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=FALSE, access_level='adult' WHERE id={book}"),
+    );
     assert_eq!(
         call(&app, "GET", &read, &reader_cookie, "").await.status(),
         StatusCode::NOT_FOUND
     );
-    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
     assert_eq!(
         call(
             &app,
@@ -226,16 +258,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::NOT_FOUND
     );
 
-    sqlx::query("DELETE FROM books WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id IN ($1,$2)")
-        .bind(actor)
-        .bind(outsider)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN ({actor},{outsider})"),
+    );
     pool.close().await;
 }
