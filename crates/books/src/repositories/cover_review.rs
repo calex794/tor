@@ -78,7 +78,11 @@ impl PgCoverReview {
         if before.is_some_and(|value| value <= 0) {
             return Err(CoverReviewError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let rows = sqlx::query(
             "SELECT r.id,r.book_id,r.job_id,r.submitted_by_user_id,
@@ -92,14 +96,22 @@ impl PgCoverReview {
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         rows.into_iter()
             .map(|r| {
                 Ok(PendingCoverReview {
                     id: r.try_get("id").map_err(|_| CoverReviewError::Unavailable)?,
-                    book_id: r.try_get("book_id").map_err(|_| CoverReviewError::Unavailable)?,
-                    title: r.try_get("title").map_err(|_| CoverReviewError::Unavailable)?,
-                    job_id: r.try_get("job_id").map_err(|_| CoverReviewError::Unavailable)?,
+                    book_id: r
+                        .try_get("book_id")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    title: r
+                        .try_get("title")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    job_id: r
+                        .try_get("job_id")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
                     submitted_by_user_id: r
                         .try_get("submitted_by_user_id")
                         .map_err(|_| CoverReviewError::Unavailable)?,
@@ -120,7 +132,9 @@ impl PgCoverReview {
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         Ok(count)
     }
 
@@ -134,7 +148,11 @@ impl PgCoverReview {
         if request_id <= 0 {
             return Err(CoverReviewError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let row = sqlx::query(
             "SELECT v.storage_key,v.content_sha256,v.size_bytes
@@ -146,23 +164,34 @@ impl PgCoverReview {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         row.map(|r| {
-            let hash: Vec<u8> = r.try_get("content_sha256")
+            let hash: Vec<u8> = r
+                .try_get("content_sha256")
                 .map_err(|_| CoverReviewError::Unavailable)?;
             let hash: [u8; 32] = hash.try_into().map_err(|_| CoverReviewError::Unavailable)?;
-            let storage_key: String = r.try_get("storage_key")
+            let storage_key: String = r
+                .try_get("storage_key")
                 .map_err(|_| CoverReviewError::Unavailable)?;
-            let size_bytes: i64 = r.try_get("size_bytes")
+            let size_bytes: i64 = r
+                .try_get("size_bytes")
                 .map_err(|_| CoverReviewError::Unavailable)?;
             if !storage_key.starts_with("staging/covers/variants/")
                 || storage_key.contains("..")
-                || size_bytes <= 0 || size_bytes > 8 * 1024 * 1024
+                || size_bytes <= 0
+                || size_bytes > 8 * 1024 * 1024
             {
                 return Err(CoverReviewError::Unavailable);
             }
-            Ok(PrivateCoverPreview { storage_key, sha256: hash, size_bytes })
-        }).transpose()
+            Ok(PrivateCoverPreview {
+                storage_key,
+                sha256: hash,
+                size_bytes,
+            })
+        })
+        .transpose()
     }
 
     /// The author may neither approve own Book nor bypass the decision by a
@@ -176,12 +205,18 @@ impl PgCoverReview {
         reason: &str,
     ) -> Result<(), CoverReviewError> {
         let reason = reason.trim();
-        if request_id <= 0 || expected_slot_revision < 0 || reason.len() > 2000
+        if request_id <= 0
+            || expected_slot_revision < 0
+            || reason.len() > 2000
             || (!approve && reason.is_empty())
         {
             return Err(CoverReviewError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         let moderator = live_site_moderator(&mut tx, session).await?;
         let row = sqlx::query(
             "SELECT r.book_id,r.job_id,r.state,r.expected_slot_revision,
@@ -198,27 +233,48 @@ impl PgCoverReview {
         .await
         .map_err(|_| CoverReviewError::Unavailable)?
         .ok_or(CoverReviewError::Missing)?;
-        let book_id: i64 = row.try_get("book_id").map_err(|_| CoverReviewError::Unavailable)?;
-        let job_id: i64 = row.try_get("job_id").map_err(|_| CoverReviewError::Unavailable)?;
-        let owner: i64 = row.try_get("owner_user_id").map_err(|_| CoverReviewError::Unavailable)?;
-        let actor: i64 = row.try_get("actor_user_id").map_err(|_| CoverReviewError::Unavailable)?;
-        let status: String = row.try_get("state").map_err(|_| CoverReviewError::Unavailable)?;
-        let job_status: String = row.try_get("job_status").map_err(|_| CoverReviewError::Unavailable)?;
-        let revision: i64 = row.try_get("expected_slot_revision")
+        let book_id: i64 = row
+            .try_get("book_id")
             .map_err(|_| CoverReviewError::Unavailable)?;
-        let lifecycle: String = row.try_get("lifecycle_status")
+        let job_id: i64 = row
+            .try_get("job_id")
             .map_err(|_| CoverReviewError::Unavailable)?;
-        let visibility: String = row.try_get("visibility_status")
+        let owner: i64 = row
+            .try_get("owner_user_id")
             .map_err(|_| CoverReviewError::Unavailable)?;
-        let held: bool = row.try_get("admin_hold").map_err(|_| CoverReviewError::Unavailable)?;
-        let deleted: bool = row.try_get("is_deleted").map_err(|_| CoverReviewError::Unavailable)?;
+        let actor: i64 = row
+            .try_get("actor_user_id")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let status: String = row
+            .try_get("state")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let job_status: String = row
+            .try_get("job_status")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let revision: i64 = row
+            .try_get("expected_slot_revision")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let lifecycle: String = row
+            .try_get("lifecycle_status")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let visibility: String = row
+            .try_get("visibility_status")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let held: bool = row
+            .try_get("admin_hold")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let deleted: bool = row
+            .try_get("is_deleted")
+            .map_err(|_| CoverReviewError::Unavailable)?;
         if status != "pending" || revision != expected_slot_revision {
             return Err(CoverReviewError::Stale);
         }
         if moderator == owner || moderator == actor {
             return Err(CoverReviewError::Denied);
         }
-        if held || deleted || owner != actor
+        if held
+            || deleted
+            || owner != actor
             || matches!(lifecycle.as_str(), "pending_deletion" | "ordinary_deleted")
             || matches!(visibility.as_str(), "blocked" | "hidden")
         {
@@ -259,7 +315,11 @@ impl PgCoverReview {
         .bind(request_id)
         .bind(new_state)
         .bind(moderator)
-        .bind(if reason.is_empty() { None } else { Some(reason) })
+        .bind(if reason.is_empty() {
+            None
+        } else {
+            Some(reason)
+        })
         .execute(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
@@ -273,7 +333,11 @@ impl PgCoverReview {
         .bind(job_id)
         .bind(moderator)
         .bind(new_state)
-        .bind(if reason.is_empty() { None } else { Some(reason) })
+        .bind(if reason.is_empty() {
+            None
+        } else {
+            Some(reason)
+        })
         .execute(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
@@ -297,7 +361,9 @@ impl PgCoverReview {
                 return Err(CoverReviewError::Stale);
             }
         }
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         Ok(())
     }
 
@@ -310,7 +376,11 @@ impl PgCoverReview {
         if book_id <= 0 {
             return Err(CoverReviewError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let rows = sqlx::query(
             "SELECT d.request_id,d.job_id,d.reviewer_user_id,d.outcome,d.reason,
@@ -322,18 +392,32 @@ impl PgCoverReview {
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
-        rows.into_iter().map(|r| {
-            Ok(CoverDecisionHistory {
-                request_id: r.try_get("request_id").map_err(|_| CoverReviewError::Unavailable)?,
-                job_id: r.try_get("job_id").map_err(|_| CoverReviewError::Unavailable)?,
-                reviewer_user_id: r.try_get("reviewer_user_id")
-                    .map_err(|_| CoverReviewError::Unavailable)?,
-                outcome: r.try_get("outcome").map_err(|_| CoverReviewError::Unavailable)?,
-                reason: r.try_get("reason").map_err(|_| CoverReviewError::Unavailable)?,
-                decided_unix: r.try_get("decided_unix")
-                    .map_err(|_| CoverReviewError::Unavailable)?,
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(CoverDecisionHistory {
+                    request_id: r
+                        .try_get("request_id")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    job_id: r
+                        .try_get("job_id")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    reviewer_user_id: r
+                        .try_get("reviewer_user_id")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    outcome: r
+                        .try_get("outcome")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    reason: r
+                        .try_get("reason")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                    decided_unix: r
+                        .try_get("decided_unix")
+                        .map_err(|_| CoverReviewError::Unavailable)?,
+                })
             })
-        }).collect()
+            .collect()
     }
 }
