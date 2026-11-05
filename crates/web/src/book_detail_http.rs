@@ -73,18 +73,18 @@ pub(super) async fn book_detail(
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
         let html = match cover_cdn_html::render_confirmed(
-                state.cover_cdn_html_enabled,
-                state.covers.as_ref(),
-                html,
-                &[book.id],
-                tor_books::repositories::cover_slots::PublicCoverKind::Main,
-            )
-            .await
-            {
-                Ok(html) => html,
-                Err(status) => return book_error(&state, status).await,
-            };
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            state.cover_cdn_html_enabled,
+            state.covers.as_ref(),
+            html,
+            &[book.id],
+            tor_books::repositories::cover_slots::PublicCoverKind::Main,
+        )
+        .await
+        {
+            Ok(html) => html,
+            Err(status) => return book_error(&state, status).await,
+        };
+        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -106,4 +106,3 @@ pub(super) async fn book_detail(
     )
     .into_response()
 }
-
