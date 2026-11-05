@@ -197,6 +197,16 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::OK
     );
 
+    // A reader's cursor belongs to the saved immutable V1, not future V2.
+    let position_sql = format!(
+        "INSERT INTO reader_book_positions \
+         (user_id,book_id,chapter_id,chapter_no,chapter_revision,version_id,block_index,char_offset) \
+         VALUES({actor},{book},{chapter},1,1,{v1},1,7)"
+    );
+    pg(&url, &position_sql);
+    let resume_before_deletion = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
+    assert!(resume_before_deletion.contains("href=\"#saved-resume\""));
+
     let v2: i64 = pg(
         &url,
         &format!(
@@ -306,6 +316,37 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             .status(),
         StatusCode::NOT_FOUND
     );
+
+    // A genuinely new, independently issued session must recover the same
+    // actor-owned V1 and its exact saved cursor after completed deletion.
+    let fresh_token = generate_session_token();
+    let fresh_digest = session_token_digest(&fresh_token);
+    let second_login = PgAccounts::from_pool(pool.clone());
+    second_login
+        .insert_session(actor, &fresh_digest, NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
+    let fresh_cookie = format!("tor-dev-session={fresh_token}; tor-dev-csrf={csrf}");
+    let fresh_library = html(call(&app, "GET", "/me/library", &fresh_cookie, "").await).await;
+    assert!(fresh_library.contains("Удалена"));
+    assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
+    let fresh_response = call(&app, "GET", &read, &fresh_cookie, "").await;
+    assert_eq!(fresh_response.status(), StatusCode::OK);
+    let fresh_read = html(fresh_response).await;
+    assert!(fresh_read.contains("Pinned ORIGINAL V1"));
+    assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
+    assert!(fresh_read.contains("href=\"#saved-resume\""));
+
+    // Revocation must cut off the newly issued session immediately while
+    // preserving historical pinned data for the original live session.
+    assert!(second_login.revoke_session(&fresh_digest).await.unwrap());
+    assert_ne!(
+        call(&app, "GET", &read, &fresh_cookie, "").await.status(),
+        StatusCode::OK
+    );
+    assert!(html(call(&app, "GET", &read, &reader_cookie, "").await)
+        .await
+        .contains("Pinned ORIGINAL V1"));
 
     pg(
         &url,
