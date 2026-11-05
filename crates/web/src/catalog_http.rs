@@ -1,5 +1,7 @@
 //! TOR F-02 catalogue HTTP projection, kept separate from routing shell.
-use super::{auth_cookies, cover_cdn_html, cover_http, pages, public_cards, public_reader_http, AppState};
+use super::{
+    auth_cookies, cover_cdn_html, cover_http, pages, public_cards, public_reader_http, AppState,
+};
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
