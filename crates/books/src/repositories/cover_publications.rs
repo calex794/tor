@@ -212,8 +212,8 @@ impl PgPublicCoverPublications {
                   AND (p.retry_after IS NULL OR p.retry_after <= now())
                   AND (
                     p.state='removal_due'
-                    OR (p.state='reserved' AND p.created_at < now() - interval '15 minutes')
-                    OR (p.state='copied' AND NOT EXISTS (
+                    OR ((p.state='reserved' AND p.created_at < now() - interval '15 minutes'
+                         OR p.state='copied') AND NOT EXISTS (
                         SELECT 1 FROM books b
                         JOIN book_cover_slots s ON s.book_id=b.id
                         JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
