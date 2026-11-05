@@ -25,9 +25,13 @@ class Br060ArchiveBrowserTests(unittest.TestCase):
             "execFileSync('psql'",
             "approvePendingBookForIsolatedCi(book)",
             "page.waitForURL(base + '/me')",
-            "action, button",
-            "['start', 'Начать удаление']",
-            "['complete', 'Окончательно удалить книгу']",
+            "owner.locator('[name=action]').inputValue(), 'start'",
+            "moderation/books/deletions",
+            "button[name=decision][value=approve]",
+            "request_revision",
+            "INSERT INTO account_roles",
+            "book_ordinary_deletion_decisions",
+            "independent moderation approval refused",
             "reader.waitForResponse(response =>",
             "response.request().method() === 'PUT'",
             "freeProgressRestored === '1'",
@@ -39,6 +43,9 @@ class Br060ArchiveBrowserTests(unittest.TestCase):
         self.assertNotIn(".route(", code, "network mocks are not an acceptance test")
         self.assertNotIn("route.fulfill(", code)
         self.assertNotIn("TEST_DATABASE_URL ||", code)
+        self.assertNotIn("['complete', 'Окончательно удалить книгу']", code)
+        self.assertNotIn("INSERT INTO book_ordinary_deletion_decisions", code)
+        self.assertNotIn("UPDATE books SET lifecycle_status='ordinary_deleted'", code)
 
 
 if __name__ == "__main__":
