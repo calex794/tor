@@ -9,7 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 async fn c08_saved_free_version_is_owner_scoped_immutable_and_retained() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable DB");
     assert!(url.ends_with("/tor_ci"), "persistent DB forbidden");
-    let pool = sqlx::PgPool::connect(&url).await.expect("tor_app connection");
+    let pool = sqlx::PgPool::connect(&url)
+        .await
+        .expect("tor_app connection");
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -119,13 +121,12 @@ async fn c08_saved_free_version_is_owner_scoped_immutable_and_retained() {
     .await
     .expect_err("saved editions must not be repointed");
     assert!(forbidden.to_string().contains("immutable"));
-    let other_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_saved_free_chapters WHERE user_id=$1",
-    )
-    .bind(other)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let other_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_saved_free_chapters WHERE user_id=$1")
+            .bind(other)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(other_count, 0);
     let purchases: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM library_purchased_chapters WHERE user_id=$1 AND chapter_id=$2",
