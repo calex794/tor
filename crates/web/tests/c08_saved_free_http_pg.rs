@@ -71,6 +71,12 @@ async fn html(response: Response) -> String {
     .unwrap()
 }
 
+// The saved-position marker is inert markup inserted at a UTF-16 boundary.
+// Compare the rendered text after stripping only that exact trusted anchor.
+fn without_resume_anchor(markup: &str) -> String {
+    markup.replace("<span id=\\\"saved-resume\\\"></span>", "")
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
@@ -259,7 +265,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Ожидает удаления"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(pending.contains("Pinned ORIGINAL V1"));
+    assert!(without_resume_anchor(&pending).contains("Pinned ORIGINAL V1"));
     assert!(!pending.contains("Current V2 should stay outside private V1 pin"));
 
     // A completed ordinary deletion deindexes public pages but keeps the
@@ -308,7 +314,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
     let still_saved = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
-    assert!(still_saved.contains("Pinned ORIGINAL V1"));
+    assert!(without_resume_anchor(&still_saved).contains("Pinned ORIGINAL V1"));
     assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
     assert_eq!(
         call(&app, "GET", &read, &outsider_cookie, "")
@@ -333,7 +339,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let fresh_response = call(&app, "GET", &read, &fresh_cookie, "").await;
     assert_eq!(fresh_response.status(), StatusCode::OK);
     let fresh_read = html(fresh_response).await;
-    assert!(fresh_read.contains("Pinned ORIGINAL V1"));
+    assert!(without_resume_anchor(&fresh_read).contains("Pinned ORIGINAL V1"));
     assert!(!fresh_read.contains("Current V2 should stay outside private V1 pin"));
     assert!(fresh_read.contains("href=\"#saved-resume\""));
 
@@ -344,9 +350,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         call(&app, "GET", &read, &fresh_cookie, "").await.status(),
         StatusCode::OK
     );
-    assert!(html(call(&app, "GET", &read, &reader_cookie, "").await)
-        .await
-        .contains("Pinned ORIGINAL V1"));
+    let still_open = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
+    assert!(without_resume_anchor(&still_open).contains("Pinned ORIGINAL V1"));
 
     pg(
         &url,
