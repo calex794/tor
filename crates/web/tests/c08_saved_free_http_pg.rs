@@ -74,7 +74,7 @@ async fn html(response: Response) -> String {
 // The saved-position marker is inert markup inserted at a UTF-16 boundary.
 // Compare the rendered text after stripping only that exact trusted anchor.
 fn without_resume_anchor(markup: &str) -> String {
-    markup.replace("<span id=\\\"saved-resume\\\"></span>", "")
+    markup.replace("<span id=\"saved-resume\"></span>", "")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
