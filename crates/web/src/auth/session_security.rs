@@ -115,24 +115,6 @@ fn valid_session_id(value: &str) -> bool {
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::valid_session_id;
-
-    #[test]
-    fn a_03_rejects_invalid_session_identifiers() {
-        assert!(valid_session_id("3f6bce1a-65d6-4c3f-9001-2390c70cf711"));
-        for bad in [
-            "not-a-uuid",
-            "3f6bce1a-65d6-4c3f-9001-2390c70cf711 ",
-            "3f6bce1a-65d6-4c3f-9001-2390c70cf71z",
-            "3f6bce1a-65d6-4c3f-9001-2390c70cf711' OR true",
-        ] {
-            assert!(!valid_session_id(bad));
-        }
-    }
-}
-
 /// Revoke browser session and clear cookies only on same-origin CSRF.
 pub(super) async fn logout(
     State(state): State<AuthState>,
@@ -153,4 +135,22 @@ pub(super) async fn logout(
         }
     }
     private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_session_id;
+
+    #[test]
+    fn a_03_rejects_invalid_session_identifiers() {
+        assert!(valid_session_id("3f6bce1a-65d6-4c3f-9001-2390c70cf711"));
+        for bad in [
+            "not-a-uuid",
+            "3f6bce1a-65d6-4c3f-9001-2390c70cf711 ",
+            "3f6bce1a-65d6-4c3f-9001-2390c70cf71z",
+            "3f6bce1a-65d6-4c3f-9001-2390c70cf711' OR true",
+        ] {
+            assert!(!valid_session_id(bad));
+        }
+    }
 }
