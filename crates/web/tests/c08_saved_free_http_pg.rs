@@ -426,9 +426,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
     assert!(fresh_library.contains("Paid-only &lt;unsafe&gt;"));
     assert!(fresh_library.contains("Книги с покупками"));
-    assert!(!fresh_library.contains(&format!(
-        "action=\"/me/library/{paid_only_book}/remove\""
-    )));
+    assert!(!fresh_library.contains(&format!("action=\"/me/library/{paid_only_book}/remove\"")));
     let paid_list_path = format!("/me/library/{paid_only_book}/saved");
     let paid_list_response = call(&app, "GET", &paid_list_path, &new_reader_cookie, "").await;
     assert_eq!(paid_list_response.status(), StatusCode::OK);
