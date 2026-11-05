@@ -231,9 +231,9 @@ impl PgAuthoring {
             return Err(AuthorError::Conflict);
         }
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, visibility_status, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
+            "INSERT INTO books (source_identity, target_language, title, visibility, visibility_status, registration_requires_review, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
                  original_title, original_language, source_url, release_year, project_status, catalog_section, alt_titles)
-             VALUES ($1, $2, $3, 'draft', 'pending_moderation', $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
+             VALUES ($1, $2, $3, 'draft', 'pending_moderation', TRUE, $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
