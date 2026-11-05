@@ -198,7 +198,7 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String>
          <p class=\"eyebrow\">Сохранённая редакция {}</p>\
          <h1>{book}: глава {}. {title}</h1>\
          <p>Текст закреплён в личной библиотеке. Текущая версия книги может отличаться.</p>{resume}\
-         <article class=\"reader-content\">{body}</article>\
+         <article class=\"reader-content\">{body}</article>{position_form}\
          <p><a href=\"/me/library/{}/saved\">К сохранённым главам</a></p>\
          </div></section>",
         chapter.version_no, chapter.chapter_no, chapter.book_id
