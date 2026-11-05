@@ -10,8 +10,17 @@ root="${RUNNER_TEMP:-/tmp}/rec13-browser"
 mkdir -p "$root/shots" "$root/node"
 exec > >(tee "$root/browser.log") 2>&1
 cargo build -p tor-web
-npm install --prefix "$root/node" --no-save playwright@1.56.1
-"$root/node/node_modules/.bin/playwright" install --with-deps chromium
+# The mandatory PostgreSQL job has already installed Playwright and the
+# headless Chromium shell. Reuse them only when explicitly requested; keep
+# this acceptance script self-contained for its independent workflow.
+if [[ "${TOR_REC_REUSE_PLAYWRIGHT:-0}" == 1 ]]; then
+  node -e "if (require('playwright/package.json').version !== '1.56.1') process.exit(1)"
+  node_path="$PWD/node_modules"
+else
+  npm install --prefix "$root/node" --no-save playwright@1.56.1
+  "$root/node/node_modules/.bin/playwright" install --with-deps chromium
+  node_path="$root/node/node_modules"
+fi
 TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
   TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
   DATABASE_URL="$TEST_DATABASE_URL" ./target/debug/tor-web >"$root/server.log" 2>&1 &
@@ -30,5 +39,5 @@ for attempt in $(seq 1 45); do
   sleep 1
  done
 curl --fail --silent http://127.0.0.1:3108/readyz
-NODE_PATH="$root/node/node_modules" APP_URL="$TEST_DATABASE_URL" \
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
