@@ -4,8 +4,8 @@ use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
@@ -16,6 +16,18 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/me/library/{id}/saved", get(list))
         .route("/me/library/saved/{id}", get(read))
+        .route("/assets/newboo-archive-progress.js", get(progress_script))
+}
+
+// One self-hosted static script; its archive mode can never bypass SQL pins.
+async fn progress_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../../assets/newboo-free-progress.js"),
+    )
 }
 
 #[derive(Deserialize)]
@@ -79,12 +91,17 @@ pub(super) async fn read(
         }
         Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let mut response = private_response(pages::saved_free_reader(&saved), &[]);
-    response.headers_mut().insert(
-        "content-security-policy",
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(pages::saved_free_reader(&saved, &csrf), &cookies);
+    // Only the finalized archive opts into the self-hosted cursor script.
+    // Earlier saved-free views remain script-free.
+    let csp = if saved.ordinary_deleted {
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+    } else {
         "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'"
-            .parse()
-            .expect("static CSP"),
-    );
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", csp.parse().expect("static CSP"));
     response
 }
