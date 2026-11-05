@@ -358,7 +358,9 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     );
     let pending_direct = call(&app, "GET", &detail, "", ORIGIN, "").await;
     assert_eq!(pending_direct.status(), StatusCode::OK);
-    assert!(html(pending_direct).await.contains("Заголовок &lt;like&gt;"));
+    assert!(html(pending_direct)
+        .await
+        .contains("Заголовок &lt;like&gt;"));
     assert_eq!(
         call(&app, "GET", &like, &cookie_a, ORIGIN, "")
             .await
