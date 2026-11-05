@@ -6,9 +6,17 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
+    routing::get,
+    Router,
 };
 use serde::Deserialize;
 use tor_reading::{domain::renderer::valid_reader_length, services::library::LibraryError};
+
+pub(super) fn router() -> Router<AuthState> {
+    Router::new()
+        .route("/me/library/{id}/saved", get(list))
+        .route("/me/library/saved/{id}", get(read))
+}
 
 #[derive(Deserialize)]
 pub(super) struct SavedFreeQuery {
