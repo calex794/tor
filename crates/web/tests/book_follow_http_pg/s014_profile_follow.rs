@@ -14,22 +14,36 @@ async fn s014_profile_page(app: &Router, name: &str, cookies: &str) -> (StatusCo
         .await
         .unwrap();
     let status = response.status();
-    let body = String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await.unwrap().to_vec())
-        .unwrap();
+    let body = String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     (status, body)
 }
 
 async fn s014_creator_list(app: &Router, cookies: &str) -> String {
-    let response = app.clone().oneshot(
-        Request::builder()
-            .uri("/me/creators")
-            .header(header::COOKIE, cookies)
-            .body(Body::empty())
-            .unwrap(),
-    ).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/me/creators")
+                .header(header::COOKIE, cookies)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await.unwrap().to_vec())
-        .unwrap()
+    String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -40,7 +54,10 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let password = hash_password("ProfileFollowTest2026").unwrap();
     let author_token = generate_session_token();
     let reader_token = generate_session_token();
@@ -89,7 +106,10 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
              VALUES('ci:s014:hidden:{nonce}','ru','Unlisted author Book','public',{author},'pro_adult','pending_deletion')"
         ),
     );
-    pg(&url, &format!("UPDATE users SET account_state='suspended' WHERE id={inactive}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET account_state='suspended' WHERE id={inactive}"),
+    );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -113,32 +133,71 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
     assert!(profile.contains(&format!("action=\"{follow}\"")));
     assert!(profile.contains(&format!("value=\"{csrf}\"")));
     assert_eq!(
-        s014_profile_page(&app, &inactive_name, &reader_cookies).await.0,
+        s014_profile_page(&app, &inactive_name, &reader_cookies)
+            .await
+            .0,
         StatusCode::NOT_FOUND,
         "suspended profiles are not public",
     );
 
-    assert_eq!(post(&app, &follow, &reader_cookies, "https://wrong.invalid", &csrf).await, StatusCode::FORBIDDEN);
-    assert_eq!(post(&app, &follow, &reader_cookies, ORIGIN, "invalid").await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        post(
+            &app,
+            &follow,
+            &reader_cookies,
+            "https://wrong.invalid",
+            &csrf
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&app, &follow, &reader_cookies, ORIGIN, "invalid").await,
+        StatusCode::FORBIDDEN
+    );
     assert!(matches!(
         post(&app, &follow, "", ORIGIN, &csrf).await,
         StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED
     ));
     assert_eq!(
-        post(&app, &format!("/users/{reader}/subscribe"), &reader_cookies, ORIGIN, &csrf).await,
+        post(
+            &app,
+            &format!("/users/{reader}/subscribe"),
+            &reader_cookies,
+            ORIGIN,
+            &csrf
+        )
+        .await,
         StatusCode::FORBIDDEN,
         "self-follow denied",
     );
     assert_eq!(
-        post(&app, &format!("/users/{inactive}/subscribe"), &reader_cookies, ORIGIN, &csrf).await,
+        post(
+            &app,
+            &format!("/users/{inactive}/subscribe"),
+            &reader_cookies,
+            ORIGIN,
+            &csrf
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        post(&app, "/users/999999999999/subscribe", &reader_cookies, ORIGIN, &csrf).await,
+        post(
+            &app,
+            "/users/999999999999/subscribe",
+            &reader_cookies,
+            ORIGIN,
+            &csrf
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
 
-    assert_eq!(post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
+    assert_eq!(
+        post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
     let first = pg(
         &url,
         &format!(
@@ -153,12 +212,18 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
         )),
         "profile:NULL",
     );
-    assert_eq!(post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT id::text || ':' || started_at::text FROM creator_follow_periods
+        post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT id::text || ':' || started_at::text FROM creator_follow_periods
              WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NULL"
-        )),
+            )
+        ),
         first,
         "repeated POST must not reset continuous following tenure",
     );
@@ -166,9 +231,23 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
         .await
         .1
         .contains(&format!("action=\"{unfollow}\"")));
-    assert!(s014_creator_list(&app, &reader_cookies).await.contains(&author_name));
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_book_follows WHERE user_id={reader}")), "0");
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={reader}")), "0");
+    assert!(s014_creator_list(&app, &reader_cookies)
+        .await
+        .contains(&author_name));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM reader_book_follows WHERE user_id={reader}")
+        ),
+        "0"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={reader}")
+        ),
+        "0"
+    );
 
     // The existing creator-follow release view is source-kind neutral. A
     // new free release for a separate, visible Book reaches the user's feed.
@@ -192,45 +271,93 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES({chapter},1,'Reader text') RETURNING id"
         ),
-    ).parse().unwrap();
-    pg(&url, &format!(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
-    ));
-    pg(&url, &format!(
-        "INSERT INTO chapter_first_release_events(chapter_id,version_id,creator_user_id)
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_first_release_events(chapter_id,version_id,creator_user_id)
          VALUES({chapter},{version},{author})"
-    ));
-    assert!(followed_page(&app, &reader_cookies).await
+        ),
+    );
+    assert!(followed_page(&app, &reader_cookies)
+        .await
         .contains("S014 chapter from profile subscription"));
 
-    assert_eq!(post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
-    assert_eq!(post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM creator_follow_periods
+    assert_eq!(
+        post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM creator_follow_periods
          WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NOT NULL"
-    )), "1");
+            )
+        ),
+        "1"
+    );
     assert!(s014_profile_page(&app, &author_name, &reader_cookies)
-        .await.1.contains(&format!("action=\"{follow}\"")));
+        .await
+        .1
+        .contains(&format!("action=\"{follow}\"")));
 
     // Book-derived follow after unfollow starts a new period. A later
     // profile follow must not overwrite its original B-verified attribution.
     assert_eq!(
-        post(&app, &format!("/me/books/{visible_book}/follow-creator"), &reader_cookies, ORIGIN, &csrf).await,
+        post(
+            &app,
+            &format!("/me/books/{visible_book}/follow-creator"),
+            &reader_cookies,
+            ORIGIN,
+            &csrf
+        )
+        .await,
         StatusCode::SEE_OTHER,
     );
-    assert_eq!(post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await, StatusCode::SEE_OTHER);
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT source_kind || ':' || source_book_id::text
+        post(&app, &follow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT source_kind || ':' || source_book_id::text
              FROM creator_follow_periods
              WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NULL"
-        )),
+            )
+        ),
         format!("book_page:{visible_book}"),
     );
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM creator_follow_periods
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM creator_follow_periods
          WHERE follower_user_id={reader} AND creator_user_id={author}"
-    )), "2");
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={reader}")), "0");
+            )
+        ),
+        "2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={reader}")
+        ),
+        "0"
+    );
     pool.close().await;
 }
