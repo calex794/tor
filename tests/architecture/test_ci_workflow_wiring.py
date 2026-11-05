@@ -114,8 +114,8 @@ class WorkflowWiringTests(unittest.TestCase):
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             with self.subTest(workflow=filename):
                 pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-                self.assertIn("npx playwright install --with-deps --only-shell chromium", pg)
-                self.assertNotIn("npx playwright install --with-deps chromium", pg)
+                self.assertIn("npx playwright install --only-shell chromium", pg)
+                self.assertNotIn("npx playwright install --with-deps", pg)
                 self.assertIn("npm install --no-save playwright@1.56.1", pg)
 
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
