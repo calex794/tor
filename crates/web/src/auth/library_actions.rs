@@ -21,6 +21,7 @@ pub(super) struct BookmarkForm {
 struct LibraryItemJson {
     book_id: String,
     title: String,
+    pending_deletion: bool,
 }
 
 #[derive(Serialize)]
@@ -59,6 +60,7 @@ pub(super) async fn api_list(
                 .map(|book| LibraryItemJson {
                     book_id: book.book_id.to_string(),
                     title: book.title,
+                    pending_deletion: book.pending_deletion,
                 })
                 .collect();
             private_response(
