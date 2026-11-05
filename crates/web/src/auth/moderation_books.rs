@@ -54,7 +54,8 @@ pub(super) struct DeletionReviewForm {
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/moderation/books", get(page))
+        .route("/moderation/books", get(home))
+        .route("/moderation/books/control", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
         .route("/moderation/books/deletions", get(deletion_queue))
@@ -150,7 +151,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
     if rows.len() == 40 {
         if let Some(last) = rows.last() {
             list.push_str(&format!(
-                r#"<a href="/moderation/books?before={}">Следующая страница</a>"#,
+                r#"<a href="/moderation/books/control?before={}">Следующая страница</a>"#,
                 last.id
             ));
         }
@@ -165,6 +166,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                 <a href="/moderation/books/registrations">Регистрация</a>
                 <a href="/moderation/covers">Обложки</a>
                 <a href="/moderation/books/deletions">Удаление</a>
+                <a href="/moderation/books/control" aria-current="page">Контроль</a>
               </nav>
               <p>Контроль видимости и удержаний — не подтверждение заявки.</p>
               <p>Удержание не меняет авторскую публикацию и не создаёт
@@ -173,6 +175,25 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         ),
     )
     .0
+}
+
+/// Open the workbench on real requests, never on emergency controls.
+/// Gate the redirect itself by a live site-moderator session.
+pub(super) async fn home(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    private_response(Redirect::to("/moderation/books/registrations"), &[])
 }
 
 pub(super) async fn page(
@@ -228,7 +249,7 @@ pub(super) async fn submit(
         .moderate_book_hold(&digest, id, form.expected_hold, form.new_hold)
         .await
     {
-        Ok(()) => private_response(Redirect::to("/moderation/books"), &[]),
+        Ok(()) => private_response(Redirect::to("/moderation/books/control"), &[]),
         Err(error) => deny(error_code(error)),
     }
 }
@@ -264,7 +285,7 @@ pub(super) async fn submit_visibility(
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to("/moderation/books"), &[]),
+        Ok(_) => private_response(Redirect::to("/moderation/books/control"), &[]),
         Err(error) => deny(error_code(error)),
     }
 }
@@ -317,12 +338,13 @@ fn render_deletion_queue(
                  <a href="/moderation/books/registrations">Регистрация ({registration_count})</a>
                  <a href="/moderation/covers">Обложки ({cover_count})</a>
                  <a href="/moderation/books/deletions" aria-current="page">Удаление ({deletion_count})</a>
+                 <a href="/moderation/books/control">Контроль</a>
                </nav>
                <h2>Заявки на удаление книг</h2>
                <p>Это решение не удаляет главы и не предоставляет платные права.
                   После одобрения книга удаляется из публичного доступа сразу.
                   Купленные и сохранённые главы остаются в личных библиотеках.</p>
-               {cards}<p><a href="/moderation/books">К модерации книг</a></p>
+               {cards}<p><a href="/moderation/books/control">Контроль и удержания книг</a></p>
                </div></section>"#
         ),
     )
