@@ -76,9 +76,9 @@ function pg(sql) {
 async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width, height) {
   await reviewer.setViewportSize({ width, height });
   const tabs = [
-    ['/moderation/books/registrations', /^Регистрация \\(\\d+\\)$/],
-    ['/moderation/covers', /^Обложки \\(\\d+\\)$/],
-    ['/moderation/books/deletions', /^Удаление \\(\\d+\\)$/],
+    ['/moderation/books/registrations', /^Регистрация \(\d+\)$/],
+    ['/moderation/covers', /^Обложки \(\d+\)$/],
+    ['/moderation/books/deletions', /^Удаление \(\d+\)$/],
   ];
   for (const [url, label] of tabs) {
     const denied = await owner.context().request.get(base + url);
