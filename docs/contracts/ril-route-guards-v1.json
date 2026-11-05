@@ -2042,8 +2042,8 @@
     {
       "method": "GET",
       "template": "/me/books/{id}/registration-status",
-      "source": "crates/web/src/auth/author_book_page.rs",
-      "handler": "registration_status",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_book_page::registration_status",
       "policy": "owner"
     }
   ]
