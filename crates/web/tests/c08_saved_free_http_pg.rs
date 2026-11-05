@@ -467,7 +467,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .status(),
-        StatusCode::NOT_FOUND
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         call(
