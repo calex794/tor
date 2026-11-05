@@ -159,6 +159,34 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, b);
+    // NEwBOO public-candidate invariant: a member can manage historical
+    // relations but cannot discover or add a newly pending-deletion target.
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .find_related_candidates(owner, a, &b_title)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .find_related_candidates(owner, a, &b_title)
+        .await
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == b));
+
     assert!(repo
         .find_related_candidates(owner, a, &private_title)
         .await
@@ -252,6 +280,30 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .await
     .unwrap();
     assert_eq!(count, 1, "one canonical row is bilateral");
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .manageable_related_books(owner, a)
+        .await
+        .unwrap()
+        .unwrap()
+        .linked
+        .iter()
+        .any(|entry| entry.id == b));
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing),
+        "existing edge must not authorize a new addition during pending deletion",
+    );
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // A pending-deletion Book is still editable by its active collaborators,
     // but its title and link must vanish from all public related-book cards.
     for hidden_book in [a, b] {
