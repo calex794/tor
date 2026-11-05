@@ -180,4 +180,35 @@ mod tests {
         assert!(html.contains("Original V1"));
         assert!(html.contains("/me/library/1/saved"));
     }
+
+    #[test]
+    fn archive_resume_targets_exact_utf16_offset_in_sanitized_text() {
+        use tor_reading::services::progress::ReadingPlace;
+        let saved = SavedFreeChapter {
+            book_id: 1,
+            book_title: "Archive".into(),
+            chapter_id: 6,
+            chapter_no: 1,
+            chapter_title: "Chapter".into(),
+            version_id: 10,
+            version_no: 1,
+            body_markdown: "AB😀&CD".into(),
+            saved_place: Some(ReadingPlace {
+                block_index: 1,
+                char_offset: 4,
+            }),
+        };
+        let html = saved_free_reader(&saved).0;
+        assert!(html.contains("href=\"#saved-resume\""));
+        assert!(html.contains("AB😀<span id=\"saved-resume\"></span>&amp;CD"));
+        let stale = SavedFreeChapter {
+            saved_place: Some(ReadingPlace {
+                block_index: 2,
+                char_offset: 0,
+            }),
+            ..saved
+        };
+        let html = saved_free_reader(&stale).0;
+        assert!(!html.contains("saved-resume"));
+    }
 }
