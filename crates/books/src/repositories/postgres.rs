@@ -1,4 +1,5 @@
 mod book_access_level;
+pub use book_access_level::ManagedBookAccessLevel;
 mod book_description;
 pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
