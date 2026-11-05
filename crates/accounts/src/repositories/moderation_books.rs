@@ -320,9 +320,8 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         let reviewer = current_moderator(&mut tx, session).await?;
         // Recheck and lock the *current* active owner, not just historical request data.
-        let row: Option<ModerationDeletionReviewRow> =
-            sqlx::query_as(
-                "SELECT b.lifecycle_status,b.lifecycle_revision,r.owner_user_id,
+        let row: Option<ModerationDeletionReviewRow> = sqlx::query_as(
+            "SELECT b.lifecycle_status,b.lifecycle_revision,r.owner_user_id,
                         r.previous_lifecycle_status,r.previous_visibility,
                         b.owner_user_id,b.admin_hold,b.visibility_status
                  FROM books b
@@ -332,12 +331,12 @@ impl PgAccounts {
                    AND m.role='owner' AND m.is_active
                  WHERE b.id=$1 AND NOT b.is_deleted
                  FOR UPDATE OF b FOR SHARE OF m",
-            )
-            .bind(book_id)
-            .bind(request_revision)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|_| ModerationBooksError::Unavailable)?;
+        )
+        .bind(book_id)
+        .bind(request_revision)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
         let (
             status,
             revision,
