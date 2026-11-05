@@ -679,6 +679,35 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         format!("{admin}:pending_moderation>active")
     );
 
+    // System history combines decisions but is invisible to Book owners and
+    // logged-out readers, including reviewer name and refusal reasons.
+    let history_path = format!("/moderation/books/{fresh}/history");
+    assert_eq!(
+        request(&app, "GET", &history_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", &history_path, &outsider_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let history_response =
+        request(&app, "GET", &history_path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(history_response.status(), StatusCode::OK);
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let history_body = html(history_response).await;
+    assert!(history_body.contains("Регистрация: Одобрено"));
+    assert!(history_body.contains("Модератор: Admin"));
+    assert!(history_body.contains(&format!("(#{admin})")));
+    assert!(history_body.contains("Все решения") || history_body.contains("Системная история"));
+    assert!(!history_body.contains("<script>private moderation title</script>"));
+
     // After book approval, an author releases the next chapter directly.
     let second = save_chapter(SaveChapterRequest {
         book_id: fresh as u64,
