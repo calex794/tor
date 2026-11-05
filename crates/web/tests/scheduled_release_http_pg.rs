@@ -154,13 +154,14 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
              VALUES({outsider},'moderator',TRUE)"
         ),
     );
-    let pending_revision: i64 = sqlx::query_scalar(
-        "SELECT visibility_status_revision FROM books WHERE id=$1
-         AND visibility_status='pending_moderation'",
+    let pending_revision: i64 = pg(
+        &url,
+        &format!(
+            "SELECT visibility_status_revision FROM books WHERE id={book_id}
+             AND visibility_status='pending_moderation'"
+        ),
     )
-    .bind(book_id)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     accounts
         .moderate_book_registration(
