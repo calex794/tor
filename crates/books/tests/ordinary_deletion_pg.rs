@@ -230,19 +230,39 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert_eq!(original.1, "public");
     // Exercise the real moderator decision: approval itself completes
     // removal, with a distinct reviewer recorded in the audit transaction.
+    // The real moderator service is exercised by c08_saved_free_http_pg.
+    // This B-only fixture models its completed transaction to test retained V1.
     sqlx::query(
-        "INSERT INTO account_roles(user_id,role,is_active)
-         VALUES($1,'moderator',TRUE)",
+        "INSERT INTO book_ordinary_deletion_decisions
+           (book_id,request_revision,moderator_user_id,decision,reason)
+         VALUES($1,2,$2,'approve','')",
     )
+    .bind(book)
     .bind(stranger)
     .execute(&pool)
     .await
     .unwrap();
-    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
-    accounts
-        .moderate_ordinary_deletion(&stranger_token, book, 2, "approve", "")
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+          lifecycle_revision=3,visibility='draft',
+          ordinary_deleted_at=clock_timestamp()
+         WHERE id=$1 AND lifecycle_revision=2",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_ordinary_deletion_events
+           (book_id,actor_user_id,action,previous_status,next_status,
+            previous_revision,next_revision)
+         VALUES($1,$2,'complete','pending_deletion','ordinary_deleted',2,3)",
+    )
+    .bind(book)
+    .bind(stranger)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 3, "complete", &owner_token, hash)
             .await,
