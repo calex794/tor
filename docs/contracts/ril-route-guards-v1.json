@@ -1915,6 +1915,20 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/settings/access-level",
+      "source": "crates/web/src/auth/book_access_level.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/access-level",
+      "source": "crates/web/src/auth/book_access_level.rs",
+      "handler": "save",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/library/{id}/saved",
       "source": "crates/web/src/auth/saved_free_chapters.rs",
       "handler": "list",

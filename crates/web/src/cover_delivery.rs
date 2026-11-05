@@ -2,7 +2,11 @@
 //! B owns publication and current cover identity; G owns bounded object I/O.
 //! This bridge never returns a bucket/key, origin, signed URL or user input.
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::Semaphore;
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
@@ -41,6 +45,52 @@ impl CoverDelivery {
             .public_card_ids(ids)
             .await
             .map_err(|_| CoverError::Unavailable)
+    }
+
+    /// Read-only, opt-in CDN URLs. No publish side effects on page requests.
+    /// Only ledger-confirmed current BASIC/public identities may be returned.
+    /// Without an explicit registry and public CDN origin this fails closed.
+    pub async fn current_cdn_urls(
+        &self,
+        ids: &[u64],
+        kind: PublicCoverKind,
+    ) -> Result<HashMap<u64, String>, CoverError> {
+        let Some(registry) = self.publications.as_ref() else {
+            return Err(CoverError::Forbidden);
+        };
+        let Some(origin) = self.objects.public_cdn_origin() else {
+            return Err(CoverError::Forbidden);
+        };
+        if ids.len() > 100 {
+            return Err(CoverError::Invalid);
+        }
+        // Public CDN origin is fixed by the operator, never an input URL.
+        let host = origin.strip_prefix("https://").ok_or(CoverError::Invalid)?;
+        if host.is_empty()
+            || host
+                .bytes()
+                .any(|b| !b.is_ascii_alphanumeric() && b != b'.' && b != b'-')
+            || host.starts_with('-')
+            || host.starts_with('.')
+            || host.ends_with('.')
+        {
+            return Err(CoverError::Invalid);
+        }
+        let book_ids: Vec<i64> = ids
+            .iter()
+            .map(|id| i64::try_from(*id).map_err(|_| CoverError::Invalid))
+            .collect::<Result<_, _>>()?;
+        let copies = registry
+            .current_cdn_copies(&book_ids, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        copies
+            .into_iter()
+            .map(|cover| {
+                let id = u64::try_from(cover.book_id).map_err(|_| CoverError::Unavailable)?;
+                Ok((id, format!("{origin}/{}", cover.object_key())))
+            })
+            .collect()
     }
 
     /// A short-lived S3 grant for one currently attached and public WebP.
