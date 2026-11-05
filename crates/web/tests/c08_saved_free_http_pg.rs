@@ -454,6 +454,81 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"),
     );
     assert_eq!(events, "2");
+
+    // A separate ordinary deletion request can be rejected. Rejection
+    // restores both original lifecycle and original public visibility,
+    // and cannot be replayed as an approval for a later request.
+    let rejected_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,owner_user_id,
+                               visibility,access_level)
+             VALUES('ci:c08:reject:{marker}','ru','Rejected deletion',{actor},
+                    'public','basic') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let rejected_path = format!("/me/books/{rejected_book}/settings/delete");
+    assert_eq!(
+        call(
+            &app, "POST", &rejected_path, &reader_cookie,
+            &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let reject_action = format!("/moderation/books/{rejected_book}/deletion");
+    assert_eq!(
+        call(
+            &app, "POST", &reject_action, &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=reject")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT lifecycle_status || ':' || visibility || ':' || lifecycle_revision::text
+                 FROM books WHERE id={rejected_book}"
+            )
+        ),
+        "in_progress:public:3"
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &rejected_path, &reader_cookie,
+            &format!("csrf_token={csrf}&action=complete&expected_revision=3&account_password=C08SavedReader2026")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &reject_action, &outsider_cookie,
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let second_start = html(call(&app, "GET", &rejected_path, &reader_cookie, "").await).await;
+    assert!(second_start.contains("value=\"start\""));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT decision FROM book_ordinary_deletion_decisions
+                 WHERE book_id={rejected_book} AND request_revision=2"
+            )
+        ),
+        "reject"
+    );
     pg(
         &url,
         &format!(
