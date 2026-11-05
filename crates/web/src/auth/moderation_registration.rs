@@ -19,13 +19,13 @@ use tor_accounts::{
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RegistrationQuery {
+pub(super) struct RegistrationQuery {
     before: Option<i64>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RegistrationDecisionForm {
+pub(super) struct RegistrationDecisionForm {
     csrf_token: String,
     expected_revision: i64,
     action: String,
@@ -106,31 +106,21 @@ fn render(items: &[RegistrationCandidate], count: i64, csrf: &str) -> String {
     .0
 }
 
-async fn session_digest(
-    state: &AuthState,
-    headers: &HeaderMap,
-) -> Result<[u8; 32], StatusCode> {
-    let Some(token) = state.cookies.session_token(headers) else {
-        return Err(StatusCode::UNAUTHORIZED);
-    };
-    let digest = session_token_digest(&token);
-    match state.accounts.session_actor(&digest).await {
-        Ok(Some(actor)) if actor.moderator || actor.administrator => Ok(digest),
-        Ok(Some(_)) => Err(StatusCode::FORBIDDEN),
-        Ok(None) => Err(StatusCode::UNAUTHORIZED),
-        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
-    }
-}
-
 pub(super) async fn queue(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Query(query): Query<RegistrationQuery>,
 ) -> Response {
-    let digest = match session_digest(&state, &headers).await {
-        Ok(d) => d,
-        Err(status) => return deny(status),
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
     };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let count = match state
         .accounts
         .moderation_registration_pending_count(&digest)
@@ -167,10 +157,16 @@ pub(super) async fn decide(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let digest = match session_digest(&state, &headers).await {
-        Ok(d) => d,
-        Err(status) => return deny(status),
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
     };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     match state
         .accounts
         .moderate_book_registration(
@@ -192,10 +188,16 @@ pub(super) async fn history(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    let digest = match session_digest(&state, &headers).await {
-        Ok(d) => d,
-        Err(status) => return deny(status),
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
     };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let approval = match state
         .accounts
         .private_book_registration_approver(&digest, id)
