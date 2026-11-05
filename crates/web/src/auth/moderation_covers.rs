@@ -5,7 +5,7 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{Html, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -141,7 +141,7 @@ pub(super) async fn page(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        queue_body(&items, count, &pages::escape_html(&csrf)),
+        Html(queue_body(&items, count, &pages::escape_html(&csrf))),
         &cookies,
     );
     response.headers_mut().insert(
@@ -302,5 +302,11 @@ mod tests {
         assert!(html.contains("/moderation/covers/9/preview"));
         assert!(html.contains("Первая обложка"));
         assert!(!html.contains("staging/covers/"));
+        let response = private_response(Html(html), &[]);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "moderator queue must render functional forms in Chromium"
+        );
     }
 }
