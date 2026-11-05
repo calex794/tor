@@ -32,7 +32,7 @@ impl PgLibrary {
                 JOIN users AS u ON u.id=$1 AND u.account_state='active' \
                 WHERE b.id=$2 AND b.visibility='public' \
                   AND b.visibility_status='active' \
-                  AND b.lifecycle_status<>'pending_deletion' \
+                  AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') \
                   AND NOT b.admin_hold AND NOT b.is_deleted \
                   AND (b.access_level='basic' \
                        OR (b.access_level='adult' AND u.adult_enabled) \
@@ -131,12 +131,15 @@ impl PgLibrary {
         // Purchases/text are not joined or selected.
         let rows = sqlx::query(
             "SELECT li.id AS cursor_id, b.id AS book_id, b.title, \
-                    (b.lifecycle_status='pending_deletion') AS pending_deletion \
+                    (b.lifecycle_status='pending_deletion') AS pending_deletion, \
+                    (b.lifecycle_status='ordinary_deleted') AS ordinary_deleted \
              FROM reader_library_items AS li \
              JOIN books AS b ON b.id = li.book_id \
              JOIN users AS u ON u.id=li.user_id AND u.account_state='active' \
              WHERE li.user_id = $1 AND ($2::BIGINT IS NULL OR li.id < $2) \
-               AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                    OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
+               AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted \
                AND (b.access_level='basic' \
                     OR (b.access_level='adult' AND u.adult_enabled) \
                     OR (b.access_level='pro_adult' AND EXISTS ( \
@@ -166,6 +169,9 @@ impl PgLibrary {
                         .map_err(|_| LibraryError::Unavailable)?,
                     pending_deletion: row
                         .try_get("pending_deletion")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    ordinary_deleted: row
+                        .try_get("ordinary_deleted")
                         .map_err(|_| LibraryError::Unavailable)?,
                 })
             })
@@ -208,7 +214,8 @@ impl PgLibrary {
              JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
              WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
                AND b.visibility_status='active' \
-               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion') \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                    OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
                AND NOT b.admin_hold AND NOT b.is_deleted \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND c.visibility='public' \
@@ -288,7 +295,8 @@ impl PgLibrary {
              WHERE saved.user_id=$1 AND c.book_id=$2 \
                AND ($3::BIGINT IS NULL OR c.chapter_no::BIGINT>$3) \
                AND b.visibility_status='active' \
-               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion') \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                    OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
                AND NOT b.admin_hold AND NOT b.is_deleted \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND c.visibility='public' \

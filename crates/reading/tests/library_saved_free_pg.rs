@@ -236,6 +236,42 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap()
         .unwrap();
     assert_eq!(still_readable.version_id, v1);
+    // Completed ordinary removal preserves the reader's exact saved-free V1.
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let tombstone = library.list_books(user_a, 10, None).await.unwrap();
+    assert_eq!(tombstone.items.len(), 1);
+    assert!(!tombstone.items[0].pending_deletion);
+    assert!(tombstone.items[0].ordinary_deleted);
+    assert!(library.add_book(user_a, book).await.is_err());
+    let pinned = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pinned.version_id, v1);
+    assert_eq!(pinned.body_markdown, "Original chapter 1");
+    assert_eq!(
+        library
+            .pinned_free_chapters(user_a, book, 50, None, &token_a)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        3
+    );
+    assert!(library
+        .pinned_free_chapter(user_b, free1, &token_b)
+        .await
+        .unwrap()
+        .is_some());
+
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(book)
         .execute(&pool)

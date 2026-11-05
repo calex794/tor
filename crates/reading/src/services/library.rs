@@ -12,6 +12,9 @@ pub struct SavedBook {
     /// A previously saved Book is still shown privately while awaiting deletion.
     /// This is not a chapter entitlement or a completed archival copy.
     pub pending_deletion: bool,
+    /// Completed ordinary removal leaves a private tombstone, not public access.
+    /// Never conflate with books.is_deleted (hard/legal denial).
+    pub ordinary_deleted: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,6 +69,7 @@ mod tests {
             book_id: 7,
             title: "Книга".to_owned(),
             pending_deletion: false,
+            ordinary_deleted: false,
         };
         assert_eq!(bookmark.book_id, 7);
         assert_eq!(DEFAULT_LIBRARY_LIMIT, 30);
