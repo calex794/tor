@@ -581,7 +581,6 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:3098/readyz
-          # Time each complete scenario without splitting jobs or changing their data.
           ci_timed_browser() {
             local scenario="$1" started=$SECONDS result
             shift
