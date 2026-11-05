@@ -209,9 +209,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     .unwrap();
     pg(
         &url,
-        &format!(
-            "UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"
-        ),
+        &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
     pg(
         &url,
