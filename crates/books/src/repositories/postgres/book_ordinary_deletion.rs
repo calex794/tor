@@ -154,11 +154,11 @@ impl PgAuthoring {
         }
         let next_revision = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
         sqlx::query("UPDATE books SET lifecycle_revision=$2 WHERE id=$1")
-        .bind(book_id)
-        .bind(next_revision)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
+            .bind(book_id)
+            .bind(next_revision)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
             "INSERT INTO book_ordinary_deletion_events
              (book_id,actor_user_id,action,previous_status,next_status,
