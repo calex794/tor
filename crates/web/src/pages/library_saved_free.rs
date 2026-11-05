@@ -2,7 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_reading::services::library::{SavedFreeChapter, SavedFreeChapterPage};
+use tor_reading::services::library::SavedFreeChapter;
 
 /// Chapter navigation is actor-scoped metadata. Both choices are displayed
 /// when a reader owns two distinct immutable editions of the same chapter.
@@ -74,43 +74,6 @@ pub fn saved_archive_list(
     layout(
         "Сохранённые главы",
         "Личная библиотека, архив бесплатных и купленных редакций.",
-        &content,
-    )
-}
-
-pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String> {
-    let mut rows = String::new();
-    for item in &page.items {
-        let title = escape_html(&item.chapter_title);
-        write!(
-            rows,
-            "<li><a href=\"/me/library/saved/{}\">Глава {}. {title}</a> \
-             <span class=\"library-card__place\">Сохранённая редакция {}</span></li>",
-            item.chapter_id, item.chapter_no, item.version_no
-        )
-        .expect("write saved free link");
-    }
-    if rows.is_empty() {
-        rows.push_str("<li>Сохранённых бесплатных глав пока нет.</li>");
-    }
-    let next = page
-        .next_cursor
-        .map(|id| {
-            format!("<p><a href=\"/me/library/{book_id}/saved?after={id}\">Следующие главы</a></p>")
-        })
-        .unwrap_or_default();
-    let content = format!(
-        "<section class=\"section auth-section\"><div class=\"container\">\
-         <h1>Сохранённые бесплатные главы</h1>\
-         <p>Здесь доступны только ранее закреплённые редакции. \
-         Новые главы и платные тексты автоматически не открываются.</p>\
-         <ul>{rows}</ul>{next}\
-         <p><a href=\"/me/library\">Вернуться в библиотеку</a></p>\
-         </div></section>"
-    );
-    layout(
-        "Сохранённые главы",
-        "Личная библиотека, сохранённые редакции.",
         &content,
     )
 }
