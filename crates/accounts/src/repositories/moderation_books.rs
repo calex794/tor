@@ -14,6 +14,7 @@ pub enum ModerationBooksError {
 
 // Row shape remains private to the bounded site-moderation queue.
 type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
+type ModerationDeletionReviewRow = (String, i64, i64, String, String, Option<i64>, bool, String);
 
 #[derive(Debug)]
 pub struct ModerationBook {
@@ -319,7 +320,7 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         let reviewer = current_moderator(&mut tx, session).await?;
         // Recheck and lock the *current* active owner, not just historical request data.
-        let row: Option<(String, i64, i64, String, String, Option<i64>, bool, String)> =
+        let row: Option<ModerationDeletionReviewRow> =
             sqlx::query_as(
                 "SELECT b.lifecycle_status,b.lifecycle_revision,r.owner_user_id,
                         r.previous_lifecycle_status,r.previous_visibility,
