@@ -1912,6 +1912,20 @@
       "source": "crates/web/src/lib.rs",
       "handler": "cover_http::cover_direct_grant",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/access-level",
+      "source": "crates/web/src/auth/book_access_level.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/access-level",
+      "source": "crates/web/src/auth/book_access_level.rs",
+      "handler": "save",
+      "policy": "scoped"
     }
   ]
 }

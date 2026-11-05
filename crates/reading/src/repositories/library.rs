@@ -71,16 +71,19 @@ impl PgLibrary {
         {
             return Err(LibraryError::Invalid);
         }
-        // The user_id comes from the verified session. Paid text and purchases
-        // are not joined or selected. A revoked 18+/21+ grant hides the title
-        // at read time without deleting a saved bookmark.
+        // The user_id comes from the verified session. This is a private
+        // previously-saved Book list, not public discovery; pending_deletion
+        // preserves the bookmark and shows its status without granting a chapter.
+        // Held, blocked, hard-deleted and age-ineligible Books stay denied.
+        // Purchases/text are not joined or selected.
         let rows = sqlx::query(
-            "SELECT li.id AS cursor_id, b.id AS book_id, b.title \
+            "SELECT li.id AS cursor_id, b.id AS book_id, b.title, \
+                    (b.lifecycle_status='pending_deletion') AS pending_deletion \
              FROM reader_library_items AS li \
              JOIN books AS b ON b.id = li.book_id \
              JOIN users AS u ON u.id=li.user_id AND u.account_state='active' \
              WHERE li.user_id = $1 AND ($2::BIGINT IS NULL OR li.id < $2) \
-               AND b.visibility = 'public' AND b.visibility_status = 'active' AND b.lifecycle_status<>'pending_deletion' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
                AND (b.access_level='basic' \
                     OR (b.access_level='adult' AND u.adult_enabled) \
                     OR (b.access_level='pro_adult' AND EXISTS ( \
@@ -107,6 +110,9 @@ impl PgLibrary {
                         .map_err(|_| LibraryError::Unavailable)?,
                     title: row
                         .try_get("title")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    pending_deletion: row
+                        .try_get("pending_deletion")
                         .map_err(|_| LibraryError::Unavailable)?,
                 })
             })

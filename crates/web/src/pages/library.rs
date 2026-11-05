@@ -84,9 +84,16 @@ fn my_library_inner(
     } else {
         for book in &saved.items {
             let title = escape_html(&book.title);
+            // A pending-deletion Book is not yet a completed archive.
+            // Its saved link remains visible but grants no chapter rights.
+            let state = if book.pending_deletion {
+                "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
+            } else {
+                ""
+            };
             write!(
                 saved_html,
-                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
+                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3>{state}</div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
                 book.book_id, book.book_id
             )
             .expect("writing saved book");
@@ -305,5 +312,48 @@ mod update_tests {
         assert!(seen.contains("value=\"unread\""));
         assert!(seen.contains("Просмотрено"));
         assert!(seen.contains("Отметить непрочитанной"));
+    }
+}
+
+#[cfg(test)]
+mod pending_library_tests {
+    use super::*;
+    use tor_reading::{
+        repositories::follow_updates::FollowedReleasePage,
+        services::library::{SavedBook, SavedBookPage},
+    };
+
+    #[test]
+    fn pending_deletion_book_is_private_visible_and_distinct_from_deleted() {
+        let saved = SavedBookPage {
+            items: vec![
+                SavedBook {
+                    cursor_id: 22,
+                    book_id: 55,
+                    title: "Тест <script>alert(1)</script>".into(),
+                    pending_deletion: true,
+                },
+                SavedBook {
+                    cursor_id: 21,
+                    book_id: 56,
+                    title: "Обычная книга".into(),
+                    pending_deletion: false,
+                },
+            ],
+            next_cursor: None,
+        };
+        let updates = FollowedReleasePage {
+            items: Vec::new(),
+            next_cursor: None,
+        };
+        let page = my_library_with_updates(&[], &saved, "csrf-token", false, false, &updates, &[]);
+        let html = page.0;
+        assert!(html.contains("Ожидает удаления"));
+        assert_eq!(html.matches("Ожидает удаления").count(), 1);
+        assert!(!html.contains(">Удалена<"));
+        assert!(html.contains("href=\"/books/55\""));
+        assert!(html.contains("action=\"/me/library/55/remove\""));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
     }
 }

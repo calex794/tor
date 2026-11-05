@@ -26,6 +26,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/me/books/{id}/settings/origin", get(edit).post(save))
         .route("/me/books/{id}/settings", get(index))
         .merge(super::book_lifecycle::router())
+        .merge(super::book_access_level::router())
 }
 
 fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String> {
@@ -144,7 +145,12 @@ pub(super) async fn save(
     }
 }
 
-fn render_index(id: i64, title: &str) -> Html<String> {
+fn render_index(id: i64, title: &str, age_editor_enabled: bool) -> Html<String> {
+    let age_link = if age_editor_enabled {
+        format!("<li><a href=\"/me/books/{id}/settings/access-level\">Возрастной уровень книги</a></li>")
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-card"><h1>Настройки книги «{}»</h1>
@@ -158,6 +164,7 @@ fn render_index(id: i64, title: &str) -> Html<String> {
         <li><a href="/me/books/{id}/settings/project-status">Состояние работы</a></li>
         <li><a href="/me/books/{id}/settings/related">Связанные книги</a></li>
         <li><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл</a></li>
+        {age_link}
         </ul></div></div></section>"#,
         pages::escape_html(title)
     );
@@ -179,7 +186,7 @@ pub(super) async fn index(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    private_response(render_index(id, &book.title), &[])
+    private_response(render_index(id, &book.title, state.age_editor_enabled), &[])
 }
 
 #[cfg(test)]
@@ -207,7 +214,7 @@ mod tests {
 
     #[test]
     fn s020_member_index_has_safe_links_and_escaped_title() {
-        let html = render_index(42, "<script>unsafe</script>").0;
+        let html = render_index(42, "<script>unsafe</script>", false).0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>"));
         for path in [
@@ -223,5 +230,8 @@ mod tests {
         }
         assert!(!html.contains("/me/books/42/publish"));
         assert!(!html.contains("/me/books/42/chapters"));
+        assert!(!html.contains("/me/books/42/settings/access-level"));
+        let enabled = render_index(42, "Safe title", true).0;
+        assert!(enabled.contains("/me/books/42/settings/access-level"));
     }
 }
