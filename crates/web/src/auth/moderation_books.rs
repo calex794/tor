@@ -10,6 +10,9 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+#[path = "moderation_decision_errors.rs"]
+mod decision_errors;
+pub(super) use decision_errors::decision_error;
 #[path = "moderation_book_history.rs"]
 mod history;
 #[path = "moderation_registration.rs"]
@@ -66,49 +69,6 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books/{id}/deletion", post(review_deletion))
         .merge(history::router())
         .merge(registration::router())
-}
-
-/// Display a non-leaking explanation for moderation decisions that lost a
-/// revision race or failed validation. Preserve the real HTTP error status.
-pub(super) fn decision_error(status: StatusCode, return_to: &'static str) -> Response {
-    let (heading, explanation) = match status {
-        StatusCode::CONFLICT => (
-            "Заявка уже изменилась",
-            "Другой модератор уже принял решение либо ревизия книги изменилась. Обновите очередь.",
-        ),
-        StatusCode::BAD_REQUEST => (
-            "Проверьте решение",
-            "Для отказа требуется причина; также проверьте допустимость параметров заявки.",
-        ),
-        StatusCode::FORBIDDEN => (
-            "Доступ запрещён",
-            "Для этого действия необходимы действующие права модератора сайта.",
-        ),
-        StatusCode::NOT_FOUND => (
-            "Заявка не найдена",
-            "Она могла быть рассмотрена или удалена из очереди.",
-        ),
-        _ => (
-            "Не удалось принять решение",
-            "Сервер не подтвердил действие. Ничего не считайте одобренным до повторной проверки.",
-        ),
-    };
-    private_response(
-        (
-            status,
-            pages::layout(
-                heading,
-                "Закрытый результат рассмотрения заявки.",
-                &format!(
-                    "<section class=\"me-page\"><div class=\"container\">
-                     <h1>{heading}</h1><p>{explanation}</p>
-                     <p><a href=\"{return_to}\">Вернуться в очередь</a></p>
-                     </div></section>"
-                ),
-            ),
-        ),
-        &[],
-    )
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
