@@ -766,23 +766,41 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let password = hash_password("SiteModeratorApproval2026!").unwrap();
     let ttl = NonZeroU32::new(3600).unwrap();
     let admin_token = generate_session_token();
     let owner_token = generate_session_token();
     let csrf = generate_session_token();
-    let admin = accounts.register_with_session(
-        &format!("mod-reg-admin-{nonce}@example.invalid"),
-        "Site Moderator", &password, &session_token_digest(&admin_token), ttl,
-    ).await.unwrap();
-    let owner = accounts.register_with_session(
-        &format!("mod-reg-owner-{nonce}@example.invalid"),
-        "Book Owner", &password, &session_token_digest(&owner_token), ttl,
-    ).await.unwrap();
-    pg(&url, &format!(
+    let admin = accounts
+        .register_with_session(
+            &format!("mod-reg-admin-{nonce}@example.invalid"),
+            "Site Moderator",
+            &password,
+            &session_token_digest(&admin_token),
+            ttl,
+        )
+        .await
+        .unwrap();
+    let owner = accounts
+        .register_with_session(
+            &format!("mod-reg-owner-{nonce}@example.invalid"),
+            "Book Owner",
+            &password,
+            &session_token_digest(&owner_token),
+            ttl,
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
         "INSERT INTO account_roles(user_id,role,is_active) VALUES({admin},'administrator',true)"
-    ));
+    ),
+    );
     let book: i64 = pg(
         &url,
         &format!(
@@ -793,9 +811,15 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
                     'draft','pending_moderation',true,{owner},'basic')
              RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool.clone()), accounts.clone(), false, ORIGIN.to_owned(),
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
     );
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
@@ -808,17 +832,28 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        request(&app, "GET", queue_path, &owner_cookie, ORIGIN, "").await.status(),
+        request(&app, "GET", queue_path, &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         request(&app, "POST", &decision_path, &owner_cookie, ORIGIN, &body)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", &decision_path, &admin_cookie, "https://evil.invalid", &body)
-            .await.status(),
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            "https://evil.invalid",
+            &body
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     let queue = request(&app, "GET", queue_path, &admin_cookie, ORIGIN, "").await;
@@ -840,40 +875,48 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         "generic visibility editor cannot bypass initial registration approval"
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT visibility||':'||visibility_status FROM books WHERE id={book}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={book}")
+        ),
         "draft:pending_moderation"
     );
     assert_eq!(
         request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
         request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::CONFLICT,
         "double decision must not rewrite reviewer or audit"
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT visibility||':'||visibility_status FROM books WHERE id={book}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={book}")
+        ),
         "draft:active",
         "registration review must never publish the author's draft"
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT reviewer_user_id FROM book_registration_decisions
+        pg(
+            &url,
+            &format!(
+                "SELECT reviewer_user_id FROM book_registration_decisions
              WHERE book_id={book} AND outcome='approved'"
-        )),
+            )
+        ),
         admin.to_string()
     );
     let private_path = format!("/moderation/books/{book}/registration-history");
     assert_eq!(
         request(&app, "GET", &private_path, &owner_cookie, ORIGIN, "")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     let private = html(request(&app, "GET", &private_path, &admin_cookie, ORIGIN, "").await).await;
@@ -881,7 +924,8 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     assert!(private.contains(&admin.to_string()));
     assert_eq!(
         request(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let refused: i64 = pg(
@@ -893,38 +937,57 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
              VALUES('ci:mod-reg-rejected:{nonce}','ru','Refused','draft',
                     'pending_moderation',true,{owner},'basic') RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let rejected_path = format!("/moderation/books/{refused}/registration");
     assert_eq!(
         request(
-            &app, "POST", &rejected_path, &admin_cookie, ORIGIN,
+            &app,
+            "POST",
+            &rejected_path,
+            &admin_cookie,
+            ORIGIN,
             &format!("csrf_token={csrf}&expected_revision=1&action=reject")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
         request(
-            &app, "POST", &rejected_path, &admin_cookie, ORIGIN,
+            &app,
+            "POST",
+            &rejected_path,
+            &admin_cookie,
+            ORIGIN,
             &format!("csrf_token={csrf}&expected_revision=1&action=reject&reason=Incorrect+book")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT visibility_status FROM books WHERE id={refused}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT visibility_status FROM books WHERE id={refused}")
+        ),
         "hidden"
     );
     assert_eq!(
-        pg(&url, &format!(
+        pg(
+            &url,
+            &format!(
             "SELECT outcome||':'||reason FROM book_registration_decisions WHERE book_id={refused}"
-        )),
+        )
+        ),
         "rejected:Incorrect book"
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT COUNT(*) FROM book_registration_decisions WHERE book_id={book}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_registration_decisions WHERE book_id={book}")
+        ),
         "1"
     );
     pool.close().await;
