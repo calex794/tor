@@ -85,7 +85,9 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                <input type="hidden" name="expected_hold" value="{held}">
                <input type="hidden" name="new_hold" value="{next}">
                <button type="submit">{action}</button>
-               </form></article>"#,
+               </form>
+               <p><a href="/moderation/books/{id}/registration-history">
+                 Кто одобрил регистрацию</a></p></article>"#,
             id = row.id,
             visibility = pages::escape_html(&row.visibility),
             held = row.admin_hold,
