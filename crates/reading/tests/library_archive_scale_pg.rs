@@ -1,6 +1,6 @@
 //! BR-060/C-08: 10k saved-free chapters use bounded, stable private cursors.
 //! Run only against the disposable tor_ci PostgreSQL database in CI.
-use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tor_reading::{repositories::PgLibrary, services::library::LibraryError};
 
@@ -12,7 +12,11 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
         url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"),
         "never access permanent or remote PostgreSQL"
     );
-    let pool = PgPool::connect(&url).await.expect("tor_app database");
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .expect("tor_app database");
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -127,6 +131,42 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
         .items
         .iter()
         .all(|item| { item.saved_free_version_no == Some(1) && item.purchased.is_none() }));
+
+    // Inspect the exact SQL actually prepared by PgLibrary, not an approximate
+    // hand-written proxy. One pool connection makes the prepared statement
+    // available for PostgreSQL EXPLAIN on that same backend.
+    let prepared: String = sqlx::query_scalar(
+        "SELECT statement FROM pg_prepared_statements
+         WHERE statement LIKE 'WITH eligible_book AS MATERIALIZED%'
+           AND statement LIKE '%reader_saved_free_chapters%'
+         ORDER BY name DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("archive page SQL must be prepared on the test backend");
+    assert!(prepared.contains("ORDER BY c.chapter_no, c.id LIMIT $4"));
+    let plan_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {prepared}");
+    let analyzed: serde_json::Value = sqlx::query_scalar(&plan_sql)
+        .bind(actor)
+        .bind(book)
+        .bind(Some(9900_i64))
+        .bind(101_i64)
+        .bind(digest.as_slice())
+        .fetch_one(&pool)
+        .await
+        .expect("EXPLAIN ANALYZE of actual saved_archive_chapters query");
+    let entry = &analyzed[0];
+    assert_eq!(entry["Plan"]["Node Type"], "Limit");
+    assert_eq!(entry["Plan"]["Actual Rows"], 100.0);
+    let execution_ms = entry["Execution Time"]
+        .as_f64()
+        .expect("PostgreSQL reports execution time");
+    let hit_blocks = entry["Plan"]["Shared Hit Blocks"].as_u64().unwrap_or(0);
+    let read_blocks = entry["Plan"]["Shared Read Blocks"].as_u64().unwrap_or(0);
+    eprintln!(
+        "BR-060 10k archive: exact query EXPLAIN execution {execution_ms:.2} ms, \
+         root shared hit {hit_blocks} blocks, read {read_blocks} blocks"
+    );
 
     let middle = library
         .saved_archive_chapters(actor, book, 30, Some(9950), &digest)
