@@ -211,9 +211,9 @@ impl PgLibrary {
                AND (b.access_level='basic' \
                 OR (b.access_level='adult' AND viewer.adult_enabled) \
                 OR (b.access_level='pro_adult' AND EXISTS ( \
-                    SELECT 1 FROM user_level_grants AS grant \
-                    WHERE grant.user_id=viewer.id AND grant.level='pro_adult' \
-                      AND grant.is_active)))",
+                    SELECT 1 FROM user_level_grants AS g \
+                    WHERE g.user_id=viewer.id AND g.level='pro_adult' \
+                      AND g.is_active)))",
         )
         .bind(user_id)
         .bind(chapter_id)
@@ -269,9 +269,9 @@ impl PgLibrary {
                AND (b.access_level='basic' \
                 OR (b.access_level='adult' AND viewer.adult_enabled) \
                 OR (b.access_level='pro_adult' AND EXISTS ( \
-                    SELECT 1 FROM user_level_grants AS grant \
-                    WHERE grant.user_id=viewer.id AND grant.level='pro_adult' \
-                      AND grant.is_active))) \
+                    SELECT 1 FROM user_level_grants AS g \
+                    WHERE g.user_id=viewer.id AND g.level='pro_adult' \
+                      AND g.is_active))) \
              ORDER BY c.id LIMIT $4",
         )
         .bind(user_id)
