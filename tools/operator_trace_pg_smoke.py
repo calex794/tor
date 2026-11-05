@@ -178,7 +178,10 @@ def main():
         writer("writer-after")
         require(stored(slow_id) == row, "restart lost or changed committed trace")
         fresh_id = None
-        for _ in range(32):
+        # A normal trace is sampled about once per 16 HTTP requests. A loop of 32
+        # can fail by chance (~13%) even when delivery is healthy; allow enough
+        # attempts to make the acceptance check stable without weakening it.
+        for _ in range(192):
             candidate, _ = catalog()
             if int(candidate, 16) % 16 == 0:
                 fresh_id = candidate
