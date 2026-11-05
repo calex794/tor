@@ -309,6 +309,39 @@ impl PgAccounts {
             .collect())
     }
 
+    /// Exact private counter for the current reviewer: never includes their
+    /// own Book and never reveals pending requests to public endpoints.
+    pub async fn moderation_pending_deletion_count(
+        &self,
+        session: &[u8; 32],
+    ) -> Result<i64, ModerationBooksError> {
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        let reviewer = current_moderator(&mut tx, session).await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM book_ordinary_deletion_requests r
+             JOIN books b ON b.id=r.book_id
+             WHERE b.lifecycle_status='pending_deletion'
+               AND b.lifecycle_revision=r.request_revision
+               AND NOT b.is_deleted AND r.owner_user_id<>$1
+               AND NOT EXISTS (
+                 SELECT 1 FROM book_ordinary_deletion_decisions d
+                 WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
+               )",
+        )
+        .bind(reviewer)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| ModerationBooksError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        Ok(count)
+    }
+
     /// Independent, single-decision approval or rejection for one exact
     /// pending owner request. Reject restores the pre-request lifecycle and
     /// publication flag, while keeping all Book, chapters and purchases.
