@@ -21,6 +21,7 @@ use tor_accounts::{
 pub(super) struct RegistrationQuery {
     before: Option<i64>,
     q: Option<String>,
+    level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -56,9 +57,17 @@ fn render(
     covers_count: i64,
     deletions_count: i64,
     search: Option<&str>,
+    level: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
     let search = pages::escape_html(search.unwrap_or(""));
+    let level = level.unwrap_or("");
+    let selected = |tier: &str| if level == tier { " selected" } else { "" };
+    let all_selected = selected("");
+    let basic_selected = selected("basic");
+    let adult_selected = selected("adult");
+    let pro_selected = selected("pro_adult");
+    let legacy_selected = selected("legacy");
     let mut cards = String::new();
     for item in items {
         let title = pages::escape_html(&item.title);
@@ -95,6 +104,7 @@ fn render(
                 r#"<form method="get" action="/moderation/books/registrations">
                 <input type="hidden" name="before" value="{}">
                 <input type="hidden" name="q" value="{search}">
+                <input type="hidden" name="level" value="{level}">
                 <button type="submit">Следующие заявки</button></form>"#,
                 last.book_id
             ));
@@ -115,6 +125,14 @@ fn render(
             <form method="get" action="/moderation/books/registrations">
               <label for="registration-search">Поиск по названию или ID книги</label>
               <input id="registration-search" name="q" maxlength="120" value="{search}">
+              <label for="registration-level">Возрастная категория книги</label>
+              <select id="registration-level" name="level">
+                <option value=""{all_selected}>Все уровни</option>
+                <option value="basic"{basic_selected}>Без ограничений</option>
+                <option value="adult"{adult_selected}>18+</option>
+                <option value="pro_adult"{pro_selected}>21+</option>
+                <option value="legacy"{legacy_selected}>Не указан</option>
+              </select>
               <button type="submit">Найти</button>
               <a href="/moderation/books/registrations">Сбросить</a>
             </form>
@@ -170,7 +188,12 @@ pub(super) async fn queue(
     };
     let rows = match state
         .accounts
-        .moderation_registration_queue_filtered(&digest, query.before, query.q.as_deref())
+        .moderation_registration_queue_with_access_level(
+            &digest,
+            query.before,
+            query.q.as_deref(),
+            query.level.as_deref().filter(|level| !level.is_empty()),
+        )
         .await
     {
         Ok(rows) => rows,
@@ -185,6 +208,7 @@ pub(super) async fn queue(
             covers_count,
             deletions_count,
             query.q.as_deref(),
+            query.level.as_deref(),
         )),
         &cookies,
     );
@@ -289,12 +313,13 @@ mod tests {
             owner_user_id: Some(37),
             revision: 1,
         }];
-        let body = render(&rows, 1, "csrf", 2, 3, None);
+        let body = render(&rows, 1, "csrf", 2, 3, None, None);
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
         assert!(body.contains("moderation-review-confirm"));
         assert!(body.contains("name=\"q\""));
+        assert!(body.contains("name=\"level\""));
         assert!(body.contains("Обложки (2)"));
         assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));
