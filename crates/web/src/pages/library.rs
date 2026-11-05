@@ -84,17 +84,24 @@ fn my_library_inner(
     } else {
         for book in &saved.items {
             let title = escape_html(&book.title);
-            // A pending-deletion Book is not yet a completed archive.
-            // Its saved link remains visible but grants no chapter rights.
-            let state = if book.pending_deletion {
+            // A saved Book is still present after ordinary deletion.
+            // Its public detail URL is gone; use only the private pinned reader.
+            let state = if book.ordinary_deleted {
+                "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
+            } else if book.pending_deletion {
                 "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
             } else {
                 ""
             };
+            let title_view = if book.ordinary_deleted {
+                format!("<h3>{title}</h3>")
+            } else {
+                format!("<h3><a href=\"/books/{}\">{title}</a></h3>", book.book_id)
+            };
             write!(
                 saved_html,
-                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3>{state}<p><a href=\"/me/library/{}/saved\">Сохранённые главы</a></p></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
-                book.book_id, book.book_id, book.book_id
+                "<article class=\"library-card\"><div>{title_view}{state}<p><a href=\"/me/library/{}/saved\">Сохранённые главы</a></p></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
+                book.book_id, book.book_id
             )
             .expect("writing saved book");
         }
@@ -332,12 +339,14 @@ mod pending_library_tests {
                     book_id: 55,
                     title: "Тест <script>alert(1)</script>".into(),
                     pending_deletion: true,
+                    ordinary_deleted: false,
                 },
                 SavedBook {
                     cursor_id: 21,
                     book_id: 56,
                     title: "Обычная книга".into(),
                     pending_deletion: false,
+                    ordinary_deleted: false,
                 },
             ],
             next_cursor: None,
