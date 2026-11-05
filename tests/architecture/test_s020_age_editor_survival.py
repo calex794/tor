@@ -37,6 +37,20 @@ class S020GatedEditorSurvival(unittest.TestCase):
         self.assertIn(ROUTE, settings)
         self.assertEqual(contract.count(f'"template": "{ROUTE}"'), 2)
 
+    def test_ordinary_deleted_book_stays_read_only(self):
+        # This lifecycle state was introduced after the original S020
+        # acceptance. A stale C-08 or S020 branch must not reenable editing.
+        repo = self.read("crates/books/src/repositories/postgres/book_access_level.rs")
+        self.assertEqual(
+            repo.count("NOT IN ('pending_deletion','ordinary_deleted')"),
+            2,
+        )
+        self.assertIn("ordinary_deleted_at=now()", repo)
+        http = self.read("crates/web/tests/s020_age_editor_http_pg.rs")
+        self.assertIn("ordinary_deleted_at=now()", http)
+        admin = self.read("crates/web/tests/paid_grants_http_pg/s020_admin_age.rs")
+        self.assertIn("ordinary-deleted Book", admin)
+
     def test_pg_acceptance_and_registry_remain_mandatory(self):
         self.assertIn(
             "s020_age_editor_is_off_by_default_and_monotonic_under_live_http",
