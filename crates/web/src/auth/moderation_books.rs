@@ -90,10 +90,8 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         let owner = row
             .owner_user_id
             .map_or_else(|| "—".to_owned(), |id| id.to_string());
-        let registration_reviewer = match (
-            row.approved_by_user_id,
-            row.approved_by_name.as_deref(),
-        ) {
+        let registration_reviewer = match (row.approved_by_user_id, row.approved_by_name.as_deref())
+        {
             (Some(id), Some(name)) => format!(
                 "Первичную регистрацию одобрил {} (#{id})",
                 pages::escape_html(name)
