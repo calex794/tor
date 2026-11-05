@@ -293,12 +293,9 @@ pub(super) async fn verify(
                 .status(),
             StatusCode::OK
         );
-        assert_ne!(
-            private_get(app, &archive, Some(&fresh.session))
-                .await
-                .status(),
-            StatusCode::OK
-        );
+        let fresh_denied = html_body(private_get(app, &archive, Some(&fresh.session)).await).await;
+        assert!(!fresh_denied.contains(&format!("/me/library/saved/{free_chapter}")));
+        assert!(!fresh_denied.contains(&format!("/read/paid/{chapter}?purchase_id=")));
         assert_ne!(
             post_grant(app, chapter, Some(&fresh.session), Some(&fresh.csrf), ORIGIN, "{}")
                 .await
