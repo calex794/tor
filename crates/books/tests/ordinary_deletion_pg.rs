@@ -10,7 +10,9 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let pool = PgPool::connect(&url).await.unwrap();
     let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let hash = "$argon2id$verified-through-web-only-test";
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
@@ -98,7 +100,11 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .unwrap();
 
     let repo = PgAuthoring::new(pool.clone());
-    assert!(repo.ordinary_deletion_view(stranger, book).await.unwrap().is_none());
+    assert!(repo
+        .ordinary_deletion_view(stranger, book)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.advance_ordinary_deletion(stranger, book, 1, "start", &stranger_token, hash)
             .await,
@@ -125,7 +131,11 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
             .await,
         Err(AuthorError::Conflict)
     );
-    let pending = repo.ordinary_deletion_view(owner, book).await.unwrap().unwrap();
+    let pending = repo
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(pending.status, "pending_deletion");
     assert_eq!(pending.revision, 2);
     let vis: String = sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
@@ -139,7 +149,11 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
             .await,
         Ok(3)
     );
-    let final_state = repo.ordinary_deletion_view(owner, book).await.unwrap().unwrap();
+    let final_state = repo
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(final_state.status, "ordinary_deleted");
     assert_eq!(final_state.revision, 3);
     let row = sqlx::query(
@@ -163,19 +177,20 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .await
     .unwrap();
     assert_eq!(saved, 1);
-    let events: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let events: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(events, 2);
-    assert!(sqlx::query("DELETE FROM book_ordinary_deletion_events WHERE book_id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .is_err());
+    assert!(
+        sqlx::query("DELETE FROM book_ordinary_deletion_events WHERE book_id=$1")
+            .bind(book)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 3, "start", &owner_token, hash)
             .await,
