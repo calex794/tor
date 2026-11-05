@@ -1,7 +1,7 @@
 //! C-08/BR-060: saving a Book pins its released free chapter editions.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
-use tor_reading::repositories::PgLibrary;
+use tor_reading::{repositories::PgLibrary, services::progress::ReadingPlace};
 
 async fn chapter(
     pool: &PgPool,
@@ -144,6 +144,33 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     assert_eq!(saved_first.version_id, v1);
     assert_eq!(saved_first.body_markdown, "Original chapter 1");
+    assert!(saved_first.saved_place.is_none());
+    // A cursor only restores its own immutable edition, never creates access.
+    sqlx::query(
+        "INSERT INTO reader_book_positions
+         (user_id,book_id,chapter_id,chapter_no,chapter_revision,
+          version_id,block_index,char_offset)
+         VALUES($1,$2,$3,1,1,$4,1,8)",
+    )
+    .bind(user_a)
+    .bind(book)
+    .bind(free1)
+    .bind(v1)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let anchored = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        anchored.saved_place,
+        Some(ReadingPlace {
+            block_index: 1,
+            char_offset: 8,
+        })
+    );
     assert!(library
         .pinned_free_chapter(user_b, free1, &token_b)
         .await
@@ -257,6 +284,28 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     assert_eq!(pinned.version_id, v1);
     assert_eq!(pinned.body_markdown, "Original chapter 1");
+    assert_eq!(
+        pinned.saved_place,
+        Some(ReadingPlace {
+            block_index: 1,
+            char_offset: 8,
+        })
+    );
+    // Repointed public V2 progress is never mapped onto older saved V1.
+    sqlx::query("UPDATE reader_book_positions SET version_id=$2 WHERE user_id=$1 AND book_id=$3")
+        .bind(user_a)
+        .bind(new_version)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap()
+        .saved_place
+        .is_none());
     assert_eq!(
         library
             .pinned_free_chapters(user_a, book, 50, None, &token_a)

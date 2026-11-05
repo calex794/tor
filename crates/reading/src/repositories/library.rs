@@ -5,6 +5,7 @@ use crate::services::library::{
     LibraryError, SavedBook, SavedBookPage, SavedFreeChapter, SavedFreeChapterLink,
     SavedFreeChapterPage, MAX_LIBRARY_LIMIT,
 };
+use crate::services::progress::ReadingPlace;
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -203,7 +204,9 @@ impl PgLibrary {
         let row = sqlx::query(
             "SELECT b.id AS book_id, b.title AS book_title, \
                     c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
-                    saved.version_id, v.version_no, v.body_markdown \
+                    saved.version_id, v.version_no, v.body_markdown, \
+                    progress.block_index AS saved_block_index, \
+                    progress.char_offset AS saved_char_offset \
              FROM reader_saved_free_chapters AS saved \
              JOIN chapters AS c ON c.id=saved.chapter_id \
              JOIN books AS b ON b.id=c.book_id \
@@ -212,6 +215,9 @@ impl PgLibrary {
                AND active_session.token_hash=$3::bytea AND active_session.revoked_at IS NULL \
                AND active_session.expires_at>now() \
              JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
+             LEFT JOIN reader_book_positions AS progress \
+               ON progress.user_id=saved.user_id AND progress.book_id=b.id \
+              AND progress.chapter_id=c.id AND progress.version_id=saved.version_id \
              WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
                AND b.visibility_status='active' \
                AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
@@ -233,6 +239,12 @@ impl PgLibrary {
         .await
         .map_err(|_| LibraryError::Unavailable)?;
         row.map(|r| {
+            let saved_block: Option<i32> = r
+                .try_get("saved_block_index")
+                .map_err(|_| LibraryError::Unavailable)?;
+            let saved_offset: Option<i32> = r
+                .try_get("saved_char_offset")
+                .map_err(|_| LibraryError::Unavailable)?;
             Ok(SavedFreeChapter {
                 book_id: r
                     .try_get("book_id")
@@ -258,6 +270,12 @@ impl PgLibrary {
                 body_markdown: r
                     .try_get("body_markdown")
                     .map_err(|_| LibraryError::Unavailable)?,
+                saved_place: saved_block
+                    .zip(saved_offset)
+                    .map(|(block_index, char_offset)| ReadingPlace {
+                        block_index,
+                        char_offset,
+                    }),
             })
         })
         .transpose()
