@@ -163,7 +163,7 @@ fn anchor_saved_offset(
     }
 }
 
-pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
+pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String> {
     let normalized = chapter
         .body_markdown
         .replace("\r\n", "\n")
@@ -178,7 +178,21 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
         ""
     };
     let title = escape_html(&chapter.chapter_title);
+    let csrf = escape_html(csrf);
     let book = escape_html(&chapter.book_title);
+    let place = chapter.saved_place.unwrap_or(tor_reading::services::progress::ReadingPlace {
+        block_index: 1,
+        char_offset: 0,
+    });
+    let position_form = format!(
+        "<form method=\"post\" action=\"/me/library/saved/{}/place\">\
+         <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
+         <input type=\"hidden\" name=\"version_id\" value=\"{}\">\
+         <label>Блок текста <input type=\"number\" name=\"block_index\" min=\"1\" max=\"200\" required value=\"{}\"></label>\
+         <label>Смещение UTF-16 <input type=\"number\" name=\"char_offset\" min=\"0\" max=\"100000\" required value=\"{}\"></label>\
+         <button type=\"submit\">Сохранить позицию в этой редакции</button></form>",
+        chapter.chapter_id, chapter.version_id, place.block_index, place.char_offset
+    );
     let content = format!(
         "<section class=\"section reader-page\"><div class=\"container\">\
          <p class=\"eyebrow\">Сохранённая редакция {}</p>\
@@ -246,7 +260,7 @@ mod tests {
             body_markdown: "**Original V1**".into(),
             saved_place: None,
         };
-        let html = saved_free_reader(&saved).0;
+        let html = saved_free_reader(&saved, "csrf-test").0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("X &amp; Y"));
