@@ -37,6 +37,14 @@ impl PublicCoverPublication {
     }
 }
 
+fn valid_cdn_operation_id(operation_id: &str) -> bool {
+    !operation_id.is_empty()
+        && operation_id.len() <= 128
+        && operation_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 impl PgPublicCoverPublications {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -300,6 +308,176 @@ impl PgPublicCoverPublications {
              WHERE id=$1 AND state='purge_submitted' AND cdn_operation_id=$2",
         )
         .bind(id)
+        .bind(operation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected() == 1)
+    }
+    /// Acquire at most three origin-deleted identities for selective CDN purge.
+    /// A short lease fences concurrent workers, including after a restart.
+    pub async fn claim_purge_submissions(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PublicCoverPublication>, sqlx::Error> {
+        if !(1..=3).contains(&limit) {
+            return Err(sqlx::Error::Protocol("invalid CDN purge batch".into()));
+        }
+        let rows = sqlx::query(
+            "WITH due AS (
+                SELECT id FROM public_cover_publications
+                WHERE state='origin_deleted'
+                  AND (lease_until IS NULL OR lease_until<now())
+                  AND (retry_after IS NULL OR retry_after<=now())
+                ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED
+             )
+             UPDATE public_cover_publications p
+             SET lease_epoch=p.lease_epoch+1,
+                 lease_until=now()+interval '1 minute',
+                 updated_at=now()
+             FROM due WHERE p.id=due.id
+             RETURNING p.id,p.book_id,p.job_id,p.slot_revision,
+                       p.variant_name,p.content_sha256,p.size_bytes,p.lease_epoch",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::from_row).collect()
+    }
+
+    pub async fn purge_submitted_fenced(
+        &self,
+        id: i64,
+        epoch: i64,
+        operation_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        if !valid_cdn_operation_id(operation_id) {
+            return Ok(false);
+        }
+        let changed = sqlx::query(
+            "UPDATE public_cover_publications
+             SET state='purge_submitted',cdn_operation_id=$3,
+                 lease_until=NULL,retry_after=now()+interval '15 seconds',
+                 updated_at=now()
+             WHERE id=$1 AND lease_epoch=$2 AND state='origin_deleted'
+               AND lease_until>now()",
+        )
+        .bind(id)
+        .bind(epoch)
+        .bind(operation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected() == 1)
+    }
+
+    /// An unknown POST outcome may have succeeded at the provider. The next
+    /// worker can safely submit the same exact immutable path a second time.
+    pub async fn retry_purge_submission(&self, id: i64, epoch: i64) -> Result<bool, sqlx::Error> {
+        let changed = sqlx::query(
+            "UPDATE public_cover_publications
+             SET lease_until=NULL,retry_after=now()+interval '1 minute',
+                 attempts=attempts+1,updated_at=now()
+             WHERE id=$1 AND lease_epoch=$2 AND state='origin_deleted'
+               AND lease_until>now()",
+        )
+        .bind(id)
+        .bind(epoch)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected() == 1)
+    }
+
+    pub async fn claim_purge_polls(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(PublicCoverPublication, String)>, sqlx::Error> {
+        if !(1..=3).contains(&limit) {
+            return Err(sqlx::Error::Protocol("invalid CDN poll batch".into()));
+        }
+        let rows = sqlx::query(
+            "WITH due AS (
+                SELECT id FROM public_cover_publications
+                WHERE state='purge_submitted' AND cdn_operation_id IS NOT NULL
+                  AND (lease_until IS NULL OR lease_until<now())
+                  AND (retry_after IS NULL OR retry_after<=now())
+                ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED
+             )
+             UPDATE public_cover_publications p
+             SET lease_epoch=p.lease_epoch+1,
+                 lease_until=now()+interval '1 minute',
+                 updated_at=now()
+             FROM due WHERE p.id=due.id
+             RETURNING p.id,p.book_id,p.job_id,p.slot_revision,
+                       p.variant_name,p.content_sha256,p.size_bytes,
+                       p.lease_epoch,p.cdn_operation_id",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| Ok((Self::from_row(row)?, row.try_get("cdn_operation_id")?)))
+            .collect()
+    }
+
+    pub async fn purge_completed_fenced(
+        &self,
+        id: i64,
+        epoch: i64,
+        operation_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let changed = sqlx::query(
+            "UPDATE public_cover_publications
+             SET state='purged',lease_until=NULL,retry_after=NULL,
+                 updated_at=now()
+             WHERE id=$1 AND lease_epoch=$2 AND cdn_operation_id=$3
+               AND state='purge_submitted' AND lease_until>now()",
+        )
+        .bind(id)
+        .bind(epoch)
+        .bind(operation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected() == 1)
+    }
+
+    /// Provider-reported failure: clear the operation and return to origin_deleted.
+    pub async fn purge_failed_fenced(
+        &self,
+        id: i64,
+        epoch: i64,
+        operation_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let changed = sqlx::query(
+            "UPDATE public_cover_publications
+             SET state='origin_deleted',cdn_operation_id=NULL,
+                 lease_until=NULL,retry_after=now()+interval '1 minute',
+                 attempts=attempts+1,updated_at=now()
+             WHERE id=$1 AND lease_epoch=$2 AND cdn_operation_id=$3
+               AND state='purge_submitted' AND lease_until>now()",
+        )
+        .bind(id)
+        .bind(epoch)
+        .bind(operation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(changed.rows_affected() == 1)
+    }
+
+    /// Pending, timed out or malformed status: retain the operation identity.
+    pub async fn defer_purge_poll(
+        &self,
+        id: i64,
+        epoch: i64,
+        operation_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let changed = sqlx::query(
+            "UPDATE public_cover_publications
+             SET lease_until=NULL,retry_after=now()+interval '30 seconds',
+                 attempts=attempts+1,updated_at=now()
+             WHERE id=$1 AND lease_epoch=$2 AND cdn_operation_id=$3
+               AND state='purge_submitted' AND lease_until>now()",
+        )
+        .bind(id)
+        .bind(epoch)
         .bind(operation_id)
         .execute(&self.pool)
         .await?;
