@@ -118,6 +118,19 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("npx playwright install --with-deps", pg)
                 self.assertIn("npm install --no-save playwright@1.56.1", pg)
 
+    def test_pg_restart_and_backup_reuse_d04_built_server(self):
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                self.assertEqual(pg.count("cargo build -p tor-web\n"), 1)
+                self.assertIn("      - name: D-04 real HTTP and PostgreSQL sessions", pg)
+                self.assertIn("          cargo build -p tor-web\n", pg)
+                for drill in (
+                    "bash tools/tor_pg_restart_smoke.sh",
+                    "bash tools/tor_pg_backup_restore_smoke.sh",
+                ):
+                    self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
+
     def test_reader_and_visual_use_headless_chromium_shell(self):
         # Both manual jobs must remain identical to the required integration jobs.
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
