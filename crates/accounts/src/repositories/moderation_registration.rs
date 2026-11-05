@@ -55,7 +55,8 @@ impl PgAccounts {
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
         if before.is_some_and(|id| id <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
-            || access_level.is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || access_level
+                .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
         {
             return Err(ModerationBooksError::Invalid);
         }
