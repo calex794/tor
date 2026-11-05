@@ -34,9 +34,13 @@ pub(super) async fn list(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let session_digest = tor_accounts::services::security::session_token_digest(&token);
     let result = state
         .bookmarks
-        .pinned_free_chapters(actor, book_id, 50, query.after)
+        .pinned_free_chapters(actor, book_id, 50, query.after, &session_digest)
         .await;
     match result {
         Ok(page) => private_response(pages::saved_free_list(book_id, &page), &[]),
@@ -55,7 +59,15 @@ pub(super) async fn read(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let saved = match state.bookmarks.pinned_free_chapter(actor, chapter_id).await {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let session_digest = tor_accounts::services::security::session_token_digest(&token);
+    let saved = match state
+        .bookmarks
+        .pinned_free_chapter(actor, chapter_id, &session_digest)
+        .await
+    {
         Ok(Some(saved)) if valid_reader_length(&saved.body_markdown) => saved,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),

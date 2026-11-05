@@ -189,6 +189,7 @@ impl PgLibrary {
         &self,
         user_id: i64,
         chapter_id: i64,
+        session_digest: &[u8; 32],
     ) -> Result<Option<SavedFreeChapter>, LibraryError> {
         if user_id <= 0 || chapter_id <= 0 {
             return Err(LibraryError::Invalid);
@@ -201,6 +202,9 @@ impl PgLibrary {
              JOIN chapters AS c ON c.id=saved.chapter_id \
              JOIN books AS b ON b.id=c.book_id \
              JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
+             JOIN sessions AS active_session ON active_session.user_id=viewer.id \
+               AND active_session.token_hash=$3::bytea AND active_session.revoked_at IS NULL \
+               AND active_session.expires_at>now() \
              JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
              WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
                AND b.visibility_status='active' \
@@ -217,6 +221,7 @@ impl PgLibrary {
         )
         .bind(user_id)
         .bind(chapter_id)
+        .bind(session_digest.as_slice())
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| LibraryError::Unavailable)?;
@@ -259,6 +264,7 @@ impl PgLibrary {
         book_id: i64,
         limit: u16,
         after: Option<i64>,
+        session_digest: &[u8; 32],
     ) -> Result<SavedFreeChapterPage, LibraryError> {
         if user_id <= 0
             || book_id <= 0
@@ -274,6 +280,9 @@ impl PgLibrary {
              JOIN chapters AS c ON c.id=saved.chapter_id \
              JOIN books AS b ON b.id=c.book_id \
              JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
+             JOIN sessions AS active_session ON active_session.user_id=viewer.id \
+               AND active_session.token_hash=$5::bytea AND active_session.revoked_at IS NULL \
+               AND active_session.expires_at>now() \
              JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
              WHERE saved.user_id=$1 AND c.book_id=$2 \
                AND ($3::BIGINT IS NULL OR c.id>$3) \
@@ -294,6 +303,7 @@ impl PgLibrary {
         .bind(book_id)
         .bind(after)
         .bind(i64::from(limit) + 1)
+        .bind(session_digest.as_slice())
         .fetch_all(&self.pool)
         .await
         .map_err(|_| LibraryError::Unavailable)?;

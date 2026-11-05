@@ -85,6 +85,22 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     .fetch_one(&pool)
     .await
     .unwrap();
+    let mut token_a = [0_u8; 32];
+    token_a[..16].copy_from_slice(&nonce.to_le_bytes());
+    token_a[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut token_b = token_a;
+    token_b[31] ^= 1;
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour'),($3,$4,now()+interval '1 hour')",
+    )
+    .bind(user_a)
+    .bind(token_a.as_slice())
+    .bind(user_b)
+    .bind(token_b.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES($1,'ru','C08 saved free','public','basic') RETURNING id",
@@ -121,30 +137,30 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
     let saved_first = library
-        .pinned_free_chapter(user_a, free1)
+        .pinned_free_chapter(user_a, free1, &token_a)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(saved_first.version_id, v1);
     assert_eq!(saved_first.body_markdown, "Original chapter 1");
     assert!(library
-        .pinned_free_chapter(user_b, free1)
+        .pinned_free_chapter(user_b, free1, &token_b)
         .await
         .unwrap()
         .is_none());
     assert!(library
-        .pinned_free_chapter(user_a, paid)
+        .pinned_free_chapter(user_a, paid, &token_a)
         .await
         .unwrap()
         .is_none());
     let one = library
-        .pinned_free_chapters(user_a, book, 1, None)
+        .pinned_free_chapters(user_a, book, 1, None, &token_a)
         .await
         .unwrap();
     assert_eq!(one.items.len(), 1);
     assert!(one.next_cursor.is_some());
     let next = library
-        .pinned_free_chapters(user_a, book, 1, one.next_cursor)
+        .pinned_free_chapters(user_a, book, 1, one.next_cursor, &token_a)
         .await
         .unwrap();
     assert_eq!(next.items.len(), 1);
@@ -172,7 +188,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     library.add_book(user_a, book).await.unwrap();
     assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
     let historical = library
-        .pinned_free_chapter(user_a, free1)
+        .pinned_free_chapter(user_a, free1, &token_a)
         .await
         .unwrap()
         .unwrap();
@@ -212,7 +228,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     assert!(saved.items[0].pending_deletion);
     assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
     let still_readable = library
-        .pinned_free_chapter(user_a, free1)
+        .pinned_free_chapter(user_a, free1, &token_a)
         .await
         .unwrap()
         .unwrap();
@@ -223,12 +239,12 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     assert!(library
-        .pinned_free_chapter(user_a, free1)
+        .pinned_free_chapter(user_a, free1, &token_a)
         .await
         .unwrap()
         .is_none());
     assert!(library
-        .pinned_free_chapters(user_a, book, 50, None)
+        .pinned_free_chapters(user_a, book, 50, None, &token_a)
         .await
         .unwrap()
         .items
@@ -239,6 +255,26 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     assert!(library.add_book(user_a, book).await.is_err());
+    // A revoked session cannot read an existing pinned V1 or its private TOC,
+    // even though the account, Book and immutable pin remain active.
+    sqlx::query("UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND token_hash=$2")
+        .bind(user_a)
+        .bind(token_a.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(library
+        .pinned_free_chapters(user_a, book, 50, None, &token_a)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
     library.remove_book(user_a, book).await.unwrap();
     assert!(pins(&pool, user_a).await.is_empty());
     assert_eq!(pins(&pool, user_b).await.len(), 3);
