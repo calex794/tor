@@ -208,13 +208,14 @@ pub(super) async fn verify(
     // The existing signed session is not enough: after completed deletion,
     // recover both immutable editions through a *new* real HTTP login.
     let fresh = fresh_buyer_login(app).await;
-    assert!(fresh.session != buyer_cookie, "login must create a new session");
+    assert!(
+        fresh.session != buyer_cookie,
+        "login must create a new session"
+    );
     let recovered = private_get(app, &archive, Some(&fresh.session)).await;
     assert_eq!(recovered.status(), StatusCode::OK);
     let recovered_toc = html_body(recovered).await;
-    assert!(recovered_toc.contains(&format!(
-        "href=\"/me/library/saved/{free_chapter}\""
-    )));
+    assert!(recovered_toc.contains(&format!("href=\"/me/library/saved/{free_chapter}\"")));
     assert!(recovered_toc.contains(&format!(
         "href=\"/read/paid/{chapter}?purchase_id={purchase_id}\""
     )));
@@ -235,7 +236,8 @@ pub(super) async fn verify(
     assert!(html_body(recovered_paid)
         .await
         .contains("data-paid-chapter-reader"));
-    let fresh_library = html_body(private_get(app, "/me/library", Some(&fresh.session)).await).await;
+    let fresh_library =
+        html_body(private_get(app, "/me/library", Some(&fresh.session)).await).await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&archive));
 
@@ -297,9 +299,16 @@ pub(super) async fn verify(
         assert!(!fresh_denied.contains(&format!("/me/library/saved/{free_chapter}")));
         assert!(!fresh_denied.contains(&format!("/read/paid/{chapter}?purchase_id=")));
         assert_ne!(
-            post_grant(app, chapter, Some(&fresh.session), Some(&fresh.csrf), ORIGIN, "{}")
-                .await
-                .status(),
+            post_grant(
+                app,
+                chapter,
+                Some(&fresh.session),
+                Some(&fresh.csrf),
+                ORIGIN,
+                "{}"
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
     }
