@@ -256,8 +256,9 @@ impl PgLibrary {
         .transpose()
     }
 
-    /// Keyset by immutable chapter ID: bounded at 100 even for 10k saved
-    /// chapters. No paid text/body or metadata from another reader is selected.
+    /// Keyset by per-Book chapter number, never insertion ID: imported chapters
+    /// can be created out of order. Bounded at 100 even for 10k saved chapters.
+    /// No paid text/body or metadata from another reader is selected.
     pub async fn pinned_free_chapters(
         &self,
         user_id: i64,
@@ -285,7 +286,7 @@ impl PgLibrary {
                AND active_session.expires_at>now() \
              JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
              WHERE saved.user_id=$1 AND c.book_id=$2 \
-               AND ($3::BIGINT IS NULL OR c.id>$3) \
+               AND ($3::BIGINT IS NULL OR c.chapter_no::BIGINT>$3) \
                AND b.visibility_status='active' \
                AND (b.visibility='public' OR b.lifecycle_status='pending_deletion') \
                AND NOT b.admin_hold AND NOT b.is_deleted \
@@ -297,7 +298,7 @@ impl PgLibrary {
                     SELECT 1 FROM user_level_grants AS g \
                     WHERE g.user_id=viewer.id AND g.level='pro_adult' \
                       AND g.is_active))) \
-             ORDER BY c.id LIMIT $4",
+             ORDER BY c.chapter_no, c.id LIMIT $4",
         )
         .bind(user_id)
         .bind(book_id)
@@ -329,7 +330,7 @@ impl PgLibrary {
         let has_more = items.len() > usize::from(limit);
         items.truncate(usize::from(limit));
         let next_cursor = has_more
-            .then(|| items.last().map(|c| c.chapter_id))
+            .then(|| items.last().map(|c| i64::from(c.chapter_no)))
             .flatten();
         Ok(SavedFreeChapterPage { items, next_cursor })
     }
