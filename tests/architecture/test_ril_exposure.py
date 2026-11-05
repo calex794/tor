@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 282)  # BR-060 archived V1 adds read/write and a static progress route.
-        self.assertEqual(report["route_pairs"], 277)  # Includes both S020 and actor-scoped saved-free routes.
+        self.assertEqual(report["route_pairs"], 280)  # Includes exact-pinned BR-060 archive GET/PUT and script route.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
