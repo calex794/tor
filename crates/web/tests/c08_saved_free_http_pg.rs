@@ -370,7 +370,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     assert_eq!(
         call(
-            &app, "POST", &format!("/moderation/books/{book}/deletion"),
+            &app,
+            "POST",
+            &format!("/moderation/books/{book}/deletion"),
             &reader_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=approve")
         )
@@ -392,14 +394,16 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              VALUES({outsider},'moderator',TRUE)"
         ),
     );
-    let queue_html =
-        html(call(&app, "GET", moderator_queue, &outsider_cookie, "").await).await;
+    let queue_html = html(call(&app, "GET", moderator_queue, &outsider_cookie, "").await).await;
     assert!(queue_html.contains("Archived &lt;unsafe&gt;"));
     assert!(queue_html.contains(&format!("/moderation/books/{book}/deletion")));
     let review_action = format!("/moderation/books/{book}/deletion");
     assert_eq!(
         call(
-            &app, "POST", &review_action, &reader_cookie,
+            &app,
+            "POST",
+            &review_action,
+            &reader_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=approve")
         )
         .await
@@ -408,7 +412,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     assert_eq!(
         call(
-            &app, "POST", &review_action, &outsider_cookie,
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
             &format!("csrf_token=wrong&request_revision=2&decision=approve")
         )
         .await
@@ -417,7 +424,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     assert_eq!(
         call(
-            &app, "POST", &review_action, &outsider_cookie,
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=approve")
         )
         .await
@@ -426,7 +436,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     assert_eq!(
         call(
-            &app, "POST", &review_action, &outsider_cookie,
+            &app,
+            "POST",
+            &review_action,
+            &outsider_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=approve")
         )
         .await
@@ -500,7 +513,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let reject_action = format!("/moderation/books/{rejected_book}/deletion");
     assert_eq!(
         call(
-            &app, "POST", &reject_action, &outsider_cookie,
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=reject")
         )
         .await
@@ -528,7 +544,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     assert_eq!(
         call(
-            &app, "POST", &reject_action, &outsider_cookie,
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
             &format!("csrf_token={csrf}&request_revision=2&decision=approve")
         )
         .await
