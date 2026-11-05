@@ -158,8 +158,13 @@ class WorkflowWiringTests(unittest.TestCase):
                     integration[job],
                     job_sections((WORKFLOWS / manual_filename).read_text())[job],
                 ):
-                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    if job == "paid-private-e2e":
+                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps", body)
+                        self.assertIn("chromium.launch({headless:true})", body)
+                    else:
+                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
