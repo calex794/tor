@@ -880,8 +880,58 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (&layer_cookie, &csrf),
     )
     .await;
+    // BR-060: a finalized ordinary Book removal deindexes public discovery,
+    // but an immutable direct V1 purchase must still authorize the original
+    // buyer. The following fresh G grant is passed to the real MinIO/WebCrypto
+    // consumer, not merely asserted by a mock signer or a SQL entitlement.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted', \
+             ordinary_deleted_at=now(), visibility='draft' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        private_get(&app, &format!("/books/{book}"), None)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let archived_reader = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(archived_reader.status(), StatusCode::OK);
+    let archived_html = html_body(archived_reader).await;
+    assert!(archived_html.contains("data-paid-chapter-reader"));
+    assert!(!archived_html.contains("data-toc-state=\"free\""));
+    assert!(!archived_html.contains("data-toc-state=\"locked\""));
+    assert_eq!(
+        post_grant(
+            &app,
+            chapter,
+            Some(&stranger_cookie),
+            Some(&csrf),
+            ORIGIN,
+            "{}",
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let archived_grant = post_grant(
+        &app,
+        chapter,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        ORIGIN,
+        "{}",
+    )
+    .await;
+    assert_eq!(archived_grant.status(), StatusCode::OK);
+    let archived_v1 = decode(archived_grant).await;
+    assert_eq!(archived_v1["version_id"], v1.to_string());
+    assert!(!archived_v1.to_string().contains(MARKDOWN));
+
     fixture_writer::save_ephemeral_fixture(
-        still_v1,
+        archived_v1,
         v1,
         purchase_id,
         (visible_html, reader_csp),
