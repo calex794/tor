@@ -20,6 +20,34 @@ pub struct SavedBookPage {
     pub next_cursor: Option<i64>,
 }
 
+/// One historically saved free edition; only returned after live actor,
+/// age, book and chapter state guards. Not a public chapter preview.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedFreeChapter {
+    pub book_id: i64,
+    pub book_title: String,
+    pub chapter_id: i64,
+    pub chapter_no: i32,
+    pub chapter_title: String,
+    pub version_id: i64,
+    pub version_no: i32,
+    pub body_markdown: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedFreeChapterLink {
+    pub chapter_id: i64,
+    pub chapter_no: i32,
+    pub chapter_title: String,
+    pub version_no: i32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedFreeChapterPage {
+    pub items: Vec<SavedFreeChapterLink>,
+    pub next_cursor: Option<i64>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryError {
     Invalid,
