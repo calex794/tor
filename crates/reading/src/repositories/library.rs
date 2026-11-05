@@ -281,6 +281,117 @@ impl PgLibrary {
         .transpose()
     }
 
+    /// The private Book archive lists only editions the signed-in reader owns:
+    /// historical saved free V1 and/or a separately purchased exact paid V1.
+    /// One row per chapter; a paid purchase must never overwrite a free pin.
+    /// D's canonical SQL policy is the sole authority for purchased links.
+    /// No body, object key, or current public edition is selected.
+    pub async fn saved_archive_chapters(
+        &self,
+        user_id: i64,
+        book_id: i64,
+        limit: u16,
+        after: Option<i64>,
+        session_digest: &[u8; 32],
+    ) -> Result<crate::services::library::SavedArchivePage, LibraryError> {
+        use crate::services::library::{
+            SavedArchiveChapter, SavedArchivePage, SavedPurchasedEdition,
+        };
+        if user_id <= 0
+            || book_id <= 0
+            || limit == 0
+            || limit > MAX_LIBRARY_LIMIT
+            || after.is_some_and(|number| number <= 0)
+        {
+            return Err(LibraryError::Invalid);
+        }
+        let rows = sqlx::query(
+            "WITH eligible_book AS MATERIALIZED ( \
+                 SELECT b.id FROM books b \
+                 JOIN users viewer ON viewer.id=$1 AND viewer.account_state='active' \
+                 JOIN sessions s ON s.user_id=viewer.id \
+                   AND s.token_hash=$5::bytea AND s.revoked_at IS NULL \
+                   AND s.expires_at>now() \
+                 WHERE b.id=$2 AND b.visibility_status='active' \
+                   AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                        OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
+                   AND NOT b.admin_hold AND NOT b.is_deleted \
+                   AND (b.access_level='basic' \
+                        OR (b.access_level='adult' AND viewer.adult_enabled) \
+                        OR (b.access_level='pro_adult' AND EXISTS ( \
+                            SELECT 1 FROM user_level_grants g \
+                            WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active \
+                        ))) \
+             ), saved AS MATERIALIZED ( \
+                 SELECT f.chapter_id, v.version_no \
+                 FROM reader_saved_free_chapters f \
+                 JOIN chapter_versions v ON v.chapter_id=f.chapter_id AND v.id=f.version_id \
+                 JOIN chapters c ON c.id=f.chapter_id \
+                 JOIN eligible_book b ON b.id=c.book_id \
+                 WHERE f.user_id=$1 AND c.visibility='public' \
+                   AND NOT c.admin_hold AND NOT c.is_deleted \
+             ), purchased AS MATERIALIZED ( \
+                 SELECT l.chapter_id,p.id AS purchase_id,v.version_no \
+                 FROM library_purchased_chapters l \
+                 JOIN chapter_purchase_facts p \
+                   ON p.id=l.purchase_id AND p.user_id=l.user_id \
+                  AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id \
+                 JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=p.version_id \
+                 JOIN chapters c ON c.id=l.chapter_id \
+                 JOIN eligible_book b ON b.id=c.book_id \
+                 WHERE l.user_id=$1 AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id) \
+             ) \
+             SELECT c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
+                    f.version_no AS free_version_no, \
+                    p.purchase_id, p.version_no AS paid_version_no \
+             FROM chapters c \
+             JOIN eligible_book b ON b.id=c.book_id \
+             LEFT JOIN saved f ON f.chapter_id=c.id \
+             LEFT JOIN purchased p ON p.chapter_id=c.id \
+             WHERE c.chapter_no::BIGINT>COALESCE($3::BIGINT,0) \
+               AND (f.chapter_id IS NOT NULL OR p.chapter_id IS NOT NULL) \
+             ORDER BY c.chapter_no, c.id LIMIT $4",
+        )
+        .bind(user_id)
+        .bind(book_id)
+        .bind(after)
+        .bind(i64::from(limit) + 1)
+        .bind(session_digest.as_slice())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| LibraryError::Unavailable)?;
+        let mut items = rows
+            .into_iter()
+            .map(|r| {
+                let purchase_id: Option<i64> = r
+                    .try_get("purchase_id")
+                    .map_err(|_| LibraryError::Unavailable)?;
+                let paid_version: Option<i32> = r
+                    .try_get("paid_version_no")
+                    .map_err(|_| LibraryError::Unavailable)?;
+                Ok(SavedArchiveChapter {
+                    chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
+                    saved_free_version_no: r
+                        .try_get("free_version_no")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    purchased: purchase_id.zip(paid_version).map(|(purchase_id, version_no)| {
+                        SavedPurchasedEdition { purchase_id, version_no }
+                    }),
+                })
+            })
+            .collect::<Result<Vec<_>, LibraryError>>()?;
+        let has_more = items.len() > usize::from(limit);
+        items.truncate(usize::from(limit));
+        let next_cursor = if has_more {
+            items.last().map(|item| i64::from(item.chapter_no))
+        } else {
+            None
+        };
+        Ok(SavedArchivePage { items, next_cursor })
+    }
+
     /// Keyset by per-Book chapter number, never insertion ID: imported chapters
     /// can be created out of order. Bounded at 100 even for 10k saved chapters.
     /// No paid text/body or metadata from another reader is selected.
