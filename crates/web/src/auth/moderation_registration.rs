@@ -48,7 +48,13 @@ fn error_code(e: ModerationBooksError) -> StatusCode {
     }
 }
 
-fn render(items: &[RegistrationCandidate], count: i64, csrf: &str) -> String {
+fn render(
+    items: &[RegistrationCandidate],
+    count: i64,
+    csrf: &str,
+    covers_count: i64,
+    deletions_count: i64,
+) -> String {
     let token = pages::escape_html(csrf);
     let mut cards = String::new();
     for item in items {
@@ -92,8 +98,8 @@ fn render(items: &[RegistrationCandidate], count: i64, csrf: &str) -> String {
             <h1>Кабинет модератора</h1>
             <nav aria-label="Очереди модератора">
               <a href="/moderation/books/registrations" aria-current="page">Регистрация ({count})</a>
-              <a href="/moderation/covers">Обложки</a>
-              <a href="/moderation/books/deletions">Удаление</a>
+              <a href="/moderation/covers">Обложки ({covers_count})</a>
+              <a href="/moderation/books/deletions">Удаление ({deletions_count})</a>
             </nav>
             <p>Одобрение регистрации не публикует авторский черновик,
                а новые главы не проходят отдельную модерацию.</p>
@@ -128,6 +134,23 @@ pub(super) async fn queue(
         Ok(count) => count,
         Err(e) => return deny(error_code(e)),
     };
+    let covers_count = match tor_books::repositories::cover_review::PgCoverReview::new(
+        state.accounts.pool().clone(),
+    )
+    .pending_count(&digest)
+    .await
+    {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let deletions_count = match state
+        .accounts
+        .moderation_pending_deletion_count(&digest)
+        .await
+    {
+        Ok(count) => count,
+        Err(e) => return deny(error_code(e)),
+    };
     let rows = match state
         .accounts
         .moderation_registration_queue(&digest, query.before)
@@ -137,7 +160,7 @@ pub(super) async fn queue(
         Err(e) => return deny(error_code(e)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(Html(render(&rows, count, &csrf)), &cookies);
+    let mut response = private_response(Html(render(&rows, count, &csrf, covers_count, deletions_count)), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -239,10 +262,12 @@ mod tests {
             owner_user_id: Some(37),
             revision: 1,
         }];
-        let body = render(&rows, 1, "csrf");
+        let body = render(&rows, 1, "csrf", 2, 3);
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
+        assert!(body.contains("Обложки (2)"));
+        assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));
         assert!(!body.contains("reviewer_user_id"));
         let response = private_response(Html(body), &[]);
