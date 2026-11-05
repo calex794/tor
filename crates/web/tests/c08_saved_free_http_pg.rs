@@ -514,9 +514,15 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let reject_action = format!("/moderation/books/{rejected_book}/deletion");
     let missing_reason = format!("csrf_token={csrf}&request_revision=2&decision=reject");
     assert_eq!(
-        call(&app, "POST", &reject_action, &outsider_cookie, &missing_reason)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &reject_action,
+            &outsider_cookie,
+            &missing_reason
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
 
