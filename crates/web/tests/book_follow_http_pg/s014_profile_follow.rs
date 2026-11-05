@@ -19,6 +19,19 @@ async fn s014_profile_page(app: &Router, name: &str, cookies: &str) -> (StatusCo
     (status, body)
 }
 
+async fn s014_creator_list(app: &Router, cookies: &str) -> String {
+    let response = app.clone().oneshot(
+        Request::builder()
+            .uri("/me/creators")
+            .header(header::COOKIE, cookies)
+            .body(Body::empty())
+            .unwrap(),
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await.unwrap().to_vec())
+        .unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
@@ -153,7 +166,7 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
         .await
         .1
         .contains(&format!("action=\"{unfollow}\"")));
-    assert!(creator_page(&app, &reader_cookies).await.contains(&author_name));
+    assert!(s014_creator_list(&app, &reader_cookies).await.contains(&author_name));
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_book_follows WHERE user_id={reader}")), "0");
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={reader}")), "0");
 
