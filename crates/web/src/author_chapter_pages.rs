@@ -207,6 +207,7 @@ pub fn detail_with_covers_with_demand_page(
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
+        <p><a href="/me/books/{id}/registration-status">Проверка регистрации и причина отказа</a></p>
         {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
