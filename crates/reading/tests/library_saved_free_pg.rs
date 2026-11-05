@@ -1,7 +1,7 @@
 //! C-08/BR-060: saving a Book pins its released free chapter editions.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
-use tor_reading::{repositories::PgLibrary, services::progress::ReadingPlace};
+use tor_reading::{repositories::{PgLibrary, PgReadingProgress}, services::progress::ReadingPlace};
 
 async fn chapter(
     pool: &PgPool,
@@ -291,6 +291,16 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
             char_offset: 8,
         })
     );
+    // The private Continue card must use the actor's exact saved V1,
+    // even when the Book has been deindexed and V2 is currently published.
+    let resume = PgReadingProgress::new(pool.clone());
+    let archived = resume.continue_reading(user_a).await.unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].chapter_id, free1);
+    assert_eq!(archived[0].block_index, 1);
+    assert!(archived[0].archived_saved);
+    assert!(resume.continue_reading(user_b).await.unwrap().is_empty());
+
     // Repointed public V2 progress is never mapped onto older saved V1.
     sqlx::query("UPDATE reader_book_positions SET version_id=$2 WHERE user_id=$1 AND book_id=$3")
         .bind(user_a)
@@ -306,6 +316,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap()
         .saved_place
         .is_none());
+    assert!(resume.continue_reading(user_a).await.unwrap().is_empty());
     assert_eq!(
         library
             .pinned_free_chapters(user_a, book, 50, None, &token_a)
