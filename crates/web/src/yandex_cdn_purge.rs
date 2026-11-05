@@ -65,7 +65,9 @@ fn validated_purge_path(path: &str) -> Result<(), CoverError> {
     let (variant, digest) = parts[2].split_once('-').ok_or(CoverError::Invalid)?;
     if !matches!(variant, "card" | "main")
         || digest.len() != 64
-        || !digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || !digest
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
         return Err(CoverError::Invalid);
     }
@@ -121,10 +123,7 @@ impl YandexCdnPurge {
         if !response.status().is_success() {
             return Err(CoverError::Unavailable);
         }
-        let body = response
-            .text()
-            .await
-            .map_err(|_| CoverError::Unavailable)?;
+        let body = response.text().await.map_err(|_| CoverError::Unavailable)?;
         let operation = parse_operation(&body, None)?;
         if operation.error.is_some() {
             return Err(CoverError::Unavailable);
@@ -149,10 +148,7 @@ impl YandexCdnPurge {
         if !response.status().is_success() {
             return Err(CoverError::Unavailable);
         }
-        let body = response
-            .text()
-            .await
-            .map_err(|_| CoverError::Unavailable)?;
+        let body = response.text().await.map_err(|_| CoverError::Unavailable)?;
         let operation = parse_operation(&body, Some(operation_id))?;
         Ok(if operation.error.is_some() {
             PurgeState::Failed
@@ -191,17 +187,18 @@ mod tests {
     #[test]
     fn operation_success_is_not_submission() {
         assert!(parse_operation(r#"{"id":"op-1","done":false}"#, None).is_ok());
+        assert!(
+            parse_operation(r#"{"id":"op-1","done":true,"response":{}}"#, Some("op-1")).is_ok()
+        );
         assert!(parse_operation(
-            r#"{"id":"op-1","done":true,"response":{}}"#, Some("op-1")
-        )
-        .is_ok());
-        assert!(parse_operation(
-            r#"{"id":"op-1","done":true,"error":{"code":13}}"#, Some("op-1")
+            r#"{"id":"op-1","done":true,"error":{"code":13}}"#,
+            Some("op-1")
         )
         .is_ok());
         assert!(parse_operation(r#"{"id":"op-1","done":true}"#, None).is_err());
         assert!(parse_operation(
-            r#"{"id":"op-1","done":true,"response":{},"error":{}}"#, None
+            r#"{"id":"op-1","done":true,"response":{},"error":{}}"#,
+            None
         )
         .is_err());
         assert!(parse_operation(r#"{"id":"op-2","done":false}"#, Some("op-1")).is_err());
