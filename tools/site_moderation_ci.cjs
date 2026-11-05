@@ -40,10 +40,16 @@ BEGIN
   IF old_rev IS NULL THEN
     RAISE EXCEPTION 'not an unapproved pending Book';
   END IF;
+  -- The reviewer has no session; reuse a valid Argon2id hash from the
+  -- isolated owner fixture only to satisfy the database schema.
   INSERT INTO users(email_normalized,display_name,password_hash)
-    VALUES('ci-registration-reviewer-${id}@tor-ci.example',
-           'CI independent site reviewer','isolated-reviewer-no-login')
+    SELECT 'ci-registration-reviewer-${id}@tor-ci.example',
+           'CI independent site reviewer',u.password_hash
+      FROM users u WHERE u.id=owner_id
     RETURNING id INTO reviewer_id;
+  IF reviewer_id IS NULL THEN
+    RAISE EXCEPTION 'owner fixture has no Argon2id password';
+  END IF;
   IF reviewer_id=owner_id THEN
     RAISE EXCEPTION 'site reviewer must be independent';
   END IF;
