@@ -1,7 +1,7 @@
 'use strict';
 // BR-060: actual Chromium + Rust HTTP + disposable PostgreSQL, no route mocks.
-// Owner deletes the Book using two real password-confirmed forms; a reader
-// continues the exact pinned V1 from a fresh mobile login.
+// Owner submits one password-confirmed deletion request; an independent site
+// moderator approves through real HTTP before the reader restores pinned V1.
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
@@ -93,23 +93,80 @@ async function createPublishedBook(owner) {
   return { book, chapter };
 }
 
-async function finalizeOrdinaryDelete(owner, book) {
+async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
   const url = base + '/me/books/' + book + '/settings/delete';
-  for (const [action, button] of [
-    ['start', 'Начать удаление'],
-    ['complete', 'Окончательно удалить книгу'],
-  ]) {
-    const view = await owner.goto(url);
-    assert.equal(view.status(), 200);
-    assert.equal(await owner.locator('[name=action]').inputValue(), action);
-    await owner.locator('[name=account_password]').fill(password);
-    const [result] = await Promise.all([
-      owner.waitForResponse(response =>
-        response.url() === url && response.request().method() === 'POST'),
-      owner.getByRole('button', { name: button }).click(),
-    ]);
-    assert.equal(result.status(), 303, 'password-confirmed deletion refused');
+  const request = await owner.goto(url);
+  assert.equal(request.status(), 200);
+  assert.equal(await owner.locator('[name=action]').inputValue(), 'start');
+  await owner.locator('[name=account_password]').fill(password);
+  const [submitted] = await Promise.all([
+    owner.waitForResponse(response =>
+      response.url() === url && response.request().method() === 'POST'),
+    owner.getByRole('button', { name: 'Начать удаление' }).click(),
+  ]);
+  assert.equal(submitted.status(), 303, 'owner must confirm a valid deletion request');
+  assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'pending_deletion');
+  assert.equal(pg('SELECT COUNT(*) FROM book_ordinary_deletion_decisions WHERE book_id=' + book), '0');
+  const pending = await owner.goto(url);
+  assert.equal(pending.status(), 200);
+  assert(await owner.getByText(/Заявка направлена на модерацию/).isVisible());
+  assert.equal(await owner.locator('[name=action]').count(), 0,
+    'owner must have no unreviewed finalization path');
+  assert.equal((await reader.goto(base + '/moderation/books/deletions')).status(), 403,
+    'ordinary reader has no moderator queue permission');
+
+  const pendingReview = pg(
+    'SELECT COUNT(*) FROM book_ordinary_deletion_requests r JOIN books b ' +
+    'ON b.id=r.book_id AND b.lifecycle_revision=r.request_revision ' +
+    'WHERE r.book_id=' + book + " AND b.lifecycle_status='pending_deletion'"
+  );
+  assert.equal(pendingReview, '1', 'owner request not committed at current Book revision');
+  const queue = await reviewer.goto(base + '/moderation/books/deletions');
+  assert.equal(queue.status(), 200, 'independent site moderator cannot view deletion queue');
+  assert.equal(reviewer.url(), base + '/moderation/books/deletions',
+    'unexpected navigation while opening moderator queue');
+  const form = reviewer.locator('form[action="/moderation/books/' + book + '/deletion"]');
+  const forms = await form.count();
+  if (forms !== 1) {
+    // Never block diagnostic output on a missing H1: capture the actual page
+    // structure and independently prove the request exists in the disposable DB.
+    const diagnosis = await reviewer.evaluate(() => ({
+      title: document.title,
+      headings: [...document.querySelectorAll('h1')].map(h => h.textContent?.trim()).slice(0, 3),
+      formActions: [...document.forms].map(f => f.getAttribute('action')).slice(0, 8),
+      emptyQueue: document.body?.textContent?.includes('Ожидающих решения заявок нет.'),
+      pageLength: document.documentElement.outerHTML.length,
+    }));
+    const reviewerId = id(pg(
+      "SELECT id FROM users WHERE email_normalized='" + address('reviewer') + "'"
+    ));
+    const eligible = pg(
+      'SELECT COUNT(*) FROM book_ordinary_deletion_requests r ' +
+      'JOIN books b ON b.id=r.book_id WHERE r.book_id=' + book +
+      " AND b.lifecycle_status='pending_deletion'" +
+      ' AND b.lifecycle_revision=r.request_revision AND NOT b.is_deleted' +
+      " AND r.owner_user_id<>" + reviewerId +
+      ' AND NOT EXISTS (SELECT 1 FROM book_ordinary_deletion_decisions d ' +
+      ' WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision)'
+    );
+    assert.equal(forms, 1,
+      'pending request missing in moderator UI: ' +
+      JSON.stringify({ diagnosis, queueStatus: queue.status(), pendingReview, eligible }));
   }
+  const revision = await form.locator('[name=request_revision]').inputValue();
+  assert.match(revision, /^[1-9]\d*$/);
+  const [decision] = await Promise.all([
+    reviewer.waitForResponse(response =>
+      response.url() === base + '/moderation/books/' + book + '/deletion'
+      && response.request().method() === 'POST'),
+    form.locator('button[name=decision][value=approve]').click(),
+  ]);
+  assert.equal(decision.status(), 303, 'independent moderation approval refused');
+  assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'ordinary_deleted');
+  assert.equal(pg('SELECT COUNT(*) FROM book_ordinary_deletion_decisions WHERE book_id=' +
+    book + " AND request_revision=" + revision + " AND decision='approve'"), '1');
+  assert.equal(pg('SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id=' +
+    book), '2', 'owner request and moderator finalization must both be audited');
   const closed = await owner.goto(url);
   assert.equal(closed.status(), 200);
   assert(await owner.getByText('Книга удалена из публичного доступа.').isVisible());
@@ -136,6 +193,7 @@ async function checkViewport(page, screen) {
   const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const readerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const outsiderContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const reviewerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const readerMail = address('reader');
   let freshContext;
   try {
@@ -144,6 +202,12 @@ async function checkViewport(page, screen) {
     await register(owner, address('owner'), 'Владелец BR-060');
     const { book, chapter } = await createPublishedBook(owner);
     await register(reader, readerMail, 'Читатель BR-060');
+    const reviewer = await reviewerContext.newPage();
+    const reviewerMail = address('reviewer');
+    await register(reviewer, reviewerMail, 'Сайт-модератор BR-060');
+    const reviewerId = id(pg("SELECT id FROM users WHERE email_normalized='" + reviewerMail + "'"));
+    pg("INSERT INTO account_roles(user_id,role,is_active) VALUES(" +
+      reviewerId + ",'moderator',TRUE)");
 
     // Actual browser bookmark action pins the published free V1.
     await reader.goto(base + '/me/library/add/' + book);
@@ -166,7 +230,7 @@ async function checkViewport(page, screen) {
     ));
     assert.equal(pg('UPDATE chapter_publications SET version_id=' + v2 +
       ' WHERE chapter_id=' + chapter + ' RETURNING version_id'), v2);
-    await finalizeOrdinaryDelete(owner, book);
+    await finalizeOrdinaryDelete(owner, reviewer, reader, book);
     assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book),
       'ordinary_deleted');
     assert.equal((await reader.goto(base + '/books/' + book)).status(), 404);
@@ -240,11 +304,12 @@ async function checkViewport(page, screen) {
     assert(!(await outsider.content()).includes('Архивная книга BR-060 ' + nonce));
     assert.equal(pg('SELECT COUNT(*) FROM reader_chapter_completions ' +
       'WHERE chapter_id=' + chapter), '0');
-    console.log('BR-060 PASS: real owner password deletion, Chromium archived V1 autosave, ' +
+    console.log('BR-060 PASS: owner request + independent moderator approval, Chromium archived V1 autosave, ' +
       'fresh mobile login restore, immutable pin, outsider denial and no completion');
   } finally {
     await ownerContext.close();
     await outsiderContext.close();
+    await reviewerContext.close();
     if (freshContext) await freshContext.close();
     await browser.close();
   }

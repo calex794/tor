@@ -5,13 +5,15 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{Html, Redirect, Response},
     routing::{get, post},
     Router,
 };
 use serde::Deserialize;
 use tor_accounts::{
-    repositories::moderation_books::{ModerationBook, ModerationBooksError},
+    repositories::moderation_books::{
+        ModerationBook, ModerationBooksError, ModerationDeletionRequest,
+    },
     services::security::session_token_digest,
 };
 
@@ -38,11 +40,23 @@ pub(super) struct VisibilityForm {
     new_status: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DeletionReviewForm {
+    csrf_token: String,
+    request_revision: i64,
+    decision: String,
+    #[serde(default)]
+    reason: String,
+}
+
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/moderation/books", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
+        .route("/moderation/books/deletions", get(deletion_queue))
+        .route("/moderation/books/{id}/deletion", post(review_deletion))
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
@@ -133,6 +147,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         &format!(
             r#"<section class="me-page"><div class="container">
               <h1>Модерация книг</h1>
+              <p><a href="/moderation/books/deletions">Заявки на удаление книг</a></p>
               <p>Удержание не меняет авторскую публикацию и не создаёт
               административное право на платные главы.</p>
               {list}</div></section>"#
@@ -161,7 +176,7 @@ pub(super) async fn page(
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(render(&rows, &pages::escape_html(&csrf)), &cookies);
+    let mut response = private_response(Html(render(&rows, &pages::escape_html(&csrf))), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -235,6 +250,122 @@ pub(super) async fn submit_visibility(
     }
 }
 
+fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> String {
+    let token = pages::escape_html(csrf);
+    let mut cards = String::new();
+    for item in rows {
+        let title = pages::escape_html(&item.title);
+        cards.push_str(&format!(
+            r#"<article class="me-now-card"><h2>{title}</h2>
+               <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
+               <form method="post" action="/moderation/books/{book}/deletion">
+                 <input type="hidden" name="csrf_token" value="{token}">
+                 <input type="hidden" name="request_revision" value="{revision}">
+                 <label for="deletion-reason-{book}">Причина отказа (обязательна для отказа)</label>
+                 <input id="deletion-reason-{book}" name="reason" maxlength="2000">
+                 <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
+                 <button type="submit" name="decision" value="reject">Отклонить удаление</button>
+               </form></article>"#,
+            book = item.book_id,
+            owner = item.owner_user_id,
+            revision = item.request_revision
+        ));
+    }
+    if cards.is_empty() {
+        cards.push_str("<p>Ожидающих решения заявок нет.</p>");
+    }
+    if rows.len() == 40 {
+        if let Some(last) = rows.last() {
+            cards.push_str(&format!(
+                "<p><a href=\"/moderation/books/deletions?before={}\">Следующая страница</a></p>",
+                last.book_id
+            ));
+        }
+    }
+    pages::layout(
+        "Модерация удаления книг",
+        "Одобрение заявок на обычное удаление книги.",
+        &format!(
+            r#"<section class="me-page"><div class="container">
+               <h1>Заявки на удаление книг</h1>
+               <p>Это решение не удаляет главы и не предоставляет платные права.
+                  После одобрения книга удаляется из публичного доступа сразу.
+                  Купленные и сохранённые главы остаются в личных библиотеках.</p>
+               {cards}<p><a href="/moderation/books">К модерации книг</a></p>
+               </div></section>"#
+        ),
+    )
+    .0
+}
+
+pub(super) async fn deletion_queue(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<PageQuery>,
+) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let rows = match state
+        .accounts
+        .moderation_pending_deletions(&digest, query.before)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(error_code(error)),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(Html(render_deletion_queue(&rows, &csrf)), &cookies);
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
+}
+
+pub(super) async fn review_deletion(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<DeletionReviewForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    match state
+        .accounts
+        .moderate_ordinary_deletion(
+            &digest,
+            id,
+            form.request_revision,
+            &form.decision,
+            &form.reason,
+        )
+        .await
+    {
+        Ok(()) => private_response(Redirect::to("/moderation/books/deletions"), &[]),
+        Err(error) => deny(error_code(error)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +391,33 @@ mod tests {
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));
         assert!(html.contains("/moderation/books/42/visibility"));
         assert!(!html.contains("name=\"access_level\""));
+    }
+}
+
+#[cfg(test)]
+mod deletion_queue_tests {
+    use super::*;
+
+    #[test]
+    fn escapes_titles_and_never_trusts_client_actor_or_book_state() {
+        let rows = vec![ModerationDeletionRequest {
+            book_id: 42,
+            title: "<script>alert(1)</script>".into(),
+            owner_user_id: 7,
+            request_revision: 2,
+        }];
+        let page = render_deletion_queue(&rows, "csrf");
+        assert!(page.contains("&lt;script&gt;"));
+        assert!(!page.contains("<script>"));
+        assert!(page.contains("/moderation/books/42/deletion"));
+        assert!(page.contains("value=\"approve\""));
+        assert!(page.contains("value=\"reject\""));
+        assert!(page.contains("name=\"request_revision\" value=\"2\""));
+        let response = private_response(Html(page), &[]);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "moderator must receive parsed HTML, not text/plain"
+        );
     }
 }
