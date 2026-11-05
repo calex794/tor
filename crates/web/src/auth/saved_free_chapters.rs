@@ -19,8 +19,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/assets/newboo-archive-progress.js", get(progress_script))
         .route(
             "/api/v1/me/progress/archived-free",
-            get(super::sync_actions::get_archived_free)
-                .put(super::sync_actions::put_archived_free),
+            get(super::sync_actions::get_archived_free).put(super::sync_actions::put_archived_free),
         )
 }
 
@@ -28,7 +27,10 @@ pub(super) fn router() -> Router<AuthState> {
 async fn progress_script() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         include_str!("../../assets/newboo-free-progress.js"),
