@@ -80,14 +80,12 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO reader_library_items(user_id,book_id) VALUES($1,$2)",
-    )
-    .bind(stranger)
-    .bind(book)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO reader_library_items(user_id,book_id) VALUES($1,$2)")
+        .bind(stranger)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
          VALUES($1,$2,$3)",
