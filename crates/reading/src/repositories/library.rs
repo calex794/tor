@@ -406,34 +406,27 @@ impl PgLibrary {
                             SELECT 1 FROM user_level_grants g \
                             WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active \
                         ))) \
-             ), saved AS MATERIALIZED ( \
-                 SELECT f.chapter_id, v.version_no \
-                 FROM reader_saved_free_chapters f \
-                 JOIN chapter_versions v ON v.chapter_id=f.chapter_id AND v.id=f.version_id \
-                 JOIN chapters c ON c.id=f.chapter_id \
-                 JOIN eligible_book b ON b.id=c.book_id \
-                 WHERE f.user_id=$1 AND c.visibility='public' \
-                   AND NOT c.admin_hold AND NOT c.is_deleted \
-             ), purchased AS MATERIALIZED ( \
-                 SELECT l.chapter_id,p.id AS purchase_id,v.version_no \
-                 FROM library_purchased_chapters l \
-                 JOIN chapter_purchase_facts p \
-                   ON p.id=l.purchase_id AND p.user_id=l.user_id \
-                  AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id \
-                 JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=p.version_id \
-                 JOIN chapters c ON c.id=l.chapter_id \
-                 JOIN eligible_book b ON b.id=c.book_id \
-                 WHERE l.user_id=$1 AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id) \
              ) \
              SELECT c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
-                    f.version_no AS free_version_no, \
-                    p.purchase_id, p.version_no AS paid_version_no \
-             FROM chapters c \
-             JOIN eligible_book b ON b.id=c.book_id \
-             LEFT JOIN saved f ON f.chapter_id=c.id \
-             LEFT JOIN purchased p ON p.chapter_id=c.id \
-             WHERE c.chapter_no::BIGINT>COALESCE($3::BIGINT,0) \
-               AND (f.chapter_id IS NOT NULL OR p.chapter_id IS NOT NULL) \
+                    free_version.version_no AS free_version_no, \
+                    paid.id AS purchase_id, paid_version.version_no AS paid_version_no \
+             FROM eligible_book b \
+             JOIN chapters c ON c.book_id=b.id \
+               AND c.chapter_no>COALESCE($3::BIGINT,0) \
+             LEFT JOIN reader_saved_free_chapters f \
+               ON f.user_id=$1 AND f.chapter_id=c.id \
+              AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted \
+             LEFT JOIN chapter_versions free_version \
+               ON free_version.chapter_id=f.chapter_id AND free_version.id=f.version_id \
+             LEFT JOIN library_purchased_chapters l \
+               ON l.user_id=$1 AND l.chapter_id=c.id \
+             LEFT JOIN chapter_purchase_facts paid \
+               ON paid.id=l.purchase_id AND paid.user_id=l.user_id \
+              AND paid.chapter_id=l.chapter_id AND paid.version_id=l.active_version_id \
+              AND tor_purchase_version_readable($1,paid.id,paid.chapter_id,paid.version_id) \
+             LEFT JOIN chapter_versions paid_version \
+               ON paid_version.chapter_id=paid.chapter_id AND paid_version.id=paid.version_id \
+             WHERE free_version.id IS NOT NULL OR paid.id IS NOT NULL \
              ORDER BY c.chapter_no, c.id LIMIT $4",
         )
         .bind(user_id)
