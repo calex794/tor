@@ -37,6 +37,8 @@ pub struct SavedFreeChapter {
     pub version_id: i64,
     pub version_no: i32,
     pub body_markdown: String,
+    /// Only finalized ordinary deletion can use the private archive position API.
+    pub ordinary_deleted: bool,
     /// Only the original reader's exact pinned version can reuse this cursor.
     /// This is display-only; it is never a new content entitlement.
     pub saved_place: Option<ReadingPlace>,
