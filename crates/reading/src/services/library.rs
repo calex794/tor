@@ -1,6 +1,8 @@
 //! C-08/S007: saved book links are independent from reading progress and purchases.
 #![forbid(unsafe_code)]
 
+use crate::services::progress::ReadingPlace;
+
 pub const DEFAULT_LIBRARY_LIMIT: u16 = 30;
 pub const MAX_LIBRARY_LIMIT: u16 = 100;
 
@@ -35,6 +37,9 @@ pub struct SavedFreeChapter {
     pub version_id: i64,
     pub version_no: i32,
     pub body_markdown: String,
+    /// Only the original reader's exact pinned version can reuse this cursor.
+    /// This is display-only; it is never a new content entitlement.
+    pub saved_place: Option<ReadingPlace>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
