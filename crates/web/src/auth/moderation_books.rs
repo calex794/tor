@@ -5,7 +5,7 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{Html, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -176,7 +176,7 @@ pub(super) async fn page(
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(render(&rows, &pages::escape_html(&csrf)), &cookies);
+    let mut response = private_response(Html(render(&rows, &pages::escape_html(&csrf))), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -322,7 +322,7 @@ pub(super) async fn deletion_queue(
         Err(error) => return deny(error_code(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(render_deletion_queue(&rows, &csrf), &cookies);
+    let mut response = private_response(Html(render_deletion_queue(&rows, &csrf)), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -413,5 +413,11 @@ mod deletion_queue_tests {
         assert!(page.contains("value=\"approve\""));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
+        let response = private_response(Html(page), &[]);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "moderator must receive parsed HTML, not text/plain"
+        );
     }
 }
