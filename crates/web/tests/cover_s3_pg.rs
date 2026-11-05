@@ -13,7 +13,11 @@ use axum::{
 };
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
-use std::{io::Cursor, sync::Arc, time::Duration};
+use std::{
+    io::Cursor,
+    sync::{atomic::{AtomicUsize, Ordering}, Arc},
+    time::Duration,
+};
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
     cover_slots::{PgCoverSlots, PublicCoverKind},
@@ -29,6 +33,7 @@ use tor_ingest::{
 use tor_reading::repositories::PgReader;
 use tor_web::{
     cover_cdn_cleanup::CoverOriginCleanup,
+    cover_cdn_purge::{CoverCdnApi, CoverCdnPurgeWorker, CdnPurgeError, PurgeStatus},
     cover_delivery::CoverDelivery,
     cover_worker::{CoverRunner, CoverRunnerMonitor},
 };
@@ -110,6 +115,32 @@ fn local_client() -> Client {
         .retry_config(RetryConfig::standard().with_max_attempts(2))
         .build();
     Client::from_conf(config)
+}
+
+/// No cloud credentials or public endpoints in CI: exercise the real PostgreSQL
+/// leases and transitions against a deterministic, in-process CDN mock.
+struct FakeCoverCdn {
+    submits: AtomicUsize,
+    polls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl CoverCdnApi for FakeCoverCdn {
+    async fn submit(&self, path: &str) -> Result<String, CdnPurgeError> {
+        assert!(path.starts_with("/public/covers/950/"));
+        assert!(path.ends_with(".webp*"));
+        let sequence = self.submits.fetch_add(1, Ordering::SeqCst);
+        Ok(format!("ci-operation-{sequence}"))
+    }
+
+    async fn status(&self, _operation_id: &str) -> Result<PurgeStatus, CdnPurgeError> {
+        let call = self.polls.fetch_add(1, Ordering::SeqCst);
+        if call < 2 {
+            Ok(PurgeStatus::Pending)
+        } else {
+            Ok(PurgeStatus::Success)
+        }
+    }
 }
 
 #[tokio::test]
@@ -370,13 +401,54 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .await
             .unwrap());
     }
-    // CDN purge remains an explicit next stage, distinct from S3 deletion.
-    for id in publication_ids {
-        assert!(!ledger.purge_completed(id, "ci-purge").await.unwrap());
-        assert!(ledger.purge_submitted(id, "ci-purge").await.unwrap());
-        assert!(!ledger.purge_completed(id, "wrong").await.unwrap());
-        assert!(ledger.purge_completed(id, "ci-purge").await.unwrap());
+    // Exact CDN purge submission and polling stay separate from origin deletion.
+    let fake_cdn = Arc::new(FakeCoverCdn {
+        submits: AtomicUsize::new(0),
+        polls: AtomicUsize::new(0),
+    });
+    let purge = CoverCdnPurgeWorker::new(ledger.clone(), fake_cdn.clone());
+    let submitted = purge.submit_batch().await.unwrap();
+    assert_eq!(submitted.claimed, 2);
+    assert_eq!(submitted.submitted, 2);
+    assert_eq!(purge.submit_batch().await.unwrap().claimed, 0);
+    assert_eq!(fake_cdn.submits.load(Ordering::SeqCst), 2);
+
+    // Force only local CI retry timestamps forward; real worker waits.
+    pg_sql(
+        &url,
+        "UPDATE public_cover_publications SET retry_after=now()
+         WHERE book_id=950 AND state='purge_submitted'",
+    )
+    .await;
+    let pending = purge.poll_batch().await.unwrap();
+    assert_eq!(pending.claimed, 2);
+    assert_eq!(pending.completed, 0);
+    assert_eq!(pending.deferred, 2);
+    for id in &publication_ids {
+        let state = pg_sql(
+            &url,
+            &format!("SELECT state FROM public_cover_publications WHERE id={id}"),
+        )
+        .await;
+        assert_eq!(state, "purge_submitted", "pending CDN operation is not purged");
     }
+    pg_sql(
+        &url,
+        "UPDATE public_cover_publications SET retry_after=now()
+         WHERE book_id=950 AND state='purge_submitted'",
+    )
+    .await;
+    let complete = purge.poll_batch().await.unwrap();
+    assert_eq!(complete.completed, 2);
+    for id in publication_ids {
+        let state = pg_sql(
+            &url,
+            &format!("SELECT state FROM public_cover_publications WHERE id={id}"),
+        )
+        .await;
+        assert_eq!(state, "purged");
+    }
+    assert_eq!(purge.poll_batch().await.unwrap().claimed, 0);
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
