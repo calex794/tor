@@ -143,14 +143,14 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     assert_eq!(final_state.status, "ordinary_deleted");
     assert_eq!(final_state.revision, 3);
     let row = sqlx::query(
-        "SELECT is_deleted,ordinary_deleted_at,visibility FROM books WHERE id=$1",
+        "SELECT is_deleted,(ordinary_deleted_at IS NOT NULL) AS finished,visibility FROM books WHERE id=$1",
     )
     .bind(book)
     .fetch_one(&pool)
     .await
     .unwrap();
     assert!(!row.get::<bool, _>("is_deleted"));
-    assert!(row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("ordinary_deleted_at").is_some());
+    assert!(row.get::<bool, _>("finished"));
     assert_eq!(row.get::<String, _>("visibility"), "draft");
     let saved: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM reader_saved_free_chapters
