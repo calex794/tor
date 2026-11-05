@@ -4,7 +4,7 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{Redirect, Response},
+    response::{Html, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -137,7 +137,7 @@ pub(super) async fn queue(
         Err(e) => return deny(error_code(e)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(render(&rows, count, &csrf), &cookies);
+    let mut response = private_response(Html(render(&rows, count, &csrf)), &cookies);
     response.headers_mut().insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
@@ -245,5 +245,11 @@ mod tests {
         assert!(body.contains("Регистрация (1)"));
         assert!(body.contains("/moderation/books/51/registration"));
         assert!(!body.contains("reviewer_user_id"));
+        let response = private_response(Html(body), &[]);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "moderator queue must render functional forms in Chromium"
+        );
     }
 }
