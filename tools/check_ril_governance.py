@@ -486,7 +486,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             scoped = bool(
                 operation
                 and re.search(rf"\b{operation}\s*\(\s*&digest", evidence)
-                and "session_digest(&state, &headers)" in evidence
+                and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
                 and "actor.moderator || actor.administrator" in evidence
             )
