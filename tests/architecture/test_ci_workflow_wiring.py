@@ -118,6 +118,15 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("npx playwright install --with-deps", pg)
                 self.assertIn("npm install --no-save playwright@1.56.1", pg)
 
+    def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
+        mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
+        self.assertIn("Promise.all([['desktop', 1440], ['mobile', 390]].map(async", mail)
+        self.assertIn("for (const client of clients) await client.context.close()", mail)
+        self.assertIn("mail.${name}.${suffix}@example.test", mail)
+        for filename in (CI_WORKFLOW, "tor-reader-visual.yml"):
+            reader = job_sections((WORKFLOWS / filename).read_text())["reader-browser"]
+            self.assertIn("node tools/reader_visual_smoke.cjs", reader)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
