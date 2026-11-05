@@ -15,6 +15,7 @@ use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
 use std::{io::Cursor, sync::Arc, time::Duration};
 use tor_books::repositories::{
+    cover_publications::PgPublicCoverPublications,
     cover_slots::{PgCoverSlots, PublicCoverKind},
     PgCatalog,
 };
@@ -213,6 +214,28 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap()
         .expect("published verified cover");
     assert_eq!(card.revision, 1);
+    // The publication ledger must reserve each immutable identity BEFORE S3 COPY.
+    // Replays never create a second row, and copied state remains idempotent.
+    let ledger = PgPublicCoverPublications::new(catalog.pool());
+    let mut publication_ids = Vec::new();
+    for kind in [PublicCoverKind::Card, PublicCoverKind::Main] {
+        let reserved = ledger
+            .reserve_current(BOOK_ID, kind)
+            .await
+            .unwrap()
+            .expect("current visible cover reserves one immutable row");
+        let again = ledger
+            .reserve_current(BOOK_ID, kind)
+            .await
+            .unwrap()
+            .expect("repeated reservation returns same row");
+        assert_eq!(reserved.id, again.id);
+        assert_eq!(reserved.job_id, job);
+        assert_eq!(reserved.slot_revision, 1);
+        assert!(ledger.confirm_copy(reserved.id).await.unwrap());
+        assert!(ledger.confirm_copy(reserved.id).await.unwrap());
+        publication_ids.push(reserved.id);
+    }
     // The CDN bucket is a separate destination: never publish source PNGs or
     // use the private cover bucket as a publicly-readable bucket.
     const PUBLIC_BUCKET: &str = "tor-public-cover-cdn-ci";
@@ -327,6 +350,22 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .await
             .unwrap());
     }
+    // Hiding the Book turns copied public keys into durable, exclusively
+    // leased deletion jobs. A stale holder cannot acknowledge another lease.
+    let claims = ledger.claim_removals(10).await.unwrap();
+    assert_eq!(claims.len(), 2);
+    for item in &claims {
+        assert!(publication_ids.contains(&item.id));
+        assert_eq!(item.lease_epoch, 1);
+        assert!(!ledger.origin_deleted(item.id, 0).await.unwrap());
+        assert!(ledger.origin_deleted(item.id, item.lease_epoch).await.unwrap());
+        assert!(!ledger.origin_deleted(item.id, item.lease_epoch).await.unwrap());
+        assert!(!ledger.purge_completed(item.id, "wrong").await.unwrap());
+        assert!(ledger.purge_submitted(item.id, "ci-purge").await.unwrap());
+        assert!(!ledger.purge_completed(item.id, "other").await.unwrap());
+        assert!(ledger.purge_completed(item.id, "ci-purge").await.unwrap());
+    }
+    assert!(ledger.claim_removals(10).await.unwrap().is_empty());
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
