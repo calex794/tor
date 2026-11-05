@@ -108,6 +108,16 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertRegex(manual_pg, invocation)
                 self.assertNotRegex(other_jobs, invocation)
 
+    def test_postgres_chromium_installs_only_headless_shell(self):
+        # Keep the real Chromium/OS dependencies; download only the browser
+        # executable used by default headless Playwright journeys.
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                self.assertIn("npx playwright install --with-deps --only-shell chromium", pg)
+                self.assertNotIn("npx playwright install --with-deps chromium", pg)
+                self.assertIn("npm install --no-save playwright@1.56.1", pg)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
