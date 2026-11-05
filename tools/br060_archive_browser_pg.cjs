@@ -115,10 +115,22 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
   assert.equal((await reader.goto(base + '/moderation/books/deletions')).status(), 403,
     'ordinary reader has no moderator queue permission');
 
+  const pendingReview = pg(
+    'SELECT COUNT(*) FROM book_ordinary_deletion_requests r JOIN books b ' +
+    'ON b.id=r.book_id AND b.lifecycle_revision=r.request_revision ' +
+    'WHERE r.book_id=' + book + " AND b.lifecycle_status='pending_deletion'"
+  );
+  assert.equal(pendingReview, '1', 'owner request not committed at current Book revision');
   const queue = await reviewer.goto(base + '/moderation/books/deletions');
   assert.equal(queue.status(), 200, 'independent site moderator cannot view deletion queue');
+  assert.equal(reviewer.url(), base + '/moderation/books/deletions',
+    'unexpected navigation while opening moderator queue');
   const form = reviewer.locator('form[action="/moderation/books/' + book + '/deletion"]');
-  assert.equal(await form.count(), 1, 'exact owner request missing in moderator queue');
+  const forms = await form.count();
+  assert.equal(forms, 1, 'exact owner request missing in moderator queue; ' +
+    'page=' + (await reviewer.locator('h1').first().textContent()) +
+    ', queue-title=' + (await reviewer.getByText('Архивная книга BR-060 ' + nonce).count()) +
+    ', forms=' + (await reviewer.locator('form').count()));
   const revision = await form.locator('[name=request_revision]').inputValue();
   assert.match(revision, /^[1-9]\d*$/);
   const [decision] = await Promise.all([
