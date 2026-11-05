@@ -22,6 +22,7 @@ struct LibraryItemJson {
     book_id: String,
     title: String,
     pending_deletion: bool,
+    ordinary_deleted: bool,
 }
 
 #[derive(Serialize)]
@@ -61,6 +62,7 @@ pub(super) async fn api_list(
                     book_id: book.book_id.to_string(),
                     title: book.title,
                     pending_deletion: book.pending_deletion,
+                    ordinary_deleted: book.ordinary_deleted,
                 })
                 .collect();
             private_response(
