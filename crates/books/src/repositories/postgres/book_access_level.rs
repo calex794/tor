@@ -306,6 +306,27 @@ mod tests {
                 .await,
             Err(AuthorError::Missing),
         );
+        // The completed ordinary-deleted Book is a read-only tombstone.
+        sqlx::query(
+            "UPDATE books SET admin_hold=FALSE, lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
+        )
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(repo.manageable_access_level(owner, book).await.unwrap().is_none());
+        assert_eq!(
+            repo.verified_upgrade_book_access_level(owner, book, "pro_adult", "pro_adult")
+                .await,
+            Err(AuthorError::Missing),
+        );
+        let frozen: String = sqlx::query_scalar("SELECT access_level FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(frozen, "pro_adult");
         pool.close().await;
     }
 }
