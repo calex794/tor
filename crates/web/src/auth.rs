@@ -501,14 +501,11 @@ async fn cover_settings(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let latest = match state.cover_jobs.as_ref() {
-        Some(jobs) => match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        },
-        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
     let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let latest = match slots.owner_latest_status(id, actor).await {
+        Ok(latest) => latest,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
