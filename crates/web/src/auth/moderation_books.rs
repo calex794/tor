@@ -10,10 +10,10 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-#[path = "moderation_registration.rs"]
-mod registration;
 #[path = "moderation_book_history.rs"]
 mod history;
+#[path = "moderation_registration.rs"]
+mod registration;
 use tor_accounts::{
     repositories::moderation_books::{
         ModerationBook, ModerationBooksError, ModerationDeletionRequest,
