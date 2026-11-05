@@ -175,8 +175,10 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT COUNT(*) FROM book_registration_decisions
-                      WHERE book_id={book_id} AND outcome='approved'")
+            &format!(
+                "SELECT COUNT(*) FROM book_registration_decisions
+                      WHERE book_id={book_id} AND outcome='approved'"
+            )
         ),
         "1"
     );
