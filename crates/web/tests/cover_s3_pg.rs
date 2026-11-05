@@ -412,7 +412,10 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     )
     .await;
     assert_eq!(history_response.status(), StatusCode::OK);
-    assert_eq!(history_response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
     let history_page = to_bytes(history_response.into_body(), 262144)
         .await
         .unwrap();
@@ -420,7 +423,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert!(history_page.contains("Обложка: Одобрено"));
     assert!(history_page.contains(&format!("(#{reviewer})")));
     assert!(!history_page.contains("staging/covers/"));
-
 
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
