@@ -40,7 +40,10 @@ fn render(id: i64, book: &ManagedBookLifecycle, csrf: &str) -> Html<String> {
             "<option value=\"{value}\"{selected}>{label}</option>"
         ));
     }
-    let editor = if matches!(book.status.as_str(), "pending_deletion" | "ordinary_deleted") {
+    let editor = if matches!(
+        book.status.as_str(),
+        "pending_deletion" | "ordinary_deleted"
+    ) {
         String::from(
             "<p>Книга удалена или ожидает удаления. Изменение этого состояния невозможно через обычный редактор.</p>",
         )
