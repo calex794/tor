@@ -1833,7 +1833,7 @@
       "method": "GET",
       "template": "/moderation/books",
       "source": "crates/web/src/auth/moderation_books.rs",
-      "handler": "page",
+      "handler": "home",
       "policy": "scoped"
     },
     {
@@ -1975,6 +1975,13 @@
       "source": "crates/web/src/auth/saved_free_chapters.rs",
       "handler": "progress_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/control",
+      "source": "crates/web/src/auth/moderation_books.rs",
+      "handler": "page",
+      "policy": "scoped"
     },
     {
       "method": "GET",
