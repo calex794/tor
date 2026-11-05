@@ -217,7 +217,7 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn('return "$result"', body)
                 self.assertIn('if node "$scenario" "$@"; then', body)
                 self.assertIn("set -euo pipefail", body)
-                found = tuple(re.findall(r"ci_timed_browser tools/([\\w-]+\\.cjs)", body))
+                found = tuple(re.findall(r"ci_timed_browser tools/([\w-]+\.cjs)", body))
                 self.assertEqual(found, expected)
                 commands.append(found)
         self.assertEqual(commands[0], commands[1])
