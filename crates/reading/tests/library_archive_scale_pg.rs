@@ -157,7 +157,7 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
         .expect("EXPLAIN ANALYZE of actual saved_archive_chapters query");
     let entry = &analyzed[0];
     assert_eq!(entry["Plan"]["Node Type"], "Limit");
-    assert_eq!(entry["Plan"]["Actual Rows"], 100.0);
+    assert_eq!(entry["Plan"]["Actual Rows"].as_f64(), Some(100.0));
     let execution_ms = entry["Execution Time"]
         .as_f64()
         .expect("PostgreSQL reports execution time");
