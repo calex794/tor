@@ -1,7 +1,10 @@
 //! C-08/BR-060: saving a Book pins its released free chapter editions.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
-use tor_reading::{repositories::{PgLibrary, PgReadingProgress}, services::progress::ReadingPlace};
+use tor_reading::{
+    repositories::{PgLibrary, PgReadingProgress},
+    services::progress::ReadingPlace,
+};
 
 async fn chapter(
     pool: &PgPool,
