@@ -381,3 +381,158 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     pool.close().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Mixed archive','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-mixed-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let outsider: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Outsider','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-mixed-outsider-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let digest = [17_u8; 32];
+    let other_digest = [31_u8; 32];
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour'),($3,$4,now()+interval '1 hour')",
+    )
+    .bind(actor)
+    .bind(digest.as_slice())
+    .bind(outsider)
+    .bind(other_digest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Mixed archive','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:mixed:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (free_id, free_v1) = chapter(&pool, book, 1, "public", "free", true).await;
+    let (paid_id, paid_v1) = chapter(&pool, book, 2, "public", "paid", true).await;
+    let (not_owned_id, _) = chapter(&pool, book, 3, "public", "paid", true).await;
+    let (another_free_id, _) = chapter(&pool, book, 4, "public", "free", true).await;
+
+    let library = PgLibrary::new(pool.clone());
+    library.add_book(actor, book).await.unwrap();
+    let paid_purchase: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,12900,'RUB') RETURNING id",
+    )
+    .bind(actor)
+    .bind(paid_id)
+    .bind(paid_v1)
+    .bind(format!("br060-mixed-purchase-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let updated_free: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Not pinned new free V2') RETURNING id",
+    )
+    .bind(free_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(free_id)
+        .bind(updated_free)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Remove the extra free pin to verify it does not enter via the public TOC.
+    sqlx::query("DELETE FROM reader_saved_free_chapters WHERE user_id=$1 AND chapter_id=$2")
+        .bind(actor)
+        .bind(another_free_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = library
+        .saved_archive_chapters(actor, book, 1, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 1);
+    assert_eq!(first.items[0].chapter_id, free_id);
+    assert_eq!(first.items[0].saved_free_version_no, Some(1));
+    assert!(first.items[0].purchased.is_none());
+    assert_eq!(first.next_cursor, Some(1));
+    let second = library
+        .saved_archive_chapters(actor, book, 1, first.next_cursor, &digest)
+        .await
+        .unwrap();
+    assert_eq!(second.items.len(), 1);
+    assert_eq!(second.items[0].chapter_id, paid_id);
+    assert!(second.items[0].saved_free_version_no.is_none());
+    assert_eq!(second.items[0].purchased.as_ref().unwrap().purchase_id, paid_purchase);
+    assert_eq!(second.next_cursor, None);
+    let all = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(all.items.len(), 2);
+    assert!(all.items.iter().all(|c| ![not_owned_id, another_free_id].contains(&c.chapter_id)));
+    assert!(library
+        .saved_archive_chapters(outsider, book, 50, None, &other_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, None, &other_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    let pinned = library.pinned_free_chapter(actor, free_id, &digest).await.unwrap().unwrap();
+    assert_eq!(pinned.version_id, free_v1);
+
+    // A refund suppresses paid navigation, but never erases the free pin.
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(paid_purchase)
+    .bind(format!("br060-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let refunded = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(refunded.items.len(), 1);
+    assert_eq!(refunded.items[0].chapter_id, free_id);
+    pool.close().await;
+}
