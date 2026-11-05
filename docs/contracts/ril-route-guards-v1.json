@@ -1975,6 +1975,27 @@
       "source": "crates/web/src/auth/saved_free_chapters.rs",
       "handler": "progress_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/registrations",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "queue",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/books/{id}/registration",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "decide",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/{id}/registration-history",
+      "source": "crates/web/src/auth/moderation_registration.rs",
+      "handler": "history",
+      "policy": "scoped"
     }
   ]
 }
