@@ -171,7 +171,11 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::home_recent_with_covers(&cards, &covers));
+        let html = pages::home_recent_with_covers(&cards, &covers);
+        let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+        let (html, _) =
+            cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
+        return Ok(html);
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
@@ -301,11 +305,25 @@ async fn book_detail(
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            let (html, origin) =
+                match cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &[book.id]).await {
+                    Ok(value) => value,
+                    Err(status) => return book_error(&state, status).await,
+                };
+            let response =
+                book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            return cover_http::cdn_image_csp(response, origin.as_deref());
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
-        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        let (html, origin) =
+            match cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &[book.id]).await {
+                Ok(value) => value,
+                Err(status) => return book_error(&state, status).await,
+            };
+        let response =
+            book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        return cover_http::cdn_image_csp(response, origin.as_deref());
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -562,10 +580,22 @@ fn make_router_with_paid_checkout(
         .map(tor_search::api::router)
         .unwrap_or_default();
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
-        cover_delivery::CoverDelivery::new(
+        let enabled = std::env::var("TOR_CDN_COVER_HTML_ENABLED").as_deref() == Ok("1")
+            && store.public_cdn_origin().is_some();
+        let delivery = cover_delivery::CoverDelivery::new(
             tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
             store,
-        )
+        );
+        if enabled {
+            // Explicit operator choice. Never publish objects from HTML requests.
+            delivery.with_publication_registry(
+                tor_books::repositories::cover_publications::PgPublicCoverPublications::new(
+                    catalog.pool(),
+                ),
+            )
+        } else {
+            delivery
+        }
     });
     let rec_runtime = follow_control.as_ref().map(|control| {
         let (accounts, cookies) = control.browser_context();
