@@ -416,7 +416,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &review_action,
             &outsider_cookie,
-            &format!("csrf_token=wrong&request_revision=2&decision=approve")
+            "csrf_token=wrong&request_revision=2&decision=approve"
         )
         .await
         .status(),
