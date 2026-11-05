@@ -475,7 +475,6 @@ jobs:
         run: |
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
-
   migrations:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
