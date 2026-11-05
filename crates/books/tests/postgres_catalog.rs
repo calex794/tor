@@ -95,14 +95,12 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
     // Establish a complete independent site-review fixture in disposable tor_ci;
     // the database trigger must still reject every slot without this decision.
     let reviewer: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'Cover test site moderator','isolated-fixture-no-login')
-         RETURNING id",
+        "SELECT id FROM users WHERE id<>905 AND account_state='active'
+         ORDER BY id LIMIT 1",
     )
-    .bind(format!("cover-public-905-reviewer-{job}@tor-ci.example"))
     .fetch_one(&mut *tx)
     .await
-    .unwrap();
+    .expect("independent site reviewer in seeded tor_ci");
     sqlx::query(
         "INSERT INTO account_roles(user_id,role,is_active)
          VALUES($1,'moderator',TRUE)",
