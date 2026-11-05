@@ -25,6 +25,78 @@ pub(super) async fn cover_card_ids(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
+/// Map only explicitly confirmed current public covers to immutable CDN URLs.
+/// Never publish/copy/remove an object during a visitor's page request.
+/// Disabled by default; if the publication registry/origin was not installed,
+/// keep the same-origin private-object proxy as a safe fallback.
+pub(super) async fn opt_in_cdn_html(
+    delivery: Option<&cover_delivery::CoverDelivery>,
+    html: axum::response::Html<String>,
+    ids: &[u64],
+) -> Result<(axum::response::Html<String>, Option<String>), StatusCode> {
+    if std::env::var("TOR_CDN_COVER_HTML_ENABLED").as_deref() != Ok("1") {
+        return Ok((html, None));
+    }
+    let Some(delivery) = delivery else {
+        return Ok((html, None));
+    };
+    use tor_books::repositories::cover_slots::PublicCoverKind;
+    use tor_ingest::domain::cover::CoverError;
+    let card = match delivery.current_cdn_urls(ids, PublicCoverKind::Card).await {
+        Ok(urls) => urls,
+        Err(CoverError::Forbidden) => return Ok((html, None)),
+        Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let main = match delivery.current_cdn_urls(ids, PublicCoverKind::Main).await {
+        Ok(urls) => urls,
+        Err(CoverError::Forbidden) => return Ok((html, None)),
+        Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let mut rendered = html.0;
+    let mut origin: Option<String> = None;
+    for (kind, urls) in [("card", card), ("main", main)] {
+        for (book_id, url) in urls {
+            let Some((host, _)) = url.split_once("/public/covers/") else {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            if let Some(previous) = origin.as_ref() {
+                if previous != host {
+                    return Err(StatusCode::SERVICE_UNAVAILABLE);
+                }
+            } else {
+                origin = Some(host.to_owned());
+            }
+            // Replace only server-rendered src attributes for B-approved books.
+            // No user-supplied URL, book title, HTML attribute or storage key
+            // controls this substitution.
+            let source = format!("src=\"/covers/{book_id}/{kind}.webp\"");
+            let target = format!("src=\"{url}\"");
+            rendered = rendered.replace(&source, &target);
+        }
+    }
+    Ok((axum::response::Html(rendered), origin))
+}
+
+/// Existing private-page CSP forbids third-party images; extend img-src only
+/// for the verified configured CDN host, without weakening other directives.
+pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Response {
+    let Some(origin) = origin else {
+        return response;
+    };
+    if let Some(previous) = response.headers().get("content-security-policy") {
+        if let Ok(policy) = previous.to_str() {
+            let updated = policy.replace(
+                "img-src 'self';",
+                &format!("img-src 'self' {origin};"),
+            );
+            if let Ok(value) = axum::http::HeaderValue::from_str(&updated) {
+                response.headers_mut().insert("content-security-policy", value);
+            }
+        }
+    }
+    response
+}
+
 /// No client-controlled storage paths or private S3 URLs.
 pub(super) async fn cover_image(
     State(state): State<AppState>,
