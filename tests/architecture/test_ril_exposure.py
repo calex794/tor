@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 273)  # S014 adds two guarded profile subscription POSTs; no public write.
-        self.assertEqual(report["route_pairs"], 269)  # Two bounded administrator history routes.
+        self.assertEqual(report["route_pairs"], 271)  # Includes S014 account-scoped profile follows.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
