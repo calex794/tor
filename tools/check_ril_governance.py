@@ -355,6 +355,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/books/registrations", "queue"): "crates/web/src/auth/moderation_registration.rs",
             ("POST", "/moderation/books/{id}/registration", "decide"): "crates/web/src/auth/moderation_registration.rs",
             ("GET", "/moderation/books/{id}/registration-history", "history"): "crates/web/src/auth/moderation_registration.rs",
+            ("GET", "/moderation/books/{id}/history", "book_history"): "crates/web/src/auth/moderation_books.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -499,6 +500,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "submit_visibility": "moderate_book_visibility",
                 "deletion_queue": "moderation_pending_deletions",
                 "review_deletion": "moderate_ordinary_deletion",
+                "book_history": "private_book_moderation_history",
             }.get(entry["handler"], "__unreviewed_moderation_operation__")
             scoped = (
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
