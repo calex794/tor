@@ -19,7 +19,8 @@ impl Drop for RestoreBook<'_> {
             self.url,
             &format!(
                 "UPDATE books SET access_level='pro_adult',visibility_status='active',\
-                 lifecycle_status='in_progress' WHERE id={}",
+                 lifecycle_status='in_progress',visibility='public',\
+                 ordinary_deleted_at=NULL WHERE id={}",
                 self.book_id
             ),
         );
@@ -97,6 +98,31 @@ pub(super) async fn assert_admin_can_inspect_all_book_states(
                 if pinned.version_id.get() == version
         ),
         "pending_deletion cannot revoke the site administrator's CURRENT edition"
+    );
+    assert_eq!(
+        read_page(reader, &path, Some(admin_session)).await.status(),
+        StatusCode::OK
+    );
+    // A completed *ordinary* deletion is still a retained Book, not hard
+    // deletion: the site's administrator keeps the paid inspection ability.
+    pg(
+        url,
+        &format!(
+            "UPDATE books SET visibility='draft',lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now() WHERE id={book}"
+        ),
+    );
+    let decision = authority
+        .resolve_entitlement(admin, chapter_id, None)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            decision,
+            EntitlementDecision::Allowed { pinned }
+                if pinned.version_id.get() == version
+        ),
+        "ordinary-deleted Book must not remove site-admin paid inspection"
     );
     assert_eq!(
         read_page(reader, &path, Some(admin_session)).await.status(),
