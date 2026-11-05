@@ -226,7 +226,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap()
         .with_public_cdn(PUBLIC_BUCKET.to_owned(), "https://cdn.example".to_owned())
         .unwrap();
-    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher));
+    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()));
+    let mut public_urls = Vec::new();
     for variant in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let url = direct
             .publish_cdn_variant(BOOK_ID as u64, variant)
@@ -236,6 +237,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert!(url.starts_with("https://cdn.example/public/covers/950/1/"));
         assert!(url.ends_with(".webp"));
         let key = url.strip_prefix("https://cdn.example/").unwrap();
+        public_urls.push((variant, url.clone()));
         let head = client
             .head_object()
             .bucket(PUBLIC_BUCKET)
@@ -293,6 +295,38 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={BOOK_ID}"),
     )
     .await;
+    // An operator-owned lifecycle worker can now remove the precise published
+    // copies without touching the private originals. An automatic durable
+    // revoke queue and Yandex purge are deliberately not enabled yet.
+    for (kind, public_url) in &public_urls {
+        let name = match kind {
+            PublicCoverKind::Card => "card",
+            PublicCoverKind::Main => "main",
+        };
+        let image = stored_variants
+            .iter()
+            .find(|item| item.name == name)
+            .unwrap();
+        for _ in 0..2 {
+            let revoked_url = publisher
+                .remove_public_cover(BOOK_ID as u64, card.revision, name, &image.sha256)
+                .await
+                .expect("exact public removal is idempotent");
+            assert_eq!(revoked_url, *public_url);
+        }
+        let key = public_url.strip_prefix("https://cdn.example/").unwrap();
+        assert!(client
+            .head_object()
+            .bucket(PUBLIC_BUCKET)
+            .key(key)
+            .send()
+            .await
+            .is_err());
+        assert!(store
+            .exists_verified(&image.storage_key, &image.sha256, image.size_bytes)
+            .await
+            .unwrap());
+    }
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)

@@ -89,6 +89,26 @@ impl S3CoverStore {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'))
     }
+    /// The caller supplies only a book/version/digest identity, never a path.
+    /// Derive precisely the same immutable key for publication and revocation.
+    fn immutable_public_key(
+        book_id: u64,
+        revision: i64,
+        variant: &str,
+        sha256: &[u8; 32],
+    ) -> Result<String, CoverError> {
+        if book_id == 0 || revision <= 0 || !matches!(variant, "main" | "card") {
+            return Err(CoverError::Invalid);
+        }
+        let hash = sha256
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        Ok(format!(
+            "public/covers/{book_id}/{revision}/{variant}-{hash}.webp"
+        ))
+    }
+
     fn hash_hex(bytes: &[u8]) -> String {
         let digest = Sha256::digest(bytes);
         digest.iter().map(|b| format!("{b:02x}")).collect()
@@ -111,10 +131,8 @@ impl CoverObjectStore for S3CoverStore {
         size_bytes: i64,
     ) -> Result<String, CoverError> {
         let (bucket, origin) = self.public_cdn.as_ref().ok_or(CoverError::Forbidden)?;
-        if book_id == 0
-            || revision <= 0
-            || !matches!(variant, "main" | "card")
-            || !source_key.starts_with("staging/covers/variants/")
+        let public_key = Self::immutable_public_key(book_id, revision, variant, sha256)?;
+        if !source_key.starts_with("staging/covers/variants/")
             || !Self::permitted(source_key)
             || !(1..=8 * 1024 * 1024).contains(&size_bytes)
         {
@@ -128,9 +146,6 @@ impl CoverObjectStore for S3CoverStore {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
-        // Content-addressed storage means replacement never overwrites
-        // an earlier CDN cache entry, even when a book has many revisions.
-        let public_key = format!("public/covers/{book_id}/{revision}/{variant}-{hash}.webp");
         self.client
             .copy_object()
             .bucket(bucket)
@@ -157,6 +172,28 @@ impl CoverObjectStore for S3CoverStore {
         {
             return Err(CoverError::Unavailable);
         }
+        Ok(format!("{origin}/{public_key}"))
+    }
+
+    async fn remove_public_cover(
+        &self,
+        book_id: u64,
+        revision: i64,
+        variant: &str,
+        sha256: &[u8; 32],
+    ) -> Result<String, CoverError> {
+        let (bucket, origin) = self.public_cdn.as_ref().ok_or(CoverError::Forbidden)?;
+        let public_key = Self::immutable_public_key(book_id, revision, variant, sha256)?;
+        // Exact-key delete only. It cannot touch the private bucket or accept
+        // an arbitrary path from a caller. S3 deletion is idempotent.
+        // CDN invalidation is a separate, durable lifecycle operation.
+        self.client
+            .delete_object()
+            .bucket(bucket)
+            .key(&public_key)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
         Ok(format!("{origin}/{public_key}"))
     }
 
@@ -357,6 +394,12 @@ mod direct_cover_tests {
         assert_eq!(disabled.public_cdn_origin(), None);
         assert!(matches!(
             disabled
+                .remove_public_cover(42, 1, "card", &[0_u8; 32])
+                .await,
+            Err(CoverError::Forbidden)
+        ));
+        assert!(matches!(
+            disabled
                 .publish_public_cover(
                     42,
                     1,
@@ -387,6 +430,20 @@ mod direct_cover_tests {
             .with_public_cdn("public-covers".into(), "https://cdn.example".into())
             .unwrap();
         assert_eq!(enabled.public_cdn_origin(), Some("https://cdn.example"));
+        for (book_id, revision, variant) in [
+            (0, 1, "card"),
+            (1, 0, "main"),
+            (1, -1, "main"),
+            (1, 1, "raw"),
+            (1, 1, "card/../source"),
+        ] {
+            assert!(matches!(
+                enabled
+                    .remove_public_cover(book_id, revision, variant, &[0_u8; 32])
+                    .await,
+                Err(CoverError::Invalid)
+            ));
+        }
         for (book_id, revision, variant, key, size) in [
             (0, 1, "card", "staging/covers/variants/a.webp", 10),
             (1, 0, "card", "staging/covers/variants/a.webp", 10),

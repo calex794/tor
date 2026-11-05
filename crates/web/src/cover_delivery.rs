@@ -118,17 +118,20 @@ impl CoverDelivery {
                 object.size_bytes,
             )
             .await?;
-        if self
-            .slots
-            .public_variant(book_id_i64, kind)
-            .await
-            .map_err(|_| CoverError::Unavailable)?
-            .as_ref()
-            != Some(&object)
-        {
-            // The object may now be public in S3. Caller MUST NOT return its
-            // address; future publication revocation is handled separately.
-            return Ok(None);
+        let current = self.slots.public_variant(book_id_i64, kind).await;
+        if current.as_ref().ok().and_then(Option::as_ref) != Some(&object) {
+            // The book was hidden, the version changed, or PG became
+            // unavailable during the S3 copy. Never return a stale URL.
+            // Compensate by deleting exactly the object we just published;
+            // failures propagate instead of silently leaving a public copy.
+            // A durable registry + CDN purge is still required before rollout.
+            self.objects
+                .remove_public_cover(book_id, object.revision, variant, &object.sha256)
+                .await?;
+            return match current {
+                Ok(_) => Ok(None),
+                Err(_) => Err(CoverError::Unavailable),
+            };
         }
         Ok(Some(url))
     }
