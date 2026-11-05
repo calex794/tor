@@ -200,6 +200,49 @@ impl PgPublicCoverPublications {
         Ok(valid)
     }
 
+    /// Return only fully confirmed copies of the currently attached, PUBLIC
+    /// BASIC cover variants. A reservation is never a publishable CDN address.
+    /// Recheck Book visibility here rather than trusting an earlier HTML query.
+    pub async fn current_cdn_copies(
+        &self,
+        book_ids: &[i64],
+        kind: PublicCoverKind,
+    ) -> Result<Vec<PublicCoverPublication>, sqlx::Error> {
+        if book_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if book_ids.len() > 100 || book_ids.iter().any(|id| *id <= 0) {
+            return Err(sqlx::Error::Protocol(
+                "invalid public CDN cover lookup batch".into(),
+            ));
+        }
+        let rows = sqlx::query(
+            "SELECT p.id,p.book_id,p.job_id,p.slot_revision,p.variant_name,
+                    p.content_sha256,p.size_bytes,p.lease_epoch
+             FROM public_cover_publications p
+             JOIN books b ON b.id=p.book_id
+             JOIN book_cover_slots s ON s.book_id=b.id
+               AND s.job_id=p.job_id AND s.revision=p.slot_revision
+             JOIN cover_variant_jobs j ON j.id=p.job_id AND j.book_id=b.id
+             JOIN cover_variants v ON v.job_id=j.id
+               AND v.variant_name=p.variant_name
+               AND v.content_sha256=p.content_sha256
+               AND v.size_bytes=p.size_bytes
+             WHERE p.book_id=ANY($1) AND p.variant_name=$2
+               AND p.state='copied'
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion' AND b.access_level='basic'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.owner_user_id=j.actor_user_id AND j.status='done'
+             ORDER BY p.book_id",
+        )
+        .bind(book_ids)
+        .bind(Self::kind_name(kind))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(Self::from_row).collect()
+    }
+
     /// Recover stale copies after Book hide/replacement, including copies for
     /// which the app crashed before finalizing. A reserved copy is only eligible
     /// after its bounded publication window; the publisher must respect it.
