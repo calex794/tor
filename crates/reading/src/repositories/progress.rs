@@ -245,4 +245,97 @@ impl PgReadingProgress {
             Some(_) => Ok(()), // Delayed request is harmless; do not roll back.
         }
     }
+
+    /// Move the user's cursor only within an exact, already-pinned free edition
+    /// after ordinary Book deletion. A position or bookmark is not a grant.
+    /// Access is rechecked within the same SQL statement as the write.
+    pub async fn save_archived_position(
+        &self,
+        user_id: i64,
+        chapter_id: i64,
+        version_id: i64,
+        place: ReadingPlace,
+        session_digest: &[u8; 32],
+    ) -> Result<(), ProgressError> {
+        if user_id <= 0
+            || chapter_id <= 0
+            || version_id <= 0
+            || !(1..=200).contains(&place.block_index)
+            || !(0..=100_000).contains(&place.char_offset)
+        {
+            return Err(ProgressError::Invalid);
+        }
+        let row = sqlx::query(
+            r#"WITH eligible AS MATERIALIZED (
+                   SELECT c.book_id, c.id AS chapter_id, c.chapter_no, c.edit_revision
+                   FROM reader_saved_free_chapters AS pin
+                   JOIN chapters AS c ON c.id=pin.chapter_id
+                   JOIN books AS b ON b.id=c.book_id
+                   JOIN chapter_versions AS edition
+                     ON edition.id=pin.version_id AND edition.chapter_id=c.id
+                   JOIN users AS viewer ON viewer.id=pin.user_id
+                     AND viewer.account_state='active'
+                   JOIN sessions AS active_session ON active_session.user_id=viewer.id
+                     AND active_session.token_hash=$6::bytea
+                     AND active_session.revoked_at IS NULL
+                     AND active_session.expires_at>now()
+                   WHERE pin.user_id=$1 AND pin.chapter_id=$2 AND pin.version_id=$3
+                     AND b.lifecycle_status='ordinary_deleted'
+                     AND b.ordinary_deleted_at IS NOT NULL
+                     AND b.visibility_status='active'
+                     AND NOT b.admin_hold AND NOT b.is_deleted
+                     AND (b.access_level='basic'
+                       OR (b.access_level='adult' AND viewer.adult_enabled)
+                       OR (b.access_level='pro_adult' AND EXISTS (
+                           SELECT 1 FROM user_level_grants AS age_grant
+                           WHERE age_grant.user_id=viewer.id
+                             AND age_grant.level='pro_adult' AND age_grant.is_active)))
+                     AND c.visibility='public' AND c.access_level='free'
+                     AND NOT c.admin_hold AND NOT c.is_deleted
+                 ), written AS (
+                   INSERT INTO reader_book_positions AS saved
+                     (user_id, book_id, chapter_id, chapter_no, chapter_revision,
+                      version_id, block_index, char_offset)
+                   SELECT $1, e.book_id, e.chapter_id, e.chapter_no,
+                          e.edit_revision, $3, $4, $5
+                   FROM eligible AS e
+                   ON CONFLICT (user_id, book_id) DO UPDATE SET
+                     chapter_id=EXCLUDED.chapter_id,
+                     chapter_no=EXCLUDED.chapter_no,
+                     chapter_revision=EXCLUDED.chapter_revision,
+                     version_id=EXCLUDED.version_id,
+                     block_index=EXCLUDED.block_index,
+                     char_offset=EXCLUDED.char_offset,
+                     revision=saved.revision+1,
+                     updated_at=now()
+                   WHERE saved.chapter_no<EXCLUDED.chapter_no
+                     OR (saved.chapter_no=EXCLUDED.chapter_no
+                       AND (saved.chapter_revision<EXCLUDED.chapter_revision
+                         OR (saved.chapter_revision=EXCLUDED.chapter_revision
+                           AND (saved.version_id<>EXCLUDED.version_id
+                             OR saved.block_index<EXCLUDED.block_index
+                             OR (saved.block_index=EXCLUDED.block_index
+                               AND saved.char_offset<EXCLUDED.char_offset)))))
+                   RETURNING 1
+                 )
+                 SELECT EXISTS(SELECT 1 FROM eligible) AS allowed,
+                        EXISTS(SELECT 1 FROM written) AS written"#,
+        )
+        .bind(user_id)
+        .bind(chapter_id)
+        .bind(version_id)
+        .bind(place.block_index)
+        .bind(place.char_offset)
+        .bind(session_digest.as_slice())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| ProgressError::Unavailable)?;
+        let allowed: bool = row.try_get("allowed").map_err(|_| ProgressError::Unavailable)?;
+        if allowed {
+            Ok(()) // An old or duplicate cursor cannot move the reader backwards.
+        } else {
+            Err(ProgressError::NotFound)
+        }
+    }
+
 }
