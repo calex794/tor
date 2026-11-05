@@ -110,6 +110,31 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     assert!(content.contains("Регистрация ("));
     assert!(content.contains(&decision_path));
 
+    // Search is scoped to all pending Book requests before LIMIT 40, not a
+    // client-side filter over the first 40 returned cards.
+    let searched = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?q={book}"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(searched.status(), StatusCode::OK);
+    assert!(html(searched).await.contains(&decision_path));
+    let missing = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?q=missing-review-title-{nonce}"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(missing.status(), StatusCode::OK);
+    assert!(!html(missing).await.contains(&decision_path));
+
     assert_eq!(
         request(
             &app, "POST", &format!("/moderation/books/{book}/visibility"),
