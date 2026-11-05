@@ -329,6 +329,12 @@ pub(super) async fn deletion_queue(
         return deny(StatusCode::UNAUTHORIZED);
     };
     let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let rows = match state
         .accounts
         .moderation_pending_deletions(&digest, query.before)
@@ -361,6 +367,12 @@ pub(super) async fn review_deletion(
         return deny(StatusCode::UNAUTHORIZED);
     };
     let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     match state
         .accounts
         .moderate_ordinary_deletion(&digest, id, form.request_revision, &form.decision)
