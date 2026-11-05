@@ -93,8 +93,8 @@ fn my_library_inner(
             };
             write!(
                 saved_html,
-                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3>{state}</div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
-                book.book_id, book.book_id
+                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3>{state}<p><a href=\"/me/library/{}/saved\">Сохранённые главы</a></p></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
+                book.book_id, book.book_id, book.book_id
             )
             .expect("writing saved book");
         }
@@ -353,6 +353,7 @@ mod pending_library_tests {
         assert!(!html.contains(">Удалена<"));
         assert!(html.contains("href=\"/books/55\""));
         assert!(html.contains("action=\"/me/library/55/remove\""));
+        assert!(html.contains("href=\"/me/library/55/saved\""));
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
     }
