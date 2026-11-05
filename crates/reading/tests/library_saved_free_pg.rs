@@ -2,8 +2,8 @@
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
 use tor_reading::{
-    repositories::{PgLibrary, PgReadingProgress},
-    services::progress::ReadingPlace,
+    repositories::{PgLibrary, PgReadingProgress, PgReadingSync},
+    services::{progress::ReadingPlace, sync::SyncError},
 };
 
 async fn chapter(
@@ -304,6 +304,113 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     assert!(archived[0].archived_saved);
     assert!(resume.continue_reading(user_b).await.unwrap().is_empty());
 
+    // A historical V1 is allowed to advance only through its exact live pin,
+    // active session and the same per-Book CAS revision as public progress.
+    let archived_sync = PgReadingSync::new(pool.clone());
+    let current = archived_sync
+        .archived_free_state(user_a, free1, v1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.version_id, v1);
+    assert_eq!(current.place.char_offset, 8);
+    let advanced = ReadingPlace {
+        block_index: 1,
+        char_offset: 11,
+    };
+    let committed = archived_sync
+        .save_archived_free(
+            user_a,
+            free1,
+            v1,
+            advanced,
+            current.receipt.revision,
+            &token_a,
+        )
+        .await
+        .unwrap();
+    assert!(committed.revision > current.receipt.revision);
+    assert_eq!(
+        archived_sync
+            .archived_free_state(user_a, free1, v1, &token_a)
+            .await
+            .unwrap()
+            .unwrap()
+            .place,
+        advanced
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                v1,
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 12,
+                },
+                current.receipt.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::Conflict),
+        "stale tab cannot overwrite a newly committed archive cursor"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                new_version,
+                advanced,
+                committed.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::NotFound),
+        "public V2 never replaces the pinned free V1"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_b,
+                free1,
+                v1,
+                advanced,
+                0,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::NotFound),
+        "another reader's token is not an entitlement"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                v1,
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 1000,
+                },
+                committed.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::Invalid),
+        "UTF-16 offsets must be checked against the pinned version body"
+    );
+    let completed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_chapter_completions WHERE user_id=$1 AND chapter_id=$2",
+    )
+    .bind(user_a)
+    .bind(free1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(completed, 0, "scroll sync never mints a completion event");
+
     // Repointed public V2 progress is never mapped onto older saved V1.
     sqlx::query("UPDATE reader_book_positions SET version_id=$2 WHERE user_id=$1 AND book_id=$3")
         .bind(user_a)
@@ -345,6 +452,13 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap()
         .is_none());
+    assert_eq!(
+        archived_sync
+            .save_archived_free(user_a, free1, v1, advanced, committed.revision, &token_a)
+            .await,
+        Err(SyncError::NotFound),
+        "admin hold denies position changes, not just text"
+    );
     assert!(library
         .pinned_free_chapters(user_a, book, 50, None, &token_a)
         .await
