@@ -359,10 +359,6 @@ fn router_inner(
             get(sync_actions::get_free).put(sync_actions::put_free),
         )
         .route(
-            "/api/v1/me/progress/archived-free",
-            get(sync_actions::get_archived_free).put(sync_actions::put_archived_free),
-        )
-        .route(
             "/api/v1/me/progress/purchased",
             get(sync_actions::get_purchased).put(sync_actions::put_purchased),
         )
