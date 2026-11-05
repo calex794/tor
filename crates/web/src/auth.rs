@@ -247,11 +247,7 @@ fn router_inner(
         )
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
-        .route("/me/creators", get(creator_follows::page))
-        .route(
-            "/me/creators/{id}/unfollow",
-            post(creator_follows::unfollow),
-        )
+        .merge(creator_follows::router())
         .route(
             "/me/books/{id}/follow-creator",
             post(book_follow_actions::follow_creator),
