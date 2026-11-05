@@ -473,5 +473,32 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         .await,
         StatusCode::NOT_FOUND,
     );
+    // A finalized ordinary deletion is not merely pending: the Book still
+    // exists for historical library editions but its age settings are frozen.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now(), visibility='draft' WHERE id={book}"
+        ),
+    );
+    assert_eq!(get(&app, &path, &owner_cookie).await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        submit(
+            &app,
+            &path,
+            &owner_cookie,
+            ORIGIN,
+            &csrf,
+            "pro_adult",
+            "pro_adult"
+        )
+        .await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(&url, &format!("SELECT access_level FROM books WHERE id={book}")),
+        "pro_adult"
+    );
     pool.close().await;
 }
