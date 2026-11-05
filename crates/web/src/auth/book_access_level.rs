@@ -10,10 +10,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_books::{
-    repositories::postgres::ManagedBookAccessLevel,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::ManagedBookAccessLevel, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,10 +21,7 @@ pub(super) struct AccessForm {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route(
-        "/me/books/{id}/settings/access-level",
-        get(edit).post(save),
-    )
+    Router::new().route("/me/books/{id}/settings/access-level", get(edit).post(save))
 }
 
 fn render(book_id: i64, book: &ManagedBookAccessLevel, csrf: &str) -> Html<String> {
@@ -128,12 +122,7 @@ pub(super) async fn save(
     };
     match state
         .authoring
-        .verified_upgrade_book_access_level(
-            actor,
-            id,
-            &form.expected_level,
-            &form.requested_level,
-        )
+        .verified_upgrade_book_access_level(actor, id, &form.expected_level, &form.requested_level)
         .await
     {
         Ok(()) => private_response(
