@@ -118,6 +118,22 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("npx playwright install --with-deps", pg)
                 self.assertIn("npm install --no-save playwright@1.56.1", pg)
 
+    def test_reader_and_visual_use_headless_chromium_shell(self):
+        # Both manual jobs must remain identical to the required integration jobs.
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_file in (
+            ("reader-browser", "tor-reader-visual.yml"),
+            ("visual", "visual-smoke.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_file).read_text())[job],
+                ):
+                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    self.assertIn("npm install --no-save playwright@1.56.1", body)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
