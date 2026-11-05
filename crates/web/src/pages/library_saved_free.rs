@@ -78,7 +78,6 @@ pub fn saved_archive_list(
     )
 }
 
-
 pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String> {
     let mut rows = String::new();
     for item in &page.items {

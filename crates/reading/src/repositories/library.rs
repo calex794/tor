@@ -370,15 +370,24 @@ impl PgLibrary {
                     .try_get("paid_version_no")
                     .map_err(|_| LibraryError::Unavailable)?;
                 Ok(SavedArchiveChapter {
-                    chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
-                    chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
-                    chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_id: r
+                        .try_get("chapter_id")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    chapter_no: r
+                        .try_get("chapter_no")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    chapter_title: r
+                        .try_get("chapter_title")
+                        .map_err(|_| LibraryError::Unavailable)?,
                     saved_free_version_no: r
                         .try_get("free_version_no")
                         .map_err(|_| LibraryError::Unavailable)?,
-                    purchased: purchase_id.zip(paid_version).map(|(purchase_id, version_no)| {
-                        SavedPurchasedEdition { purchase_id, version_no }
-                    }),
+                    purchased: purchase_id
+                        .zip(paid_version)
+                        .map(|(purchase_id, version_no)| SavedPurchasedEdition {
+                            purchase_id,
+                            version_no,
+                        }),
                 })
             })
             .collect::<Result<Vec<_>, LibraryError>>()?;

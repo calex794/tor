@@ -382,7 +382,6 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
 async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion() {
@@ -498,14 +497,20 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.items[0].chapter_id, paid_id);
     assert!(second.items[0].saved_free_version_no.is_none());
-    assert_eq!(second.items[0].purchased.as_ref().unwrap().purchase_id, paid_purchase);
+    assert_eq!(
+        second.items[0].purchased.as_ref().unwrap().purchase_id,
+        paid_purchase
+    );
     assert_eq!(second.next_cursor, None);
     let all = library
         .saved_archive_chapters(actor, book, 50, None, &digest)
         .await
         .unwrap();
     assert_eq!(all.items.len(), 2);
-    assert!(all.items.iter().all(|c| ![not_owned_id, another_free_id].contains(&c.chapter_id)));
+    assert!(all
+        .items
+        .iter()
+        .all(|c| ![not_owned_id, another_free_id].contains(&c.chapter_id)));
     assert!(library
         .saved_archive_chapters(outsider, book, 50, None, &other_digest)
         .await
@@ -518,7 +523,11 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
         .unwrap()
         .items
         .is_empty());
-    let pinned = library.pinned_free_chapter(actor, free_id, &digest).await.unwrap().unwrap();
+    let pinned = library
+        .pinned_free_chapter(actor, free_id, &digest)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(pinned.version_id, free_v1);
 
     // A refund suppresses paid navigation, but never erases the free pin.
