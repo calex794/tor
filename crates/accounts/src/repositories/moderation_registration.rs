@@ -55,8 +55,12 @@ impl PgAccounts {
         rows.into_iter()
             .map(|r| {
                 Ok(RegistrationCandidate {
-                    book_id: r.try_get("id").map_err(|_| ModerationBooksError::Unavailable)?,
-                    title: r.try_get("title").map_err(|_| ModerationBooksError::Unavailable)?,
+                    book_id: r
+                        .try_get("id")
+                        .map_err(|_| ModerationBooksError::Unavailable)?,
+                    title: r
+                        .try_get("title")
+                        .map_err(|_| ModerationBooksError::Unavailable)?,
                     owner_user_id: r
                         .try_get("owner_user_id")
                         .map_err(|_| ModerationBooksError::Unavailable)?,
@@ -146,8 +150,12 @@ impl PgAccounts {
         let approved: Option<i64> = row
             .try_get("registration_approval_decision_id")
             .map_err(|_| ModerationBooksError::Unavailable)?;
-        let held: bool = row.try_get("admin_hold").map_err(|_| ModerationBooksError::Unavailable)?;
-        let deleted: bool = row.try_get("is_deleted").map_err(|_| ModerationBooksError::Unavailable)?;
+        let held: bool = row
+            .try_get("admin_hold")
+            .map_err(|_| ModerationBooksError::Unavailable)?;
+        let deleted: bool = row
+            .try_get("is_deleted")
+            .map_err(|_| ModerationBooksError::Unavailable)?;
         if before != "pending_moderation"
             || current_revision != expected_revision
             || !required
@@ -160,8 +168,16 @@ impl PgAccounts {
         let next = current_revision
             .checked_add(1)
             .ok_or(ModerationBooksError::Stale)?;
-        let outcome = if action == "approve" { "approved" } else { "rejected" };
-        let after = if action == "approve" { "active" } else { "hidden" };
+        let outcome = if action == "approve" {
+            "approved"
+        } else {
+            "rejected"
+        };
+        let after = if action == "approve" {
+            "active"
+        } else {
+            "hidden"
+        };
         let decision_id: i64 = sqlx::query_scalar(
             "INSERT INTO book_registration_decisions
              (book_id,reviewer_user_id,outcome,expected_visibility_revision,
@@ -173,7 +189,11 @@ impl PgAccounts {
         .bind(outcome)
         .bind(current_revision)
         .bind(next)
-        .bind(if reason.is_empty() { None } else { Some(reason) })
+        .bind(if reason.is_empty() {
+            None
+        } else {
+            Some(reason)
+        })
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
@@ -186,7 +206,11 @@ impl PgAccounts {
         .bind(book_id)
         .bind(after)
         .bind(next)
-        .bind(if action == "approve" { Some(decision_id) } else { None })
+        .bind(if action == "approve" {
+            Some(decision_id)
+        } else {
+            None
+        })
         .bind(current_revision)
         .execute(&mut *tx)
         .await
