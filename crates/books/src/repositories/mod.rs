@@ -2,6 +2,7 @@ pub mod book_members;
 pub(crate) mod chapter_number;
 pub mod cover_publications;
 pub mod cover_slots;
+pub mod cover_review;
 pub mod recommendation_policy;
 // B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
 pub(crate) mod owner_transfer;
