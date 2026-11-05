@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
@@ -54,6 +55,65 @@ async function actualPng(page) {
   return Buffer.from(data.split(',')[1], 'base64');
 }
 
+
+const ciDb = process.env.APP_URL;
+if (process.env.GITHUB_ACTIONS !== 'true' || !ciDb) {
+  throw new Error('Moderator cover browser needs disposable GitHub CI');
+}
+const dbUrl = new URL(ciDb);
+if (!['postgres:', 'postgresql:'].includes(dbUrl.protocol) ||
+    dbUrl.hostname !== '127.0.0.1' || dbUrl.port !== '5432' ||
+    dbUrl.pathname !== '/tor_ci' || dbUrl.username !== 'tor_app' ||
+    dbUrl.search || dbUrl.hash) {
+  throw new Error('Refusing non-disposable cover moderation SQL fixture');
+}
+function pg(sql) {
+  return execFileSync('psql', [
+    '-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1',
+    '--dbname', ciDb, '--command', sql,
+  ], { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
+  const prefix = '/covers/' + bookId + '/main.webp';
+  assert((await owner.context().request.get(base + prefix)).status() === 404,
+    'unapproved processed cover leaked through public URL');
+  let form;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const queue = await reviewer.goto(base + '/moderation/covers');
+    assert(queue && queue.status() === 200,
+      viewport + '/' + scheme + ': independent site reviewer cannot view cover queue');
+    const candidates = reviewer.locator('article.me-now-card').filter({
+      hasText: 'Книга #' + bookId + ' ·',
+    });
+    if (await candidates.count() === 1) {
+      form = candidates.locator('form[action^="/moderation/covers/"][action$="/decision"]');
+      assert(await form.count() === 1, 'reviewer queue lacks exact candidate form');
+      break;
+    }
+    await reviewer.waitForTimeout(1000);
+  }
+  assert(form, viewport + '/' + scheme + ': cover worker never created review request');
+  const preview = await reviewer.context().request.get(
+    base + (await reviewer.locator('article.me-now-card').filter({
+      hasText: 'Книга #' + bookId + ' ·',
+    }).locator('img[src^="/moderation/covers/"]').getAttribute('src'))
+  );
+  assert(preview.status() === 200, 'site reviewer could not preview protected WebP');
+  const previewBytes = await preview.body();
+  assert(previewBytes.subarray(0, 4).toString() === 'RIFF' &&
+    previewBytes.subarray(8, 12).toString() === 'WEBP',
+    'moderator preview was not a decoded WebP');
+  const [decided] = await Promise.all([
+    reviewer.waitForResponse(r =>
+      r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
+    form.locator('button[name=action][value=approve]').click(),
+  ]);
+  assert(decided.status() === 303,
+    viewport + '/' + scheme + ': site moderator cover approval refused');
+  assert((await owner.context().request.get(base + prefix)).status() === 200,
+    'approved cover was not published through its B-owned slot');
+}
+
 async function readyCover(page, bookId, viewport, scheme) {
   for (let i = 0; i < 50; i++) {
     const response = await page.goto(base + '/me/books/' + bookId + '/settings/covers');
@@ -75,6 +135,18 @@ async function readyCover(page, bookId, viewport, scheme) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
+    const moderatorContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const moderator = await moderatorContext.newPage();
+    const moderatorMail = 'cover.site.reviewer.' + process.env.GITHUB_RUN_ID + '@example.invalid';
+    await moderator.goto(base + '/register');
+    await moderator.getByLabel('Отображаемое имя').fill('Независимый модератор обложек');
+    await moderator.getByLabel('Электронная почта').fill(moderatorMail);
+    await moderator.getByLabel('Пароль (12–128 символов)').fill('CoverBrowserStrongPassword2026');
+    await moderator.getByRole('button', { name: 'Создать учётную запись' }).click();
+    await moderator.waitForURL('**/me');
+    const reviewerId = pg("SELECT id FROM users WHERE email_normalized='" + moderatorMail + "'");
+    assert(/^[1-9]\d*$/.test(reviewerId), 'moderator fixture must be newly registered');
+    pg('INSERT INTO account_roles(user_id,role,is_active) VALUES(' + reviewerId + ", 'moderator', TRUE)");
     for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       for (const scheme of ['light', 'dark']) {
         const context = await browser.newContext({
@@ -290,6 +362,7 @@ async function readyCover(page, bookId, viewport, scheme) {
 
         await page.getByRole('button', { name: 'Загрузить обложку' }).click();
         await page.waitForURL(base + '/me/books/' + bookId + '/settings/covers');
+        await approveReadyCover(moderator, page, bookId, viewport, scheme);
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 
