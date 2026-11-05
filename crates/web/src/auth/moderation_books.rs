@@ -248,34 +248,6 @@ pub(super) async fn submit_visibility(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn moderation_list_escapes_private_titles_and_keeps_author_publication() {
-        let rows = vec![ModerationBook {
-            id: 42,
-            title: "<script>private</script>".into(),
-            visibility: "draft".into(),
-            visibility_status: "pending_moderation".into(),
-            visibility_status_revision: 2,
-            admin_hold: false,
-            owner_user_id: None,
-        }];
-        let html = render(&rows, "csrf");
-        assert!(html.contains("&lt;script&gt;private&lt;/script&gt;"));
-        assert!(!html.contains("<script>"));
-        assert!(!html.contains("value=\"draft\""));
-        assert!(html.contains("name=\"new_hold\" value=\"true\""));
-        assert!(!html.contains("name=\"visibility\""));
-        assert!(!html.contains("purchase_id"));
-        assert!(html.contains("name=\"expected_status\" value=\"pending_moderation\""));
-        assert!(html.contains("name=\"expected_revision\" value=\"2\""));
-        assert!(html.contains("/moderation/books/42/visibility"));
-        assert!(!html.contains("name=\"access_level\""));
-    }
-}
-
 fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> String {
     let token = pages::escape_html(csrf);
     let mut cards = String::new();
@@ -380,6 +352,35 @@ pub(super) async fn review_deletion(
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/deletions"), &[]),
         Err(error) => deny(error_code(error)),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn moderation_list_escapes_private_titles_and_keeps_author_publication() {
+        let rows = vec![ModerationBook {
+            id: 42,
+            title: "<script>private</script>".into(),
+            visibility: "draft".into(),
+            visibility_status: "pending_moderation".into(),
+            visibility_status_revision: 2,
+            admin_hold: false,
+            owner_user_id: None,
+        }];
+        let html = render(&rows, "csrf");
+        assert!(html.contains("&lt;script&gt;private&lt;/script&gt;"));
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("value=\"draft\""));
+        assert!(html.contains("name=\"new_hold\" value=\"true\""));
+        assert!(!html.contains("name=\"visibility\""));
+        assert!(!html.contains("purchase_id"));
+        assert!(html.contains("name=\"expected_status\" value=\"pending_moderation\""));
+        assert!(html.contains("name=\"expected_revision\" value=\"2\""));
+        assert!(html.contains("/moderation/books/42/visibility"));
+        assert!(!html.contains("name=\"access_level\""));
     }
 }
 
