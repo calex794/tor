@@ -230,3 +230,26 @@ pub fn router_with_postgres_reading_covers(
         None,
     ))
 }
+
+#[cfg(test)]
+mod cdn_html_tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn only_image_csp_is_extended() {
+        let private = auth_cookies::private_response("book", &[]);
+        let response = cdn_image_csp(private, Some("https://covers.example"));
+        let csp = response.headers()["content-security-policy"]
+            .to_str()
+            .expect("valid CSP");
+        assert!(csp.contains("img-src 'self' https://covers.example;"));
+        assert!(csp.contains("script-src 'none'"));
+        assert!(csp.contains("frame-ancestors 'none'"));
+        assert!(!csp.contains("unsafe-inline"));
+
+        let public = "public".into_response();
+        let response = cdn_image_csp(public, Some("https://covers.example"));
+        assert!(response.headers().get("content-security-policy").is_none());
+    }
+}
