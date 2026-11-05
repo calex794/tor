@@ -3,6 +3,8 @@ mod book_description;
 pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
 pub use book_lifecycle::ManagedBookLifecycle;
+mod book_ordinary_deletion;
+pub use book_ordinary_deletion::OrdinaryDeletionView;
 mod book_related;
 pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
 mod book_source_links;
