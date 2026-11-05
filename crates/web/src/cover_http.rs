@@ -1,5 +1,5 @@
 //! Thin HTTP adapter and optional router constructors for private book covers.
-use super::{auth_cookies, cover_delivery, make_router, pages, ril, AppState};
+use super::{auth_cookies, book_error, book_follow_page, cover_delivery, make_router, pages, ril, AppState};
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
@@ -95,6 +95,46 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
         }
     }
     response
+}
+
+/// Compose a verified CDN image projection with all existing book-page
+/// decorations, keeping the routing shell below its architecture size limit.
+pub(super) async fn book_html(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    book_id: u64,
+    html: axum::response::Html<String>,
+) -> Response {
+    let (html, origin) =
+        match opt_in_cdn_html(state.covers.as_ref(), html, &[book_id]).await {
+            Ok(value) => value,
+            Err(status) => return book_error(state, status).await,
+        };
+    let response = book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
+    cdn_image_csp(response, origin.as_deref())
+}
+
+/// The registry must be attached deliberately; merely having an S3 adapter
+/// does not activate CDN projection, and there is never a publish side effect.
+pub(super) fn configured_delivery(
+    catalog: &PgCatalog,
+    store: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+) -> cover_delivery::CoverDelivery {
+    let enabled = std::env::var("TOR_CDN_COVER_HTML_ENABLED").as_deref() == Ok("1")
+        && store.public_cdn_origin().is_some();
+    let delivery = cover_delivery::CoverDelivery::new(
+        tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
+        store,
+    );
+    if enabled {
+        delivery.with_publication_registry(
+            tor_books::repositories::cover_publications::PgPublicCoverPublications::new(
+                catalog.pool(),
+            ),
+        )
+    } else {
+        delivery
+    }
 }
 
 /// No client-controlled storage paths or private S3 URLs.
