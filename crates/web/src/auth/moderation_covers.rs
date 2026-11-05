@@ -68,7 +68,11 @@ fn queue_body(
     let search = pages::escape_html(search.unwrap_or(""));
     let kind = kind.unwrap_or("");
     let first_selected = if kind == "first" { " selected" } else { "" };
-    let replacement_selected = if kind == "replacement" { " selected" } else { "" };
+    let replacement_selected = if kind == "replacement" {
+        " selected"
+    } else {
+        ""
+    };
     let all_selected = if kind.is_empty() { " selected" } else { "" };
     let mut cards = String::new();
     for item in items {
