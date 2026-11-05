@@ -88,9 +88,23 @@ impl PgCoverReview {
         search: Option<&str>,
         kind: Option<&str>,
     ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
+        self.pending_with_access_level(session, before, search, kind, None)
+            .await
+    }
+
+    /// Distinguish 18+/21+ and legacy NULL tiers without post-LIMIT filtering.
+    pub async fn pending_with_access_level(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        kind: Option<&str>,
+        access_level: Option<&str>,
+    ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
         if before.is_some_and(|value| value <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
             || kind.is_some_and(|k| !matches!(k, "first" | "replacement"))
+            || access_level.is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
         {
             return Err(CoverReviewError::Invalid);
         }
@@ -112,11 +126,14 @@ impl PgCoverReview {
                AND ($3::text IS NULL
                     OR ($3='first' AND r.expected_slot_revision=0)
                     OR ($3='replacement' AND r.expected_slot_revision>0))
+               AND ($4::text IS NULL OR b.access_level=$4
+                    OR ($4='legacy' AND b.access_level IS NULL))
              ORDER BY r.id DESC LIMIT 40",
         )
         .bind(before)
         .bind(search)
         .bind(kind)
+        .bind(access_level)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
