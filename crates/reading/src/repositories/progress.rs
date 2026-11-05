@@ -77,31 +77,46 @@ impl PgReadingProgress {
         &self,
         user_id: i64,
     ) -> Result<Vec<ContinueReading>, ProgressError> {
-        // Always check current book/chapter visibility; a saved position grants no access.
-        // A different published version invalidates the old paragraph anchor.
+        // Never infer an entitlement from a cursor. A finalized ordinary-deleted
+        // Book may resume only an actor-owned immutable saved-free edition;
+        // public Books continue to use the currently published version.
         let rows = sqlx::query(
-            "SELECT b.id AS book_id, b.title AS book_title, c.id AS chapter_id, \
-                    c.chapter_no, c.title AS chapter_title, \
-                    CASE WHEN progress.version_id = publication.version_id \
-                         THEN progress.block_index ELSE 0 END AS block_index \
-             FROM reader_book_positions AS progress \
-             JOIN books AS b ON b.id = progress.book_id \
-             JOIN users AS viewer ON viewer.id=progress.user_id AND viewer.account_state='active' \
-             JOIN chapters AS c ON c.id = progress.chapter_id AND c.book_id = b.id \
-             JOIN chapter_publications AS publication ON publication.chapter_id = c.id \
-             JOIN chapter_versions AS v \
-               ON v.id = publication.version_id AND v.chapter_id = c.id \
-             WHERE progress.user_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
-               AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND (b.access_level='basic' \
-               OR (b.access_level='adult' AND viewer.adult_enabled) \
-               OR (b.access_level='pro_adult' AND EXISTS ( \
-                   SELECT 1 FROM user_level_grants AS age_grant \
-                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
-               AND c.visibility = 'public' AND c.access_level = 'free' \
-               AND NOT c.admin_hold AND NOT c.is_deleted \
-               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
-             ORDER BY progress.updated_at DESC, b.id DESC LIMIT 30",
+            r#"SELECT b.id AS book_id, b.title AS book_title, c.id AS chapter_id,
+                      c.chapter_no, c.title AS chapter_title,
+                      (b.lifecycle_status='ordinary_deleted') AS archived_saved,
+                      CASE
+                        WHEN b.lifecycle_status='ordinary_deleted' THEN progress.block_index
+                        WHEN progress.version_id=publication.version_id THEN progress.block_index
+                        ELSE 0
+                      END AS block_index
+               FROM reader_book_positions AS progress
+               JOIN books AS b ON b.id=progress.book_id
+               JOIN users AS viewer ON viewer.id=progress.user_id AND viewer.account_state='active'
+               JOIN chapters AS c ON c.id=progress.chapter_id AND c.book_id=b.id
+               LEFT JOIN chapter_publications AS publication ON publication.chapter_id=c.id
+               LEFT JOIN reader_saved_free_chapters AS pin
+                 ON pin.user_id=progress.user_id AND pin.chapter_id=c.id
+                    AND pin.version_id=progress.version_id
+               JOIN chapter_versions AS edition
+                 ON edition.id=progress.version_id AND edition.chapter_id=c.id
+               WHERE progress.user_id=$1
+                 AND (
+                   (b.visibility='public' AND b.lifecycle_status<>'ordinary_deleted'
+                    AND publication.version_id IS NOT NULL)
+                   OR (b.lifecycle_status='ordinary_deleted'
+                       AND b.ordinary_deleted_at IS NOT NULL AND pin.version_id IS NOT NULL)
+                 )
+                 AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+                 AND (b.access_level='basic'
+                   OR (b.access_level='adult' AND viewer.adult_enabled)
+                   OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants AS age_grant
+                       WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult'
+                         AND age_grant.is_active)))
+                 AND c.visibility='public' AND c.access_level='free'
+                 AND NOT c.admin_hold AND NOT c.is_deleted
+                 AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               ORDER BY progress.updated_at DESC, b.id DESC LIMIT 30"#,
         )
         .bind(user_id)
         .fetch_all(&self.pool)
@@ -124,6 +139,9 @@ impl PgReadingProgress {
                         .map_err(|_| ProgressError::Unavailable)?,
                     chapter_title: row
                         .try_get("chapter_title")
+                        .map_err(|_| ProgressError::Unavailable)?,
+                    archived_saved: row
+                        .try_get("archived_saved")
                         .map_err(|_| ProgressError::Unavailable)?,
                     block_index: row
                         .try_get("block_index")
