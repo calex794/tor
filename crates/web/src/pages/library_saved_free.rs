@@ -127,7 +127,10 @@ fn anchor_saved_offset(
 }
 
 pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
-    let normalized = chapter.body_markdown.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = chapter
+        .body_markdown
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let mut body = tor_reading::domain::renderer::render(&normalized);
     let resume = if chapter
         .saved_place
