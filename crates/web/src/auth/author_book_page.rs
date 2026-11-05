@@ -126,7 +126,11 @@ pub(super) async fn registration_status(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     private_response(
-        axum::response::Html(render_registration_result(id, &review.0, review.1.as_deref())),
+        axum::response::Html(render_registration_result(
+            id,
+            &review.0,
+            review.1.as_deref(),
+        )),
         &[],
     )
 }
@@ -137,22 +141,30 @@ fn render_registration_result(book_id: i64, status: &str, reason: Option<&str>) 
             "Ожидает модерации",
             "Книга остаётся непубличной до решения модератора сайта.",
         ),
-        "active" => ("Регистрация одобрена", "Публикацию книги выполняет владелец."),
-        "hidden" => ("Регистрация отклонена или книга скрыта", "Уточните причину решения ниже."),
-        "blocked" => ("Доступ к книге ограничен", "Книга заблокирована модерацией сайта."),
+        "active" => (
+            "Регистрация одобрена",
+            "Публикацию книги выполняет владелец.",
+        ),
+        "hidden" => (
+            "Регистрация отклонена или книга скрыта",
+            "Уточните причину решения ниже.",
+        ),
+        "blocked" => (
+            "Доступ к книге ограничен",
+            "Книга заблокирована модерацией сайта.",
+        ),
         _ => ("Статус регистрации", "Состояние книги обновлено."),
     };
     let explanation = crate::pages::escape_html(explanation);
-    let reason_html = reason.filter(|s| !s.trim().is_empty()).map_or_else(
-        String::new,
-        |reason| {
+    let reason_html = reason
+        .filter(|s| !s.trim().is_empty())
+        .map_or_else(String::new, |reason| {
             format!(
                 "<section aria-label=\"Причина отказа\"><h2>Причина отказа</h2>\
                  <p>{}</p></section>",
                 crate::pages::escape_html(reason)
             )
-        },
-    );
+        });
     crate::pages::layout(
         "Проверка регистрации книги",
         "Результат проверки и обоснование без персональных сведений модератора.",
@@ -172,11 +184,7 @@ mod tests {
 
     #[test]
     fn owner_result_exposes_rejection_reason_but_not_private_reviewer() {
-        let html = render_registration_result(
-            51,
-            "hidden",
-            Some("<script>reason</script>"),
-        );
+        let html = render_registration_result(51, "hidden", Some("<script>reason</script>"));
         assert!(html.contains("Причина отказа"));
         assert!(html.contains("&lt;script&gt;reason&lt;/script&gt;"));
         assert!(!html.contains("<script>reason</script>"));
