@@ -69,6 +69,7 @@ SCOPE_CALLS = {
     "manageable_lifecycle", "update_lifecycle",
     "manageable_access_level", "verified_upgrade_book_access_level",
     "moderation_books", "moderate_book_hold", "moderate_book_visibility",
+    "moderation_pending_deletions", "moderate_ordinary_deletion",
     "pending_count", "pending", "preview", "decide", "private_history",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
@@ -343,6 +344,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books/deletions", "deletion_queue"): "crates/web/src/auth/moderation_books.rs",
+            ("POST", "/moderation/books/{id}/deletion", "review_deletion"): "crates/web/src/auth/moderation_books.rs",
             ("GET", "/moderation/covers", "page"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/covers/{id}/preview", "preview"): "crates/web/src/auth/moderation_covers.rs",
             ("POST", "/moderation/covers/{id}/decision", "decide"): "crates/web/src/auth/moderation_covers.rs",
@@ -460,13 +463,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
             # Book approval is the only reviewed moderation capability.
             # The live session/role are locked again in the PG mutation.
-            if entry["method"] == "GET":
-                operation = "moderation_books"
-            else:
-                operation = (
-                    "moderate_book_visibility" if entry["handler"] == "submit_visibility"
-                    else "moderate_book_hold"
-                )
+            operation = {
+                "page": "moderation_books",
+                "submit": "moderate_book_hold",
+                "submit_visibility": "moderate_book_visibility",
+                "deletion_queue": "moderation_pending_deletions",
+                "review_deletion": "moderate_ordinary_deletion",
+            }.get(entry["handler"], "__unreviewed_moderation_operation__")
             scoped = (
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
                 and "session_token_digest(&token)" in evidence
