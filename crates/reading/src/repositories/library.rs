@@ -1,7 +1,10 @@
 //! Reader-owned PostgreSQL bookmarks. Saving a book is NOT a chapter entitlement.
 #![forbid(unsafe_code)]
 
-use crate::services::library::{LibraryError, SavedBook, SavedBookPage, MAX_LIBRARY_LIMIT};
+use crate::services::library::{
+    LibraryError, SavedBook, SavedBookPage, SavedFreeChapter, SavedFreeChapterLink,
+    SavedFreeChapterPage, MAX_LIBRARY_LIMIT,
+};
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -175,5 +178,123 @@ impl PgLibrary {
             None
         };
         Ok(SavedBookPage { items, next_cursor })
+    }
+}
+
+impl PgLibrary {
+    /// Return ONLY the reader's immutable saved-free edition, never a
+    /// current published edition inferred from a Book bookmark or read place.
+    /// All account, age, administrative and legal gates live in the text query.
+    pub async fn pinned_free_chapter(
+        &self,
+        user_id: i64,
+        chapter_id: i64,
+    ) -> Result<Option<SavedFreeChapter>, LibraryError> {
+        if user_id <= 0 || chapter_id <= 0 {
+            return Err(LibraryError::Invalid);
+        }
+        let row = sqlx::query(
+            "SELECT b.id AS book_id, b.title AS book_title, \
+                    c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
+                    saved.version_id, v.version_no, v.body_markdown \
+             FROM reader_saved_free_chapters AS saved \
+             JOIN chapters AS c ON c.id=saved.chapter_id \
+             JOIN books AS b ON b.id=c.book_id \
+             JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
+             JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
+             WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
+               AND b.visibility_status='active' \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion') \
+               AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND NOT c.admin_hold AND NOT c.is_deleted \
+               AND c.visibility='public' \
+               AND (b.access_level='basic' \
+                OR (b.access_level='adult' AND viewer.adult_enabled) \
+                OR (b.access_level='pro_adult' AND EXISTS ( \
+                    SELECT 1 FROM user_level_grants AS grant \
+                    WHERE grant.user_id=viewer.id AND grant.level='pro_adult' \
+                      AND grant.is_active)))",
+        )
+        .bind(user_id)
+        .bind(chapter_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LibraryError::Unavailable)?;
+        row.map(|r| {
+            Ok(SavedFreeChapter {
+                book_id: r.try_get("book_id").map_err(|_| LibraryError::Unavailable)?,
+                book_title: r.try_get("book_title").map_err(|_| LibraryError::Unavailable)?,
+                chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
+                chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
+                chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
+                version_id: r.try_get("version_id").map_err(|_| LibraryError::Unavailable)?,
+                version_no: r.try_get("version_no").map_err(|_| LibraryError::Unavailable)?,
+                body_markdown: r.try_get("body_markdown").map_err(|_| LibraryError::Unavailable)?,
+            })
+        })
+        .transpose()
+    }
+
+    /// Keyset by immutable chapter ID: bounded at 100 even for 10k saved
+    /// chapters. No paid text/body or metadata from another reader is selected.
+    pub async fn pinned_free_chapters(
+        &self,
+        user_id: i64,
+        book_id: i64,
+        limit: u16,
+        after: Option<i64>,
+    ) -> Result<SavedFreeChapterPage, LibraryError> {
+        if user_id <= 0
+            || book_id <= 0
+            || limit == 0
+            || limit > MAX_LIBRARY_LIMIT
+            || after.is_some_and(|id| id <= 0)
+        {
+            return Err(LibraryError::Invalid);
+        }
+        let rows = sqlx::query(
+            "SELECT c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, v.version_no \
+             FROM reader_saved_free_chapters AS saved \
+             JOIN chapters AS c ON c.id=saved.chapter_id \
+             JOIN books AS b ON b.id=c.book_id \
+             JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
+             JOIN chapter_versions AS v ON v.chapter_id=c.id AND v.id=saved.version_id \
+             WHERE saved.user_id=$1 AND c.book_id=$2 \
+               AND ($3::BIGINT IS NULL OR c.id>$3) \
+               AND b.visibility_status='active' \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion') \
+               AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND NOT c.admin_hold AND NOT c.is_deleted \
+               AND c.visibility='public' \
+               AND (b.access_level='basic' \
+                OR (b.access_level='adult' AND viewer.adult_enabled) \
+                OR (b.access_level='pro_adult' AND EXISTS ( \
+                    SELECT 1 FROM user_level_grants AS grant \
+                    WHERE grant.user_id=viewer.id AND grant.level='pro_adult' \
+                      AND grant.is_active))) \
+             ORDER BY c.id LIMIT $4",
+        )
+        .bind(user_id)
+        .bind(book_id)
+        .bind(after)
+        .bind(i64::from(limit) + 1)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| LibraryError::Unavailable)?;
+        let mut items = rows
+            .into_iter()
+            .map(|r| {
+                Ok(SavedFreeChapterLink {
+                    chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
+                    version_no: r.try_get("version_no").map_err(|_| LibraryError::Unavailable)?,
+                })
+            })
+            .collect::<Result<Vec<_>, LibraryError>>()?;
+        let has_more = items.len() > usize::from(limit);
+        items.truncate(usize::from(limit));
+        let next_cursor = has_more.then(|| items.last().map(|c| c.chapter_id)).flatten();
+        Ok(SavedFreeChapterPage { items, next_cursor })
     }
 }
