@@ -8,6 +8,7 @@ pub struct OrdinaryDeletionView {
     pub title: String,
     pub status: String,
     pub revision: i64,
+    pub moderator_approved: bool,
 }
 
 impl PgAuthoring {
@@ -22,7 +23,12 @@ impl PgAuthoring {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT b.title,b.lifecycle_status,b.lifecycle_revision
+            "SELECT b.title,b.lifecycle_status,b.lifecycle_revision,
+               EXISTS(
+                 SELECT 1 FROM book_ordinary_deletion_decisions d
+                 WHERE d.book_id=b.id AND d.request_revision=b.lifecycle_revision
+                   AND d.decision='approve' AND b.lifecycle_status='pending_deletion'
+               ) AS moderator_approved
              FROM books b JOIN users u ON u.id=$1 AND u.account_state='active'
              JOIN book_members m ON m.book_id=b.id AND m.user_id=$1
                  AND m.role='owner' AND m.is_active
@@ -44,6 +50,9 @@ impl PgAuthoring {
                 revision: r
                     .try_get("lifecycle_revision")
                     .map_err(|_| AuthorError::Unavailable)?,
+                moderator_approved: r
+                    .try_get("moderator_approved")
+                    .map_err(|_| AuthorError::Unavailable)?,
             })
         })
         .transpose()
@@ -52,7 +61,8 @@ impl PgAuthoring {
     /// Called ONLY after the web password worker has verified the submitted
     /// password against expected_password_hash. The DB repeats identity,
     /// password-hash and active-session checks within this exact mutation.
-    /// The first step deindexes pending removal; the second finishes it.
+    /// The first step deindexes a pending removal. Completion requires a
+    /// distinct, immutable approval from a live site moderator.
     pub async fn advance_ordinary_deletion(
         &self,
         actor: i64,
@@ -79,7 +89,7 @@ impl PgAuthoring {
         // the Book transition; revoked/rotated sessions cannot win between
         // password check and committing deletion.
         let row = sqlx::query(
-            "SELECT b.lifecycle_status,b.lifecycle_revision
+            "SELECT b.lifecycle_status,b.lifecycle_revision,b.visibility
              FROM books b
              JOIN users u ON u.id=$1 AND u.account_state='active'
                  AND u.password_hash=$4
@@ -106,6 +116,9 @@ impl PgAuthoring {
         let revision: i64 = row
             .try_get("lifecycle_revision")
             .map_err(|_| AuthorError::Unavailable)?;
+        let previous_visibility: String = row
+            .try_get("visibility")
+            .map_err(|_| AuthorError::Unavailable)?;
         if revision != expected_revision {
             return Err(AuthorError::Conflict);
         }
@@ -116,6 +129,30 @@ impl PgAuthoring {
             ("complete", "pending_deletion") => "ordinary_deleted",
             _ => return Err(AuthorError::Conflict),
         };
+        if action == "complete" {
+            // Approval must refer to this exact pending request revision.
+            // A previous rejection or a stale approval cannot be reused.
+            let approved: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                   SELECT 1 FROM book_ordinary_deletion_requests r
+                   JOIN book_ordinary_deletion_decisions d
+                     ON d.book_id=r.book_id
+                    AND d.request_revision=r.request_revision
+                   WHERE r.book_id=$1 AND r.request_revision=$2
+                     AND r.owner_user_id=$3 AND d.decision='approve'
+                     AND d.moderator_user_id<>$3
+                 )",
+            )
+            .bind(book_id)
+            .bind(revision)
+            .bind(actor)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+            if !approved {
+                return Err(AuthorError::Conflict);
+            }
+        }
         let next_revision = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
         // Keep chapter records, immutable free version pins, paid purchase facts,
         // and reader progress intact. Draft visibility removes all public paths
@@ -149,6 +186,22 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+        if action == "start" {
+            sqlx::query(
+                "INSERT INTO book_ordinary_deletion_requests
+                 (book_id,request_revision,owner_user_id,
+                  previous_lifecycle_status,previous_visibility)
+                 VALUES($1,$2,$3,$4,$5)",
+            )
+            .bind(book_id)
+            .bind(next_revision)
+            .bind(actor)
+            .bind(&before)
+            .bind(&previous_visibility)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        }
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(next_revision)
     }
