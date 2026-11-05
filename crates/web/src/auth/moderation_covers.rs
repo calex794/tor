@@ -123,6 +123,12 @@ pub(super) async fn page(
     let Some(digest) = session(&state, &headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let repo = PgCoverReview::new(state.accounts.pool().clone());
     let count = match repo.pending_count(&digest).await {
         Ok(count) => count,
@@ -152,6 +158,12 @@ pub(super) async fn preview(
     let Some(digest) = session(&state, &headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let repo = PgCoverReview::new(state.accounts.pool().clone());
     let candidate = match repo.preview(&digest, id).await {
         Ok(Some(value)) => value,
@@ -196,6 +208,12 @@ pub(super) async fn decide(
     let Some(digest) = session(&state, &headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let approve = match form.action.as_str() {
         "approve" => true,
         "reject" => false,
@@ -225,6 +243,12 @@ pub(super) async fn history(
     let Some(digest) = session(&state, &headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let repo = PgCoverReview::new(state.accounts.pool().clone());
     let rows = match repo.private_history(&digest, book_id).await {
         Ok(rows) => rows,
