@@ -1,5 +1,7 @@
 //! Thin HTTP adapter and optional router constructors for private book covers.
-use super::{auth_cookies, book_error, book_follow_page, cover_delivery, make_router, pages, ril, AppState};
+use super::{
+    auth_cookies, book_error, book_follow_page, cover_delivery, make_router, pages, ril, AppState,
+};
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
@@ -85,12 +87,11 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
     };
     if let Some(previous) = response.headers().get("content-security-policy") {
         if let Ok(policy) = previous.to_str() {
-            let updated = policy.replace(
-                "img-src 'self';",
-                &format!("img-src 'self' {origin};"),
-            );
+            let updated = policy.replace("img-src 'self';", &format!("img-src 'self' {origin};"));
             if let Ok(value) = axum::http::HeaderValue::from_str(&updated) {
-                response.headers_mut().insert("content-security-policy", value);
+                response
+                    .headers_mut()
+                    .insert("content-security-policy", value);
             }
         }
     }
@@ -116,11 +117,10 @@ pub(super) async fn book_html(
     book_id: u64,
     html: axum::response::Html<String>,
 ) -> Response {
-    let (html, origin) =
-        match opt_in_cdn_html(state.covers.as_ref(), html, &[book_id]).await {
-            Ok(value) => value,
-            Err(status) => return book_error(state, status).await,
-        };
+    let (html, origin) = match opt_in_cdn_html(state.covers.as_ref(), html, &[book_id]).await {
+        Ok(value) => value,
+        Err(status) => return book_error(state, status).await,
+    };
     let response = book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
     cdn_image_csp(response, origin.as_deref())
 }
