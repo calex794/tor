@@ -1,4 +1,5 @@
 mod book_access_level;
+pub use book_access_level::ManagedBookAccessLevel;
 mod book_description;
 pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
@@ -50,7 +51,6 @@ use sqlx::{
 use std::time::Duration;
 mod readiness;
 use readiness::{require_latest_migration, REQUIRED_MIGRATION};
-
 #[derive(Clone)]
 pub struct PgCatalog {
     pool: PgPool,

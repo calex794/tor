@@ -211,29 +211,28 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    // Only a currently authenticated owner can begin with the exact password.
-    let delete_url = format!("/me/books/{book}/settings/delete");
+    let deletion = format!("/me/books/{book}/settings/delete");
     assert_eq!(
-        call(&app, "GET", &delete_url, &outsider_cookie, "").await.status(),
+        call(&app, "GET", &deletion, &outsider_cookie, "").await.status(),
         StatusCode::NOT_FOUND
     );
-    let first_form = html(call(&app, "GET", &delete_url, &reader_cookie, "").await).await;
+    let first_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(first_form.contains("value=\"start\""));
     assert_eq!(
         call(
-            &app, "POST", &delete_url, &reader_cookie,
+            &app, "POST", &deletion, &reader_cookie,
             &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=wrong")
         ).await.status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
         call(
-            &app, "POST", &delete_url, &reader_cookie,
+            &app, "POST", &deletion, &reader_cookie,
             &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=C08SavedReader2026")
         ).await.status(),
         StatusCode::SEE_OTHER
     );
-    let pending_form = html(call(&app, "GET", &delete_url, &reader_cookie, "").await).await;
+    let pending_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(pending_form.contains("value=\"complete\""));
     let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Ожидает удаления"));
@@ -243,24 +242,23 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
 
     // A completed ordinary deletion deindexes public pages but keeps the
     // saved exact private edition and Book tombstone for its original reader.
-    // Final owner-only step-up performs the atomic deindex + audit transition.
     assert_eq!(
         call(
-            &app, "POST", &delete_url, &outsider_cookie,
+            &app, "POST", &deletion, &outsider_cookie,
             &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
         ).await.status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
-            &app, "POST", &delete_url, &reader_cookie,
+            &app, "POST", &deletion, &reader_cookie,
             &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
         ).await.status(),
         StatusCode::SEE_OTHER
     );
     let events = pg(&url, &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"));
     assert_eq!(events, "2");
-    let deleted_form = html(call(&app, "GET", &delete_url, &reader_cookie, "").await).await;
+    let deleted_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(!deleted_form.contains("type=\"password\""));
     assert_eq!(
         call(&app, "GET", &format!("/books/{book}"), "", "")
@@ -269,7 +267,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &format!("/reader/{chapter}"), "", "")
+        call(&app, "GET", &format!("/read/{chapter}"), &reader_cookie, "")
             .await
             .status(),
         StatusCode::NOT_FOUND
@@ -281,7 +279,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(still_saved.contains("Pinned ORIGINAL V1"));
     assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
     assert_eq!(
-        call(&app, "GET", &read, &outsider_cookie, "").await.status(),
+        call(&app, "GET", &read, &outsider_cookie, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 

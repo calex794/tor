@@ -110,8 +110,9 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     .await
     .unwrap();
 
-    let (free1, v1) = chapter(&pool, book, 1, "public", "free", true).await;
+    // Import chapter 2 first: visible TOC follows chapter numbering, not IDs.
     let (free2, v2) = chapter(&pool, book, 2, "public", "free", true).await;
+    let (free1, v1) = chapter(&pool, book, 1, "public", "free", true).await;
     let (paid, _) = chapter(&pool, book, 3, "public", "paid", true).await;
     let (draft, _) = chapter(&pool, book, 4, "draft", "free", true).await;
     let (future, _) = chapter(&pool, book, 5, "public", "free", true).await;
@@ -135,7 +136,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     let library = PgLibrary::new(pool.clone());
     library.add_book(user_a, book).await.unwrap();
-    assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
+    assert_eq!(pins(&pool, user_a).await, vec![(free2, v2), (free1, v1)]);
     let saved_first = library
         .pinned_free_chapter(user_a, free1, &token_a)
         .await
@@ -158,12 +159,14 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     assert_eq!(one.items.len(), 1);
-    assert!(one.next_cursor.is_some());
+    assert_eq!(one.items[0].chapter_no, 1);
+    assert_eq!(one.next_cursor, Some(1));
     let next = library
         .pinned_free_chapters(user_a, book, 1, one.next_cursor, &token_a)
         .await
         .unwrap();
     assert_eq!(next.items.len(), 1);
+    assert_eq!(next.items[0].chapter_no, 2);
     assert!(next.next_cursor.is_none());
     let first = library.list_books(user_a, 10, None).await.unwrap();
     assert_eq!(first.items.len(), 1);
@@ -186,7 +189,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     library.add_book(user_a, book).await.unwrap();
-    assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
+    assert_eq!(pins(&pool, user_a).await, vec![(free2, v2), (free1, v1)]);
     let historical = library
         .pinned_free_chapter(user_a, free1, &token_a)
         .await
@@ -226,18 +229,17 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     let saved = library.list_books(user_a, 10, None).await.unwrap();
     assert_eq!(saved.items.len(), 1);
     assert!(saved.items[0].pending_deletion);
-    assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
+    assert_eq!(pins(&pool, user_a).await[1], (free1, v1));
     let still_readable = library
         .pinned_free_chapter(user_a, free1, &token_a)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(still_readable.version_id, v1);
-    // A completed ordinary deletion preserves the previously pinned free V1.
+    // Completed ordinary removal preserves the reader's exact saved-free V1.
     sqlx::query(
         "UPDATE books SET lifecycle_status='ordinary_deleted',
-                ordinary_deleted_at=now(), visibility='draft'
-         WHERE id=$1",
+         ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
     )
     .bind(book)
     .execute(&pool)
@@ -311,7 +313,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap()
         .items
         .is_empty());
-    assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
+    assert_eq!(pins(&pool, user_a).await[1], (free1, v1));
     library.remove_book(user_a, book).await.unwrap();
     assert!(pins(&pool, user_a).await.is_empty());
     assert_eq!(pins(&pool, user_b).await.len(), 3);
