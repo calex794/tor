@@ -41,7 +41,7 @@ impl PgAccounts {
         }
         let mut rows = sqlx::query_as::<_, (i64, String)>(
             "SELECT id, display_name FROM users
-             WHERE lower(display_name)=lower($1::text)
+             WHERE account_state='active' AND lower(display_name)=lower($1::text)
              ORDER BY id LIMIT 2",
         )
         .bind(normalized)

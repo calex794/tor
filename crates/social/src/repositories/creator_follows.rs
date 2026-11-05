@@ -1,6 +1,6 @@
 //! E-05: creator subscriptions with separate historical periods.
-//! A creator is the current, B-verified owner of a public Book; a credit
-//! string on a cover is not proof of account identity.
+//! Book-derived follows verify the current B owner; profile follows
+//! target the active user account directly, never a cover credit.
 #![forbid(unsafe_code)]
 
 use sqlx::{PgPool, Row};
@@ -142,6 +142,61 @@ impl PgCreatorFollows {
         .bind(follower)
         .bind(creator)
         .bind(book_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(creator)
+    }
+
+    /// NEwBOO S014: a public profile is an account relationship, not a
+    /// Book entitlement. Lock both user rows by id to serialize role changes
+    /// and opposite-direction follow operations without a lock-order cycle.
+    /// An existing active period retains its original source and start date.
+    pub async fn follow_profile(
+        &self,
+        follower: i64,
+        creator: i64,
+    ) -> Result<i64, CreatorFollowError> {
+        if follower <= 0 || creator <= 0 {
+            return Err(CreatorFollowError::Invalid);
+        }
+        if follower == creator {
+            return Err(CreatorFollowError::Forbidden);
+        }
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT id, account_state FROM users
+             WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE",
+        )
+        .bind(vec![follower, creator])
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut follower_active = false;
+        let mut creator_active = false;
+        for row in rows {
+            let id: i64 = row.try_get("id")?;
+            let state: String = row.try_get("account_state")?;
+            if id == follower {
+                follower_active = state == "active";
+            } else if id == creator {
+                creator_active = state == "active";
+            }
+        }
+        if !follower_active {
+            return Err(CreatorFollowError::Invalid);
+        }
+        if !creator_active {
+            return Err(CreatorFollowError::NotFound);
+        }
+        sqlx::query(
+            "INSERT INTO creator_follow_periods
+                (follower_user_id,creator_user_id,source_book_id,source_kind)
+             VALUES ($1,$2,NULL,'profile')
+             ON CONFLICT (follower_user_id,creator_user_id) WHERE ended_at IS NULL
+             DO NOTHING",
+        )
+        .bind(follower)
+        .bind(creator)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
