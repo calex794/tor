@@ -395,7 +395,8 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 mod library;
 pub use library::my_library_with_updates_and_layers;
 mod library_saved_free;
-pub use library_saved_free::{saved_archive_list, saved_free_reader};
+#[allow(unused_imports)] // Retain the old free-only renderer for existing tests.
+pub use library_saved_free::{saved_archive_list, saved_free_list, saved_free_reader};
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
