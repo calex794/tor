@@ -11,8 +11,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::{
     repositories::{
-        moderation_books::ModerationBooksError,
-        moderation_registration::RegistrationCandidate,
+        moderation_books::ModerationBooksError, moderation_registration::RegistrationCandidate,
     },
     services::security::session_token_digest,
 };
@@ -152,8 +151,7 @@ pub(super) async fn decide(
     headers: HeaderMap,
     Form(form): Form<RegistrationDecisionForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
