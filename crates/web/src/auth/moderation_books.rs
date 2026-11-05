@@ -46,6 +46,8 @@ pub(super) struct DeletionReviewForm {
     csrf_token: String,
     request_revision: i64,
     decision: String,
+    #[serde(default)]
+    reason: String,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -259,7 +261,9 @@ fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> Stri
                <form method="post" action="/moderation/books/{book}/deletion">
                  <input type="hidden" name="csrf_token" value="{token}">
                  <input type="hidden" name="request_revision" value="{revision}">
-                 <button type="submit" name="decision" value="approve">Одобрить удаление</button>
+                 <label for="deletion-reason-{book}">Причина отказа (обязательна для отказа)</label>
+                 <input id="deletion-reason-{book}" name="reason" maxlength="2000">
+                 <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
                  <button type="submit" name="decision" value="reject">Отклонить удаление</button>
                </form></article>"#,
             book = item.book_id,
@@ -285,7 +289,8 @@ fn render_deletion_queue(rows: &[ModerationDeletionRequest], csrf: &str) -> Stri
             r#"<section class="me-page"><div class="container">
                <h1>Заявки на удаление книг</h1>
                <p>Это решение не удаляет главы и не предоставляет платные права.
-                  После одобрения владелец должен повторно подтвердить пароль.</p>
+                  После одобрения книга удаляется из публичного доступа сразу.
+                  Купленные и сохранённые главы остаются в личных библиотеках.</p>
                {cards}<p><a href="/moderation/books">К модерации книг</a></p>
                </div></section>"#
         ),
@@ -347,7 +352,13 @@ pub(super) async fn review_deletion(
     }
     match state
         .accounts
-        .moderate_ordinary_deletion(&digest, id, form.request_revision, &form.decision)
+        .moderate_ordinary_deletion(
+            &digest,
+            id,
+            form.request_revision,
+            &form.decision,
+            &form.reason,
+        )
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/deletions"), &[]),
