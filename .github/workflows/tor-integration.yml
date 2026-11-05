@@ -278,7 +278,6 @@ jobs:
           cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
           cargo test -p tor-books --lib s020_pg_access_level_monotonic_live_grant_membership_and_cas -- --ignored --test-threads=1
-          cargo test -p tor-web --test s020_age_editor_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
@@ -311,6 +310,7 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1

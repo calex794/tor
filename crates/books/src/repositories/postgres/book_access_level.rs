@@ -1,7 +1,8 @@
 //! S020: server-verified monotonic Book access-level transitions.
 //!
-//! HTTP mutations are explicitly disabled by default pending full cross-surface
-//! S020/#486 acceptance; the server-side transition is monotonic and scoped.
+//! This is intentionally NOT routed to HTTP while TOR public/paid readers do
+//! not yet enforce per-user adult/pro_adult eligibility. An exposed settings
+//! control would otherwise claim to protect content while leaving it readable.
 use super::{book_related::lock_manageable_member, PgAuthoring};
 use crate::services::{authoring::AuthorError, owner_transfer_policy::AccessTier};
 
@@ -18,44 +19,11 @@ fn transition_requires_grant(current: Option<&str>, requested: &str) -> Result<b
     Ok(target == AccessTier::ProAdult && prior != AccessTier::ProAdult)
 }
 
-pub struct ManagedBookAccessLevel {
-    pub title: String,
-    // Legacy imported NULL is intentionally read-only and never reclassified.
-    pub level: Option<String>,
-}
-
 impl PgAuthoring {
-    pub async fn manageable_access_level(
-        &self,
-        actor: i64,
-        book_id: i64,
-    ) -> Result<Option<ManagedBookAccessLevel>, AuthorError> {
-        if actor <= 0 || book_id <= 0 {
-            return Ok(None);
-        }
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT b.title,b.access_level
-             FROM books b
-             WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
-               AND b.lifecycle_status<>'pending_deletion'
-               AND EXISTS (
-                 SELECT 1 FROM book_members m
-                 WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
-                   AND (m.role IN ('translator','moderator')
-                        OR (m.role='owner' AND b.owner_user_id=$2))
-               )",
-        )
-        .bind(book_id)
-        .bind(actor)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        Ok(row.map(|(title, level)| ManagedBookAccessLevel { title, level }))
-    }
-
-    /// Atomic, scoped, monotonic B transition; only a separately gated HTTP
-    /// adapter may call this while cross-surface age acceptance is pending.
-    pub async fn verified_upgrade_book_access_level(
+    /// Verified B-owned command, staged without any HTTP caller until reading
+    /// and discovery enforce the same persisted Book and user tiers.
+    #[allow(dead_code)]
+    pub(crate) async fn verified_upgrade_book_access_level(
         &self,
         actor: i64,
         book_id: i64,
@@ -73,8 +41,7 @@ impl PgAuthoring {
         // Lock Book first, then BookMember: same order as S020 and B-09.
         let stored: Option<Option<String>> = sqlx::query_scalar(
             "SELECT access_level FROM books
-             WHERE id=$1 AND NOT is_deleted AND NOT admin_hold
-               AND lifecycle_status<>'pending_deletion' FOR UPDATE",
+             WHERE id=$1 AND NOT is_deleted AND NOT admin_hold FOR UPDATE",
         )
         .bind(book_id)
         .fetch_optional(&mut *tx)

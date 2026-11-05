@@ -46,8 +46,6 @@ pub(super) struct AuthState {
     pub(super) ril_signer: Option<RilSubjectSigner>,
     pub(super) cover_jobs: Option<PgCoverJobs>,
     pub(super) cover_upload_enabled: bool,
-    /// Off by default until S020/#486 full cross-surface acceptance.
-    pub(super) age_editor_enabled: bool,
 }
 
 #[derive(Deserialize)]

@@ -42,7 +42,6 @@ pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
-mod book_access_level;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
@@ -229,7 +228,6 @@ fn router_inner(
         ril_signer: behavior_consent::configured_ril_signer(),
         cover_jobs,
         cover_upload_enabled,
-        age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
     let observation_state = state.clone();
     let app = Router::new()
