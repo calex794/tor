@@ -39,6 +39,26 @@ pub trait CoverObjectStore: Send + Sync {
     ) -> Result<String, CoverError> {
         Err(CoverError::Forbidden)
     }
+    /// Opt-in immutable published WebP storage, separate from the private source.
+    /// The caller must first verify the current book/public-cover ACL in B.
+    fn public_cdn_origin(&self) -> Option<&str> {
+        None
+    }
+
+    /// Copy one verified public version to a distinct CDN origin bucket.
+    /// No private object key or S3 credentials are returned to the browser.
+    async fn publish_public_cover(
+        &self,
+        _book_id: u64,
+        _revision: i64,
+        _variant: &str,
+        _source_key: &str,
+        _sha256: &[u8; 32],
+        _size_bytes: i64,
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
     /// A source must be verified by a signed PUT, HEAD, and bounded GET.
     /// Stores without source-upload support fail closed.
     async fn put_source_verified(
