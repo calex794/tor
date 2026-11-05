@@ -12,7 +12,7 @@ use axum::{
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tor_accounts::services::security::session_token_digest;
-use tor_books::repositories::cover_review::{CoverReviewError, PgCoverReview, PendingCoverReview};
+use tor_books::repositories::cover_review::{CoverReviewError, PendingCoverReview, PgCoverReview};
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -112,7 +112,8 @@ fn queue_body(items: &[PendingCoverReview], count: i64, csrf: &str) -> String {
               <p>Обработанное изображение не становится публичным без отдельного решения.</p>
               {cards}</div></section>"#
         ),
-    ).0
+    )
+    .0
 }
 
 pub(super) async fn page(
@@ -185,11 +186,14 @@ pub(super) async fn preview(
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     }
     private_response(
-        ([
-            (header::CONTENT_TYPE, "image/webp"),
-            (header::CACHE_CONTROL, "private, no-store"),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        ], data),
+        (
+            [
+                (header::CONTENT_TYPE, "image/webp"),
+                (header::CACHE_CONTROL, "private, no-store"),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            ],
+            data,
+        ),
         &[],
     )
 }
@@ -200,8 +204,7 @@ pub(super) async fn decide(
     headers: HeaderMap,
     Form(form): Form<CoverDecisionForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
