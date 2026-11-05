@@ -235,7 +235,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &format!("/reader/{chapter}"), "", "")
+        call(&app, "GET", &format!("/read/{chapter}"), "", "")
             .await
             .status(),
         StatusCode::NOT_FOUND
@@ -247,7 +247,9 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(still_saved.contains("Pinned ORIGINAL V1"));
     assert!(!still_saved.contains("Current V2 should stay outside private V1 pin"));
     assert_eq!(
-        call(&app, "GET", &read, &outsider_cookie, "").await.status(),
+        call(&app, "GET", &read, &outsider_cookie, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 
