@@ -69,6 +69,8 @@ SCOPE_CALLS = {
     "manageable_lifecycle", "update_lifecycle",
     "manageable_access_level", "verified_upgrade_book_access_level",
     "moderation_books", "moderate_book_hold", "moderate_book_visibility",
+    "moderation_registration_pending_count", "moderation_registration_queue",
+    "moderate_book_registration", "private_book_registration_approver",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
@@ -342,6 +344,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books/registrations", "queue"): "crates/web/src/auth/moderation_registration.rs",
+            ("POST", "/moderation/books/{id}/registration", "decide"): "crates/web/src/auth/moderation_registration.rs",
+            ("GET", "/moderation/books/{id}/registration-history", "history"): "crates/web/src/auth/moderation_registration.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -451,6 +456,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
+            )
+        elif entry["source"] == "crates/web/src/auth/moderation_registration.rs":
+            registration_ops = {
+                "queue": "moderation_registration_queue",
+                "decide": "moderate_book_registration",
+                "history": "private_book_registration_approver",
+            }
+            operation = registration_ops.get(entry["handler"])
+            scoped = bool(
+                operation
+                and re.search(rf"\b{operation}\s*\(\s*&digest", evidence)
+                and "session_digest(&state, &headers)" in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
             )
         elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
             # Book approval is the only reviewed moderation capability.
