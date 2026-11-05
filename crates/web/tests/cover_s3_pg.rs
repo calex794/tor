@@ -424,7 +424,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert!(history_page.contains(&format!("(#{reviewer})")));
     assert!(!history_page.contains("staging/covers/"));
 
-
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);
     assert_eq!(stored_variants[0].name, "card");
