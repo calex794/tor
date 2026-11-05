@@ -91,7 +91,7 @@ class WorkflowWiringTests(unittest.TestCase):
         standalone = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())
         pg = combined["postgres-runtime"]
         manual_pg = standalone["postgres-runtime"]
-        other_jobs = "\\n".join(body for job, body in combined.items()
+        other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
         self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 95)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
@@ -101,9 +101,9 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertEqual((parts[0], parts[2]), ("crates", "tests"))
                 package = "tor-" + parts[1]
                 test_target = Path(path).stem
-                invocation = (r"\\bcargo test -p " + re.escape(package)
-                              + r"(?: [^\\n]*?)? --test " + re.escape(test_target)
-                              + r"(?=\\s|$)")
+                invocation = (r"\bcargo test -p " + re.escape(package)
+                              + r"(?: [^\n]*?)? --test " + re.escape(test_target)
+                              + r"(?=\s|$)")
                 self.assertRegex(pg, invocation)
                 self.assertRegex(manual_pg, invocation)
                 self.assertNotRegex(other_jobs, invocation)
