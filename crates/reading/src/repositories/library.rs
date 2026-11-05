@@ -222,14 +222,30 @@ impl PgLibrary {
         .map_err(|_| LibraryError::Unavailable)?;
         row.map(|r| {
             Ok(SavedFreeChapter {
-                book_id: r.try_get("book_id").map_err(|_| LibraryError::Unavailable)?,
-                book_title: r.try_get("book_title").map_err(|_| LibraryError::Unavailable)?,
-                chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
-                chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
-                chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
-                version_id: r.try_get("version_id").map_err(|_| LibraryError::Unavailable)?,
-                version_no: r.try_get("version_no").map_err(|_| LibraryError::Unavailable)?,
-                body_markdown: r.try_get("body_markdown").map_err(|_| LibraryError::Unavailable)?,
+                book_id: r
+                    .try_get("book_id")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                book_title: r
+                    .try_get("book_title")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                chapter_id: r
+                    .try_get("chapter_id")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                chapter_no: r
+                    .try_get("chapter_no")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                chapter_title: r
+                    .try_get("chapter_title")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                version_id: r
+                    .try_get("version_id")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                version_no: r
+                    .try_get("version_no")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                body_markdown: r
+                    .try_get("body_markdown")
+                    .map_err(|_| LibraryError::Unavailable)?,
             })
         })
         .transpose()
@@ -285,16 +301,26 @@ impl PgLibrary {
             .into_iter()
             .map(|r| {
                 Ok(SavedFreeChapterLink {
-                    chapter_id: r.try_get("chapter_id").map_err(|_| LibraryError::Unavailable)?,
-                    chapter_no: r.try_get("chapter_no").map_err(|_| LibraryError::Unavailable)?,
-                    chapter_title: r.try_get("chapter_title").map_err(|_| LibraryError::Unavailable)?,
-                    version_no: r.try_get("version_no").map_err(|_| LibraryError::Unavailable)?,
+                    chapter_id: r
+                        .try_get("chapter_id")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    chapter_no: r
+                        .try_get("chapter_no")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    chapter_title: r
+                        .try_get("chapter_title")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    version_no: r
+                        .try_get("version_no")
+                        .map_err(|_| LibraryError::Unavailable)?,
                 })
             })
             .collect::<Result<Vec<_>, LibraryError>>()?;
         let has_more = items.len() > usize::from(limit);
         items.truncate(usize::from(limit));
-        let next_cursor = has_more.then(|| items.last().map(|c| c.chapter_id)).flatten();
+        let next_cursor = has_more
+            .then(|| items.last().map(|c| c.chapter_id))
+            .flatten();
         Ok(SavedFreeChapterPage { items, next_cursor })
     }
 }
