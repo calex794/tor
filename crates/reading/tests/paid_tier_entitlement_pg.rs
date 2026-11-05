@@ -198,7 +198,7 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     // the exact buyer-owned V1, but must not grant any unsold later edition.
     sqlx::query(
         "UPDATE books SET lifecycle_status='ordinary_deleted',
-         ordinary_deleted_at=now() WHERE id=$1",
+         ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
     )
     .bind(book)
     .execute(&pool)
