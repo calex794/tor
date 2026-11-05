@@ -49,7 +49,6 @@ use sqlx::{
 use std::time::Duration;
 mod readiness;
 use readiness::{require_latest_migration, REQUIRED_MIGRATION};
-
 #[derive(Clone)]
 pub struct PgCatalog {
     pool: PgPool,
