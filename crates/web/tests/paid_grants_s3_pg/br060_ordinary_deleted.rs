@@ -1,19 +1,86 @@
-//! BR-060: a finalized ordinary deletion keeps an immutable paid V1 readable.
-//! The caller passes this fresh grant to the real MinIO/WebCrypto consumer.
+//! BR-060: free V1, purchased V1 and ordinary-deletion archive over real HTTP.
+//! The caller sends the fresh paid grant to the actual MinIO/WebCrypto consumer.
 use super::*;
 
-/// Returns a grant issued *after* removal; neither a stale signed URL nor
-/// a database-only entitlement is sufficient for downstream S3 acceptance.
+async fn save_free_v1_before_removal(
+    app: &Router,
+    url: &str,
+    book: i64,
+    free_chapter: i64,
+    buyer_cookie: &str,
+    csrf: &str,
+) {
+    // This is the same CSRF-protected action a signed-in reader uses to
+    // bookmark a public Book and atomically pin all released free versions.
+    let mut request = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/me/library/{book}"))
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={buyer_cookie}; tor-dev-csrf={csrf}"),
+        )
+        .body(Body::from(format!("csrf_token={csrf}")))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41003,
+        ))));
+    assert_eq!(
+        app.clone().oneshot(request).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+
+    let original_v1 = pg(
+        url,
+        &format!(
+            "SELECT v.version_no FROM reader_saved_free_chapters pin \
+             JOIN chapter_versions v ON v.id=pin.version_id \
+             JOIN chapters c ON c.id=pin.chapter_id \
+             JOIN users u ON u.id=pin.user_id \
+             JOIN sessions s ON s.user_id=u.id \
+             WHERE c.id={free_chapter} AND c.book_id={book} \
+               AND s.revoked_at IS NULL AND s.expires_at>now() \
+             LIMIT 1"
+        ),
+    );
+    assert_eq!(original_v1, "1");
+
+    // The author's later free V2 must not replace the reader's saved V1.
+    let v2 = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({free_chapter},2,'UNPINNED FREE V2') RETURNING id"
+        ),
+    );
+    pg(
+        url,
+        &format!(
+            "UPDATE chapter_publications SET version_id={v2} \
+             WHERE chapter_id={free_chapter}"
+        ),
+    );
+}
+
+/// Return a grant issued *after* removal: a stale URL or SQL purchase is not
+/// sufficient for the downstream real S3/WebCrypto acceptance.
 pub(super) async fn verify(
     app: &Router,
     url: &str,
     book: i64,
     purchased: (i64, i64, i64),
+    chapters: (i64, i64, i64),
     sessions: (&str, &str),
     csrf: &str,
 ) -> Value {
     let (chapter, purchase_id, v1) = purchased;
+    let (free_chapter, locked_chapter, draft_chapter) = chapters;
     let (buyer_cookie, stranger_cookie) = sessions;
+    save_free_v1_before_removal(app, url, book, free_chapter, buyer_cookie, csrf).await;
     pg(
         url,
         &format!(
@@ -27,12 +94,69 @@ pub(super) async fn verify(
             .status(),
         StatusCode::NOT_FOUND
     );
-    let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
-    assert_eq!(archived_reader.status(), StatusCode::OK);
-    let archived_html = html_body(archived_reader).await;
-    assert!(archived_html.contains("data-paid-chapter-reader"));
-    assert!(!archived_html.contains("data-toc-state=\"free\""));
-    assert!(!archived_html.contains("data-toc-state=\"locked\""));
+    assert_eq!(
+        private_get(app, &format!("/read/{free_chapter}"), Some(buyer_cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "ordinary-deleted free chapters have no public reader URL"
+    );
+
+    let archive = format!("/me/library/{book}/saved");
+    let archive_response = private_get(app, &archive, Some(buyer_cookie)).await;
+    assert_eq!(archive_response.status(), StatusCode::OK);
+    assert_eq!(
+        archive_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let toc = html_body(archive_response).await;
+    assert!(toc.contains(&format!("href=\"/me/library/saved/{free_chapter}\"")));
+    assert!(toc.contains("Сохранённая бесплатная редакция 1"));
+    assert!(toc.contains(&format!(
+        "href=\"/read/paid/{chapter}?purchase_id={purchase_id}\""
+    )));
+    assert!(toc.contains("Купленная редакция 1"));
+    assert!(
+        toc.contains("&lt;img"),
+        "free chapter titles must be escaped"
+    );
+    assert!(!toc.contains("<img src=x"));
+    assert!(!toc.contains(&format!("/reader/{locked_chapter}")));
+    assert!(!toc.contains(&format!("/read/paid/{locked_chapter}")));
+    assert!(!toc.contains(&format!("/me/library/saved/{draft_chapter}")));
+    assert!(!toc.contains("UNPINNED FREE V2"));
+    assert!(
+        !toc.contains(MARKDOWN),
+        "private TOC cannot expose paid body"
+    );
+
+    let saved = private_get(
+        app,
+        &format!("/me/library/saved/{free_chapter}"),
+        Some(buyer_cookie),
+    )
+    .await;
+    assert_eq!(saved.status(), StatusCode::OK);
+    let free_html = html_body(saved).await;
+    assert!(free_html.contains("Real public free content"));
+    assert!(!free_html.contains("UNPINNED FREE V2"));
+    let buyer_library = html_body(private_get(app, "/me/library", Some(buyer_cookie)).await).await;
+    assert!(buyer_library.contains("Удалена"));
+    assert!(buyer_library.contains(&archive));
+
+    let outsider_toc = html_body(private_get(app, &archive, Some(stranger_cookie)).await).await;
+    assert!(!outsider_toc.contains(&format!("/read/paid/{chapter}?purchase_id=")));
+    assert!(!outsider_toc.contains(&format!("/me/library/saved/{free_chapter}")));
+    assert_eq!(
+        private_get(
+            app,
+            &format!("/me/library/saved/{free_chapter}"),
+            Some(stranger_cookie),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(
         post_grant(
             app,
@@ -46,10 +170,72 @@ pub(super) async fn verify(
         .status(),
         StatusCode::FORBIDDEN
     );
+
+    // A live 18+/21+ revocation closes BOTH archive routes and the paid grant.
+    // Reverting the test fixture returns to the original basic rights before
+    // the real MinIO grant is issued; it cannot create a new purchase.
+    for tier in ["adult", "pro_adult"] {
+        pg(
+            url,
+            &format!("UPDATE books SET access_level='{tier}' WHERE id={book}"),
+        );
+        let denied_archive = html_body(private_get(app, &archive, Some(buyer_cookie)).await).await;
+        assert!(!denied_archive.contains(&format!("/me/library/saved/{free_chapter}")));
+        assert!(!denied_archive.contains(&format!("/read/paid/{chapter}?purchase_id=")));
+        assert_ne!(
+            private_get(
+                app,
+                &format!("/me/library/saved/{free_chapter}"),
+                Some(buyer_cookie),
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_ne!(
+            post_grant(app, chapter, Some(buyer_cookie), Some(csrf), ORIGIN, "{}")
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+    let archived_reader = paid_page(app, chapter, purchase_id, buyer_cookie).await;
+    assert_eq!(archived_reader.status(), StatusCode::OK);
+    let archived_html = html_body(archived_reader).await;
+    assert!(archived_html.contains("data-paid-chapter-reader"));
+    assert!(!archived_html.contains("data-toc-state=\"free\""));
+    assert!(!archived_html.contains("data-toc-state=\"locked\""));
     let authorized = post_grant(app, chapter, Some(buyer_cookie), Some(csrf), ORIGIN, "{}").await;
     assert_eq!(authorized.status(), StatusCode::OK);
     let grant = decode(authorized).await;
     assert_eq!(grant["version_id"], v1.to_string());
     assert!(!grant.to_string().contains(MARKDOWN));
     grant
+}
+
+/// Following the existing refund test, the free pin remains but the refunded
+/// paid edition must disappear from the same private mixed Book TOC.
+pub(super) async fn verify_refund_archive(
+    app: &Router,
+    book: i64,
+    free_chapter: i64,
+    purchased: (i64, i64),
+    buyer_cookie: &str,
+) {
+    let (chapter, purchase_id) = purchased;
+    let toc = html_body(
+        private_get(
+            app,
+            &format!("/me/library/{book}/saved"),
+            Some(buyer_cookie),
+        )
+        .await,
+    )
+    .await;
+    assert!(toc.contains(&format!("/me/library/saved/{free_chapter}")));
+    assert!(!toc.contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
 }
