@@ -89,7 +89,7 @@ fn queue_body(
             <img src="/moderation/covers/{review}/preview"
                 width="152" height="228" loading="lazy"
                 alt="Приватный предпросмотр кандидата">
-            <details class="moderation-review-confirm">
+            <details class="moderation-review-confirm" open>
             <summary>Подтвердить решение по обложке #{review}</summary>
             <p>Проверьте приватный предпросмотр. Одобрение заменит
                публичную обложку; отказ оставит прежнюю версию.</p>
