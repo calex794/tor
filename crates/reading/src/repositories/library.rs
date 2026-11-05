@@ -289,6 +289,7 @@ impl PgLibrary {
             "SELECT b.id AS book_id, b.title AS book_title, \
                     c.id AS chapter_id, c.chapter_no, c.title AS chapter_title, \
                     saved.version_id, v.version_no, v.body_markdown, \
+                    (b.lifecycle_status='ordinary_deleted') AS ordinary_deleted, \
                     progress.block_index AS saved_block_index, \
                     progress.char_offset AS saved_char_offset \
              FROM reader_saved_free_chapters AS saved \
@@ -353,6 +354,9 @@ impl PgLibrary {
                     .map_err(|_| LibraryError::Unavailable)?,
                 body_markdown: r
                     .try_get("body_markdown")
+                    .map_err(|_| LibraryError::Unavailable)?,
+                ordinary_deleted: r
+                    .try_get("ordinary_deleted")
                     .map_err(|_| LibraryError::Unavailable)?,
                 saved_place: saved_block
                     .zip(saved_offset)

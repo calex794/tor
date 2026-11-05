@@ -48,6 +48,7 @@ SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
+    "archived_free_state", "save_archived_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
     "visible_summary", "set_like",
@@ -165,6 +166,15 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     if "::" not in handler:
         return source
     module, _ = handler.rsplit("::", 1)
+    # BR-060: only the two reviewed archive progress handlers may delegate
+    # from the private archive router to its sibling sync_actions module.
+    # Retain fail-closed resolution for all other nested handlers.
+    if (source == root / "crates/web/src/auth/saved_free_chapters.rs"
+            and handler in {
+                "super::sync_actions::get_archived_free",
+                "super::sync_actions::put_archived_free",
+            }):
+        return source.parent / "sync_actions.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
