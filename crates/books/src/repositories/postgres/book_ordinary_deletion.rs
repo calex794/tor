@@ -75,7 +75,7 @@ impl PgAuthoring {
         if actor <= 0
             || book_id <= 0
             || expected_revision <= 0
-            || !matches!(action, "start" | "complete")
+            || action != "start"
             || !expected_password_hash.starts_with("$argon2id$")
         {
             return Err(AuthorError::Invalid);
@@ -122,37 +122,11 @@ impl PgAuthoring {
         if revision != expected_revision {
             return Err(AuthorError::Conflict);
         }
-        let next_state = match (action, before.as_str()) {
-            ("start", "in_progress" | "completed" | "abandoned" | "on_hiatus") => {
-                "pending_deletion"
-            }
-            ("complete", "pending_deletion") => "ordinary_deleted",
+        // The owner can request removal, but only site moderation finalizes it.
+        let next_state = match before.as_str() {
+            "in_progress" | "completed" | "abandoned" | "on_hiatus" => "pending_deletion",
             _ => return Err(AuthorError::Conflict),
         };
-        if action == "complete" {
-            // Approval must refer to this exact pending request revision.
-            // A previous rejection or a stale approval cannot be reused.
-            let approved: bool = sqlx::query_scalar(
-                "SELECT EXISTS (
-                   SELECT 1 FROM book_ordinary_deletion_requests r
-                   JOIN book_ordinary_deletion_decisions d
-                     ON d.book_id=r.book_id
-                    AND d.request_revision=r.request_revision
-                   WHERE r.book_id=$1 AND r.request_revision=$2
-                     AND r.owner_user_id=$3 AND d.decision='approve'
-                     AND d.moderator_user_id<>$3
-                 )",
-            )
-            .bind(book_id)
-            .bind(revision)
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-            if !approved {
-                return Err(AuthorError::Conflict);
-            }
-        }
         let next_revision = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
         // Keep chapter records, immutable free version pins, paid purchase facts,
         // and reader progress intact. Draft visibility removes all public paths

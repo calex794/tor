@@ -18,6 +18,9 @@ CREATE TABLE book_ordinary_deletion_decisions (
     request_revision BIGINT NOT NULL,
     moderator_user_id BIGINT NOT NULL CHECK (moderator_user_id > 0),
     decision TEXT NOT NULL CHECK (decision IN ('approve','reject')),
+    reason TEXT NOT NULL DEFAULT ''
+      CHECK (char_length(reason) <= 2000
+             AND (decision='approve' OR char_length(btrim(reason)) > 0)),
     decided_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (book_id, request_revision),
     CONSTRAINT book_ordinary_deletion_decisions_request_fk FOREIGN KEY (book_id,request_revision)

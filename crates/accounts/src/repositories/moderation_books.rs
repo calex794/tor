@@ -301,72 +301,123 @@ impl PgAccounts {
         book_id: i64,
         request_revision: i64,
         decision: &str,
+        reason: &str,
     ) -> Result<(), ModerationBooksError> {
-        if book_id <= 0 || request_revision <= 1 || !matches!(decision, "approve" | "reject") {
+        let reason = reason.trim();
+        if book_id <= 0
+            || request_revision <= 1
+            || !matches!(decision, "approve" | "reject")
+            || reason.len() > 2000
+            || (decision == "reject" && reason.is_empty())
+        {
             return Err(ModerationBooksError::Invalid);
         }
-        let mut tx = self
-            .pool()
-            .begin()
+        let mut tx = self.pool().begin().await.map_err(|_| ModerationBooksError::Unavailable)?;
+        let reviewer = current_moderator(&mut tx, session).await?;
+        // Recheck and lock the *current* active owner, not just historical request data.
+        let row: Option<(String, i64, i64, String, String, Option<i64>, bool, String)> =
+            sqlx::query_as(
+                "SELECT b.lifecycle_status,b.lifecycle_revision,r.owner_user_id,
+                        r.previous_lifecycle_status,r.previous_visibility,
+                        b.owner_user_id,b.admin_hold,b.visibility_status
+                 FROM books b
+                 JOIN book_ordinary_deletion_requests r
+                   ON r.book_id=b.id AND r.request_revision=$2
+                 JOIN book_members m ON m.book_id=b.id AND m.user_id=r.owner_user_id
+                   AND m.role='owner' AND m.is_active
+                 WHERE b.id=$1 AND NOT b.is_deleted
+                 FOR UPDATE OF b FOR SHARE OF m",
+            )
+            .bind(book_id)
+            .bind(request_revision)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
-        let reviewer = current_moderator(&mut tx, session).await?;
-        let row: Option<(String, i64, i64, String, String)> = sqlx::query_as(
-            "SELECT b.lifecycle_status,b.lifecycle_revision,r.owner_user_id,
-                    r.previous_lifecycle_status,r.previous_visibility
-             FROM books b
-             JOIN book_ordinary_deletion_requests r
-               ON r.book_id=b.id AND r.request_revision=$2
-             WHERE b.id=$1 AND NOT b.is_deleted
-             FOR UPDATE OF b",
-        )
-        .bind(book_id)
-        .bind(request_revision)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| ModerationBooksError::Unavailable)?;
-        let (status, revision, owner, original_status, original_visibility) =
-            row.ok_or(ModerationBooksError::Missing)?;
-        if reviewer == owner {
+        let (
+            status, revision, request_owner, previous_status, previous_visibility,
+            current_owner, admin_hold, visibility_status,
+        ) = row.ok_or(ModerationBooksError::Missing)?;
+        if reviewer == request_owner {
             return Err(ModerationBooksError::Denied);
         }
-        if status != "pending_deletion" || revision != request_revision {
+        if status != "pending_deletion"
+            || revision != request_revision
+            || current_owner != Some(request_owner)
+        {
             return Err(ModerationBooksError::Stale);
         }
-        let result = sqlx::query(
+        if decision == "approve" && (admin_hold || visibility_status != "active") {
+            return Err(ModerationBooksError::Stale);
+        }
+        let next_revision = revision.checked_add(1).ok_or(ModerationBooksError::Stale)?;
+        let inserted = sqlx::query(
             "INSERT INTO book_ordinary_deletion_decisions
-               (book_id,request_revision,moderator_user_id,decision)
-             VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+               (book_id,request_revision,moderator_user_id,decision,reason)
+             VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
         )
         .bind(book_id)
         .bind(request_revision)
         .bind(reviewer)
         .bind(decision)
+        .bind(reason)
         .execute(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
-        if result.rows_affected() != 1 {
+        if inserted.rows_affected() != 1 {
             return Err(ModerationBooksError::Stale);
         }
-        if decision == "reject" {
-            sqlx::query(
-                "UPDATE books SET lifecycle_status=$2,
-                   lifecycle_revision=$3,visibility=$4,ordinary_deleted_at=NULL
+        let changed = if decision == "approve" {
+            let updated = sqlx::query(
+                "UPDATE books SET lifecycle_status='ordinary_deleted',
+                        lifecycle_revision=$2,visibility='draft',
+                        ordinary_deleted_at=clock_timestamp()
                  WHERE id=$1 AND lifecycle_status='pending_deletion'
-                   AND lifecycle_revision=$5",
+                   AND lifecycle_revision=$3 AND visibility_status='active'
+                   AND NOT admin_hold AND NOT is_deleted",
             )
             .bind(book_id)
-            .bind(&original_status)
-            .bind(revision.checked_add(1).ok_or(ModerationBooksError::Stale)?)
-            .bind(&original_visibility)
+            .bind(next_revision)
             .bind(revision)
             .execute(&mut *tx)
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
-        }
-        tx.commit()
+            if updated.rows_affected() == 1 {
+                sqlx::query(
+                    "INSERT INTO book_ordinary_deletion_events
+                       (book_id,actor_user_id,action,previous_status,next_status,
+                        previous_revision,next_revision)
+                     VALUES($1,$2,'complete','pending_deletion','ordinary_deleted',$3,$4)",
+                )
+                .bind(book_id)
+                .bind(reviewer)
+                .bind(revision)
+                .bind(next_revision)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| ModerationBooksError::Unavailable)?;
+            }
+            updated.rows_affected()
+        } else {
+            sqlx::query(
+                "UPDATE books SET lifecycle_status=$2,lifecycle_revision=$3,
+                        visibility=$4,ordinary_deleted_at=NULL
+                 WHERE id=$1 AND lifecycle_status='pending_deletion'
+                   AND lifecycle_revision=$5",
+            )
+            .bind(book_id)
+            .bind(&previous_status)
+            .bind(next_revision)
+            .bind(&previous_visibility)
+            .bind(revision)
+            .execute(&mut *tx)
             .await
-            .map_err(|_| ModerationBooksError::Unavailable)?;
+            .map_err(|_| ModerationBooksError::Unavailable)?
+            .rows_affected()
+        };
+        if changed != 1 {
+            return Err(ModerationBooksError::Stale);
+        }
+        tx.commit().await.map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
     }
 }
