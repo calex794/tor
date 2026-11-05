@@ -508,16 +508,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "submit_visibility": "moderate_book_visibility",
                 "deletion_queue": "moderation_pending_deletions",
                 "review_deletion": "moderate_ordinary_deletion",
-
             }.get(entry["handler"], "__unreviewed_moderation_operation__")
             scoped = (
-                (entry["handler"] == "landing"
-                 and "session_actor(&digest)" in evidence
-                 and "actor.moderator || actor.administrator" in evidence)
+                (
+                    entry["handler"] == "landing"
+                    and "session_actor(&digest)" in evidence
+                    and "actor.moderator || actor.administrator" in evidence
+                )
                 or (
-                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
-                and "session_token_digest(&token)" in evidence
-                and "session_actor(&digest)" in evidence
+                    bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
+                    and "session_token_digest(&token)" in evidence
+                    and "session_actor(&digest)" in evidence
                 )
             )
         else:
