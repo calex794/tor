@@ -139,7 +139,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .unwrap();
-    let _outsider = accounts
+    let outsider = accounts
         .register_with_session(
             &format!("c08-outsider-{marker}@example.invalid"),
             "C08 outsider",
@@ -184,6 +184,55 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              VALUES({chapter},{v1})"
         ),
     );
+    // A directly purchased chapter can belong to a Book never bookmarked by
+    // this reader. It must still be a private Book group after ordinary deletion.
+    let paid_only_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+             VALUES('ci:br060:paid-only:{marker}','ru','Paid-only <unsafe>','public','basic',{outsider})
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let paid_chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({paid_only_book},1,'Bought chapter','public','paid',12900) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let paid_v1: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({paid_chapter},1,'Purchased immutable V1') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({paid_chapter},{paid_v1})"
+        ),
+    );
+    let paid_purchase: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_purchase_facts
+             (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+             VALUES({actor},{paid_chapter},{paid_v1},'br060-paid-only-{marker}',12900,'RUB')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -336,6 +385,19 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"),
     );
     assert_eq!(events, "2");
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now(),visibility='draft' WHERE id={paid_only_book}"
+        ),
+    );
+    let paid_only_card = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    assert!(paid_only_card.contains("Paid-only &lt;unsafe&gt;"));
+    assert!(paid_only_card.contains("Книги с покупками"));
+    assert!(paid_only_card.contains("чтение временно недоступно"));
+    assert!(!paid_only_card.contains(&format!("action=\"/me/library/{paid_only_book}/remove\"")));
+
     let deleted_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(!deleted_form.contains("type=\"password\""));
     assert_eq!(
@@ -388,6 +450,19 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let fresh_library = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
+    assert!(fresh_library.contains("Paid-only &lt;unsafe&gt;"));
+    assert!(fresh_library.contains("Книги с покупками"));
+    assert!(!fresh_library.contains(&format!("action=\"/me/library/{paid_only_book}/remove\"")));
+    let paid_list_path = format!("/me/library/{paid_only_book}/saved");
+    let paid_list_response = call(&app, "GET", &paid_list_path, &new_reader_cookie, "").await;
+    assert_eq!(paid_list_response.status(), StatusCode::OK);
+    let paid_list = html(paid_list_response).await;
+    assert!(paid_list.contains("Купленная редакция 1"));
+    assert!(paid_list.contains("чтение временно недоступно"));
+    assert!(!paid_list.contains(&format!("/read/paid/{paid_chapter}")));
+    let outsider_library = html(call(&app, "GET", "/me/library", &outsider_cookie, "").await).await;
+    assert!(!outsider_library.contains("Paid-only &lt;unsafe&gt;"));
+
     let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
     assert!(fresh_read
         .replace("<span id=\"saved-resume\"></span>", "")
@@ -562,6 +637,27 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             .await
             .status(),
         StatusCode::NOT_FOUND
+    );
+
+    // Removing the direct purchase must hide the Book group, without touching
+    // the separate free-book archive that this same actor previously removed.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_purchase_revocations
+             (purchase_id,reversal_reference,reason)
+             VALUES({paid_purchase},'br060-paid-only-refund-{marker}','refund')"
+        ),
+    );
+    let after_refund = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
+    assert!(!after_refund.contains("Paid-only &lt;unsafe&gt;"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM chapter_purchase_facts WHERE id={paid_purchase}")
+        ),
+        "1",
+        "refund must not delete financial history"
     );
 
     // Ordinary deletion retains the Book as an audited tombstone.
