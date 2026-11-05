@@ -431,6 +431,11 @@ jobs:
           set -euo pipefail
           [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PREVIOUS_SHA" != "$(git rev-parse HEAD)" ]]
+          # Checkout uses a shallow clone. Restore ancestry only for this
+          # optional manual drill; never pay this cost in normal CI.
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+            git fetch --no-tags --unshallow origin main
+          fi
           git fetch --no-tags origin "$PREVIOUS_SHA"
           git merge-base --is-ancestor "$PREVIOUS_SHA" "$(git rev-parse HEAD)"
           git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"

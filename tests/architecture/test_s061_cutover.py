@@ -100,6 +100,7 @@ class CandidateCutoverGuardTests(unittest.TestCase):
         self.assertIn("s061_previous_sha:", manual_text)
         self.assertIn("S061 build previous binary (manual opt-in only)", manual_text)
         self.assertIn('git merge-base --is-ancestor "$PREVIOUS_SHA"', manual_text)
+        self.assertIn("git fetch --no-tags --unshallow origin main", manual_text)
         self.assertIn("TOR_S061_PREVIOUS_BINARY:", manual_text)
         mapper = (ROOT / "tools" / "ci_test_map.py").read_text()
         self.assertIn('"tools/s061_cutover_pg_smoke.py": {"postgres"}', mapper)
