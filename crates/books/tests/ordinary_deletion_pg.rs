@@ -204,6 +204,44 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .await
         .unwrap();
     assert_eq!(vis, "draft");
+    // Owner credentials are not a substitute for a distinct site-moderator
+    // decision on this exact request; even a live owner must wait.
+    assert_eq!(
+        repo.advance_ordinary_deletion(owner, book, 2, "complete", &owner_token, hash)
+            .await,
+        Err(AuthorError::Conflict)
+    );
+    assert!(!repo
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .unwrap()
+        .moderator_approved);
+    let original: (String, String) = sqlx::query_as(
+        "SELECT previous_lifecycle_status,previous_visibility
+         FROM book_ordinary_deletion_requests WHERE book_id=$1 AND request_revision=2",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(original.1, "public");
+    sqlx::query(
+        "INSERT INTO book_ordinary_deletion_decisions
+         (book_id,request_revision,moderator_user_id,decision)
+         VALUES($1,2,$2,'approve')",
+    )
+    .bind(book)
+    .bind(stranger)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(repo
+        .ordinary_deletion_view(owner, book)
+        .await
+        .unwrap()
+        .unwrap()
+        .moderator_approved);
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 2, "complete", &owner_token, hash)
             .await,
