@@ -4,6 +4,81 @@ use axum::response::Html;
 use std::fmt::Write;
 use tor_reading::services::library::{SavedFreeChapter, SavedFreeChapterPage};
 
+/// Chapter navigation is actor-scoped metadata. Both choices are displayed
+/// when a reader owns two distinct immutable editions of the same chapter.
+pub fn saved_archive_list(
+    book_id: i64,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+) -> Html<String> {
+    let mut rows = String::new();
+    for item in &page.items {
+        let title = escape_html(&item.chapter_title);
+        let mut choices = String::new();
+        if let Some(version_no) = item.saved_free_version_no {
+            write!(
+                choices,
+                "<a href=\"/me/library/saved/{}\">Сохранённая бесплатная редакция {version_no}</a>",
+                item.chapter_id
+            )
+            .expect("free archive link");
+        }
+        if let Some(paid) = &item.purchased {
+            if !choices.is_empty() {
+                choices.push_str(" · ");
+            }
+            if paid_reader_available {
+                write!(
+                    choices,
+                    "<a href=\"/read/paid/{}?purchase_id={}\">Купленная редакция {}</a>",
+                    item.chapter_id, paid.purchase_id, paid.version_no
+                )
+                .expect("paid archive link");
+            } else {
+                write!(
+                    choices,
+                    "<span>Купленная редакция {} — чтение временно недоступно</span>",
+                    paid.version_no
+                )
+                .expect("paid archive unavailable");
+            }
+        }
+        write!(
+            rows,
+            "<li>Глава {}. {title}<p class=\"library-card__place\">{choices}</p></li>",
+            item.chapter_no
+        )
+        .expect("archive chapter row");
+    }
+    if rows.is_empty() {
+        rows.push_str("<li>Сейчас нет доступных ранее сохранённых или купленных редакций.</li>");
+    }
+    let next = page
+        .next_cursor
+        .map(|number| {
+            format!(
+                "<p><a href=\"/me/library/{book_id}/saved?after={number}\">Следующие главы</a></p>"
+            )
+        })
+        .unwrap_or_default();
+    let content = format!(
+        "<section class=\"section auth-section\"><div class=\"container\">\
+         <h1>Мои сохранённые главы</h1>\
+         <p>Здесь перечислены только ваши закреплённые бесплатные редакции и \
+         купленные редакции с действующим правом чтения. \
+         Новые версии и главы автоматически не открываются.</p>\
+         <ul>{rows}</ul>{next}\
+         <p><a href=\"/me/library\">Вернуться в библиотеку</a></p>\
+         </div></section>"
+    );
+    layout(
+        "Сохранённые главы",
+        "Личная библиотека, архив бесплатных и купленных редакций.",
+        &content,
+    )
+}
+
+
 pub fn saved_free_list(book_id: i64, page: &SavedFreeChapterPage) -> Html<String> {
     let mut rows = String::new();
     for item in &page.items {
