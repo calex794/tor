@@ -64,6 +64,49 @@ pub(super) fn router() -> Router<AuthState> {
         .merge(registration::router())
 }
 
+/// Display a non-leaking explanation for moderation decisions that lost a
+/// revision race or failed validation. Preserve the real HTTP error status.
+pub(super) fn decision_error(status: StatusCode, return_to: &'static str) -> Response {
+    let (heading, explanation) = match status {
+        StatusCode::CONFLICT => (
+            "Заявка уже изменилась",
+            "Другой модератор уже принял решение либо ревизия книги изменилась. Обновите очередь.",
+        ),
+        StatusCode::BAD_REQUEST => (
+            "Проверьте решение",
+            "Для отказа требуется причина; также проверьте допустимость параметров заявки.",
+        ),
+        StatusCode::FORBIDDEN => (
+            "Доступ запрещён",
+            "Для этого действия необходимы действующие права модератора сайта.",
+        ),
+        StatusCode::NOT_FOUND => (
+            "Заявка не найдена",
+            "Она могла быть рассмотрена или удалена из очереди.",
+        ),
+        _ => (
+            "Не удалось принять решение",
+            "Сервер не подтвердил действие. Ничего не считайте одобренным до повторной проверки.",
+        ),
+    };
+    private_response(
+        (
+            status,
+            pages::layout(
+                heading,
+                "Закрытый результат рассмотрения заявки.",
+                &format!(
+                    "<section class=\"me-page\"><div class=\"container\">
+                     <h1>{heading}</h1><p>{explanation}</p>
+                     <p><a href=\"{return_to}\">Вернуться в очередь</a></p>
+                     </div></section>"
+                ),
+            ),
+        ),
+        &[],
+    )
+}
+
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
     match error {
         ModerationBooksError::Denied => StatusCode::FORBIDDEN,
@@ -313,6 +356,10 @@ fn render_deletion_queue(
         cards.push_str(&format!(
             r#"<article class="me-now-card"><h2>{title}</h2>
                <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
+               <details class="moderation-review-confirm">
+                 <summary>Рассмотреть заявку на удаление книги #{book}</summary>
+                 <p>Проверьте книгу и ревизию. Одобрение окончательно удалит
+                    её из публичного каталога; сохранённые главы читателей останутся доступны.</p>
                <form method="post" action="/moderation/books/{book}/deletion">
                  <input type="hidden" name="csrf_token" value="{token}">
                  <input type="hidden" name="request_revision" value="{revision}">
@@ -320,7 +367,7 @@ fn render_deletion_queue(
                  <input id="deletion-reason-{book}" name="reason" maxlength="2000">
                  <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
                  <button type="submit" name="decision" value="reject">Отклонить удаление</button>
-               </form></article>"#,
+               </form></details></article>"#,
             book = item.book_id,
             owner = item.owner_user_id,
             revision = item.request_revision
@@ -468,7 +515,7 @@ pub(super) async fn review_deletion(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/deletions"), &[]),
-        Err(error) => deny(error_code(error)),
+        Err(error) => decision_error(error_code(error), "/moderation/books/deletions"),
     }
 }
 
@@ -525,6 +572,7 @@ mod deletion_queue_tests {
         assert!(page.contains("Обложки (2)"));
         assert!(page.contains("Удаление (3)"));
         assert!(page.contains("value=\"approve\""));
+        assert!(page.contains("moderation-review-confirm"));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
         let response = private_response(Html(page), &[]);
