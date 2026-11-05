@@ -180,10 +180,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
 
 /// Open the workbench on real requests, never on emergency controls.
 /// Gate the redirect itself by a live site-moderator session.
-pub(super) async fn home(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn home(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
