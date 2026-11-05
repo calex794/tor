@@ -680,7 +680,7 @@ async fn br060_archived_10k_keyset_keeps_exact_version() {
         assert_eq!(page.items.last().unwrap().chapter_no, last_number);
         assert_eq!(page.next_cursor, next_cursor);
         for (position, item) in page.items.iter().enumerate() {
-            assert_eq!(i64::from(item.chapter_no), first_number + position as i64);
+            assert_eq!(item.chapter_no, first_number + i32::try_from(position).unwrap());
             assert_eq!(item.saved_free_version_no, Some(1));
             assert!(item.purchased.is_none());
         }
