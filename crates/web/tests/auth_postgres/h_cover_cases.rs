@@ -6,9 +6,13 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     io::Cursor,
+    num::NonZeroU32,
     sync::{Arc, Mutex},
 };
-use tor_books::repositories::cover_slots::PgCoverSlots;
+use tor_accounts::services::security::{
+    generate_session_token, hash_password, session_token_digest,
+};
+use tor_books::repositories::{cover_review::PgCoverReview, cover_slots::PgCoverSlots};
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
@@ -247,36 +251,72 @@ pub(super) async fn upload_and_show(
     .await;
     assert!(body_of(page).await.contains("Обложка ожидает обработки."));
 
-    // The G worker stores a candidate and does NOT publish a cover.
-    // The site reviewer must approve the candidate through B before any
-    // public Book page, home or catalogue can expose its WebP variants.
-    let url = std::env::var("TEST_DATABASE_URL").expect("isolated tor_ci");
-    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
-    let catalog = PgCatalog::connect(&url).await.unwrap();
+    // The production worker reads a durable PG lease and writes two real WebP
+    // variants, then B atomically attaches the cover to the public book.
+    let catalog = PgCatalog::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
     let pool = catalog.pool();
     let jobs = PgCoverJobs::new(pool.clone());
     let slots = PgCoverSlots::new(pool.clone());
-    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
-    let owner = accounts
-        .find_user("tor_ci_account@example.com")
-        .await
-        .unwrap()
-        .unwrap()
-        .id;
+    let reviews = PgCoverReview::new(pool.clone());
     let bridge = PgBookCoverBridge::new(slots.clone());
     let worker = CoverWorker {
         jobs: &jobs,
         storage: store,
         books: &bridge,
     };
+    // Real separate active site-moderator session. The owner and worker cannot
+    // publish a processed image without an independent approved review.
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
+    let reviewer_token = generate_session_token();
+    let reviewer = accounts
+        .register_with_session(
+            &format!("cover-reviewer-{book_id}@tor-ci.example"),
+            "Cover site moderator",
+            &hash_password("CoverTestReviewer2026!").unwrap(),
+            &session_token_digest(&reviewer_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let role_sql = format!(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES({reviewer},'moderator',TRUE)"
+    );
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let assigned = std::process::Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url.as_str(),
+            "--command",
+            role_sql.as_str(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        assigned.status.success(),
+        "disposable moderator role fixture failed: {}",
+        String::from_utf8_lossy(&assigned.stderr)
+    );
+    let reviewer_digest = session_token_digest(&reviewer_token);
+    let mut candidate = None;
     for _ in 0..16 {
-        if jobs
-            .latest_for_author(book_id, owner)
+        if let Some(review) = reviews
+            .pending(&reviewer_digest, None)
             .await
             .unwrap()
-            .as_deref()
-            == Some("done")
+            .into_iter()
+            .find(|review| review.book_id == book_id)
         {
+            candidate = Some(review);
             break;
         }
         match worker.run_one().await.unwrap() {
@@ -285,135 +325,81 @@ pub(super) async fn upload_and_show(
             }
         }
     }
-    assert_eq!(
-        jobs.latest_for_author(book_id, owner)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("done"),
-    );
-    assert_eq!(
-        slots
-            .owner_latest_status(book_id, owner)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("moderation_pending"),
-    );
-    assert!(slots.current_slot(book_id).await.unwrap().is_none());
-    assert!(jobs
-        .latest_for_author(book_id, 99999)
-        .await
-        .unwrap()
-        .is_none());
+    let candidate = candidate.expect("worker must submit a private candidate");
+    assert_eq!(slots.current_slot(book_id).await.unwrap(), None);
     assert_eq!(
         send(
             app,
             request(
                 "GET",
-                &format!("/covers/{book_id}/card.webp"),
+                &format!("/covers/{book_id}/main.webp"),
                 "",
                 "",
-                ORIGIN
+                ORIGIN,
             )
         )
         .await
         .status(),
         StatusCode::NOT_FOUND,
-        "worker completion must not publish an unreviewed cover"
+        "processed image must stay private until site approval"
     );
-    let pending_page = body_of(
-        send(
-            app,
-            request("GET", &format!("/me/books/{book_id}"), "", cookies, ORIGIN),
-        )
-        .await,
+    assert_eq!(
+        jobs.latest_for_author(book_id, {
+            // Only the owner row may provide a status: prove an arbitrary actor cannot see it.
+            assert!(jobs
+                .latest_for_author(book_id, 99999)
+                .await
+                .unwrap()
+                .is_none());
+            let user = tor_accounts::repositories::PgAccounts::from_pool(catalog.pool());
+            user.find_user("tor_ci_account@example.com")
+                .await
+                .unwrap()
+                .unwrap()
+                .id
+        })
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("done")
+    );
+    let queue = send(
+        app,
+        request(
+            "GET",
+            "/moderation/covers",
+            "",
+            &format!("tor-dev-session={reviewer_token}"),
+            ORIGIN,
+        ),
     )
     .await;
-    assert!(pending_page.contains("Обложка обработана и ожидает модератора."));
-
-    let token = tor_accounts::services::security::generate_session_token();
-    let digest = tor_accounts::services::security::session_token_digest(&token);
-    let pwd =
-        tor_accounts::services::security::hash_password("IndependentCoverReviewer-2026!").unwrap();
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let reviewer = accounts
-        .register_with_session(
-            &format!("mod-cover-ci-{nonce}@example.invalid"),
-            "Independent Cover Moderator",
-            &pwd,
-            &digest,
-            std::num::NonZeroU32::new(3600).unwrap(),
-        )
-        .await
-        .unwrap();
-    let sql = format!(
-        "INSERT INTO account_roles(user_id,role,is_active)
-         VALUES({reviewer},'moderator',TRUE)"
-    );
-    let url_for_process = url.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("psql")
-            .args([
-                "-X",
-                "-A",
-                "-t",
-                "-q",
-                "-v",
-                "ON_ERROR_STOP=1",
-                "--dbname",
-                &url_for_process,
-                "--command",
-                &sql,
-            ])
-            .output()
-            .expect("isolated PG psql fixture")
-    })
-    .await
-    .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let reviews = tor_books::repositories::cover_review::PgCoverReview::new(pool);
-    let candidate = reviews
-        .pending(&digest, None)
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|row| row.book_id == book_id)
-        .expect("private candidate after worker completion");
+    assert_eq!(queue.status(), StatusCode::OK);
     assert_eq!(
-        send(
-            app,
-            request("GET", "/moderation/covers", "", cookies, ORIGIN),
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
+        queue.headers()[header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
     );
-    reviews
-        .decide(
-            &digest,
-            candidate.id,
-            candidate.expected_slot_revision,
-            true,
-            "",
-        )
-        .await
-        .unwrap();
-    assert!(slots.current_slot(book_id).await.unwrap().is_some());
+    let reviewer_csrf_cookie = cookie(&queue, "tor-dev-csrf=");
+    let queue_body = body_of(queue).await;
+    assert!(queue_body.contains(&format!("/moderation/covers/{}/decision", candidate.id)));
+    let reviewer_csrf = csrf_token(&queue_body).to_owned();
+    let reviewer_cookie = format!("tor-dev-session={reviewer_token}; {reviewer_csrf_cookie}");
+    let decision = send(
+        app,
+        request(
+            "POST",
+            &format!("/moderation/covers/{}/decision", candidate.id),
+            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"),
+            &reviewer_cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(decision.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        slots
-            .owner_latest_status(book_id, owner)
-            .await
-            .unwrap()
-            .as_deref(),
-        Some("moderation_approved"),
+        slots.current_slot(book_id).await.unwrap(),
+        Some((candidate.job_id, 1)),
+        "only the audited moderator decision may attach the public cover"
     );
 
     let pub_page = send(
@@ -451,7 +437,7 @@ pub(super) async fn upload_and_show(
         .await,
     )
     .await;
-    assert!(owned.contains("Обложка одобрена модератором."));
+    assert!(owned.contains("Обложка готова."));
     let settings = send(
         app,
         request(
