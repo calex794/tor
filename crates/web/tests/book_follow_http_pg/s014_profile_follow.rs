@@ -359,5 +359,27 @@ async fn e_05_s014_profile_follow_is_account_scoped_and_keeps_period_history() {
         ),
         "0"
     );
+    // Revoking the A session after follow must immediately disable further
+    // profile mutations without destroying the already-owned follow period.
+    pg(
+        &url,
+        &format!("UPDATE sessions SET revoked_at=now() WHERE user_id={reader}"),
+    );
+    assert_eq!(
+        post(&app, &unfollow, &reader_cookies, ORIGIN, &csrf).await,
+        StatusCode::UNAUTHORIZED,
+        "stale signed cookie cannot mutate an existing author follow",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM creator_follow_periods
+                 WHERE follower_user_id={reader} AND creator_user_id={author} AND ended_at IS NULL"
+            ),
+        ),
+        "1",
+        "revoking the session never deletes an existing author subscription",
+    );
     pool.close().await;
 }
