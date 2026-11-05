@@ -42,6 +42,7 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
+pub mod yandex_cdn_purge;
 mod observability;
 mod operator_overview;
 mod operator_traces;

@@ -33,6 +33,7 @@ tor-route_intelligence = { path = "../route_intelligence" }
 tor-traffic_behavior = { path = "../traffic_behavior" }
 tor-observability = { path = "../observability" }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde.workspace = true
 tracing = "0.1"
 tracing-subscriber = "0.3"
