@@ -89,6 +89,10 @@ fn queue_body(
             <img src="/moderation/covers/{review}/preview"
                 width="152" height="228" loading="lazy"
                 alt="Приватный предпросмотр кандидата">
+            <details class="moderation-review-confirm">
+            <summary>Подтвердить решение по обложке #{review}</summary>
+            <p>Проверьте приватный предпросмотр. Одобрение заменит
+               публичную обложку; отказ оставит прежнюю версию.</p>
             <form method="post" action="/moderation/covers/{review}/decision">
               <input type="hidden" name="csrf_token" value="{csrf}">
               <input type="hidden" name="expected_slot_revision" value="{rev}">
@@ -96,7 +100,7 @@ fn queue_body(
               <textarea id="reason-{review}" name="reason" maxlength="2000" rows="2"></textarea>
               <button type="submit" name="action" value="approve">Одобрить обложку</button>
               <button type="submit" name="action" value="reject">Отклонить</button>
-            </form>
+            </form></details>
             <p><a href="/moderation/books/{book}/cover-history">
               История решений по обложке</a></p>
             </article>"#,
@@ -302,7 +306,7 @@ pub(super) async fn decide(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/covers"), &[]),
-        Err(error) => deny(error_code(error)),
+        Err(error) => super::moderation_books::decision_error(error_code(error), "/moderation/covers"),
     }
 }
 
@@ -369,6 +373,8 @@ mod tests {
         assert!(!html.contains("<script>"));
         assert!(html.contains("/moderation/covers/9/preview"));
         assert!(html.contains("Первая обложка"));
+        assert!(html.contains("moderation-review-confirm"));
+        assert!(html.contains("name=\"kind\""));
         assert!(html.contains("Регистрация (2)"));
         assert!(html.contains("Удаление (3)"));
         assert!(!html.contains("staging/covers/"));
