@@ -11,10 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::services::security::{session_token_digest, verify_password};
-use tor_books::{
-    repositories::postgres::OrdinaryDeletionView,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::OrdinaryDeletionView, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,9 +25,7 @@ pub(super) struct DeletionForm {
 pub(super) fn router() -> Router<AuthState> {
     Router::new().route(
         "/me/books/{id}/settings/delete",
-        get(page)
-            .post(submit)
-            .layer(DefaultBodyLimit::max(2048)),
+        get(page).post(submit).layer(DefaultBodyLimit::max(2048)),
     )
 }
 
@@ -76,7 +71,11 @@ fn render(id: i64, book: &OrdinaryDeletionView, csrf: &str) -> Html<String> {
          <p>{warning}</p>{form}
          <p><a href=\"/me/books\">Мои книги</a></p></div></div></section>"
     );
-    pages::layout("Удаление книги", "Защищённое действие владельца книги.", &html)
+    pages::layout(
+        "Удаление книги",
+        "Защищённое действие владельца книги.",
+        &html,
+    )
 }
 
 pub(super) async fn page(
@@ -112,9 +111,11 @@ pub(super) async fn submit(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    if id <= 0 || form.expected_revision <= 0
+    if id <= 0
+        || form.expected_revision <= 0
         || !matches!(form.action.as_str(), "start" | "complete")
-        || form.account_password.is_empty() || form.account_password.len() > 1024
+        || form.account_password.is_empty()
+        || form.account_password.len() > 1024
     {
         return deny(StatusCode::BAD_REQUEST);
     }
@@ -155,13 +156,21 @@ pub(super) async fn submit(
     match state
         .authoring
         .advance_ordinary_deletion(
-            actor, id, form.expected_revision, &form.action, &digest, &expected_hash,
+            actor,
+            id,
+            form.expected_revision,
+            &form.action,
+            &digest,
+            &expected_hash,
         )
         .await
     {
         Ok(_) => {
             let _ = state.accounts.clear_auth_attempt(&key).await;
-            private_response(Redirect::to(&format!("/me/books/{id}/settings/delete")), &[])
+            private_response(
+                Redirect::to(&format!("/me/books/{id}/settings/delete")),
+                &[],
+            )
         }
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
