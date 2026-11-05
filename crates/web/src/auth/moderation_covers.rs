@@ -260,8 +260,9 @@ pub(super) async fn history(
     let mut entries = String::new();
     for row in rows {
         let reason = pages::escape_html(row.reason.as_deref().unwrap_or("—"));
+        let moderator_name = pages::escape_html(&row.reviewer_name);
         entries.push_str(&format!(
-            "<li>Заявка #{}, вариант #{}, модератор #{}, решение {}, время Unix {}, причина: {reason}</li>",
+            "<li>Заявка #{}, вариант #{}, одобрил/рассмотрел {moderator_name} (модератор #{}), решение {}, время Unix {}, причина: {reason}</li>",
             row.request_id,
             row.job_id,
             row.reviewer_user_id,
