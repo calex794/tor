@@ -23,6 +23,13 @@ pub(super) struct CoverQueueQuery {
     level: Option<String>,
 }
 
+/// Keep the queue's three optional filters together in the view contract.
+struct CoverQueueFilters<'a> {
+    search: Option<&'a str>,
+    kind: Option<&'a str>,
+    level: Option<&'a str>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CoverDecisionForm {
@@ -63,13 +70,11 @@ fn queue_body(
     csrf: &str,
     registration_count: i64,
     deletion_count: i64,
-    search: Option<&str>,
-    kind: Option<&str>,
-    level: Option<&str>,
+    filters: CoverQueueFilters<'_>,
 ) -> String {
-    let search = pages::escape_html(search.unwrap_or(""));
-    let kind = kind.unwrap_or("");
-    let level = level.unwrap_or("");
+    let search = pages::escape_html(filters.search.unwrap_or(""));
+    let kind = filters.kind.unwrap_or("");
+    let level = filters.level.unwrap_or("");
     let selected = |tier: &str| if level == tier { " selected" } else { "" };
     let level_all = selected("");
     let level_basic = selected("basic");
@@ -231,9 +236,11 @@ pub(super) async fn page(
             &pages::escape_html(&csrf),
             registration_count,
             deletion_count,
-            query.q.as_deref(),
-            query.kind.as_deref(),
-            query.level.as_deref(),
+            CoverQueueFilters {
+                search: query.q.as_deref(),
+                kind: query.kind.as_deref(),
+                level: query.level.as_deref(),
+            },
         )),
         &cookies,
     );
@@ -391,7 +398,18 @@ mod tests {
             submitted_by_user_id: 13,
             expected_slot_revision: 0,
         }];
-        let html = queue_body(&rows, 1, "csrf", 2, 3, None, None, None);
+        let html = queue_body(
+            &rows,
+            1,
+            "csrf",
+            2,
+            3,
+            CoverQueueFilters {
+                search: None,
+                kind: None,
+                level: None,
+            },
+        );
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("/moderation/covers/9/preview"));
