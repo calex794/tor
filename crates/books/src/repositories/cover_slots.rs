@@ -20,64 +20,81 @@ impl PgCoverSlots {
             .transpose()
     }
 
-    /// Returns false if the actor changed, a later cover won, or B has a hold.
-    /// Same job/current slot is an idempotent success after a worker crash.
+    /// Worker-completed variants are staged for SITE moderation only.
+    /// A G job no longer changes the public B cover slot.
+    /// The legacy method name preserves the G worker interface; true means
+    /// the candidate was queued, NOT that a cover was published.
     pub async fn attach_ready_job(
         &self,
         job_id: i64,
         lease_epoch: i64,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        let job = sqlx::query(
-            "SELECT j.book_id,j.expected_slot_revision FROM cover_variant_jobs j
+        let row = sqlx::query(
+            "SELECT j.book_id,j.expected_slot_revision,j.actor_user_id
+             FROM cover_variant_jobs j
              JOIN books b ON b.id=j.book_id
              WHERE j.id=$1 AND j.lease_epoch=$2
                AND j.status IN ('running','ready') AND j.locked_until>now()
                AND b.owner_user_id=j.actor_user_id
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+               AND b.visibility_status NOT IN ('blocked','hidden')
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (SELECT count(*) FROM cover_variants v WHERE v.job_id=j.id)=2
-               AND EXISTS(SELECT 1 FROM cover_variants v WHERE v.job_id=j.id AND v.variant_name='main')
-               AND EXISTS(SELECT 1 FROM cover_variants v WHERE v.job_id=j.id AND v.variant_name='card')
+               AND EXISTS(SELECT 1 FROM cover_variants v
+                   WHERE v.job_id=j.id AND v.variant_name='main')
+               AND EXISTS(SELECT 1 FROM cover_variants v
+                   WHERE v.job_id=j.id AND v.variant_name='card')
              FOR UPDATE OF b,j",
-        ).bind(job_id).bind(lease_epoch).fetch_optional(&mut *tx).await?;
-        let Some(job) = job else {
+        )
+        .bind(job_id)
+        .bind(lease_epoch)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(job) = row else {
             return Ok(false);
         };
         let book_id: i64 = job.try_get("book_id")?;
         let expected: i64 = job.try_get("expected_slot_revision")?;
-        let slot =
-            sqlx::query("SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1 FOR UPDATE")
+        let actor: i64 = job.try_get("actor_user_id")?;
+        let current_revision: Option<i64> =
+            sqlx::query_scalar("SELECT revision FROM book_cover_slots WHERE book_id=$1 FOR UPDATE")
                 .bind(book_id)
                 .fetch_optional(&mut *tx)
                 .await?;
-        if let Some(slot) = slot {
-            if slot.try_get::<i64, _>("job_id")? == job_id {
-                tx.commit().await?;
-                return Ok(true);
-            }
-            if slot.try_get::<i64, _>("revision")? != expected {
-                return Ok(false);
-            }
-        } else if expected != 0 {
+        if current_revision.unwrap_or(0) != expected {
             return Ok(false);
         }
-        let changed = sqlx::query(
-            "INSERT INTO book_cover_slots(book_id,job_id,revision)
-             VALUES($1,$2,1)
-             ON CONFLICT(book_id) DO UPDATE
-               SET job_id=EXCLUDED.job_id,revision=book_cover_slots.revision+1,
-                   attached_at=now()
-               WHERE book_cover_slots.revision=$3
-             RETURNING revision",
+        let existing: Option<String> =
+            sqlx::query_scalar("SELECT state FROM book_cover_review_requests WHERE job_id=$1")
+                .bind(job_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if let Some(state) = existing {
+            if state != "pending" {
+                return Ok(false);
+            }
+            tx.commit().await?;
+            return Ok(true);
+        }
+        sqlx::query(
+            "UPDATE book_cover_review_requests SET state='superseded'
+             WHERE book_id=$1 AND state='pending'",
+        )
+        .bind(book_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO book_cover_review_requests
+             (book_id,job_id,submitted_by_user_id,expected_slot_revision)
+             VALUES($1,$2,$3,$4)",
         )
         .bind(book_id)
         .bind(job_id)
+        .bind(actor)
         .bind(expected)
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await?;
-        if changed.is_none() {
-            return Ok(false);
-        }
         tx.commit().await?;
         Ok(true)
     }

@@ -9,7 +9,7 @@ use aws_sdk_s3::{
 };
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, Request, StatusCode},
 };
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
@@ -23,6 +23,7 @@ use std::{
 };
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
+    cover_review::PgCoverReview,
     cover_slots::{PgCoverSlots, PublicCoverKind},
     PgCatalog,
 };
@@ -64,6 +65,29 @@ async fn request(app: &axum::Router, path: &str) -> axum::response::Response {
         .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
         .await
         .expect("local router must return HTTP response")
+}
+
+async fn moderation_request(
+    app: &axum::Router,
+    method: &str,
+    path: &str,
+    cookie: &str,
+    origin: &str,
+    body: &str,
+) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header(header::COOKIE, cookie)
+                .header(header::ORIGIN, origin)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
 }
 
 // Run lifecycle mutations outside the async PostgreSQL executor. A synchronous
@@ -224,8 +248,146 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(snapshot.attached, 1);
     assert_eq!(snapshot.timeouts, 0);
     assert_eq!(snapshot.errors, 0);
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), None);
+    assert_eq!(
+        jobs.job_status(job).await.unwrap().as_deref(),
+        Some("done"),
+        "processed artifacts must wait for site moderation"
+    );
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(catalog.pool());
+    let token = tor_accounts::services::security::generate_session_token();
+    let session_digest = tor_accounts::services::security::session_token_digest(&token);
+    let reviewer = accounts
+        .register_with_session(
+            &format!(
+                "obs09-cover-moderator-{}@example.invalid",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            "Cover reviewer",
+            &tor_accounts::services::security::hash_password("Obs09CoverMod2026!").unwrap(),
+            &session_digest,
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg_sql(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"
+        ),
+    )
+    .await;
+    let reviews = PgCoverReview::new(catalog.pool());
+    let review_request = reviews
+        .pending(&session_digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.job_id == job)
+        .expect("private cover candidate");
+    assert_eq!(review_request.expected_slot_revision, 0);
+    assert_eq!(review_request.book_id, BOOK_ID);
+    assert_eq!(
+        request(&app, "/covers/950/card.webp").await.status(),
+        StatusCode::NOT_FOUND,
+        "completed image processing cannot publish without moderation"
+    );
+    // The live site-role/CSRF HTTP path must approve; no synthetic B call.
+    let origin = "http://127.0.0.1:3098";
+    let moderator_app = tor_web::router_with_postgres_reading_auth_cover_uploads(
+        catalog.clone(),
+        PgReader::new(catalog.pool()),
+        accounts.clone(),
+        false,
+        origin.to_owned(),
+        Arc::new(store.clone()),
+    );
+    let csrf = tor_accounts::services::security::generate_session_token();
+    let cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
+    assert_eq!(
+        moderation_request(&moderator_app, "GET", "/moderation/covers", "", origin, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let queue = moderation_request(
+        &moderator_app,
+        "GET",
+        "/moderation/covers",
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(queue.status(), StatusCode::OK);
+    assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
+    let html = to_bytes(queue.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&html).contains("Первая обложка"));
+    let preview = moderation_request(
+        &moderator_app,
+        "GET",
+        &format!("/moderation/covers/{}/preview", review_request.id),
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()[header::CONTENT_TYPE], "image/webp");
+    assert_eq!(preview.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(preview.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    let preview_bytes = to_bytes(preview.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert!(preview_bytes.starts_with(b"RIFF"));
+    assert_eq!(
+        moderation_request(
+            &moderator_app,
+            "POST",
+            &format!("/moderation/covers/{}/decision", review_request.id),
+            &cookie,
+            "https://evil.invalid",
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let approved = moderation_request(
+        &moderator_app,
+        "POST",
+        &format!("/moderation/covers/{}/decision", review_request.id),
+        &cookie,
+        origin,
+        &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+    )
+    .await;
+    assert_eq!(approved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        moderation_request(
+            &moderator_app,
+            "POST",
+            &format!("/moderation/covers/{}/decision", review_request.id),
+            &cookie,
+            origin,
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "repeat review must not create a second approval"
+    );
+    let history = reviews
+        .private_history(&session_digest, BOOK_ID)
+        .await
+        .unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].reviewer_user_id, reviewer);
+    assert_eq!(history[0].outcome, "approved");
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
-    assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);

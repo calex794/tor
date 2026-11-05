@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 282] = [
+const ROUTES: [RouteRegistration; 286] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -292,6 +292,10 @@ const ROUTES: [RouteRegistration; 282] = [
     RouteRegistration::new("/assets/newboo-archive-progress.js", "GET", "/assets/", Exact, Static, System, Free), // 279
     RouteRegistration::new("/moderation/books/deletions", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 280
     RouteRegistration::new("/moderation/books/{id}/deletion", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 281
+    RouteRegistration::new("/moderation/covers", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 282
+    RouteRegistration::new("/moderation/covers/{id}/preview", "GET", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 283
+    RouteRegistration::new("/moderation/covers/{id}/decision", "POST", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 284
+    RouteRegistration::new("/moderation/books/{id}/cover-history", "GET", "/moderation/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 285
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
