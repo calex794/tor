@@ -37,7 +37,7 @@ impl PgAuthoring {
             "SELECT b.title,b.access_level
              FROM books b
              WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
-               AND b.lifecycle_status<>'pending_deletion'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS (
                  SELECT 1 FROM book_members m
                  WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
@@ -74,7 +74,7 @@ impl PgAuthoring {
         let stored: Option<Option<String>> = sqlx::query_scalar(
             "SELECT access_level FROM books
              WHERE id=$1 AND NOT is_deleted AND NOT admin_hold
-               AND lifecycle_status<>'pending_deletion' FOR UPDATE",
+               AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') FOR UPDATE",
         )
         .bind(book_id)
         .fetch_optional(&mut *tx)
@@ -306,6 +306,31 @@ mod tests {
                 .await,
             Err(AuthorError::Missing),
         );
+        // The completed ordinary-deleted Book is a read-only tombstone.
+        sqlx::query(
+            "UPDATE books SET admin_hold=FALSE, lifecycle_status='ordinary_deleted',
+             ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
+        )
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(repo
+            .manageable_access_level(owner, book)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            repo.verified_upgrade_book_access_level(owner, book, "pro_adult", "pro_adult")
+                .await,
+            Err(AuthorError::Missing),
+        );
+        let frozen: String = sqlx::query_scalar("SELECT access_level FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(frozen, "pro_adult");
         pool.close().await;
     }
 }
