@@ -318,6 +318,22 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
             .await
             .unwrap();
     assert_eq!(events, 2);
+    // Audit revision continuity is a separate constraint and must survive
+    // the migration that relaxes ONLY the pending-request lifecycle transition.
+    assert!(
+        sqlx::query(
+            "INSERT INTO book_ordinary_deletion_events
+             (book_id,actor_user_id,action,previous_status,next_status,
+              previous_revision,next_revision)
+             VALUES($1,$2,'start','in_progress','in_progress',10,12)",
+        )
+        .bind(book)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "deletion audit must reject skipped lifecycle revisions"
+    );
     assert!(
         sqlx::query("DELETE FROM book_ordinary_deletion_events WHERE book_id=$1")
             .bind(book)
