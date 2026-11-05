@@ -123,6 +123,7 @@ TEST_SUITES = {
     "tools/checkout_http_pg_smoke.py": {"postgres"},
     "tools/tor_pg_restart_smoke.sh": {"postgres"},
     "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
+    "tools/s061_cutover_pg_smoke.py": {"postgres"},
     "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
     "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
     "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
