@@ -140,6 +140,8 @@ impl CoverCdnApi for FakeCoverCdn {
         let call = self.polls.fetch_add(1, Ordering::SeqCst);
         if call < 2 {
             Ok(PurgeStatus::Pending)
+        } else if call == 2 {
+            Ok(PurgeStatus::Failed)
         } else {
             Ok(PurgeStatus::Success)
         }
@@ -444,8 +446,37 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
          WHERE book_id=950 AND state='purge_submitted'",
     )
     .await;
-    let complete = purge.poll_batch().await.unwrap();
-    assert_eq!(complete.completed, 2);
+    // One operation fails at the provider, the other succeeds. The failed
+    // item must return to origin_deleted, never be acknowledged as purged.
+    let partial = purge.poll_batch().await.unwrap();
+    assert_eq!(partial.completed, 1);
+    assert_eq!(partial.retry_scheduled, 1);
+    let failed_count = pg_sql(
+        &url,
+        "SELECT count(*) FROM public_cover_publications
+         WHERE book_id=950 AND state='origin_deleted'",
+    )
+    .await;
+    assert_eq!(failed_count, "1");
+    // Accelerate the retry timestamp only inside this disposable CI database.
+    pg_sql(
+        &url,
+        "UPDATE public_cover_publications SET retry_after=now()
+         WHERE book_id=950 AND state='origin_deleted'",
+    )
+    .await;
+    let retry = purge.submit_batch().await.unwrap();
+    assert_eq!(retry.claimed, 1);
+    assert_eq!(retry.submitted, 1);
+    assert_eq!(fake_cdn.submits.load(Ordering::SeqCst), 3);
+    pg_sql(
+        &url,
+        "UPDATE public_cover_publications SET retry_after=now()
+         WHERE book_id=950 AND state='purge_submitted'",
+    )
+    .await;
+    let last = purge.poll_batch().await.unwrap();
+    assert_eq!(last.completed, 1);
     for id in publication_ids {
         let state = pg_sql(
             &url,
