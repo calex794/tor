@@ -97,6 +97,17 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
     response
 }
 
+pub(super) async fn homepage_with_cdn(
+    state: &AppState,
+    cards: &[pages::PublicBookCard],
+    covers: &std::collections::HashSet<u64>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    let html = pages::home_recent_with_covers(cards, covers);
+    let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+    let (html, _) = opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
+    Ok(html)
+}
+
 /// Compose a verified CDN image projection with all existing book-page
 /// decorations, keeping the routing shell below its architecture size limit.
 pub(super) async fn book_html(
