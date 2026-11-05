@@ -54,7 +54,7 @@ def select_previous_binary(environment: dict[str, str], runner_temp: Path,
     previous = Path(value)
     if (not previous.is_absolute() or previous.is_symlink()
             or not previous.is_file() or not os.access(previous, os.X_OK)
-            or not previous.is_relative_to(runner_temp.resolve())):
+            or not previous.resolve().is_relative_to(runner_temp.resolve())):
         raise RuntimeError("S061 previous binary must be an executable in runner temp")
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     if digest(previous) == digest(candidate_binary):
