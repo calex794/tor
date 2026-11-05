@@ -145,28 +145,28 @@ async fn br060_archive_10k_deep_keyset_is_bounded_and_preserves_exact_v1() {
     .await
     .expect("archive page SQL must be prepared on the test backend");
     assert!(prepared.contains("ORDER BY c.chapter_no, c.id LIMIT $4"));
-    let plan_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {prepared}");
-    let analyzed: serde_json::Value = sqlx::query_scalar(&plan_sql)
+    let plan_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {prepared}");
+    let plan_lines: Vec<String> = sqlx::query_scalar(&plan_sql)
         .bind(actor)
         .bind(book)
         .bind(Some(9900_i64))
         .bind(101_i64)
         .bind(digest.as_slice())
-        .fetch_one(&pool)
+        .fetch_all(&pool)
         .await
         .expect("EXPLAIN ANALYZE of actual saved_archive_chapters query");
-    let entry = &analyzed[0];
-    assert_eq!(entry["Plan"]["Node Type"], "Limit");
-    assert_eq!(entry["Plan"]["Actual Rows"].as_f64(), Some(100.0));
-    let execution_ms = entry["Execution Time"]
-        .as_f64()
-        .expect("PostgreSQL reports execution time");
-    let hit_blocks = entry["Plan"]["Shared Hit Blocks"].as_u64().unwrap_or(0);
-    let read_blocks = entry["Plan"]["Shared Read Blocks"].as_u64().unwrap_or(0);
-    eprintln!(
-        "BR-060 10k archive: exact query EXPLAIN execution {execution_ms:.2} ms, \
-         root shared hit {hit_blocks} blocks, read {read_blocks} blocks"
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.lines().any(|line| {
+            line.trim_start().starts_with("Limit")
+                && line.contains("actual time=")
+                && line.contains("rows=100")
+        }),
+        "deep-page plan must cap actual output to 100 rows"
     );
+    assert!(plan.contains("Execution Time:"));
+    assert!(plan.contains("Buffers:"));
+    eprintln!("BR-060 10k deep archive EXPLAIN ANALYZE:\n{plan}");
 
     let middle = library
         .saved_archive_chapters(actor, book, 30, Some(9950), &digest)
