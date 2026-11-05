@@ -239,6 +239,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mixed_archive_keeps_distinct_free_and_paid_versions_and_escapes_titles() {
+        use tor_reading::services::library::{
+            SavedArchiveChapter, SavedArchivePage, SavedPurchasedEdition,
+        };
+        let page = SavedArchivePage {
+            items: vec![SavedArchiveChapter {
+                chapter_id: 6,
+                chapter_no: 3,
+                chapter_title: "<script>alert(1)</script> & chapter".into(),
+                saved_free_version_no: Some(1),
+                purchased: Some(SavedPurchasedEdition {
+                    purchase_id: 42,
+                    version_no: 2,
+                }),
+            }],
+            next_cursor: Some(3),
+        };
+        let html = saved_archive_list(9, &page, true).0;
+        assert!(html.contains("/me/library/saved/6"));
+        assert!(html.contains("/read/paid/6?purchase_id=42"));
+        assert!(html.contains("бесплатная редакция 1"));
+        assert!(html.contains("Купленная редакция 2"));
+        assert!(html.contains("href=\"/me/library/9/saved?after=3\""));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+
+        let unavailable = saved_archive_list(9, &page, false).0;
+        assert!(unavailable.contains("чтение временно недоступно"));
+        assert!(!unavailable.contains("/read/paid/6?purchase_id=42"));
+        assert!(unavailable.contains("/me/library/saved/6"));
+    }
+
+    #[test]
     fn archived_free_text_uses_sanitized_renderer_and_escapes_titles() {
         let saved = SavedFreeChapter {
             book_id: 1,
