@@ -104,7 +104,8 @@ impl PgCoverReview {
         if before.is_some_and(|value| value <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
             || kind.is_some_and(|k| !matches!(k, "first" | "replacement"))
-            || access_level.is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || access_level
+                .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
         {
             return Err(CoverReviewError::Invalid);
         }
