@@ -163,12 +163,45 @@ fn anchor_saved_offset(
     }
 }
 
-pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
+pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String> {
     let normalized = chapter
         .body_markdown
         .replace("\r\n", "\n")
         .replace('\r', "\n");
     let mut body = tor_reading::domain::renderer::render(&normalized);
+    // Keep the canonical source/UTF-16 manifest identical to the public
+    // progress reader, but serve a different, pin-gated sync endpoint.
+    let mut progress_attributes = String::new();
+    let mut progress_notice = String::new();
+    let mut script = String::new();
+    if chapter.ordinary_deleted {
+        let mut offsets = String::new();
+        let mut start = 0_usize;
+        for (index, block) in tor_reading::services::progress::reader_blocks(&normalized)
+            .iter()
+            .enumerate()
+        {
+            if index > 0 {
+                offsets.push(',');
+                start += 2;
+            }
+            let length = block.encode_utf16().count();
+            write!(offsets, "{start}:{length}").expect("write manifest");
+            start += length;
+        }
+        progress_attributes = format!(
+            "data-free-progress-chapter=\"{}\" data-free-progress-version=\"{}\" \
+             data-free-progress-blocks=\"{offsets}\" \
+             data-free-progress-csrf=\"{}\" data-free-progress-archive=\"1\"",
+            chapter.chapter_id,
+            chapter.version_id,
+            escape_html(csrf)
+        );
+        progress_notice =
+            "<p data-free-progress-notice hidden role=\"status\"></p>".to_owned();
+        script = "<script defer src=\"/assets/newboo-archive-progress.js\"></script>".to_owned();
+    }
+
     let resume = if chapter
         .saved_place
         .is_some_and(|place| anchor_saved_offset(&mut body, &normalized, place))
@@ -180,13 +213,14 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter) -> Html<String> {
     let title = escape_html(&chapter.chapter_title);
     let book = escape_html(&chapter.book_title);
     let content = format!(
-        "<section class=\"section reader-page\"><div class=\"container\">\
+        "<section class=\"section reader-page\" data-free-reader><div class=\"container\">\
          <p class=\"eyebrow\">Сохранённая редакция {}</p>\
          <h1>{book}: глава {}. {title}</h1>\
          <p>Текст закреплён в личной библиотеке. Текущая версия книги может отличаться.</p>{resume}\
-         <article class=\"reader-content\">{body}</article>\
+         <article class=\"reader-content\" {progress_attributes}>{body}</article>\
+         {progress_notice}\
          <p><a href=\"/me/library/{}/saved\">К сохранённым главам</a></p>\
-         </div></section>",
+         {script}</div></section>",
         chapter.version_no, chapter.chapter_no, chapter.book_id
     );
     layout(
@@ -244,13 +278,16 @@ mod tests {
             version_id: 10,
             version_no: 2,
             body_markdown: "**Original V1**".into(),
+            ordinary_deleted: false,
             saved_place: None,
         };
-        let html = saved_free_reader(&saved).0;
+        let html = saved_free_reader(&saved, "csrf").0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("X &amp; Y"));
         assert!(html.contains("Original V1"));
+        assert!(!html.contains("data-free-progress-archive"));
+        assert!(!html.contains("/assets/newboo-archive-progress.js"));
         assert!(html.contains("/me/library/1/saved"));
     }
 
@@ -266,13 +303,17 @@ mod tests {
             version_id: 10,
             version_no: 1,
             body_markdown: "AB😀&CD".into(),
+            ordinary_deleted: true,
             saved_place: Some(ReadingPlace {
                 block_index: 1,
                 char_offset: 4,
             }),
         };
-        let html = saved_free_reader(&saved).0;
+        let html = saved_free_reader(&saved, "csrf").0;
         assert!(html.contains("href=\"#saved-resume\""));
+        assert!(html.contains("data-free-progress-archive=\"1\""));
+        assert!(html.contains("/assets/newboo-archive-progress.js"));
+        assert!(html.contains("data-free-progress-blocks=\"0:7\""));
         assert!(html.contains("AB😀<span id=\"saved-resume\"></span>&amp;CD"));
         let stale = SavedFreeChapter {
             saved_place: Some(ReadingPlace {
@@ -281,7 +322,7 @@ mod tests {
             }),
             ..saved
         };
-        let html = saved_free_reader(&stale).0;
+        let html = saved_free_reader(&stale, "csrf").0;
         assert!(!html.contains("saved-resume"));
     }
 }
