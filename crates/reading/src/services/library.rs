@@ -56,6 +56,31 @@ pub struct SavedFreeChapterPage {
     pub next_cursor: Option<i64>,
 }
 
+/// A reader-owned, exact-version chapter list for the private Book archive.
+/// Navigation metadata only: it is not a new free or paid entitlement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedArchiveChapter {
+    pub chapter_id: i64,
+    pub chapter_no: i32,
+    pub chapter_title: String,
+    /// Already-pinned free edition, not today's publication pointer.
+    pub saved_free_version_no: Option<i32>,
+    /// A separately purchased edition, after canonical D live-rights checks.
+    pub purchased: Option<SavedPurchasedEdition>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedPurchasedEdition {
+    pub purchase_id: i64,
+    pub version_no: i32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedArchivePage {
+    pub items: Vec<SavedArchiveChapter>,
+    pub next_cursor: Option<i64>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryError {
     Invalid,
