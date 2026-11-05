@@ -283,6 +283,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/covers/{id}/{variant}/direct-grant"), "GET") => Some(268),
         (Some("/users/{target_user_id}/subscribe"), "POST") => Some(269),
         (Some("/users/{target_user_id}/unsubscribe"), "POST") => Some(270),
+        (Some("/me/library/{id}/saved"), "GET") => Some(271),
+        (Some("/me/library/saved/{id}"), "GET") => Some(272),
         _ => None,
     };
     index
