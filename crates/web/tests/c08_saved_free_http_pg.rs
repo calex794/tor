@@ -58,9 +58,11 @@ async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap();
-    req.extensions_mut().insert(axum::extract::ConnectInfo(
-        std::net::SocketAddr::from(([127, 0, 0, 1], 41001)),
-    ));
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41001,
+        ))));
     app.clone().oneshot(req).await.unwrap()
 }
 
@@ -353,8 +355,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let fresh_session = auth_cookie(&logged, "tor-dev-session=");
     assert_ne!(fresh_session, format!("tor-dev-session={token}"));
     let new_reader_cookie = format!("{fresh_session}; {login_cookie}");
-    let fresh_library =
-        html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
+    let fresh_library = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
     let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
@@ -391,12 +392,10 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     // The old session cannot read the archive after logout/revocation;
     // the second login still can, until the reader removes the saved Book.
-    assert!(
-        PgAccounts::from_pool(pool.clone())
-            .revoke_session(&session_token_digest(&token))
-            .await
-            .unwrap()
-    );
+    assert!(PgAccounts::from_pool(pool.clone())
+        .revoke_session(&session_token_digest(&token))
+        .await
+        .unwrap());
     assert_ne!(
         call(&app, "GET", &read, &reader_cookie, "").await.status(),
         StatusCode::OK
