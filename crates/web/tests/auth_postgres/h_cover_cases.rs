@@ -270,28 +270,55 @@ pub(super) async fn upload_and_show(
         books: &bridge,
     };
     for _ in 0..16 {
-        if jobs.latest_for_author(book_id, owner).await.unwrap().as_deref() == Some("done") {
+        if jobs
+            .latest_for_author(book_id, owner)
+            .await
+            .unwrap()
+            .as_deref()
+            == Some("done")
+        {
             break;
         }
         match worker.run_one().await.unwrap() {
             WorkerResult::Idle => panic!("queued image was never processed"),
-            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {}
+            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {
+            }
         }
     }
     assert_eq!(
-        jobs.latest_for_author(book_id, owner).await.unwrap().as_deref(),
+        jobs.latest_for_author(book_id, owner)
+            .await
+            .unwrap()
+            .as_deref(),
         Some("done"),
     );
     assert_eq!(
-        slots.owner_latest_status(book_id, owner).await.unwrap().as_deref(),
+        slots
+            .owner_latest_status(book_id, owner)
+            .await
+            .unwrap()
+            .as_deref(),
         Some("moderation_pending"),
     );
     assert!(slots.current_slot(book_id).await.unwrap().is_none());
-    assert!(jobs.latest_for_author(book_id, 99999).await.unwrap().is_none());
+    assert!(jobs
+        .latest_for_author(book_id, 99999)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        send(app, request("GET", &format!("/covers/{book_id}/card.webp"), "", "", ORIGIN))
-            .await
-            .status(),
+        send(
+            app,
+            request(
+                "GET",
+                &format!("/covers/{book_id}/card.webp"),
+                "",
+                "",
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "worker completion must not publish an unreviewed cover"
     );
@@ -307,10 +334,8 @@ pub(super) async fn upload_and_show(
 
     let token = tor_accounts::services::security::generate_session_token();
     let digest = tor_accounts::services::security::session_token_digest(&token);
-    let pwd = tor_accounts::services::security::hash_password(
-        "IndependentCoverReviewer-2026!",
-    )
-    .unwrap();
+    let pwd =
+        tor_accounts::services::security::hash_password("IndependentCoverReviewer-2026!").unwrap();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -333,8 +358,16 @@ pub(super) async fn upload_and_show(
     let result = tokio::task::spawn_blocking(move || {
         std::process::Command::new("psql")
             .args([
-                "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-                "--dbname", &url_for_process, "--command", &sql,
+                "-X",
+                "-A",
+                "-t",
+                "-q",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "--dbname",
+                &url_for_process,
+                "--command",
+                &sql,
             ])
             .output()
             .expect("isolated PG psql fixture")
@@ -364,12 +397,22 @@ pub(super) async fn upload_and_show(
         StatusCode::FORBIDDEN
     );
     reviews
-        .decide(&digest, candidate.id, candidate.expected_slot_revision, true, "")
+        .decide(
+            &digest,
+            candidate.id,
+            candidate.expected_slot_revision,
+            true,
+            "",
+        )
         .await
         .unwrap();
     assert!(slots.current_slot(book_id).await.unwrap().is_some());
     assert_eq!(
-        slots.owner_latest_status(book_id, owner).await.unwrap().as_deref(),
+        slots
+            .owner_latest_status(book_id, owner)
+            .await
+            .unwrap()
+            .as_deref(),
         Some("moderation_approved"),
     );
 

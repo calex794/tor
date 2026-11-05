@@ -78,11 +78,9 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let latest_cover = if state.cover_upload_enabled {
-        match tor_books::repositories::cover_slots::PgCoverSlots::new(
-            state.accounts.pool().clone(),
-        )
-        .owner_latest_status(id, actor)
-        .await
+        match tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone())
+            .owner_latest_status(id, actor)
+            .await
         {
             Ok(latest) => latest,
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

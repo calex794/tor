@@ -120,10 +120,9 @@ pub(super) async fn approve_pending_book_ci(app: &Router, book_id: i64) {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     // The test fixture records a complete, independent site review instead
     // of setting the active flag directly. The SQL trigger must stay enabled.
-    let password_hash = tor_accounts::services::security::hash_password(
-        "CI-Only-Independent-Moderator-2026!",
-    )
-    .expect("Argon2id for disposable reviewer");
+    let password_hash =
+        tor_accounts::services::security::hash_password("CI-Only-Independent-Moderator-2026!")
+            .expect("Argon2id for disposable reviewer");
     let sql = format!(
         "DO $ci$
          DECLARE previous_rev bigint; owner bigint; reviewer bigint; decision bigint;
