@@ -213,23 +213,35 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     );
     let deletion = format!("/me/books/{book}/settings/delete");
     assert_eq!(
-        call(&app, "GET", &deletion, &outsider_cookie, "").await.status(),
+        call(&app, "GET", &deletion, &outsider_cookie, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let first_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(first_form.contains("value=\"start\""));
     assert_eq!(
         call(
-            &app, "POST", &deletion, &reader_cookie,
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
             &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=wrong")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
         call(
-            &app, "POST", &deletion, &reader_cookie,
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
             &format!("csrf_token={csrf}&action=start&expected_revision=1&account_password=C08SavedReader2026")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     let pending_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
@@ -246,17 +258,27 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         call(
             &app, "POST", &deletion, &outsider_cookie,
             &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
-            &app, "POST", &deletion, &reader_cookie,
+            &app,
+            "POST",
+            &deletion,
+            &reader_cookie,
             &format!("csrf_token={csrf}&action=complete&expected_revision=2&account_password=C08SavedReader2026")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
-    let events = pg(&url, &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"));
+    let events = pg(
+        &url,
+        &format!("SELECT COUNT(*) FROM book_ordinary_deletion_events WHERE book_id={book}"),
+    );
     assert_eq!(events, "2");
     let deleted_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(!deleted_form.contains("type=\"password\""));
