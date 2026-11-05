@@ -164,11 +164,37 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         false,
         ORIGIN.to_owned(),
     );
-    let path = "/moderation/books";
+    let path = "/moderation/books/control";
     let action = format!("/moderation/books/{book}/hold");
     let mod_cookie = format!("tor-dev-session={moderator_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let outsider_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
+
+    // The cabinet homepage must open the real registration queue; legacy
+    // hold/visibility operations are explicitly named Control.
+    let workbench = "/moderation/books";
+    assert_eq!(
+        request(&app, "GET", workbench, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", workbench, &outsider_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let entry = request(&app, "GET", workbench, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(entry.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        entry.headers()[header::LOCATION],
+        "/moderation/books/registrations"
+    );
+    assert_eq!(entry.headers()[header::CACHE_CONTROL], "no-store");
+    let control = request(&app, "GET", path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(control.status(), StatusCode::OK);
+    assert!(html(control).await.contains("Контроль книг модератором"));
 
     // Book review is the only moderation entrypoint. No chapter queue exists.
     for (method, path) in [
