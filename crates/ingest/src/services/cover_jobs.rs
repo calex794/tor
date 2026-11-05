@@ -59,6 +59,19 @@ pub trait CoverObjectStore: Send + Sync {
         Err(CoverError::Forbidden)
     }
 
+    /// Delete an exact previously published immutable cover from the public
+    /// origin bucket. Only a trusted lifecycle worker may request this.
+    /// This does NOT purge a CDN edge cache.
+    async fn remove_public_cover(
+        &self,
+        _book_id: u64,
+        _revision: i64,
+        _variant: &str,
+        _sha256: &[u8; 32],
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
     /// A source must be verified by a signed PUT, HEAD, and bounded GET.
     /// Stores without source-upload support fail closed.
     async fn put_source_verified(
