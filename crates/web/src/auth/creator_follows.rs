@@ -70,7 +70,11 @@ async fn change_profile(
         _ => return deny(StatusCode::BAD_REQUEST),
     };
     let result = if subscribe {
-        state.creator_follows.follow_profile(actor, creator).await.map(|_| ())
+        state
+            .creator_follows
+            .follow_profile(actor, creator)
+            .await
+            .map(|_| ())
     } else {
         state.creator_follows.unfollow(actor, creator).await
     };
