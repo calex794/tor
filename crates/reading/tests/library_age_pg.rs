@@ -191,13 +191,11 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .unwrap()
         .items
         .is_empty());
-    sqlx::query(
-        "UPDATE books SET is_deleted=FALSE, lifecycle_status='in_progress' WHERE id=$1",
-    )
-    .bind(ids[0])
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE books SET is_deleted=FALSE, lifecycle_status='in_progress' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
     let restored = library.list_books(user, 10, None).await.unwrap();
     assert_eq!(restored.items.len(), 1);
     assert!(!restored.items[0].pending_deletion);
