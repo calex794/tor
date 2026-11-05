@@ -497,7 +497,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        pg(&url, &format!("SELECT access_level FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT access_level FROM books WHERE id={book}")
+        ),
         "pro_adult"
     );
     pool.close().await;
