@@ -42,7 +42,6 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
-pub mod yandex_cdn_purge;
 mod observability;
 mod operator_overview;
 mod operator_traces;
@@ -54,6 +53,7 @@ pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+pub mod yandex_cdn_purge;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_assets::PgPaidAuthorAssets;
 #[cfg(feature = "s3-paid")]
