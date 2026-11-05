@@ -249,7 +249,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap()
         .with_public_cdn(PUBLIC_BUCKET.to_owned(), "https://cdn.example".to_owned())
         .unwrap();
-    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()));
+    let direct = CoverDelivery::new(slots.clone(), Arc::new(publisher.clone()))
+        .with_publication_registry(ledger.clone());
     let mut public_urls = Vec::new();
     for variant in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let url = direct
