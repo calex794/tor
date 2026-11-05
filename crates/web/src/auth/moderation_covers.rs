@@ -85,7 +85,8 @@ fn queue_body(
               <button type="submit" name="action" value="reject">Отклонить</button>
             </form>
             <p><a href="/moderation/books/{book}/cover-history">
-              История решений по обложке</a></p>
+              История решений по обложке</a>
+              · <a href="/moderation/books/{book}/history">Все решения по книге</a></p>
             </article>"#,
             book = item.book_id,
             review = item.id,
