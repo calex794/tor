@@ -211,12 +211,14 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
             .await,
         Err(AuthorError::Conflict)
     );
-    assert!(!repo
-        .ordinary_deletion_view(owner, book)
-        .await
-        .unwrap()
-        .unwrap()
-        .moderator_approved);
+    assert!(
+        !repo
+            .ordinary_deletion_view(owner, book)
+            .await
+            .unwrap()
+            .unwrap()
+            .moderator_approved
+    );
     let original: (String, String) = sqlx::query_as(
         "SELECT previous_lifecycle_status,previous_visibility
          FROM book_ordinary_deletion_requests WHERE book_id=$1 AND request_revision=2",
@@ -236,12 +238,13 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo
-        .ordinary_deletion_view(owner, book)
-        .await
-        .unwrap()
-        .unwrap()
-        .moderator_approved);
+    assert!(
+        repo.ordinary_deletion_view(owner, book)
+            .await
+            .unwrap()
+            .unwrap()
+            .moderator_approved
+    );
     assert_eq!(
         repo.advance_ordinary_deletion(owner, book, 2, "complete", &owner_token, hash)
             .await,
