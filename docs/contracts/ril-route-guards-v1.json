@@ -1954,6 +1954,27 @@
       "source": "crates/web/src/auth/book_ordinary_deletion.rs",
       "handler": "submit",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/progress/archived-free",
+      "source": "crates/web/src/auth/saved_free_chapters.rs",
+      "handler": "super::sync_actions::get_archived_free",
+      "policy": "scoped"
+    },
+    {
+      "method": "PUT",
+      "template": "/api/v1/me/progress/archived-free",
+      "source": "crates/web/src/auth/saved_free_chapters.rs",
+      "handler": "super::sync_actions::put_archived_free",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-archive-progress.js",
+      "source": "crates/web/src/auth/saved_free_chapters.rs",
+      "handler": "progress_script",
+      "policy": "public"
     }
   ]
 }
