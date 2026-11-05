@@ -504,3 +504,76 @@ mod archived_continue_tests {
         assert!(!current.contains("href=\"/me/library/saved/71"));
     }
 }
+
+#[cfg(test)]
+mod purchase_only_book_tests {
+    use super::*;
+    use tor_reading::{
+        repositories::follow_updates::FollowedReleasePage,
+        services::library::{PurchasedOnlyBook, PurchasedOnlyBookPage, SavedBookPage},
+    };
+
+    #[test]
+    fn bought_only_deleted_book_stays_in_library_without_remove_bookmark_action() {
+        let bookmarked = SavedBookPage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let only_bought = PurchasedOnlyBookPage {
+            items: vec![
+                PurchasedOnlyBook {
+                    book_id: 88,
+                    title: "Removed <script>alert(1)</script>".into(),
+                    pending_deletion: false,
+                    ordinary_deleted: true,
+                },
+                PurchasedOnlyBook {
+                    book_id: 77,
+                    title: "Pending".into(),
+                    pending_deletion: true,
+                    ordinary_deleted: false,
+                },
+            ],
+            next_cursor: Some(77),
+        };
+        let updates = FollowedReleasePage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let html = my_library_with_updates_and_layers_and_purchased_only(
+            &[],
+            &bookmarked,
+            "csrf",
+            (true, false),
+            false,
+            &updates,
+            &[],
+            &only_bought,
+        )
+        .0;
+        assert!(html.contains("aria-label=\"Книги с покупками\""));
+        assert!(html.contains("href=\"/me/library/88/saved\""));
+        assert!(html.contains("href=\"/me/library/77/saved\""));
+        assert!(html.contains("href=\"/me/library?purchased_after=77\""));
+        assert!(html.contains("Удалена"));
+        assert!(html.contains("Ожидает удаления"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("action=\"/me/library/88/remove\""));
+        assert!(!html.contains("action=\"/me/library/77/remove\""));
+
+        let unavailable = my_library_with_updates_and_layers_and_purchased_only(
+            &[],
+            &bookmarked,
+            "csrf",
+            (false, false),
+            false,
+            &updates,
+            &[],
+            &only_bought,
+        )
+        .0;
+        assert!(unavailable.contains("чтение временно недоступно"));
+        assert!(!unavailable.contains("href=\"/me/library/88/saved\""));
+    }
+}
