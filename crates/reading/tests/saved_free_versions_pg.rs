@@ -157,17 +157,32 @@ async fn c08_saved_free_version_is_owner_scoped_immutable_and_retained() {
     .unwrap();
     assert_eq!(retained, v1);
     assert!(
-        sqlx::query("DELETE FROM chapters WHERE id=$1")
-            .bind(chapter)
+        sqlx::query("DELETE FROM chapter_versions WHERE id=$1")
+            .bind(v1)
             .execute(&pool)
             .await
             .is_err(),
-        "physical deletion may not cascade through a reader's pinned version",
+        "saved V1 alone must prevent physical erasure after V2 is published",
     );
 
     // A trusted retention/erasure path can explicitly release the pin.
     sqlx::query("DELETE FROM reader_saved_free_chapters WHERE user_id=$1 AND chapter_id=$2")
         .bind(owner)
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapter_publications WHERE chapter_id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapter_versions WHERE chapter_id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapters WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
         .await
