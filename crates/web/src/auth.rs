@@ -99,6 +99,7 @@ mod referral_routes;
 mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
+mod saved_free_chapters;
 mod security_retention;
 mod session_security;
 mod settings_routes;
@@ -305,6 +306,7 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .merge(saved_free_chapters::router())
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
