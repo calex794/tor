@@ -27,7 +27,6 @@ impl PgAccounts {
         session: &[u8; 32],
         book_id: i64,
     ) -> Result<Vec<BookModerationHistoryEntry>, ModerationBooksError> {
-
         if book_id <= 0 {
             return Err(ModerationBooksError::Invalid);
         }
@@ -84,15 +83,21 @@ impl PgAccounts {
         rows.into_iter()
             .map(|r| {
                 Ok(BookModerationHistoryEntry {
-                    kind: r.try_get("kind").map_err(|_| ModerationBooksError::Unavailable)?,
-                    outcome: r.try_get("outcome").map_err(|_| ModerationBooksError::Unavailable)?,
+                    kind: r
+                        .try_get("kind")
+                        .map_err(|_| ModerationBooksError::Unavailable)?,
+                    outcome: r
+                        .try_get("outcome")
+                        .map_err(|_| ModerationBooksError::Unavailable)?,
                     reviewer_user_id: r
                         .try_get("reviewer_user_id")
                         .map_err(|_| ModerationBooksError::Unavailable)?,
                     reviewer_name: r
                         .try_get("reviewer_name")
                         .map_err(|_| ModerationBooksError::Unavailable)?,
-                    reason: r.try_get("reason").map_err(|_| ModerationBooksError::Unavailable)?,
+                    reason: r
+                        .try_get("reason")
+                        .map_err(|_| ModerationBooksError::Unavailable)?,
                     decided_unix: r
                         .try_get("decided_unix")
                         .map_err(|_| ModerationBooksError::Unavailable)?,
