@@ -16,13 +16,13 @@ use tor_books::repositories::cover_review::{CoverReviewError, PendingCoverReview
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CoverQueueQuery {
+pub(super) struct CoverQueueQuery {
     before: Option<i64>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CoverDecisionForm {
+pub(super) struct CoverDecisionForm {
     csrf_token: String,
     expected_slot_revision: i64,
     action: String,
