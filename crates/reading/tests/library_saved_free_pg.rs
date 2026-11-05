@@ -372,14 +372,7 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     );
     assert_eq!(
         archived_sync
-            .save_archived_free(
-                user_b,
-                free1,
-                v1,
-                advanced,
-                0,
-                &token_a,
-            )
+            .save_archived_free(user_b, free1, v1, advanced, 0, &token_a,)
             .await,
         Err(SyncError::NotFound),
         "another reader's token is not an entitlement"
