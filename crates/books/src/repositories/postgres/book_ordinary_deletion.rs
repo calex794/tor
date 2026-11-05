@@ -24,6 +24,8 @@ impl PgAuthoring {
         let row = sqlx::query(
             "SELECT b.title,b.lifecycle_status,b.lifecycle_revision
              FROM books b JOIN users u ON u.id=$1 AND u.account_state='active'
+             JOIN book_members m ON m.book_id=b.id AND m.user_id=$1
+                 AND m.role='owner' AND m.is_active
              WHERE b.id=$2 AND b.owner_user_id=$1
                AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted",
@@ -83,10 +85,12 @@ impl PgAuthoring {
                  AND u.password_hash=$4
              JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3::bytea
                  AND s.revoked_at IS NULL AND s.expires_at>now()
+             JOIN book_members m ON m.book_id=b.id AND m.user_id=$1
+                 AND m.role='owner' AND m.is_active
              WHERE b.id=$2 AND b.owner_user_id=$1
                AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
-             FOR UPDATE OF b FOR SHARE OF u,s",
+             FOR UPDATE OF b FOR SHARE OF u,s,m",
         )
         .bind(actor)
         .bind(book_id)

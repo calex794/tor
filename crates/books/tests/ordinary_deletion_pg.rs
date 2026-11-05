@@ -97,7 +97,34 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .await
     .unwrap();
 
+    // A retained books.owner_user_id is insufficient once the owner's
+    // Book membership is inactive. Re-check membership in the mutation SQL.
     let repo = PgAuthoring::new(pool.clone());
+    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+        .bind(book)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.ordinary_deletion_view(owner, book).await.unwrap().is_none());
+    assert_eq!(
+        repo.advance_ordinary_deletion(owner, book, 1, "start", &owner_token, hash)
+            .await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE book_members SET is_active=TRUE WHERE book_id=$1 AND user_id=$2")
+        .bind(book)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // An active Book moderator still has no authority to delete a Book.
+    sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES($1,$2,'moderator')")
+        .bind(book)
+        .bind(stranger)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(repo
         .ordinary_deletion_view(stranger, book)
         .await
