@@ -113,7 +113,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         )
         .await
         .unwrap();
-    let _outsider = accounts
+    let outsider = accounts
         .register_with_session(
             &format!("c08-outsider-{marker}@example.invalid"),
             "C08 outsider",
@@ -164,7 +164,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         &url,
         &format!(
             "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
-             VALUES('ci:br060:paid-only:{marker}','ru','Paid-only <unsafe>','public','basic',{actor})
+             VALUES('ci:br060:paid-only:{marker}','ru','Paid-only <unsafe>','public','basic',{outsider})
              RETURNING id"
         ),
     )
