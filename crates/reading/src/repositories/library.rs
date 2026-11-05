@@ -192,6 +192,90 @@ impl PgLibrary {
     /// Return ONLY the reader's immutable saved-free edition, never a
     /// current published edition inferred from a Book bookmark or read place.
     /// All account, age, administrative and legal gates live in the text query.
+    /// Books with a valid direct chapter purchase but no separate bookmark.
+    /// A bought edition is still checked against D's canonical live SQL gate:
+    /// neither a past purchase nor a Book ID alone grants readable content.
+    /// The cursor is the Book ID, independent of reader_library_items.id.
+    pub async fn purchased_only_books(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+        limit: u16,
+        after: Option<i64>,
+    ) -> Result<crate::services::library::PurchasedOnlyBookPage, LibraryError> {
+        use crate::services::library::{PurchasedOnlyBook, PurchasedOnlyBookPage};
+        if user_id <= 0
+            || limit == 0
+            || limit > MAX_LIBRARY_LIMIT
+            || after.is_some_and(|cursor| cursor <= 0)
+        {
+            return Err(LibraryError::Invalid);
+        }
+        let rows = sqlx::query(
+            "SELECT DISTINCT b.id AS book_id,b.title, \
+                    (b.lifecycle_status='pending_deletion') AS pending_deletion, \
+                    (b.lifecycle_status='ordinary_deleted') AS ordinary_deleted \
+             FROM library_purchased_chapters AS l \
+             JOIN chapter_purchase_facts AS p \
+               ON p.id=l.purchase_id AND p.user_id=l.user_id \
+              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id \
+             JOIN chapters AS c ON c.id=l.chapter_id \
+             JOIN books AS b ON b.id=c.book_id \
+             JOIN users AS viewer ON viewer.id=l.user_id AND viewer.account_state='active' \
+             JOIN sessions AS active_session ON active_session.user_id=viewer.id \
+               AND active_session.token_hash=$2::bytea \
+               AND active_session.revoked_at IS NULL AND active_session.expires_at>now() \
+             WHERE l.user_id=$1 AND ($3::BIGINT IS NULL OR b.id<$3) \
+               AND NOT EXISTS (SELECT 1 FROM reader_library_items AS bookmark \
+                   WHERE bookmark.user_id=$1 AND bookmark.book_id=b.id) \
+               AND (b.visibility='public' OR b.lifecycle_status='pending_deletion' \
+                 OR (b.lifecycle_status='ordinary_deleted' AND b.ordinary_deleted_at IS NOT NULL)) \
+               AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND (b.access_level='basic' \
+                 OR (b.access_level='adult' AND viewer.adult_enabled) \
+                 OR (b.access_level='pro_adult' AND EXISTS ( \
+                     SELECT 1 FROM user_level_grants AS age_grant \
+                     WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' \
+                       AND age_grant.is_active))) \
+               AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id) \
+             ORDER BY b.id DESC LIMIT $4",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .bind(after)
+        .bind(i64::from(limit) + 1)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| LibraryError::Unavailable)?;
+        let mut items = rows
+            .into_iter()
+            .map(|row| {
+                Ok(PurchasedOnlyBook {
+                    book_id: row
+                        .try_get("book_id")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    title: row
+                        .try_get("title")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    pending_deletion: row
+                        .try_get("pending_deletion")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                    ordinary_deleted: row
+                        .try_get("ordinary_deleted")
+                        .map_err(|_| LibraryError::Unavailable)?,
+                })
+            })
+            .collect::<Result<Vec<_>, LibraryError>>()?;
+        let has_more = items.len() > usize::from(limit);
+        items.truncate(usize::from(limit));
+        let next_cursor = if has_more {
+            items.last().map(|item| item.book_id)
+        } else {
+            None
+        };
+        Ok(PurchasedOnlyBookPage { items, next_cursor })
+    }
+
     pub async fn pinned_free_chapter(
         &self,
         user_id: i64,

@@ -544,6 +544,95 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
         .unwrap();
     assert_eq!(pinned.version_id, free_v1);
 
+    // A reader may have paid for a chapter without ever bookmarking its Book.
+    // The ordinary-deleted Book must still appear as a private purchased-only
+    // group; it must not appear twice when a separate bookmark exists.
+    let bought_only_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Only purchased','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:bought-only:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (bought_chapter, bought_v1) =
+        chapter(&pool, bought_only_book, 1, "public", "paid", true).await;
+    let bought_purchase: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,12900,'RUB') RETURNING id",
+    )
+    .bind(actor)
+    .bind(bought_chapter)
+    .bind(bought_v1)
+    .bind(format!("br060-bought-only-purchase-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(bought_only_book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let bought_only = library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap();
+    assert_eq!(bought_only.items.len(), 1);
+    assert_eq!(bought_only.items[0].book_id, bought_only_book);
+    assert!(bought_only.items[0].ordinary_deleted);
+    assert!(!bought_only.items[0].pending_deletion);
+    assert!(bought_only.next_cursor.is_none());
+    assert_eq!(
+        library
+            .saved_archive_chapters(actor, bought_only_book, 30, None, &digest)
+            .await
+            .unwrap()
+            .items[0]
+            .purchased
+            .as_ref()
+            .unwrap()
+            .purchase_id,
+        bought_purchase
+    );
+    assert!(library
+        .purchased_only_books(outsider, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, Some(bought_only_book))
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // A refund suppresses paid navigation, but never erases the free pin.
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
@@ -560,5 +649,22 @@ async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion()
         .unwrap();
     assert_eq!(refunded.items.len(), 1);
     assert_eq!(refunded.items[0].chapter_id, free_id);
+    // Revoking the purchase removes the bought-only Book group without
+    // mutating the independent free pin in the other saved Book.
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(bought_purchase)
+    .bind(format!("br060-bought-only-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     pool.close().await;
 }

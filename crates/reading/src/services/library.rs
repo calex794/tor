@@ -25,6 +25,23 @@ pub struct SavedBookPage {
     pub next_cursor: Option<i64>,
 }
 
+/// A purchase-backed Book without an explicit bookmark. This is private
+/// navigation only: a title/link cannot create or mutate a purchase grant.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchasedOnlyBook {
+    pub book_id: i64,
+    pub title: String,
+    pub pending_deletion: bool,
+    pub ordinary_deleted: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchasedOnlyBookPage {
+    pub items: Vec<PurchasedOnlyBook>,
+    /// Independent Book-ID cursor; never mix with bookmark row IDs.
+    pub next_cursor: Option<i64>,
+}
+
 /// One historically saved free edition; only returned after live actor,
 /// age, book and chapter state guards. Not a public chapter preview.
 #[derive(Clone, Debug, Eq, PartialEq)]

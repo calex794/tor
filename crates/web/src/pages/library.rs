@@ -13,7 +13,15 @@ pub fn my_library_with_updates(
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, false, &update_html)
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        false,
+        &update_html,
+        "",
+    )
 }
 
 /// The purchased-Layer navigation only appears with explicit storefront opt-in.
@@ -46,6 +54,94 @@ pub fn my_library_with_updates_and_layers(
         purchased_available,
         layers_available,
         &update_html,
+        "",
+    )
+}
+
+/// A purchase is separate from a bookmark. Keep bought-only Books in the
+/// private shelf, without displaying a misleading "remove bookmark" action.
+pub fn my_library_with_updates_and_layers_and_purchased_only(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+    availability: (bool, bool),
+    checkout_enabled: bool,
+    updates_and_owned: (
+        &tor_reading::repositories::follow_updates::FollowedReleasePage,
+        &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    ),
+    purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
+) -> Html<String> {
+    let (updates, owned) = updates_and_owned;
+    if purchased_only.items.is_empty() {
+        return my_library_with_updates_and_layers(
+            items,
+            saved,
+            csrf,
+            availability,
+            checkout_enabled,
+            updates,
+            owned,
+        );
+    }
+    let (purchased_available, layers_available) = availability;
+    let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
+    let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available);
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        layers_available,
+        &updates_html,
+        &purchased_only_html,
+    )
+}
+
+fn purchase_only_book_cards(
+    page: &tor_reading::services::library::PurchasedOnlyBookPage,
+    paid_reader_available: bool,
+) -> String {
+    if page.items.is_empty() {
+        return String::new();
+    }
+    let mut cards = String::new();
+    for book in &page.items {
+        let title = escape_html(&book.title);
+        let status = if book.ordinary_deleted {
+            "<p class=\"library-card__place\" role=\"status\">Удалена</p>"
+        } else if book.pending_deletion {
+            "<p class=\"library-card__place\" role=\"status\">Ожидает удаления</p>"
+        } else {
+            ""
+        };
+        let navigation = if paid_reader_available {
+            format!(
+                "<p><a href=\"/me/library/{}/saved\">Купленные главы</a></p>",
+                book.book_id
+            )
+        } else {
+            "<p>Купленные главы — чтение временно недоступно</p>".to_owned()
+        };
+        write!(
+            cards,
+            "<article class=\"library-card\"><div><h3>{title}</h3>{status}{navigation}</div></article>"
+        )
+        .expect("write purchased-only book");
+    }
+    let next = page
+        .next_cursor
+        .map(|id| {
+            format!(
+                "<p><a href=\"/me/library?purchased_after={id}\">Другие книги с покупками</a></p>"
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "<section class=\"section\" aria-label=\"Книги с покупками\">\
+         <h2>Книги с покупками</h2>\
+         <p>Ваши оплаченные главы остаются в библиотеке независимо от закладок.</p>\
+         <div class=\"library-grid\">{cards}</div>{next}</section>"
     )
 }
 
@@ -56,6 +152,7 @@ fn my_library_inner(
     purchased_available: bool,
     layers_available: bool,
     updates_html: &str,
+    purchased_only_html: &str,
 ) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
@@ -142,7 +239,7 @@ fn my_library_inner(
         ""
     };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}</div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}</div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section>{purchased_only_html}</div></section>"
     );
     layout(
         "Моя библиотека",
@@ -427,5 +524,76 @@ mod archived_continue_tests {
             my_library_with_updates(&public, &saved, "csrf", false, false, &updates, &[]).0;
         assert!(current.contains("href=\"/read/71#p-3\""));
         assert!(!current.contains("href=\"/me/library/saved/71"));
+    }
+}
+
+#[cfg(test)]
+mod purchase_only_book_tests {
+    use super::*;
+    use tor_reading::{
+        repositories::follow_updates::FollowedReleasePage,
+        services::library::{PurchasedOnlyBook, PurchasedOnlyBookPage, SavedBookPage},
+    };
+
+    #[test]
+    fn bought_only_deleted_book_stays_in_library_without_remove_bookmark_action() {
+        let bookmarked = SavedBookPage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let only_bought = PurchasedOnlyBookPage {
+            items: vec![
+                PurchasedOnlyBook {
+                    book_id: 88,
+                    title: "Removed <script>alert(1)</script>".into(),
+                    pending_deletion: false,
+                    ordinary_deleted: true,
+                },
+                PurchasedOnlyBook {
+                    book_id: 77,
+                    title: "Pending".into(),
+                    pending_deletion: true,
+                    ordinary_deleted: false,
+                },
+            ],
+            next_cursor: Some(77),
+        };
+        let updates = FollowedReleasePage {
+            items: vec![],
+            next_cursor: None,
+        };
+        let html = my_library_with_updates_and_layers_and_purchased_only(
+            &[],
+            &bookmarked,
+            "csrf",
+            (true, false),
+            false,
+            (&updates, &[]),
+            &only_bought,
+        )
+        .0;
+        assert!(html.contains("aria-label=\"Книги с покупками\""));
+        assert!(html.contains("href=\"/me/library/88/saved\""));
+        assert!(html.contains("href=\"/me/library/77/saved\""));
+        assert!(html.contains("href=\"/me/library?purchased_after=77\""));
+        assert!(html.contains("Удалена"));
+        assert!(html.contains("Ожидает удаления"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("action=\"/me/library/88/remove\""));
+        assert!(!html.contains("action=\"/me/library/77/remove\""));
+
+        let unavailable = my_library_with_updates_and_layers_and_purchased_only(
+            &[],
+            &bookmarked,
+            "csrf",
+            (false, false),
+            false,
+            (&updates, &[]),
+            &only_bought,
+        )
+        .0;
+        assert!(unavailable.contains("чтение временно недоступно"));
+        assert!(!unavailable.contains("href=\"/me/library/88/saved\""));
     }
 }

@@ -36,6 +36,19 @@ pub(super) async fn my_library(
         }
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    // A paid Book need not have a bookmark: purchases are independent facts.
+    // Query the same live age, session, moderation and D purchase policies.
+    let purchase_books = match state
+        .bookmarks
+        .purchased_only_books(user_id, &digest, 30, query.purchased_after)
+        .await
+    {
+        Ok(page) => page,
+        Err(tor_reading::services::library::LibraryError::Invalid) => {
+            return deny(StatusCode::BAD_REQUEST);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let cursor = match query.updates_after.as_deref() {
         Some(raw) => match tor_reading::repositories::UpdatesCursor::parse(raw) {
             Some(cursor) => Some(cursor),
@@ -52,14 +65,14 @@ pub(super) async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = pages::my_library_with_updates_and_layers(
+    let page = pages::my_library_with_updates_and_layers_and_purchased_only(
         &books,
         &saved,
         &csrf,
         (state.paid_reader_available, state.layer_pages_enabled),
         state.paid_checkout_enabled,
-        &updates,
-        &owned,
+        (&updates, &owned),
+        &purchase_books,
     );
     private_response(page, &cookies)
 }
