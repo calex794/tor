@@ -31,7 +31,9 @@ impl CoverOriginCleanup {
         }
         let claims = self
             .ledger
-            .claim_removals(10)
+            // The lease lasts one minute; 3 x 15s plus DB overhead fits.
+            // Never claim 10 jobs when a slow S3 call could expire the lease.
+            .claim_removals(3)
             .await
             .map_err(|_| CoverError::Unavailable)?;
         let mut result = CoverCleanupResult {
