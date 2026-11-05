@@ -97,8 +97,44 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
     .await
     .unwrap();
 
-    // A retained books.owner_user_id is insufficient once the owner's
-    // Book membership is inactive. Re-check membership in the mutation SQL.
+    // New Books automatically assign 100% of revenue to the owner. B-10
+    // correctly forbids disabling a current revenue recipient. First move
+    // the share to an eligible active member via a NEW immutable revision;
+    // this keeps the finance invariant intact while testing revoked ACL.
+    sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES($1,$2,'moderator')")
+        .bind(book)
+        .bind(stranger)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut economics = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions(book_id,revision,changed_by_user_id,reason)
+         VALUES($1,2,$2,'test_owner_membership_revocation')",
+    )
+    .bind(book)
+    .bind(owner)
+    .execute(&mut *economics)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_assignments(book_id,revision,user_id,share_percent)
+         VALUES($1,2,$2,100)",
+    )
+    .bind(book)
+    .bind(stranger)
+    .execute(&mut *economics)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE revenue_share_states SET current_revision=2 WHERE book_id=$1")
+        .bind(book)
+        .execute(&mut *economics)
+        .await
+        .unwrap();
+    economics.commit().await.unwrap();
+
+    // owner_user_id remains unchanged, but active Book membership is now
+    // revoked; it must not authorize viewing or mutating the deletion form.
     let repo = PgAuthoring::new(pool.clone());
     sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
         .bind(book)
@@ -122,13 +158,8 @@ async fn c08_owner_step_up_cas_public_deindex_and_immutable_audit() {
         .execute(&pool)
         .await
         .unwrap();
-    // An active Book moderator still has no authority to delete a Book.
-    sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES($1,$2,'moderator')")
-        .bind(book)
-        .bind(stranger)
-        .execute(&pool)
-        .await
-        .unwrap();
+    // Active Book moderators (even revenue recipients) are not site owners
+    // and cannot initiate or finalize a Book deletion.
     assert!(repo
         .ordinary_deletion_view(stranger, book)
         .await
