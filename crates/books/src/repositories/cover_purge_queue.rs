@@ -169,12 +169,7 @@ impl PgCdnPurgeQueue {
 
     /// Network failure: retain operation identity for polling (or retry POST
     /// of the exact same path when no response was received).
-    pub async fn reschedule(
-        &self,
-        id: i64,
-        epoch: i64,
-        failed: bool,
-    ) -> Result<bool, sqlx::Error> {
+    pub async fn reschedule(&self, id: i64, epoch: i64, failed: bool) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE public_cover_publications SET
                 lease_until=NULL,
