@@ -382,7 +382,10 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         StatusCode::CONFLICT,
         "repeat review must not create a second approval"
     );
-    let history = reviews.private_history(&session_digest, BOOK_ID).await.unwrap();
+    let history = reviews
+        .private_history(&session_digest, BOOK_ID)
+        .await
+        .unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].reviewer_user_id, reviewer);
     assert_eq!(history[0].outcome, "approved");
