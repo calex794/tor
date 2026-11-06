@@ -84,6 +84,7 @@ mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
 mod moderation_books;
+mod moderation_confirm;
 mod moderation_covers;
 mod notification_settings;
 mod notifications;
