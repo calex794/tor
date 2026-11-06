@@ -41,7 +41,7 @@ pub(super) fn render_deletion_queue(
                <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
                <p><a href="/moderation/books/{book}/history">История решений по книге</a></p>
                <details class="moderation-review-confirm" open>
-                 <summary>Рассмотреть заявку на удаление книги #{book}</summary>
+                 <summary>Проверить заявку на удаление книги #{book}</summary>
                  <p>Проверьте книгу и ревизию. Одобрение окончательно удалит
                     её из публичного каталога; сохранённые главы читателей останутся доступны.</p>
                <form method="post" action="/moderation/books/{book}/deletion">
@@ -49,8 +49,8 @@ pub(super) fn render_deletion_queue(
                  <input type="hidden" name="request_revision" value="{revision}">
                  <label for="deletion-reason-{book}">Причина отказа (обязательна для отказа)</label>
                  <input id="deletion-reason-{book}" name="reason" maxlength="2000">
-                 <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
-                 <button type="submit" name="decision" value="reject">Отклонить удаление</button>
+                 <button type="submit" name="decision" value="approve">Продолжить одобрение удаления</button>
+                 <button type="submit" name="decision" value="reject">Продолжить отказ</button>
                </form></details></article>"#,
             book = item.book_id,
             owner = item.owner_user_id,

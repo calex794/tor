@@ -384,12 +384,35 @@ pub(super) async fn upload_and_show(
     assert!(queue_body.contains(&format!("/moderation/covers/{}/decision", candidate.id)));
     let reviewer_csrf = csrf_token(&queue_body).to_owned();
     let reviewer_cookie = format!("tor-dev-session={reviewer_token}; {reviewer_csrf_cookie}");
+    let decision_path = format!("/moderation/covers/{}/decision", candidate.id);
+    let first = send(
+        app,
+        request(
+            "POST",
+            &decision_path,
+            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"),
+            &reviewer_cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    assert!(body_of(first)
+        .await
+        .contains("Подтверждение решения по обложке"));
+    assert_eq!(
+        slots.current_slot(book_id).await.unwrap(),
+        None,
+        "first review step must not publish an unapproved image"
+    );
     let decision = send(
         app,
         request(
             "POST",
-            &format!("/moderation/covers/{}/decision", candidate.id),
-            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"),
+            &decision_path,
+            &format!(
+                "csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve&confirmed=yes"
+            ),
             &reviewer_cookie,
             ORIGIN,
         ),

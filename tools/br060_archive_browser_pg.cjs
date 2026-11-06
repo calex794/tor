@@ -155,11 +155,25 @@ async function finalizeOrdinaryDelete(owner, reviewer, reader, book) {
   }
   const revision = await form.locator('[name=request_revision]').inputValue();
   assert.match(revision, /^[1-9]\d*$/);
+  // A first click only displays consequences; no persistent state is changed.
+  const decisionUrl = base + '/moderation/books/' + book + '/deletion';
+  const [preview] = await Promise.all([
+    reviewer.waitForResponse(response =>
+      response.url() === decisionUrl && response.request().method() === 'POST'),
+    form.locator('button[name=decision][value=approve]').click(),
+  ]);
+  assert.equal(preview.status(), 200, 'deletion approval confirmation was not displayed');
+  assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'pending_deletion',
+    'the confirmation preview cannot finalize deletion');
+  assert.equal(pg('SELECT COUNT(*) FROM book_ordinary_deletion_decisions WHERE book_id=' + book), '0',
+    'the preview cannot append an approval decision');
+  assert.equal(await reviewer.getByRole('heading', {
+    name: /Подтверждение решения по удалению книги/,
+  }).count(), 1, 'confirmation screen must identify deletion action');
   const [decision] = await Promise.all([
     reviewer.waitForResponse(response =>
-      response.url() === base + '/moderation/books/' + book + '/deletion'
-      && response.request().method() === 'POST'),
-    form.locator('button[name=decision][value=approve]').click(),
+      response.url() === decisionUrl && response.request().method() === 'POST'),
+    reviewer.getByRole('button', { name: 'Подтвердить удаление' }).click(),
   ]);
   assert.equal(decision.status(), 303, 'independent moderation approval refused');
   assert.equal(pg('SELECT lifecycle_status FROM books WHERE id=' + book), 'ordinary_deleted');
