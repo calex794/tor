@@ -270,7 +270,7 @@ pub(super) async fn verify(
             url,
             &format!(
                 "SELECT COUNT(*) FROM book_ordinary_deletion_decisions
-                 WHERE book_id={book} AND decision='approved'"
+                 WHERE book_id={book} AND decision='approve'"
             ),
         ),
         "1",
