@@ -10,6 +10,7 @@ mod credentials;
 pub mod moderation_book_history;
 pub mod moderation_books;
 pub mod moderation_queue_age;
+mod moderation_overdue_signals;
 pub mod moderation_registration;
 pub mod moderation_reviewed;
 pub use credentials::{PasswordRotation, SessionLoginAudit};
