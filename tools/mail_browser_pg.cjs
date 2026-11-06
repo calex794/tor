@@ -177,7 +177,7 @@ module.exports = async (browser, base, out) => {
         assert.equal(reply.status(), 303);
       }
       await a.page.reload();
-      assert.equal(await a.page.getByRole('button', { name: /Добавить в друзья|Принять в друзья|Отменить заявку|Отклонить заявку|Удалить из друзей/ }).count(), 0, 'blocked account has no friendship controls');
+      assert.equal(await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).count(), 1, 'unblocked users can start a friendship');
       assert.equal(await a.page.locator('[data-message-id]').count(), 50);
       await a.page.getByRole('link', {name: 'Предыдущие сообщения', exact: true}).click();
       await a.page.waitForFunction(() => document.querySelectorAll('[data-message-id]').length === 55);
