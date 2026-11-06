@@ -971,11 +971,19 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     // after the S047->S048 issue has been durably resolved to verified V3.
     s048_browser::verify(app, &owner_session, &other_session, &csrf, book, chapter_id).await;
     assert_eq!(
-        pg(&url, &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}")),
+        pg(
+            &url,
+            &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}")
+        ),
         "5",
     );
     assert_eq!(
-        pg(&url, &format!("SELECT version_id FROM chapter_first_release_events WHERE chapter_id={chapter_id}")),
+        pg(
+            &url,
+            &format!(
+                "SELECT version_id FROM chapter_first_release_events WHERE chapter_id={chapter_id}"
+            )
+        ),
         version_id.to_string(),
     );
     pool.close().await;
