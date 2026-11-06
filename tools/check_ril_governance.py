@@ -360,6 +360,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("POST", "/moderation/books/{id}/registration", "decide"): "crates/web/src/auth/moderation_registration.rs",
             ("GET", "/moderation/books/{id}/registration-history", "history"): "crates/web/src/auth/moderation_registration.rs",
             ("GET", "/moderation/books/{id}/history", "book_history"): "crates/web/src/auth/moderation_book_history.rs",
+            ("GET", "/moderation/books/reviews", "reviewed_index"): "crates/web/src/auth/moderation_book_history.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -496,8 +497,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "actor.moderator || actor.administrator" in evidence
             )
         elif entry["source"] == "crates/web/src/auth/moderation_book_history.rs":
+            history_ops = {
+                "book_history": "private_book_moderation_history",
+                "reviewed_index": "private_reviewed_moderation_decisions",
+            }
+            operation = history_ops.get(entry["handler"])
             scoped = bool(
-                "private_book_moderation_history(&digest, id)" in evidence
+                operation
+                and re.search(rf"\b{operation}\s*\(\s*&digest", evidence)
                 and "session_actor(&digest)" in evidence
                 and "actor.moderator || actor.administrator" in evidence
                 and "session_token_digest(&token)" in evidence
