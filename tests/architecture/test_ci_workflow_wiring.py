@@ -268,6 +268,24 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("CI_REC13_STEP_SECONDS stage=organic_post_load", browser)
         self.assertIn("REC13 browser PASS:", browser)
 
+    def test_other_postgres_jobs_use_runner_client_with_apt_fallback(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        jobs = (
+            "migrations", "reader-browser", "author-cover",
+            "s3-cover-build", "paid-private-e2e",
+            "sealed-remote-copy", "purchased-v1-recovery",
+        )
+        for name in jobs:
+            with self.subTest(job=name):
+                body = integration[name]
+                self.assertIn("command -v psql", body)
+                self.assertIn("command -v pg_isready", body)
+                self.assertIn("psql --version", body)
+                self.assertIn('Using preinstalled PostgreSQL client', body)
+                self.assertIn("sudo apt-get update", body)
+                self.assertIn("sudo apt-get install -y postgresql-client", body)
+        self.assertEqual(len(jobs), 7)
+
     def test_pg_client_uses_existing_runner_binaries_with_safe_fallback(self):
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
             with self.subTest(workflow=filename):
