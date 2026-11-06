@@ -53,10 +53,27 @@ impl PgAccounts {
         search: Option<&str>,
         access_level: Option<&str>,
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        self.moderation_registration_queue_with_wait_age(
+            session, before, search, access_level, None,
+        )
+        .await
+    }
+
+    /// Waiting time is based on creation of the initial registration request.
+    /// The public Book access rating is a separate filter, never a time range.
+    pub async fn moderation_registration_queue_with_wait_age(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+        wait_age: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
         if before.is_some_and(|id| id <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
             || access_level
                 .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || wait_age.is_some_and(|age| !matches!(age, "lt24" | "gte24" | "gte72"))
         {
             return Err(ModerationBooksError::Invalid);
         }
@@ -77,11 +94,16 @@ impl PgAccounts {
                     OR position(lower($2) in lower(title))>0)
                AND ($3::text IS NULL OR access_level=$3
                     OR ($3='legacy' AND access_level IS NULL))
+               AND ($4::text IS NULL
+                    OR ($4='lt24' AND created_at > now() - interval '24 hours')
+                    OR ($4='gte24' AND created_at <= now() - interval '24 hours')
+                    OR ($4='gte72' AND created_at <= now() - interval '72 hours'))
              ORDER BY id DESC LIMIT 40",
         )
         .bind(before)
         .bind(search)
         .bind(access_level)
+        .bind(wait_age)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
