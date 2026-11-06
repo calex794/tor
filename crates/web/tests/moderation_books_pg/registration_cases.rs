@@ -318,10 +318,8 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         .status(),
         StatusCode::SEE_OTHER
     );
-    let hidden_status = html(
-        request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await,
-    )
-    .await;
+    let hidden_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(hidden_status.contains("Регистрация одобрена"));
     assert!(hidden_status.contains("Текущая видимость книги: скрыта"));
     assert!(!hidden_status.contains("Регистрация отклонена"));
@@ -342,10 +340,8 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         .status(),
         StatusCode::SEE_OTHER
     );
-    let held_status = html(
-        request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await,
-    )
-    .await;
+    let held_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(held_status.contains("Регистрация одобрена"));
     assert!(held_status.contains("Текущая видимость книги: скрыта"));
     assert!(held_status.contains("административное удержание"));
