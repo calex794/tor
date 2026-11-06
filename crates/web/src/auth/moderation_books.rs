@@ -13,10 +13,10 @@ use serde::Deserialize;
 #[path = "moderation_decision_errors.rs"]
 mod decision_errors;
 pub(super) use decision_errors::decision_error;
-#[path = "moderation_book_history.rs"]
-mod history;
 #[path = "moderation_deletion_queue_render.rs"]
 mod deletion_queue_render;
+#[path = "moderation_book_history.rs"]
+mod history;
 use deletion_queue_render::render_deletion_queue;
 #[path = "moderation_registration.rs"]
 mod registration;
