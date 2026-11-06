@@ -70,11 +70,14 @@ SCOPE_CALLS = {
     "manageable_access_level", "verified_upgrade_book_access_level",
     "moderation_books", "moderate_book_hold", "moderate_book_visibility",
     "moderation_pending_deletions", "moderation_pending_deletions_filtered",
-    "moderation_pending_deletions_with_access_level", "moderate_ordinary_deletion",
+    "moderation_pending_deletions_with_access_level",
+    "moderation_pending_deletions_with_wait_age", "moderate_ordinary_deletion",
     "pending_count", "pending", "pending_filtered", "pending_with_access_level",
+    "pending_with_wait_age",
     "preview", "decide", "private_history",
     "moderation_registration_pending_count", "moderation_registration_queue",
     "moderation_registration_queue_filtered", "moderation_registration_queue_with_access_level",
+    "moderation_registration_queue_with_wait_age",
     "moderate_book_registration", "private_book_registration_approver",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
@@ -472,7 +475,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and ".buy(&command)" in charged
             )
         elif entry["source"] == "crates/web/src/auth/moderation_covers.rs":
-            cover_ops = {"page": "pending_with_access_level", "preview": "preview",
+            cover_ops = {"page": "pending_with_wait_age", "preview": "preview",
                          "decide": "decide", "history": "private_history"}
             operation = cover_ops.get(entry["handler"])
             scoped = bool(
@@ -484,7 +487,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             )
         elif entry["source"] == "crates/web/src/auth/moderation_registration.rs":
             registration_ops = {
-                "queue": "moderation_registration_queue_with_access_level",
+                "queue": "moderation_registration_queue_with_wait_age",
                 "decide": "moderate_book_registration",
                 "history": "private_book_registration_approver",
             }
@@ -517,7 +520,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "page": "moderation_books",
                 "submit": "moderate_book_hold",
                 "submit_visibility": "moderate_book_visibility",
-                "deletion_queue": "moderation_pending_deletions_with_access_level",
+                "deletion_queue": "moderation_pending_deletions_with_wait_age",
                 "review_deletion": "moderate_ordinary_deletion",
 
             }.get(entry["handler"], "__unreviewed_moderation_operation__")
