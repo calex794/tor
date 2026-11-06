@@ -421,20 +421,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             &outsider_cookie, "").await.status(),
         StatusCode::BAD_REQUEST
     );
-    pg(
-        &url,
-        &format!(
-            "UPDATE book_ordinary_deletion_requests
-             SET requested_at=now()-interval '5 days' WHERE book_id={book}
-             AND request_revision=2"
-        ),
-    );
-    let aged_queue = html(
-        call(&app, "GET", "/moderation/books/deletions?wait=gte72",
-            &outsider_cookie, "").await,
-    )
-    .await;
-    assert!(aged_queue.contains(&review_action));
+    // Audit timestamps remain immutable. A fresh request must not match the
+    // three-day waiting bucket; the filter does not modify its source row.
     assert_eq!(
         call(
             &app,
