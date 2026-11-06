@@ -133,12 +133,17 @@ pub(super) fn conversation(
         FriendState::None => Some(("friend", "Добавить в друзья")),
         FriendState::Incoming => Some(("friend", "Принять в друзья")),
         FriendState::Friends => Some(("unfriend", "Удалить из друзей")),
+        FriendState::Outgoing => Some(("unfriend", "Отменить заявку")),
         _ => None,
     };
     if let Some((suffix, label)) = friend_action {
         write!(body, "<form method=\"post\" action=\"/users/{peer}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{label}</button></form>").expect("friendship action");
-    } else if friend_state == FriendState::Outgoing {
+    }
+    if friend_state == FriendState::Outgoing {
         body.push_str("<p>Заявка уже отправлена.</p>");
+    }
+    if friend_state == FriendState::Incoming {
+        body.push_str(&format!("<form method=\"post\" action=\"/users/{peer}/unfriend\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button type=\"submit\">Отклонить заявку</button></form>"));
     }
     let (value, label) = if page.blocked_by_me {
         ("false", "Снять мою блокировку")

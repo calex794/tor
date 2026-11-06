@@ -229,7 +229,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let pool = catalog.pool().clone();
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
-    let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
+    let (author, author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, BR060_BUYER_EMAIL).await;
     let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
@@ -889,7 +889,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         book,
         (chapter, purchase_id, v1),
         (free_chapter, locked_chapter, draft_chapter),
-        (&buyer_cookie, &stranger_cookie),
+        (&buyer_cookie, &stranger_cookie, &author_cookie, &accounts),
         &csrf,
     )
     .await;

@@ -210,9 +210,28 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         .status(),
         StatusCode::BAD_REQUEST
     );
+    // The on-screen 24h/72h totals are bound to a live moderator session.
+    // An ordinary Book owner must not access that aggregate through the repo.
+    let before_age = accounts
+        .moderation_queue_age_summary(&session_token_digest(&admin_token))
+        .await
+        .unwrap();
+    assert!(accounts
+        .moderation_queue_age_summary(&session_token_digest(&owner_token))
+        .await
+        .is_err());
     pg(
         &url,
         &format!("UPDATE books SET created_at = now() - interval '5 days' WHERE id={book}"),
+    );
+    let after_age = accounts
+        .moderation_queue_age_summary(&session_token_digest(&admin_token))
+        .await
+        .unwrap();
+    assert!(
+        after_age.registrations.at_least_24h > before_age.registrations.at_least_24h
+            && after_age.registrations.at_least_72h > before_age.registrations.at_least_72h,
+        "old initial registration must increment both aging counters"
     );
     let aged = request(
         &app,
@@ -224,7 +243,11 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     )
     .await;
     assert_eq!(aged.status(), StatusCode::OK);
-    assert!(html(aged).await.contains(&decision_path));
+    let aged_html = html(aged).await;
+    assert!(aged_html.contains(&decision_path));
+    assert!(aged_html.contains("Контроль времени ожидания"));
+    assert!(aged_html.contains("/moderation/covers?wait=gte72"));
+    assert!(aged_html.contains("/moderation/books/deletions?wait=gte24"));
     let young_only = request(
         &app,
         "GET",
