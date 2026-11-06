@@ -21,9 +21,12 @@ async fn moderated_form(
         )
         .body(Body::from(body.to_owned()))
         .unwrap();
-    request.extensions_mut().insert(axum::extract::ConnectInfo(
-        std::net::SocketAddr::from(([127, 0, 0, 1], 41014)),
-    ));
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            41014,
+        ))));
     app.clone().oneshot(request).await.unwrap()
 }
 
@@ -205,11 +208,16 @@ pub(super) async fn verify(
     .await;
     assert_eq!(requested.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        pg(
+            url,
+            &format!("SELECT lifecycle_status FROM books WHERE id={book}")
+        ),
         "pending_deletion",
     );
     assert_eq!(
-        private_get(app, &format!("/books/{book}"), None).await.status(),
+        private_get(app, &format!("/books/{book}"), None)
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
         "the owner request hides the Book before review",
     );
@@ -242,9 +250,14 @@ pub(super) async fn verify(
     let review = format!("csrf_token={csrf}&request_revision={revision}&decision=approve");
     assert_eq!(
         moderated_form(
-            app, &review_path, stranger_cookie, csrf,
+            app,
+            &review_path,
+            stranger_cookie,
+            csrf,
             &format!("{review}&confirmed=yes")
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "a buyer cannot act as a site moderator"
     );
@@ -252,17 +265,27 @@ pub(super) async fn verify(
     assert_eq!(preview.status(), StatusCode::OK);
     assert!(html_body(preview).await.contains("Подтверждение решения"));
     assert_eq!(
-        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        pg(
+            url,
+            &format!("SELECT lifecycle_status FROM books WHERE id={book}")
+        ),
         "pending_deletion",
         "the first review POST must not change lifecycle",
     );
     let approved = moderated_form(
-        app, &review_path, reviewer_cookie, csrf,
+        app,
+        &review_path,
+        reviewer_cookie,
+        csrf,
         &format!("{review}&confirmed=yes"),
-    ).await;
+    )
+    .await;
     assert_eq!(approved.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        pg(
+            url,
+            &format!("SELECT lifecycle_status FROM books WHERE id={book}")
+        ),
         "ordinary_deleted",
     );
     assert_eq!(
@@ -278,9 +301,14 @@ pub(super) async fn verify(
     );
     assert_eq!(
         moderated_form(
-            app, &review_path, reviewer_cookie, csrf,
+            app,
+            &review_path,
+            reviewer_cookie,
+            csrf,
             &format!("{review}&confirmed=yes"),
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "replay must not append a second decision",
     );
