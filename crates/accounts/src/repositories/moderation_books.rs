@@ -308,10 +308,24 @@ impl PgAccounts {
         search: Option<&str>,
         access_level: Option<&str>,
     ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
+        self.moderation_pending_deletions_with_wait_age(session, before, search, access_level, None)
+            .await
+    }
+
+    /// Filter by the immutable owner request timestamp; never by Book age tier.
+    pub async fn moderation_pending_deletions_with_wait_age(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+        wait_age: Option<&str>,
+    ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
         if before.is_some_and(|id| id <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
             || access_level
                 .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || wait_age.is_some_and(|age| !matches!(age, "lt24" | "gte24" | "gte72"))
         {
             return Err(ModerationBooksError::Invalid);
         }
@@ -335,6 +349,10 @@ impl PgAccounts {
                     OR position(lower($3) in lower(b.title))>0)
                AND ($4::text IS NULL OR b.access_level=$4
                     OR ($4='legacy' AND b.access_level IS NULL))
+               AND ($5::text IS NULL
+                    OR ($5='lt24' AND r.requested_at > now() - interval '24 hours')
+                    OR ($5='gte24' AND r.requested_at <= now() - interval '24 hours')
+                    OR ($5='gte72' AND r.requested_at <= now() - interval '72 hours'))
                AND NOT EXISTS (
                  SELECT 1 FROM book_ordinary_deletion_decisions d
                  WHERE d.book_id=r.book_id AND d.request_revision=r.request_revision
@@ -345,6 +363,7 @@ impl PgAccounts {
         .bind(before)
         .bind(search)
         .bind(access_level)
+        .bind(wait_age)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;

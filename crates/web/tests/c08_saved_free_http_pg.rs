@@ -403,6 +403,46 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(queue_html.contains("Archived &lt;unsafe&gt;"));
     assert!(queue_html.contains(&format!("/moderation/books/{book}/deletion")));
     let review_action = format!("/moderation/books/{book}/deletion");
+    // Waiting time is measured from the original owner deletion request,
+    // not the content's 18+/21+ rating or the Book's creation date.
+    let recent_queue = html(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=lt24",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(recent_queue.contains(&review_action));
+    let old_queue = html(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=gte72",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(!old_queue.contains(&review_action));
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=unknown",
+            &outsider_cookie,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Audit timestamps remain immutable. A fresh request must not match the
+    // three-day waiting bucket; the filter does not modify its source row.
     assert_eq!(
         call(
             &app,
