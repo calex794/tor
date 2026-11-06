@@ -426,13 +426,29 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let preview = call(
+        &app,
+        "POST",
+        &review_action,
+        &outsider_cookie,
+        &format!("csrf_token={csrf}&request_revision=2&decision=approve"),
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert!(html(preview).await.contains("Подтверждение решения"));
+    assert_eq!(
+        pg(&url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        "pending_deletion",
+        "first moderator POST may only preview and must not complete deletion"
+    );
+    let approved_body = format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes");
     assert_eq!(
         call(
             &app,
             "POST",
             &review_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &approved_body
         )
         .await
         .status(),
@@ -444,7 +460,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &review_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &approved_body
         )
         .await
         .status(),
