@@ -138,6 +138,7 @@ fn queue_body(
                 <a href="/moderation/books/deletions">Удаление ({deletion_count})</a>
                 <a href="/moderation/books/control">Контроль</a>
               </nav>
+              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
               <form method="get" action="/moderation/covers">
                 <label for="cover-search">Поиск по названию или ID книги</label>
                 <input id="cover-search" name="q" maxlength="120" value="{search}">
