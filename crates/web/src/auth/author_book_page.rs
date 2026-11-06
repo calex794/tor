@@ -120,15 +120,12 @@ pub(super) async fn registration_status(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let (outcome, reason, visibility, held) = match state
-        .authoring
-        .owner_registration_status(actor, id)
-        .await
-    {
-        Ok(Some(review)) => review,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
+    let (outcome, reason, visibility, held) =
+        match state.authoring.owner_registration_status(actor, id).await {
+            Ok(Some(review)) => review,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
     private_response(
         axum::response::Html(render_registration_result(
             id,
@@ -183,16 +180,15 @@ fn render_registration_result(
         ""
     };
     let reason_html = if outcome == "rejected" {
-        reason.filter(|s| !s.trim().is_empty()).map_or_else(
-            String::new,
-            |reason| {
+        reason
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(String::new, |reason| {
                 format!(
                     "<section aria-label=\"Причина отказа\"><h2>Причина отказа</h2>\
                      <p>{}</p></section>",
                     crate::pages::escape_html(reason)
                 )
-            },
-        )
+            })
     } else {
         String::new()
     };
