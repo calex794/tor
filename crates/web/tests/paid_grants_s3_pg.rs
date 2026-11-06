@@ -889,12 +889,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         book,
         (chapter, purchase_id, v1),
         (free_chapter, locked_chapter, draft_chapter),
-        (
-            &buyer_cookie,
-            &stranger_cookie,
-            &author_cookie,
-            &accounts,
-        ),
+        (&buyer_cookie, &stranger_cookie, &author_cookie, &accounts),
         &csrf,
     )
     .await;
