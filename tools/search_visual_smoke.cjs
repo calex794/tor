@@ -58,7 +58,7 @@ async function setTaxonomy(page, label, value) {
   return true;
 }
 async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
-  const res = await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
+  const res = await page.goto(base + '/catalog', { waitUntil: 'load' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
   await page.getByLabel('Название или автор').fill(q);
   const available = [
@@ -69,13 +69,13 @@ async function search(page, { q = '', genre = '', language = '', tag = '', fando
   await page.getByLabel('Язык перевода').fill(language);
   if (available.every(Boolean)) {
     await page.getByRole('button', { name: 'Найти' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
   } else {
     // Test direct GET rejection for unpublished/nonexistent taxonomy values.
     // Do not add hidden/private options to a public dropdown just for CI.
     const params = new URLSearchParams({ q, genre, language, tag, fandom });
     const direct = await page.goto(base + '/catalog?' + params, {
-      waitUntil: 'networkidle',
+      waitUntil: 'load',
     });
     assert(direct && direct.status() === 200, 'direct catalog filter HTTP failed');
   }
@@ -317,7 +317,7 @@ async function draftBook(page, viewport) {
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
         // The searched URL can echo its explicitly supplied selection. Check
         // the unfiltered public taxonomy, not the caller's own query string.
-        await guest.goto(base + '/catalog', { waitUntil: 'networkidle' });
+        await guest.goto(base + '/catalog', { waitUntil: 'load' });
         assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 0,
           viewport + ': private tag leaked to public options');
 
@@ -359,7 +359,7 @@ async function draftBook(page, viewport) {
           viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
         // F-04: the homepage uses the same live public rows, not cached draft metadata.
-        const homeResponse = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+        const homeResponse = await guest.goto(base + '/', { waitUntil: 'load' });
         assert(homeResponse && homeResponse.status() === 200, viewport + ': homepage unavailable');
         assert(await guest.locator('.home-genre-section').count() > 0,
           viewport + ': real genre shelves missing');
@@ -371,7 +371,7 @@ async function draftBook(page, viewport) {
         for (const sort of ['title', 'author']) {
           await guest.getByLabel('Сортировка').selectOption(sort);
           await guest.getByRole('button', { name: 'Найти' }).click();
-          await guest.waitForLoadState('networkidle');
+          await guest.waitForLoadState('load');
           assert(new URL(guest.url()).searchParams.get('sort') === sort,
             viewport + ': lexical sort not applied');
           assert(await bookLink(guest, id).isVisible(),
@@ -387,7 +387,7 @@ async function draftBook(page, viewport) {
         // No public metadata-edit UI exists yet. Simulate a B-owned committed
         // genre change against the disposable database; verify live F projection.
         changeBook(id, 'genre');
-        await guest.reload({ waitUntil: 'networkidle' });
+        await guest.reload({ waitUntil: 'load' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': old genre leaked');
         const detective = { ...filters, genre: 'детектив' };
         await search(guest, detective);
@@ -398,13 +398,13 @@ async function draftBook(page, viewport) {
         for (const phase of ['hold', 'draft', 'deleted']) {
           changeBook(id, phase);
           if (phase === 'hold') {
-            const home = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+            const home = await guest.goto(base + '/', { waitUntil: 'load' });
             assert(home && home.status() === 200, viewport + ': homepage after hold unavailable');
             assert(await guest.locator('a[href="/books/' + id + '"]').count() === 0,
               viewport + ': revoked book leaked into homepage/genre shelves');
             await guest.goto(base + '/catalog?' + new URLSearchParams(detective));
           }
-          await guest.reload({ waitUntil: 'networkidle' });
+          await guest.reload({ waitUntil: 'load' });
           assert(await bookLink(guest, id).count() === 0, viewport + ': ' + phase + ' in HTML');
           assert(!(await apiHas(guest, id, detective)), viewport + ': ' + phase + ' in JSON');
           const forbidden = await guest.goto(base + '/books/' + id);
