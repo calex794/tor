@@ -546,13 +546,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::BAD_REQUEST
     );
 
+    let reject_body = format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied");
+    let reject_preview = call(&app, "POST", &reject_action, &outsider_cookie, &reject_body).await;
+    assert_eq!(reject_preview.status(), StatusCode::OK);
+    assert!(html(reject_preview).await.contains("Причина отказа:"));
     assert_eq!(
         call(
             &app,
             "POST",
             &reject_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied")
+            &format!("{reject_body}&confirmed=yes")
         )
         .await
         .status(),
@@ -583,7 +587,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &reject_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),
