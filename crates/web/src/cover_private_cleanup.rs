@@ -1,5 +1,5 @@
 //! MOD-COVER-01: opt-in cleanup of retired PRIVATE staged WebP variants.
- //! It is separate from public origin removal and CDN invalidation.
+//! It is separate from public origin removal and CDN invalidation.
 use std::{sync::Arc, time::Duration};
 use tor_books::repositories::cover_private_cleanup::PgPrivateCoverVariantRemovals;
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
@@ -41,7 +41,8 @@ impl PrivateCoverVariantCleanup {
         for item in claims {
             let operation = tokio::time::timeout(
                 Duration::from_secs(12),
-                self.storage.remove_private_staging_variant(&item.storage_key),
+                self.storage
+                    .remove_private_staging_variant(&item.storage_key),
             )
             .await;
             if matches!(operation, Ok(Ok(()))) {
