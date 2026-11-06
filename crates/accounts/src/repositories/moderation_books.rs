@@ -308,10 +308,8 @@ impl PgAccounts {
         search: Option<&str>,
         access_level: Option<&str>,
     ) -> Result<Vec<ModerationDeletionRequest>, ModerationBooksError> {
-        self.moderation_pending_deletions_with_wait_age(
-            session, before, search, access_level, None,
-        )
-        .await
+        self.moderation_pending_deletions_with_wait_age(session, before, search, access_level, None)
+            .await
     }
 
     /// Filter by the immutable owner request timestamp; never by Book age tier.
