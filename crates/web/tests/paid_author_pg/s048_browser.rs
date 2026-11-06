@@ -23,7 +23,10 @@ pub(super) async fn verify(
     let csrf = csrf.to_owned();
     let outcome = tokio::task::spawn_blocking(move || {
         std::process::Command::new("node")
-            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/s048_paid_author_browser.cjs"))
+            .arg(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../tools/s048_paid_author_browser.cjs"),
+            )
             .env("S048_OWNER_SESSION", owner_session)
             .env("S048_OTHER_SESSION", other_session)
             .env("S048_CSRF", csrf)
