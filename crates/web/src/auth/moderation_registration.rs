@@ -22,6 +22,7 @@ pub(super) struct RegistrationQuery {
     before: Option<i64>,
     q: Option<String>,
     level: Option<String>,
+    wait: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +59,7 @@ fn render(
     deletions_count: i64,
     search: Option<&str>,
     level: Option<&str>,
+    wait: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
     let search = pages::escape_html(search.unwrap_or(""));
@@ -68,6 +70,8 @@ fn render(
     let adult_selected = selected("adult");
     let pro_selected = selected("pro_adult");
     let legacy_selected = selected("legacy");
+    let wait = wait.unwrap_or("");
+    let wait_selected = |bucket: &str| if wait == bucket { " selected" } else { "" };
     let mut cards = String::new();
     for item in items {
         let title = pages::escape_html(&item.title);
@@ -105,6 +109,7 @@ fn render(
                 <input type="hidden" name="before" value="{}">
                 <input type="hidden" name="q" value="{search}">
                 <input type="hidden" name="level" value="{level}">
+                <input type="hidden" name="wait" value="{wait}">
                 <button type="submit">Следующие заявки</button></form>"#,
                 last.book_id
             ));
@@ -133,6 +138,13 @@ fn render(
                 <option value="adult"{adult_selected}>18+</option>
                 <option value="pro_adult"{pro_selected}>21+</option>
                 <option value="legacy"{legacy_selected}>Не указан</option>
+              </select>
+              <label for="registration-wait">Время ожидания регистрации</label>
+              <select id="registration-wait" name="wait">
+                <option value=""{wait_selected("")}>Любое время</option>
+                <option value="lt24"{wait_selected("lt24")}>До 24 часов</option>
+                <option value="gte24"{wait_selected("gte24")}>От 24 часов</option>
+                <option value="gte72"{wait_selected("gte72")}>От 72 часов</option>
               </select>
               <button type="submit">Найти</button>
               <a href="/moderation/books/registrations">Сбросить</a>
@@ -189,11 +201,12 @@ pub(super) async fn queue(
     };
     let rows = match state
         .accounts
-        .moderation_registration_queue_with_access_level(
+        .moderation_registration_queue_with_wait_age(
             &digest,
             query.before,
             query.q.as_deref(),
             query.level.as_deref().filter(|level| !level.is_empty()),
+            query.wait.as_deref().filter(|wait| !wait.is_empty()),
         )
         .await
     {
@@ -210,6 +223,7 @@ pub(super) async fn queue(
             deletions_count,
             query.q.as_deref(),
             query.level.as_deref(),
+            query.wait.as_deref(),
         )),
         &cookies,
     );
@@ -314,13 +328,14 @@ mod tests {
             owner_user_id: Some(37),
             revision: 1,
         }];
-        let body = render(&rows, 1, "csrf", 2, 3, None, None);
+        let body = render(&rows, 1, "csrf", 2, 3, None, None, None);
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
         assert!(body.contains("moderation-review-confirm"));
         assert!(body.contains("name=\"q\""));
         assert!(body.contains("name=\"level\""));
+        assert!(body.contains("name=\"wait\""));
         assert!(body.contains("Обложки (2)"));
         assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));
