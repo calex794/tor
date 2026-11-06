@@ -176,23 +176,35 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     // Waiting-age is not the Book's 18+/21+ content rating. The initial
     // registration's waiting clock begins when its Book was created.
     let new_wait = request(
-        &app, "GET", &format!("{queue_path}?wait=lt24"),
-        &admin_cookie, ORIGIN, "",
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=lt24"),
+        &admin_cookie,
+        ORIGIN,
+        "",
     )
     .await;
     assert_eq!(new_wait.status(), StatusCode::OK);
     assert!(html(new_wait).await.contains(&decision_path));
     let old_wait = request(
-        &app, "GET", &format!("{queue_path}?wait=gte72"),
-        &admin_cookie, ORIGIN, "",
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=gte72"),
+        &admin_cookie,
+        ORIGIN,
+        "",
     )
     .await;
     assert_eq!(old_wait.status(), StatusCode::OK);
     assert!(!html(old_wait).await.contains(&decision_path));
     assert_eq!(
         request(
-            &app, "GET", &format!("{queue_path}?wait=not-a-bucket"),
-            &admin_cookie, ORIGIN, "",
+            &app,
+            "GET",
+            &format!("{queue_path}?wait=not-a-bucket"),
+            &admin_cookie,
+            ORIGIN,
+            "",
         )
         .await
         .status(),
@@ -200,20 +212,26 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     );
     pg(
         &url,
-        &format!(
-            "UPDATE books SET created_at = now() - interval '5 days' WHERE id={book}"
-        ),
+        &format!("UPDATE books SET created_at = now() - interval '5 days' WHERE id={book}"),
     );
     let aged = request(
-        &app, "GET", &format!("{queue_path}?level=basic&wait=gte72"),
-        &admin_cookie, ORIGIN, "",
+        &app,
+        "GET",
+        &format!("{queue_path}?level=basic&wait=gte72"),
+        &admin_cookie,
+        ORIGIN,
+        "",
     )
     .await;
     assert_eq!(aged.status(), StatusCode::OK);
     assert!(html(aged).await.contains(&decision_path));
     let young_only = request(
-        &app, "GET", &format!("{queue_path}?wait=lt24"),
-        &admin_cookie, ORIGIN, "",
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=lt24"),
+        &admin_cookie,
+        ORIGIN,
+        "",
     )
     .await;
     assert_eq!(young_only.status(), StatusCode::OK);
