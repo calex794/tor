@@ -2,9 +2,7 @@
 use aws_sdk_s3::Client;
 use std::sync::Arc;
 use tor_books::repositories::{
-    cover_private_cleanup::PgPrivateCoverVariantRemovals,
-    cover_slots::PgCoverSlots,
-    PgCatalog,
+    cover_private_cleanup::PgPrivateCoverVariantRemovals, cover_slots::PgCoverSlots, PgCatalog,
 };
 use tor_ingest::{
     repositories::{cover_jobs::PgCoverJobs, s3::S3CoverStore},
@@ -33,7 +31,10 @@ pub(super) async fn verify_private_variant_retention(
         Arc::new(store.clone()),
     );
     assert_eq!(private_cleanup.run_batch().await.unwrap().claimed, 0);
-    assert!(store.remove_private_staging_variant(SOURCE_KEY).await.is_err());
+    assert!(store
+        .remove_private_staging_variant(SOURCE_KEY)
+        .await
+        .is_err());
     assert!(store
         .remove_private_staging_variant("staging/covers/variants/../escape.webp")
         .await
@@ -104,7 +105,13 @@ pub(super) async fn verify_private_variant_retention(
     assert_eq!(private_cleanup.run_batch().await.unwrap().claimed, 0);
     for key in &retired_keys {
         assert!(
-            client.head_object().bucket(BUCKET).key(key).send().await.is_err(),
+            client
+                .head_object()
+                .bucket(BUCKET)
+                .key(key)
+                .send()
+                .await
+                .is_err(),
             "rejected private variant remains in MinIO"
         );
     }
@@ -120,9 +127,7 @@ pub(super) async fn verify_private_variant_retention(
     assert_eq!(
         pg_sql(
             &url,
-            &format!(
-                "SELECT count(*) FROM book_cover_review_decisions WHERE job_id={retired_job}"
-            ),
+            &format!("SELECT count(*) FROM book_cover_review_decisions WHERE job_id={retired_job}"),
         )
         .await,
         "1",
@@ -145,5 +150,4 @@ pub(super) async fn verify_private_variant_retention(
             .await
             .unwrap());
     }
-
 }
