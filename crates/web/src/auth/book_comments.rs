@@ -20,7 +20,9 @@ use tor_discussions::{
         comments::{CommentBody, CommentIntentKey},
         spoilers::{mask_mentions, parse, Segment},
     },
-    repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment, ReadStateResult},
+    repositories::public_book_comments::{
+        CreateResult, PgPublicBookComments, PublicComment, ReadStateResult,
+    },
 };
 
 pub(super) async fn mention_script() -> Response {
