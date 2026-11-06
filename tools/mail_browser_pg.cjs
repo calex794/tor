@@ -286,6 +286,7 @@ module.exports = async (browser, base, out) => {
       const sizes = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       assert(sizes[0] <= sizes[1] + 1, 'mail page has no horizontal overflow');
       console.log(`S015 ${name}: profile/mail request/cancel/reject/accept/block with PG and CSRF PASS`);
+      await require('./s015_notification_privacy_browser_pg.cjs')(a, b, c, base, out, name, conversation);
       // HTML remains usable with scripting disabled.
       const noJs = await browser.newContext({ javaScriptEnabled: false, storageState: await a.context.storageState(), viewport: { width, height: 900 } });
       try {
@@ -492,3 +493,4 @@ module.exports = async (browser, base, out) => {
     } finally { for (const client of clients) await client.context.close(); }
   }));
 };
+

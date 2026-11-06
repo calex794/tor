@@ -270,5 +270,9 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
             "denied events still get a durable receipt"
         );
     }
+    s015_notification_privacy_pg::verify(&pool, &repo, &users, book, chapter).await;
     pool.close().await;
 }
+
+#[path = "support/s015_notification_privacy_pg.rs"]
+mod s015_notification_privacy_pg;
