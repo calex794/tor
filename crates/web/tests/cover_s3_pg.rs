@@ -326,6 +326,49 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
     let html = to_bytes(queue.into_body(), 262144).await.unwrap();
     assert!(String::from_utf8_lossy(&html).contains("Первая обложка"));
+    let review_form_path = format!("/moderation/covers/{}/decision", review_request.id);
+    let recent = moderation_request(
+        &moderator_app, "GET", "/moderation/covers?q=950&wait=lt24",
+        &cookie, origin, "",
+    )
+    .await;
+    assert_eq!(recent.status(), StatusCode::OK);
+    let recent_html = to_bytes(recent.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&recent_html).contains(&review_form_path));
+    let too_old = moderation_request(
+        &moderator_app, "GET", "/moderation/covers?q=950&wait=gte72",
+        &cookie, origin, "",
+    )
+    .await;
+    assert_eq!(too_old.status(), StatusCode::OK);
+    let old_html = to_bytes(too_old.into_body(), 262144).await.unwrap();
+    assert!(!String::from_utf8_lossy(&old_html).contains(&review_form_path));
+    assert_eq!(
+        moderation_request(
+            &moderator_app, "GET", "/moderation/covers?wait=unknown",
+            &cookie, origin, "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    pg_sql(
+        &url,
+        &format!(
+            "UPDATE book_cover_review_requests
+             SET submitted_at=now()-interval '5 days' WHERE id={}",
+            review_request.id
+        ),
+    )
+    .await;
+    let aged = moderation_request(
+        &moderator_app, "GET", "/moderation/covers?q=950&kind=first&wait=gte72",
+        &cookie, origin, "",
+    )
+    .await;
+    assert_eq!(aged.status(), StatusCode::OK);
+    let aged_html = to_bytes(aged.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&aged_html).contains(&review_form_path));
     let preview = moderation_request(
         &moderator_app,
         "GET",
