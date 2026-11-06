@@ -12,17 +12,31 @@ use tor_web::cover_private_cleanup::PrivateCoverVariantCleanup;
 
 use super::{digest, pg_sql, BOOK_ID, BUCKET, SOURCE_KEY};
 
-pub(super) async fn verify_private_variant_retention(
-    url: String,
-    catalog: &PgCatalog,
-    slots: &PgCoverSlots,
-    jobs: &PgCoverJobs,
-    store: S3CoverStore,
-    client: &Client,
-    source: i64,
-    reviewer: i64,
-    job: i64,
-) {
+pub(super) struct PrivateRetentionCase<'a> {
+    pub url: &'a str,
+    pub catalog: &'a PgCatalog,
+    pub slots: &'a PgCoverSlots,
+    pub jobs: &'a PgCoverJobs,
+    pub store: S3CoverStore,
+    pub client: &'a Client,
+    pub source: i64,
+    pub reviewer: i64,
+    pub job: i64,
+}
+
+pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<'_>) {
+    let PrivateRetentionCase {
+        url,
+        catalog,
+        slots,
+        jobs,
+        store,
+        client,
+        source,
+        reviewer,
+        job,
+    } = case;
+    let url = url.to_owned();
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     // MOD-COVER: old rejected private WebP variants may be removed, but an
     // active approved slot, its original upload, and immutable audit MUST remain.
