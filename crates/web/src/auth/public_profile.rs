@@ -64,14 +64,19 @@ pub(super) async fn page(
             FriendState::None => Some(("friend", "Добавить в друзья")),
             FriendState::Incoming => Some(("friend", "Принять в друзья")),
             FriendState::Friends => Some(("unfriend", "Удалить из друзей")),
+            FriendState::Outgoing => Some(("unfriend", "Отменить заявку")),
             _ => None,
         };
         if let Some((suffix, label)) = friend_action {
             action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">{label}</button></form>"));
-        } else if state_view == FriendState::Outgoing {
-            action.push_str("<p>Заявка уже отправлена.</p>");
         } else {
             action.push_str("<p>Действие недоступно: переписка заблокирована.</p>");
+        }
+        if state_view == FriendState::Outgoing {
+            action.push_str("<p>Заявка уже отправлена.</p>");
+        }
+        if state_view == FriendState::Incoming {
+            action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/unfriend\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">Отклонить заявку</button></form>"));
         }
         if !matches!(
             state_view,
