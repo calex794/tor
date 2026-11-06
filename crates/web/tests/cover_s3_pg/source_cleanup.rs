@@ -15,8 +15,7 @@ use tor_web::{
 };
 
 use super::{
-    digest, pg_sql, source_png, BOOK_ID, BUCKET, SOURCE_KEY,
-    private_cleanup::PrivateRetentionCase,
+    digest, pg_sql, private_cleanup::PrivateRetentionCase, source_png, BOOK_ID, BUCKET, SOURCE_KEY,
 };
 
 const RETIRED_SOURCE: &str = "staging/covers/sources/obs09-retired-shared-source-950.png";
@@ -89,11 +88,23 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         .await
         .unwrap();
     let rejected_job = jobs
-        .enqueue(shared_source, BOOK_ID, BOOK_ID, 1, "retired-shared-source-rejected")
+        .enqueue(
+            shared_source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "retired-shared-source-rejected",
+        )
         .await
         .unwrap();
     let pending_job = jobs
-        .enqueue(shared_source, BOOK_ID, BOOK_ID, 1, "retired-shared-source-pending")
+        .enqueue(
+            shared_source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "retired-shared-source-pending",
+        )
         .await
         .unwrap();
     assert_ne!(rejected_job, pending_job);
@@ -149,7 +160,13 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         "a source shared with an unfinished recipe must survive first rejection"
     );
     for key in &rejected_keys {
-        assert!(client.head_object().bucket(BUCKET).key(key).send().await.is_err());
+        assert!(client
+            .head_object()
+            .bucket(BUCKET)
+            .key(key)
+            .send()
+            .await
+            .is_err());
     }
 
     pg_sql(
@@ -177,7 +194,13 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
     assert_eq!(deleted.deferred, 0);
     assert_eq!(source_cleanup.run_batch().await.unwrap().claimed, 0);
     for key in &pending_keys {
-        assert!(client.head_object().bucket(BUCKET).key(key).send().await.is_err());
+        assert!(client
+            .head_object()
+            .bucket(BUCKET)
+            .key(key)
+            .send()
+            .await
+            .is_err());
     }
     assert!(
         client
@@ -198,14 +221,23 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         "retired"
     );
     assert_eq!(
-        pg_sql(&url, "SELECT count(*) FROM cover_private_source_removals WHERE state='removed'")
-            .await,
+        pg_sql(
+            &url,
+            "SELECT count(*) FROM cover_private_source_removals WHERE state='removed'"
+        )
+        .await,
         "1"
     );
     assert!(
-        jobs.enqueue(shared_source, BOOK_ID, BOOK_ID, 1, "retired-source-after-claim")
-            .await
-            .is_err(),
+        jobs.enqueue(
+            shared_source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "retired-source-after-claim"
+        )
+        .await
+        .is_err(),
         "new recipes must not be able to enqueue after source retirement"
     );
     assert!(store
@@ -213,11 +245,19 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         .await
         .is_err());
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
-    assert!(client.head_object().bucket(BUCKET).key(SOURCE_KEY).send().await.is_ok());
+    assert!(client
+        .head_object()
+        .bucket(BUCKET)
+        .key(SOURCE_KEY)
+        .send()
+        .await
+        .is_ok());
     assert_eq!(
         pg_sql(
             &url,
-            &format!("SELECT count(*) FROM book_cover_review_decisions WHERE job_id={rejected_job}")
+            &format!(
+                "SELECT count(*) FROM book_cover_review_decisions WHERE job_id={rejected_job}"
+            )
         )
         .await,
         "1",
