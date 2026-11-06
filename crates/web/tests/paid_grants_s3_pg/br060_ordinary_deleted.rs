@@ -165,7 +165,19 @@ pub(super) async fn verify(
 ) -> Value {
     let (chapter, purchase_id, v1) = purchased;
     let (free_chapter, locked_chapter, draft_chapter) = chapters;
-    let (buyer_cookie, stranger_cookie, author_cookie, reviewer_cookie) = sessions;
+    let (buyer_cookie, stranger_cookie, author_cookie, accounts) = sessions;
+    // The reviewer is an independent real account on disposable tor_ci, not
+    // a fabricated role claim from the buyer or the Book owner.
+    let (reviewer, reviewer_token) =
+        user(accounts, "s034-minio-ordinary-reviewer@tor-ci.example").await;
+    pg(
+        url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({reviewer},'moderator',TRUE)"
+        ),
+    );
+    let reviewer_cookie = reviewer_token.as_str();
     save_free_v1_before_removal(app, url, book, free_chapter, buyer_cookie, csrf).await;
     // This real MinIO paid/free archive must be created by the author and
     // an independent live site moderator, never by a SQL-only tombstone.
