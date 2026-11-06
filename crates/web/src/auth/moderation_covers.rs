@@ -21,13 +21,15 @@ pub(super) struct CoverQueueQuery {
     q: Option<String>,
     kind: Option<String>,
     level: Option<String>,
+    wait: Option<String>,
 }
 
-/// Keep the queue's three optional filters together in the view contract.
+/// Keep search and the three independent queue filters together.
 struct CoverQueueFilters<'a> {
     search: Option<&'a str>,
     kind: Option<&'a str>,
     level: Option<&'a str>,
+    wait: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -81,6 +83,12 @@ fn queue_body(
     let level_adult = selected("adult");
     let level_pro = selected("pro_adult");
     let level_legacy = selected("legacy");
+    let wait = filters.wait.unwrap_or("");
+    let wait_selected = |bucket: &str| if wait == bucket { " selected" } else { "" };
+    let wait_any = wait_selected("");
+    let wait_recent = wait_selected("lt24");
+    let wait_day = wait_selected("gte24");
+    let wait_three = wait_selected("gte72");
     let first_selected = if kind == "first" { " selected" } else { "" };
     let replacement_selected = if kind == "replacement" {
         " selected"
@@ -136,6 +144,7 @@ fn queue_body(
                  <input type=\"hidden\" name=\"q\" value=\"{search}\">
                  <input type=\"hidden\" name=\"kind\" value=\"{kind}\">
                  <input type=\"hidden\" name=\"level\" value=\"{level}\">
+                 <input type=\"hidden\" name=\"wait\" value=\"{wait}\">
                  <button type=\"submit\">Следующая страница</button></form>",
                 last.id
             ));
@@ -170,6 +179,13 @@ fn queue_body(
                   <option value="adult"{level_adult}>18+</option>
                   <option value="pro_adult"{level_pro}>21+</option>
                   <option value="legacy"{level_legacy}>Не указан</option>
+                </select>
+                <label for="cover-wait">Время ожидания заявки</label>
+                <select id="cover-wait" name="wait">
+                  <option value=""{wait_any}>Любое время</option>
+                  <option value="lt24"{wait_recent}>До 24 часов</option>
+                  <option value="gte24"{wait_day}>От 24 часов</option>
+                  <option value="gte72"{wait_three}>От 72 часов</option>
                 </select>
                 <button type="submit">Найти</button>
                 <a href="/moderation/covers">Сбросить</a>
@@ -217,12 +233,13 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let items = match repo
-        .pending_with_access_level(
+        .pending_with_wait_age(
             &digest,
             query.before,
             query.q.as_deref(),
             query.kind.as_deref().filter(|kind| !kind.is_empty()),
             query.level.as_deref().filter(|level| !level.is_empty()),
+            query.wait.as_deref().filter(|wait| !wait.is_empty()),
         )
         .await
     {
@@ -241,6 +258,7 @@ pub(super) async fn page(
                 search: query.q.as_deref(),
                 kind: query.kind.as_deref(),
                 level: query.level.as_deref(),
+                wait: query.wait.as_deref(),
             },
         )),
         &cookies,
@@ -409,6 +427,7 @@ mod tests {
                 search: None,
                 kind: None,
                 level: None,
+                wait: None,
             },
         );
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
@@ -418,6 +437,7 @@ mod tests {
         assert!(html.contains("moderation-review-confirm"));
         assert!(html.contains("name=\"kind\""));
         assert!(html.contains("name=\"level\""));
+        assert!(html.contains("name=\"wait\""));
         assert!(html.contains("Регистрация (2)"));
         assert!(html.contains("Удаление (3)"));
         assert!(!html.contains("staging/covers/"));
