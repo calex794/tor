@@ -2,6 +2,31 @@
 //! The caller sends the fresh paid grant to the actual MinIO/WebCrypto consumer.
 use super::*;
 
+// All ordinary-deletion transitions must traverse real Axum form routes.
+async fn moderated_form(
+    app: &Router,
+    path: &str,
+    session: &str,
+    csrf: &str,
+    body: &str,
+) -> Response {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+        )
+        .body(Body::from(body.to_owned()))
+        .unwrap();
+    request.extensions_mut().insert(axum::extract::ConnectInfo(
+        std::net::SocketAddr::from(([127, 0, 0, 1], 41014)),
+    ));
+    app.clone().oneshot(request).await.unwrap()
+}
+
 async fn save_free_v1_before_removal(
     app: &Router,
     url: &str,
@@ -135,19 +160,117 @@ pub(super) async fn verify(
     book: i64,
     purchased: (i64, i64, i64),
     chapters: (i64, i64, i64),
-    sessions: (&str, &str),
+    sessions: (&str, &str, &str, &str),
     csrf: &str,
 ) -> Value {
     let (chapter, purchase_id, v1) = purchased;
     let (free_chapter, locked_chapter, draft_chapter) = chapters;
-    let (buyer_cookie, stranger_cookie) = sessions;
+    let (buyer_cookie, stranger_cookie, author_cookie, reviewer_cookie) = sessions;
     save_free_v1_before_removal(app, url, book, free_chapter, buyer_cookie, csrf).await;
-    pg(
+    // This real MinIO paid/free archive must be created by the author and
+    // an independent live site moderator, never by a SQL-only tombstone.
+    let owner_path = format!("/me/books/{book}/settings/delete");
+    let owner_page = private_get(app, &owner_path, Some(author_cookie)).await;
+    assert_eq!(owner_page.status(), StatusCode::OK);
+    let owner_html = html_body(owner_page).await;
+    assert!(owner_html.contains(r#"value="start""#));
+    let owner_revision: i64 = owner_html
+        .split(r#"name="expected_revision" value=""#)
+        .nth(1)
+        .and_then(|value| value.split('"').next())
+        .expect("owner deletion revision in real HTML")
+        .parse()
+        .expect("valid lifecycle revision");
+    let requested = moderated_form(
+        app,
+        &owner_path,
+        author_cookie,
+        csrf,
+        &format!(
+            "csrf_token={csrf}&action=start&expected_revision={owner_revision}&account_password=S034RealStorageE2EPassword2026"
+        ),
+    )
+    .await;
+    assert_eq!(requested.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        "pending_deletion",
+    );
+    assert_eq!(
+        private_get(app, &format!("/books/{book}"), None).await.status(),
+        StatusCode::NOT_FOUND,
+        "the owner request hides the Book before review",
+    );
+    assert_eq!(
+        moderated_form(
+            app,
+            &owner_path,
+            author_cookie,
+            csrf,
+            &format!(
+                "csrf_token={csrf}&action=complete&expected_revision={owner_revision}&account_password=S034RealStorageE2EPassword2026"
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST,
+        "an author cannot complete deletion by themselves",
+    );
+    let revision = scalar(
         url,
         &format!(
-            "UPDATE books SET lifecycle_status='ordinary_deleted', \
-             ordinary_deleted_at=now(), visibility='draft' WHERE id={book}"
+            "SELECT request_revision FROM book_ordinary_deletion_requests
+             WHERE book_id={book} ORDER BY id DESC LIMIT 1"
         ),
+    );
+    let review_path = format!("/moderation/books/{book}/deletion");
+    let queue = private_get(app, "/moderation/books/deletions", Some(reviewer_cookie)).await;
+    assert_eq!(queue.status(), StatusCode::OK);
+    assert!(html_body(queue).await.contains(&review_path));
+    let review = format!("csrf_token={csrf}&request_revision={revision}&decision=approve");
+    assert_eq!(
+        moderated_form(
+            app, &review_path, stranger_cookie, csrf,
+            &format!("{review}&confirmed=yes")
+        ).await.status(),
+        StatusCode::FORBIDDEN,
+        "a buyer cannot act as a site moderator"
+    );
+    let preview = moderated_form(app, &review_path, reviewer_cookie, csrf, &review).await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert!(html_body(preview).await.contains("Подтверждение решения"));
+    assert_eq!(
+        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        "pending_deletion",
+        "the first review POST must not change lifecycle",
+    );
+    let approved = moderated_form(
+        app, &review_path, reviewer_cookie, csrf,
+        &format!("{review}&confirmed=yes"),
+    ).await;
+    assert_eq!(approved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(url, &format!("SELECT lifecycle_status FROM books WHERE id={book}")),
+        "ordinary_deleted",
+    );
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM book_ordinary_deletion_decisions
+                 WHERE book_id={book} AND decision='approved'"
+            ),
+        ),
+        "1",
+        "the irreversible tombstone requires one immutable moderator decision",
+    );
+    assert_eq!(
+        moderated_form(
+            app, &review_path, reviewer_cookie, csrf,
+            &format!("{review}&confirmed=yes"),
+        ).await.status(),
+        StatusCode::CONFLICT,
+        "replay must not append a second decision",
     );
     assert_eq!(
         private_get(app, &format!("/books/{book}"), None)
