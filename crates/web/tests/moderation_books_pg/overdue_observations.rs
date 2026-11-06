@@ -114,7 +114,10 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         ),
     );
 
-    assert!(accounts.scan_moderation_overdue_observations(0).await.is_err());
+    assert!(accounts
+        .scan_moderation_overdue_observations(0)
+        .await
+        .is_err());
     // Separate scanner invocations (even on separate workers) serialize
     // their writes and must not duplicate threshold observations.
     let (first, second) = tokio::join!(
@@ -131,9 +134,7 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     assert_eq!(
         pg(
             &url,
-            &format!(
-                "SELECT count(*) FROM moderation_overdue_signals WHERE {subset}"
-            )
+            &format!("SELECT count(*) FROM moderation_overdue_signals WHERE {subset}")
         ),
         "5",
         "80h registration, 30h cover and 80h deletion generate 2+1+2 events"
@@ -148,9 +149,15 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         ),
         "5"
     );
-    accounts.scan_moderation_overdue_observations(500).await.unwrap();
+    accounts
+        .scan_moderation_overdue_observations(500)
+        .await
+        .unwrap();
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM moderation_overdue_signals WHERE {subset}")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM moderation_overdue_signals WHERE {subset}")
+        ),
         "5",
         "repeating a scan must not produce duplicate events"
     );
@@ -159,9 +166,7 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     // 24h/72h observations without deleting historical evidence.
     pg(
         &url,
-        &format!(
-            "UPDATE books SET visibility_status='hidden' WHERE id={registration}"
-        ),
+        &format!("UPDATE books SET visibility_status='hidden' WHERE id={registration}"),
     );
     pg(
         &url,
@@ -173,11 +178,12 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     );
     pg(
         &url,
-        &format!(
-            "UPDATE books SET lifecycle_status='in_progress' WHERE id={deletion_book}"
-        ),
+        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={deletion_book}"),
     );
-    accounts.scan_moderation_overdue_observations(500).await.unwrap();
+    accounts
+        .scan_moderation_overdue_observations(500)
+        .await
+        .unwrap();
     assert_eq!(
         pg(
             &url,
@@ -189,13 +195,14 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         "5",
         "resolved and superseded requests cannot remain due"
     );
-    accounts.scan_moderation_overdue_observations(500).await.unwrap();
+    accounts
+        .scan_moderation_overdue_observations(500)
+        .await
+        .unwrap();
     assert_eq!(
         pg(
             &url,
-            &format!(
-                "SELECT count(*) FROM moderation_overdue_signals WHERE {subset}"
-            )
+            &format!("SELECT count(*) FROM moderation_overdue_signals WHERE {subset}")
         ),
         "5",
         "closed observation keys remain immutable on subsequent scans"
