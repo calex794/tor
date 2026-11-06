@@ -101,11 +101,26 @@ impl PgCoverReview {
         kind: Option<&str>,
         access_level: Option<&str>,
     ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
+        self.pending_with_wait_age(session, before, search, kind, access_level, None)
+            .await
+    }
+
+    /// Waiting time uses the submitted review request, not the Book creation date.
+    pub async fn pending_with_wait_age(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        kind: Option<&str>,
+        access_level: Option<&str>,
+        wait_age: Option<&str>,
+    ) -> Result<Vec<PendingCoverReview>, CoverReviewError> {
         if before.is_some_and(|value| value <= 0)
             || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
             || kind.is_some_and(|k| !matches!(k, "first" | "replacement"))
             || access_level
                 .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || wait_age.is_some_and(|age| !matches!(age, "lt24" | "gte24" | "gte72"))
         {
             return Err(CoverReviewError::Invalid);
         }
@@ -129,12 +144,17 @@ impl PgCoverReview {
                     OR ($3='replacement' AND r.expected_slot_revision>0))
                AND ($4::text IS NULL OR b.access_level=$4
                     OR ($4='legacy' AND b.access_level IS NULL))
+               AND ($5::text IS NULL
+                    OR ($5='lt24' AND r.submitted_at > now() - interval '24 hours')
+                    OR ($5='gte24' AND r.submitted_at <= now() - interval '24 hours')
+                    OR ($5='gte72' AND r.submitted_at <= now() - interval '72 hours'))
              ORDER BY r.id DESC LIMIT 40",
         )
         .bind(before)
         .bind(search)
         .bind(kind)
         .bind(access_level)
+        .bind(wait_age)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
