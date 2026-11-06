@@ -31,6 +31,7 @@ pub(super) struct RegistrationDecisionForm {
     expected_revision: i64,
     action: String,
     reason: Option<String>,
+    confirmed: Option<String>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -80,7 +81,7 @@ fn render(
             <p>Книга #{book} · Владелец #{owner} · Ревизия {rev}</p>
             <p><a href="/moderation/books/{book}/history">Все решения модерации</a></p>
             <details class="moderation-review-confirm" open>
-            <summary>Подтвердить решение по регистрации книги #{book}</summary>
+            <summary>Проверить заявку на регистрацию книги #{book}</summary>
             <p>Проверьте название и ревизию. Одобрение не публикует авторский черновик.</p>
             <form method="post" action="/moderation/books/{book}/registration">
               <input type="hidden" name="csrf_token" value="{token}">
@@ -88,8 +89,8 @@ fn render(
               <label for="registration-reason-{book}">Причина отказа (обязательна)</label>
               <textarea id="registration-reason-{book}" name="reason"
                         maxlength="2000" rows="2"></textarea>
-              <button type="submit" name="action" value="approve">Одобрить регистрацию</button>
-              <button type="submit" name="action" value="reject">Отклонить</button>
+              <button type="submit" name="action" value="approve">Продолжить одобрение</button>
+              <button type="submit" name="action" value="reject">Продолжить отказ</button>
             </form></details></article>"#,
             book = item.book_id,
             rev = item.revision,
@@ -239,6 +240,33 @@ pub(super) async fn decide(
         Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let confirmed = match super::super::moderation_confirm::was_confirmed(
+        form.confirmed.as_deref(),
+    ) {
+        Ok(confirmed) => confirmed,
+        Err(status) => return super::decision_error(status, "/moderation/books/registrations"),
+    };
+    if !confirmed {
+        let reason = form.reason.as_deref().unwrap_or("").trim();
+        if id <= 0
+            || form.expected_revision <= 0
+            || !matches!(form.action.as_str(), "approve" | "reject")
+            || reason.len() > 2000
+            || (form.action == "reject" && reason.is_empty())
+        {
+            return super::decision_error(StatusCode::BAD_REQUEST, "/moderation/books/registrations");
+        }
+        return super::super::moderation_confirm::confirmation_page(
+            super::super::moderation_confirm::ReviewIntent {
+                kind: "registration",
+                subject_id: id,
+                revision: form.expected_revision,
+                action: &form.action,
+                reason,
+                csrf: &form.csrf_token,
+            },
+        );
     }
     match state
         .accounts
