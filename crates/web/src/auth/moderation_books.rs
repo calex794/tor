@@ -17,12 +17,12 @@ pub(super) use decision_errors::decision_error;
 mod deletion_queue_render;
 #[path = "moderation_book_history.rs"]
 mod history;
-use deletion_queue_render::render_deletion_queue;
+use deletion_queue_render::{render_deletion_queue, DeletionQueueFilters};
 #[path = "moderation_registration.rs"]
 mod registration;
 use tor_accounts::{
     repositories::moderation_books::{
-        ModerationBook, ModerationBooksError, ModerationDeletionRequest,
+        ModerationBook, ModerationBooksError,
     },
     services::security::session_token_digest,
 };
@@ -372,9 +372,11 @@ pub(super) async fn deletion_queue(
             registration_count,
             cover_count,
             deletion_count,
-            query.q.as_deref(),
-            query.level.as_deref(),
-            query.wait.as_deref(),
+            DeletionQueueFilters {
+                search: query.q.as_deref(),
+                level: query.level.as_deref(),
+                wait: query.wait.as_deref(),
+            },
         )),
         &cookies,
     );
@@ -460,13 +462,24 @@ mod deletion_queue_tests {
 
     #[test]
     fn escapes_titles_and_never_trusts_client_actor_or_book_state() {
-        let rows = vec![ModerationDeletionRequest {
+        let rows = vec![tor_accounts::repositories::moderation_books::ModerationDeletionRequest {
             book_id: 42,
             title: "<script>alert(1)</script>".into(),
             owner_user_id: 7,
             request_revision: 2,
         }];
-        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None, None, None);
+        let page = render_deletion_queue(
+            &rows,
+            "csrf",
+            1,
+            2,
+            3,
+            DeletionQueueFilters {
+                search: None,
+                level: None,
+                wait: None,
+            },
+        );
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
