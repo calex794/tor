@@ -154,9 +154,9 @@ pub(super) async fn verify(
     repo.deliver_pending(100).await.unwrap();
     sqlx::query(
         "INSERT INTO outbox_events(
-             event_type,schema_version,aggregate_kind,aggregate_id,payload,required_consumers)
+             event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,payload,required_consumers)
          SELECT 'reader.chapter.released',1,'chapter',$1,
-                jsonb_build_object('actor_user_id',$2,'recipient_user_id',$3,
+                'ci:s015:' || gen_random_uuid()::text,jsonb_build_object('actor_user_id',$2,'recipient_user_id',$3,
                                    'object_id',$1,'book_id',$4,'version_id',$5),
                 ARRAY['user_notifications']::text[]
          FROM generate_series(1,3)",

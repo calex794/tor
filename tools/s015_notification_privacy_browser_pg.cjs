@@ -33,9 +33,9 @@ INSERT INTO chapter_publications(chapter_id,version_id) VALUES(:'chapter_id',:'v
 INSERT INTO chapter_first_release_events(chapter_id,version_id,creator_user_id)
 VALUES(:'chapter_id',:'version_id',:'author');
 INSERT INTO outbox_events(event_type,schema_version,aggregate_kind,aggregate_id,
-                          payload,required_consumers)
+                          dedupe_key,payload,required_consumers)
 VALUES('reader.chapter.released',1,'chapter',:'chapter_id',
-       jsonb_build_object('actor_user_id',:'author'::bigint,
+       :'source' || ':release',jsonb_build_object('actor_user_id',:'author'::bigint,
                           'recipient_user_id',:'reader'::bigint,
                           'object_id',:'chapter_id'::bigint,
                           'book_id',:'book_id'::bigint,
