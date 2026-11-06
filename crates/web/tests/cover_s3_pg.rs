@@ -328,16 +328,24 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert!(String::from_utf8_lossy(&html).contains("Первая обложка"));
     let review_form_path = format!("/moderation/covers/{}/decision", review_request.id);
     let recent = moderation_request(
-        &moderator_app, "GET", "/moderation/covers?q=950&wait=lt24",
-        &cookie, origin, "",
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&wait=lt24",
+        &cookie,
+        origin,
+        "",
     )
     .await;
     assert_eq!(recent.status(), StatusCode::OK);
     let recent_html = to_bytes(recent.into_body(), 262144).await.unwrap();
     assert!(String::from_utf8_lossy(&recent_html).contains(&review_form_path));
     let too_old = moderation_request(
-        &moderator_app, "GET", "/moderation/covers?q=950&wait=gte72",
-        &cookie, origin, "",
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&wait=gte72",
+        &cookie,
+        origin,
+        "",
     )
     .await;
     assert_eq!(too_old.status(), StatusCode::OK);
@@ -345,8 +353,12 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert!(!String::from_utf8_lossy(&old_html).contains(&review_form_path));
     assert_eq!(
         moderation_request(
-            &moderator_app, "GET", "/moderation/covers?wait=unknown",
-            &cookie, origin, "",
+            &moderator_app,
+            "GET",
+            "/moderation/covers?wait=unknown",
+            &cookie,
+            origin,
+            "",
         )
         .await
         .status(),
@@ -362,8 +374,12 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     )
     .await;
     let aged = moderation_request(
-        &moderator_app, "GET", "/moderation/covers?q=950&kind=first&wait=gte72",
-        &cookie, origin, "",
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&kind=first&wait=gte72",
+        &cookie,
+        origin,
+        "",
     )
     .await;
     assert_eq!(aged.status(), StatusCode::OK);
