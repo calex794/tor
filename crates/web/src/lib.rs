@@ -417,7 +417,6 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 pub fn instrument_additional_routes(router: Router) -> Router {
     ril::instrument_additional(router)
 }
-
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
     ril::instrument(make_router(repo, None, None, false, None, None))
 }
