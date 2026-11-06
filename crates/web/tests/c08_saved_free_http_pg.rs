@@ -409,7 +409,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &review_action,
             &reader_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),
