@@ -174,7 +174,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("mail.${name}.${suffix}@example.test", mail)
         for filename in (CI_WORKFLOW, "tor-reader-visual.yml"):
             reader = job_sections((WORKFLOWS / filename).read_text())["reader-browser"]
-            self.assertIn("node tools/reader_visual_smoke.cjs", reader)
+            self.assertIn("ci_timed_browser tools/reader_visual_smoke.cjs", reader)
+            self.assertIn('if node "$scenario" "$@"; then', reader)
 
     def test_rec13_reuses_browser_only_in_pg_jobs(self):
         script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
@@ -193,6 +194,34 @@ class WorkflowWiringTests(unittest.TestCase):
         standalone = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         self.assertIn("run: bash tools/rec13_browser_acceptance.sh", standalone)
         self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", standalone)
+
+    def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]
+        expected = (
+            "reader_visual_smoke.cjs",
+            "br060_archive_browser_pg.cjs",
+            "author_chapter_visual_smoke.cjs",
+            "loop_01_browser_smoke.cjs",
+            "chapter_file_import_browser.cjs",
+            "home_spotlight_visual_smoke.cjs",
+            "search_visual_smoke.cjs",
+            "ranking_visual_smoke.cjs",
+            "paid_reader_browser_smoke.cjs",
+            "batch_checkout_chromium_pg.cjs",
+            "referral_share_browser_smoke.cjs",
+        )
+        commands = []
+        for name, body in (("required", required), ("manual", manual)):
+            with self.subTest(workflow=name):
+                self.assertIn("CI_BROWSER_SCENARIO_SECONDS", body)
+                self.assertIn('return "$result"', body)
+                self.assertIn('if node "$scenario" "$@"; then', body)
+                self.assertIn("set -euo pipefail", body)
+                found = tuple(re.findall(r"ci_timed_browser tools/([\w-]+\.cjs)", body))
+                self.assertEqual(found, expected)
+                commands.append(found)
+        self.assertEqual(commands[0], commands[1])
 
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
