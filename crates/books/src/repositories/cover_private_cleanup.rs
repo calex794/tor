@@ -42,7 +42,7 @@ impl PgPrivateCoverVariantRemovals {
                AND j.status IN ('done','superseded','dead')
                AND (
                  (r.state='rejected' AND r.decided_at<=now()-interval '7 days')
-                 OR (r.state='superseded' AND r.submitted_at<=now()-interval '7 days')
+                 OR (r.state='superseded' AND r.superseded_at<=now()-interval '7 days')
                )
              ORDER BY r.id,v.variant_name
              LIMIT $1
@@ -75,7 +75,7 @@ impl PgPrivateCoverVariantRemovals {
                   AND j.status IN ('done','superseded','dead')
                   AND (
                     (r.state='rejected' AND r.decided_at<=now()-interval '7 days')
-                    OR (r.state='superseded' AND r.submitted_at<=now()-interval '7 days')
+                    OR (r.state='superseded' AND r.superseded_at<=now()-interval '7 days')
                   )
                   AND (
                     (c.state='pending' AND c.retry_after<=now())

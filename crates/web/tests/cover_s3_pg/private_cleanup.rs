@@ -164,4 +164,115 @@ pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<
             .await
             .unwrap());
     }
+
+    // A candidate submitted twenty days ago but superseded today must
+    // NOT lose its private files until seven full days after supersession.
+    // Historical rows without superseded_at are deliberately fail-closed.
+    let superseded_job = jobs
+        .enqueue(source, BOOK_ID, BOOK_ID, 1, "test-superseded-retention-20261107")
+        .await
+        .unwrap();
+    pg_sql(
+        &url,
+        &format!("UPDATE cover_variant_jobs SET status='done' WHERE id={superseded_job}"),
+    )
+    .await;
+    let mut superseded_keys = Vec::new();
+    for variant in &stored_variants {
+        let key = format!(
+            "staging/covers/variants/{superseded_job}/superseded-{}.webp",
+            variant.name
+        );
+        let bytes = store
+            .get_bounded(&variant.storage_key, variant.size_bytes as usize)
+            .await
+            .unwrap();
+        store.put_verified(&key, &bytes).await.unwrap();
+        pg_sql(
+            &url,
+            &format!(
+                "INSERT INTO cover_variants
+                 (job_id,variant_name,storage_key,content_sha256,size_bytes)
+                 VALUES({superseded_job},'{}','{}',decode('{}','hex'),{})",
+                variant.name,
+                key,
+                hex::encode(digest(&bytes)),
+                bytes.len()
+            ),
+        )
+        .await;
+        superseded_keys.push(key);
+    }
+    pg_sql(
+        &url,
+        &format!(
+            "INSERT INTO book_cover_review_requests
+             (book_id,job_id,submitted_by_user_id,expected_slot_revision,
+              state,submitted_at)
+             VALUES({BOOK_ID},{superseded_job},{BOOK_ID},1,'superseded',
+                    now()-interval '20 days')"
+        ),
+    )
+    .await;
+    assert_eq!(
+        private_cleanup.run_batch().await.unwrap().claimed,
+        0,
+        "a legacy superseded request without terminal timestamp must not be deleted"
+    );
+    pg_sql(
+        &url,
+        &format!(
+            "UPDATE book_cover_review_requests SET superseded_at=now()-interval '1 day'
+             WHERE job_id={superseded_job}"
+        ),
+    )
+    .await;
+    assert_eq!(
+        private_cleanup.run_batch().await.unwrap().claimed,
+        0,
+        "submission age must not substitute for seven days since supersession"
+    );
+    for key in &superseded_keys {
+        assert!(
+            client
+                .head_object()
+                .bucket(BUCKET)
+                .key(key)
+                .send()
+                .await
+                .is_ok(),
+            "recently superseded private candidate must remain in MinIO"
+        );
+    }
+    pg_sql(
+        &url,
+        &format!(
+            "UPDATE book_cover_review_requests SET superseded_at=now()-interval '8 days'
+             WHERE job_id={superseded_job}"
+        ),
+    )
+    .await;
+    let aged = private_cleanup.run_batch().await.unwrap();
+    assert_eq!(aged.claimed, 2);
+    assert_eq!(aged.removed, 2);
+    assert_eq!(aged.deferred, 0);
+    for key in &superseded_keys {
+        assert!(
+            client
+                .head_object()
+                .bucket(BUCKET)
+                .key(key)
+                .send()
+                .await
+                .is_err(),
+            "only sufficiently aged superseded private variants may be removed"
+        );
+    }
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
+    for variant in &stored_variants {
+        assert!(store
+            .exists_verified(&variant.storage_key, &variant.sha256, variant.size_bytes)
+            .await
+            .unwrap());
+    }
 }

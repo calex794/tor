@@ -1,6 +1,14 @@
 -- MOD-COVER-01: durable, opt-in removal of terminal PRIVATE WebP variants.
 -- This ledger never deletes review requests, immutable decisions, or source uploads.
 -- Only rejected/superseded candidates older than seven days may be staged.
+-- Supersession time is recorded at the actual transition, not inferred
+-- from initial submission. Legacy superseded rows with unknown age are
+-- intentionally ineligible for automatic deletion (fail closed).
+ALTER TABLE book_cover_review_requests
+    ADD COLUMN superseded_at TIMESTAMPTZ;
+ALTER TABLE book_cover_review_requests
+    ADD CONSTRAINT cover_review_supersession_time
+    CHECK (superseded_at IS NULL OR state='superseded');
 CREATE TABLE cover_private_variant_removals (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     job_id BIGINT NOT NULL REFERENCES cover_variant_jobs(id) ON DELETE RESTRICT,
