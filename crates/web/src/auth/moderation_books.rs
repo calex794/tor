@@ -500,14 +500,6 @@ pub(super) async fn review_deletion(
         Err(status) => return decision_error(status, "/moderation/books/deletions"),
     };
     if !confirmed {
-        if id <= 0
-            || form.request_revision <= 0
-            || !matches!(form.decision.as_str(), "approve" | "reject")
-            || form.reason.len() > 2000
-            || (form.decision == "reject" && form.reason.trim().is_empty())
-        {
-            return decision_error(StatusCode::BAD_REQUEST, "/moderation/books/deletions");
-        }
         return super::moderation_confirm::confirmation_page(
             super::moderation_confirm::ReviewIntent {
                 kind: "deletion",
