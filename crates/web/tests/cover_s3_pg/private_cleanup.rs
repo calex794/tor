@@ -169,7 +169,13 @@ pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<
     // NOT lose its private files until seven full days after supersession.
     // Historical rows without superseded_at are deliberately fail-closed.
     let superseded_job = jobs
-        .enqueue(source, BOOK_ID, BOOK_ID, 1, "test-superseded-retention-20261107")
+        .enqueue(
+            source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "test-superseded-retention-20261107",
+        )
         .await
         .unwrap();
     pg_sql(
