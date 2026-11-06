@@ -2,6 +2,7 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
+#[path = "paid_author_pg/s048_browser.rs"]
 mod s048_browser;
 
 use async_trait::async_trait;
