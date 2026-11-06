@@ -128,8 +128,8 @@ pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
 mod tests {
     use super::*;
 
-    #[test]
-    fn confirmation_is_separate_and_escapes_rejection_reason() {
+    #[tokio::test]
+    async fn confirmation_is_separate_and_escapes_rejection_reason() {
         assert_eq!(was_confirmed(None), Ok(false));
         assert_eq!(was_confirmed(Some("yes")), Ok(true));
         assert_eq!(
@@ -146,5 +146,12 @@ mod tests {
         });
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = axum::body::to_bytes(response.into_body(), 262144).await.unwrap();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("name=\"confirmed\" value=\"yes\""));
+        assert!(html.contains("name=\"expected_revision\" value=\"3\""));
+        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!html.contains("<script>bad</script>"));
+        assert!(html.contains("Отмена — вернуться к очереди"));
     }
 }
