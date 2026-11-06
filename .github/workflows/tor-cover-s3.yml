@@ -129,6 +129,7 @@ jobs:
           key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
             -c "SELECT v.storage_key FROM cover_variants v \
                 JOIN cover_variant_jobs j ON j.id=v.job_id \
+                JOIN book_cover_slots s ON s.job_id=j.id AND s.book_id=j.book_id \
                 WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
           [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
