@@ -326,7 +326,9 @@ pub(super) async fn decide(
     };
     let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
         Ok(confirmed) => confirmed,
-        Err(status) => return super::moderation_books::decision_error(status, "/moderation/covers"),
+        Err(status) => {
+            return super::moderation_books::decision_error(status, "/moderation/covers")
+        }
     };
     if !confirmed {
         let reason = form.reason.as_deref().unwrap_or("").trim();
@@ -335,7 +337,10 @@ pub(super) async fn decide(
             || reason.len() > 2000
             || (!approve && reason.is_empty())
         {
-            return super::moderation_books::decision_error(StatusCode::BAD_REQUEST, "/moderation/covers");
+            return super::moderation_books::decision_error(
+                StatusCode::BAD_REQUEST,
+                "/moderation/covers",
+            );
         }
         return super::moderation_confirm::confirmation_page(
             super::moderation_confirm::ReviewIntent {
