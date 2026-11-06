@@ -197,6 +197,23 @@ impl CoverObjectStore for S3CoverStore {
         Ok(format!("{origin}/{public_key}"))
     }
 
+    async fn remove_private_staging_variant(&self, key: &str) -> Result<(), CoverError> {
+        const PREFIX: &str = "staging/covers/variants/";
+        if !key.starts_with(PREFIX) || key.len() <= PREFIX.len() || !Self::permitted(key) {
+            return Err(CoverError::Invalid);
+        }
+        // The B-owned ledger selected this exact immutable key from PostgreSQL.
+        // This method never removes a source, a paid object or a CDN origin copy.
+        self.client
+            .delete_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        Ok(())
+    }
+
     fn direct_read_origin(&self) -> Option<&str> {
         self.direct_origin.as_deref()
     }
