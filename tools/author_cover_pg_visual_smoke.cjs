@@ -105,6 +105,30 @@ async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width
         url.split('/').pop()].join('-') + '.png'),
       fullPage: false,
     });
+
+    // Native link keyboard access is an acceptance condition, not simply
+    // presence of an aria-current attribute in the HTML. Traverse from the
+    // start of the document so hidden/mobile nav elements cannot mask failure.
+    const target = nav.getByRole('link', { name: label });
+    let tabReached = false;
+    for (let press = 0; press < 80; press++) {
+      await reviewer.keyboard.press('Tab');
+      if (await target.evaluate(link => link === document.activeElement)) {
+        tabReached = true;
+        break;
+      }
+    }
+    assert(tabReached,
+      viewport + '/' + scheme + ': site queue tab unreachable with Tab keyboard');
+    const [viaKeyboard] = await Promise.all([
+      reviewer.waitForResponse(r =>
+        r.url() === base + url && r.request().method() === 'GET'),
+      reviewer.keyboard.press('Enter'),
+    ]);
+    assert(viaKeyboard.status() === 200,
+      viewport + '/' + scheme + ': Enter cannot activate the moderator queue link');
+    assert(await nav.locator('a[aria-current="page"]').count() === 1,
+      'keyboard-activated queue lost current tab marker');
   }
 }
 
@@ -155,7 +179,8 @@ async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
   const [decided] = await Promise.all([
     reviewer.waitForResponse(r =>
       r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
-    reviewer.getByRole('button', { name: 'Одобрить обложку' }).click(),
+    reviewer.getByRole('button', { name: 'Одобрить обложку' }).focus()
+      .then(() => reviewer.keyboard.press('Enter')),
   ]);
   assert(decided.status() === 303,
     viewport + '/' + scheme + ': site moderator cover approval refused');
