@@ -27,7 +27,7 @@ async function inspect(page, name, where) {
   try {
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-      const book = await page.goto(base + '/books/1', { waitUntil: 'networkidle' });
+      const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
       assert(await page.getByText('Глава 1. Начало истории').isVisible(), name + ': TOC invisible');
       assert(await page.getByText('Платная · нужен доступ').isVisible(), name + ': paywall label missing');
@@ -147,7 +147,7 @@ async function inspect(page, name, where) {
         localStorage.setItem('readerSettings',
           JSON.stringify({ ...saved, renderMode: 'paginated' }));
       });
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       await page.locator('[data-free-settings-open]').click();
       await page.locator('[data-free-theme="sepia"]').click();
       await page.locator('[data-free-font-family="sans"]').click();
@@ -155,7 +155,7 @@ async function inspect(page, name, where) {
       await page.locator('[data-free-line-height]').fill('200');
       await page.locator('[data-free-reader-width]').fill('980');
       await page.keyboard.press('Escape');
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       const preferences = await page.evaluate(() => ({
         theme: document.documentElement.dataset.freeReaderTheme,
         width: document.querySelector('[data-free-reader]').style.getPropertyValue('--free-reader-width'),
@@ -170,7 +170,7 @@ async function inspect(page, name, where) {
       await page.locator('[data-free-settings-open]').click();
       await page.locator('[data-free-settings-reset]').click();
       await page.keyboard.press('Escape');
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       assert(await page.locator('[data-free-font-output]').textContent() === '100%',
         name + ': reset not persisted');
       const afterReset = await page.evaluate(() =>
@@ -230,7 +230,7 @@ async function inspect(page, name, where) {
         ['reader', '/reader/101'],
         ['register', '/register']
       ]) {
-        const response = await page.goto(base + url, { waitUntil: 'networkidle' });
+        const response = await page.goto(base + url, { waitUntil: 'load' });
         assert(response && response.status() === 200,
           name + ': dark theme ' + location + ' failed HTTP');
         const css = await page.evaluate(() => {
@@ -261,7 +261,7 @@ async function inspect(page, name, where) {
         }
       }
       await page.emulateMedia({ colorScheme: 'light' });
-      await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
+      await page.goto(base + '/catalog', { waitUntil: 'load' });
       const restored = await page.evaluate(() => {
         const root = getComputedStyle(document.documentElement);
         return {
@@ -378,7 +378,7 @@ async function inspect(page, name, where) {
         name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
-      await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await page.goto(base + '/reader/101', { waitUntil: 'load' });
       const progressArticle = page.locator('[data-free-progress-chapter="101"]');
       assert(await progressArticle.count() === 1,
         name + ': authenticated free reader has no progress metadata');
@@ -387,14 +387,14 @@ async function inspect(page, name, where) {
       await page.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
       // Merely opening a chapter and leaving must NOT create ChapterStarted.
-      await page.goto(base + '/books/1', { waitUntil: 'networkidle' });
+      await page.goto(base + '/books/1', { waitUntil: 'load' });
       const unopened = await page.request.get(base +
         '/api/v1/me/progress/free?chapter_id=101');
       const untouched = await unopened.json();
       assert(unopened.status() === 200 && untouched.revision === 0 &&
         untouched.block_id === null,
         name + ': GET/pagehide created progress without reading');
-      await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await page.goto(base + '/reader/101', { waitUntil: 'load' });
       await page.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
       const progressPost = page.waitForResponse(response =>
@@ -419,14 +419,14 @@ async function inspect(page, name, where) {
       assert(cursor.block_id === sent.block_id &&
         cursor.char_offset === sent.char_offset && cursor.revision > 0,
         name + ': PostgreSQL cursor does not match auto-save');
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       await page.waitForFunction(() => {
         const article = document.querySelector('[data-free-progress-chapter]');
         return article && (article.dataset.freeProgressRestored === '1' ||
           window.scrollY > 0);
       });
       const secondTab = await page.context().newPage();
-      await secondTab.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await secondTab.goto(base + '/reader/101', { waitUntil: 'load' });
       await secondTab.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressRestored === '1');
       assert(await secondTab.evaluate(() => window.scrollY > 0),

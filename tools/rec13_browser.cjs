@@ -112,9 +112,12 @@ async function completeFreeChapter(page, chapter, version) {
     }
     // Isolated authenticated load: 150 distinct genuine POST receipts at
     // 25 requests/sec with CSRF, session cookies and PostgreSQL verification.
+    const organicLoadStarted = Date.now();
     await benchmarkOrganicActivation({
       page, sql, user, book:books[0], base, db
     });
+    console.log('CI_REC13_STEP_SECONDS stage=organic_post_load seconds='
+      + Math.ceil((Date.now() - organicLoadStarted) / 1000));
     // No-JS cards have canonical navigation but must not fabricate visible views.
     const disabledJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});
     await disabledJS.addCookies(await desktop.cookies());

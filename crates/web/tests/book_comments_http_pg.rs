@@ -616,7 +616,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let item: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(item["items"][0]["id"], incoming_id.to_string());
     assert_eq!(item["items"][0]["kind"], "reply");
-    assert_eq!(item["items"][0]["is_read"], false);
+    // Both POST requests must leave the original Inbox notification read.
+    assert_eq!(item["items"][0]["is_read"], true);
     assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
     assert_eq!(
         call(
@@ -645,6 +646,20 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         StatusCode::BAD_REQUEST
     );
     let read_path = format!("/me/replies/{incoming_id}/read-state");
+    // Explicitly restore unread to retain the existing manual-toggle tests.
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_path,
+            &cookies,
+            ORIGIN,
+            &format!("csrf_token={csrf}&state=unread")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
     let read_form = format!("csrf_token={csrf}&state=read");
     assert_eq!(
         call(

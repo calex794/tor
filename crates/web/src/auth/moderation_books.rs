@@ -57,6 +57,7 @@ pub(super) struct DeletionReviewForm {
     decision: String,
     #[serde(default)]
     reason: String,
+    confirmed: Option<String>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -332,7 +333,7 @@ fn render_deletion_queue(
                <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
                <p><a href="/moderation/books/{book}/history">История решений по книге</a></p>
                <details class="moderation-review-confirm" open>
-                 <summary>Рассмотреть заявку на удаление книги #{book}</summary>
+                 <summary>Проверить заявку на удаление книги #{book}</summary>
                  <p>Проверьте книгу и ревизию. Одобрение окончательно удалит
                     её из публичного каталога; сохранённые главы читателей останутся доступны.</p>
                <form method="post" action="/moderation/books/{book}/deletion">
@@ -340,8 +341,8 @@ fn render_deletion_queue(
                  <input type="hidden" name="request_revision" value="{revision}">
                  <label for="deletion-reason-{book}">Причина отказа (обязательна для отказа)</label>
                  <input id="deletion-reason-{book}" name="reason" maxlength="2000">
-                 <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
-                 <button type="submit" name="decision" value="reject">Отклонить удаление</button>
+                 <button type="submit" name="decision" value="approve">Продолжить одобрение удаления</button>
+                 <button type="submit" name="decision" value="reject">Продолжить отказ</button>
                </form></details></article>"#,
             book = item.book_id,
             owner = item.owner_user_id,
@@ -493,6 +494,22 @@ pub(super) async fn review_deletion(
         Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
+        Ok(confirmed) => confirmed,
+        Err(status) => return decision_error(status, "/moderation/books/deletions"),
+    };
+    if !confirmed {
+        return super::moderation_confirm::confirmation_page(
+            super::moderation_confirm::ReviewIntent {
+                kind: "deletion",
+                subject_id: id,
+                revision: form.request_revision,
+                action: &form.decision,
+                reason: form.reason.trim(),
+                csrf: &form.csrf_token,
+            },
+        );
     }
     match state
         .accounts

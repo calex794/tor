@@ -151,10 +151,24 @@ async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
   assert(previewBytes.subarray(0, 4).toString() === 'RIFF' &&
     previewBytes.subarray(8, 12).toString() === 'WEBP',
     'moderator preview was not a decoded WebP');
-  const [decided] = await Promise.all([
+  // First POST is a private no-write confirmation page. The staged cover
+  // must still be inaccessible through the public URL after this click.
+  const [review] = await Promise.all([
     reviewer.waitForResponse(r =>
       r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
     form.locator('button[name=action][value=approve]').click(),
+  ]);
+  assert(review.status() === 200,
+    viewport + '/' + scheme + ': cover review did not open confirmation');
+  assert(await reviewer.getByRole('heading', {
+    name: /Подтверждение решения по обложке/,
+  }).count() === 1, 'missing explicit second-step cover confirmation');
+  assert((await owner.context().request.get(base + prefix)).status() === 404,
+    'review preview published a staged cover before confirmation');
+  const [decided] = await Promise.all([
+    reviewer.waitForResponse(r =>
+      r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
+    reviewer.getByRole('button', { name: 'Одобрить обложку' }).click(),
   ]);
   assert(decided.status() === 303,
     viewport + '/' + scheme + ': site moderator cover approval refused');

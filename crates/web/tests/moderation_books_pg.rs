@@ -659,7 +659,8 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     // Only the separate site registration approval action can publish the
     // moderation decision. Chapter release remains outside this review.
     let registration_action = format!("/moderation/books/{fresh}/registration");
-    let registration_approve = format!("csrf_token={csrf}&expected_revision=1&action=approve");
+    let registration_approve =
+        format!("csrf_token={csrf}&expected_revision=1&action=approve&confirmed=yes");
     assert_eq!(
         request(
             &app,

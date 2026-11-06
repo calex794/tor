@@ -189,16 +189,46 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         ),
         "draft:pending_moderation"
     );
+    // Step one only renders a private human confirmation, without mutation.
+    let confirmation = request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body).await;
+    assert_eq!(confirmation.status(), StatusCode::OK);
+    assert_eq!(confirmation.headers()[header::CACHE_CONTROL], "no-store");
+    let confirm_html = html(confirmation).await;
+    assert!(confirm_html.contains("name=\"confirmed\" value=\"yes\""));
+    assert!(confirm_html.contains("Подтверждение решения"));
     assert_eq!(
-        request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body)
-            .await
-            .status(),
+        pg(
+            &url,
+            &format!("SELECT visibility_status FROM books WHERE id={book}")
+        ),
+        "pending_moderation",
+        "first POST must not approve registration"
+    );
+    let confirmed_body = format!("{body}&confirmed=yes");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "double decision must not rewrite reviewer or audit"
     );
@@ -262,6 +292,21 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
         .status(),
         StatusCode::BAD_REQUEST
     );
+    let reject_body =
+        format!("csrf_token={csrf}&expected_revision=1&action=reject&reason=Incorrect+book");
+    let rejected_preview = request(
+        &app,
+        "POST",
+        &rejected_path,
+        &admin_cookie,
+        ORIGIN,
+        &reject_body,
+    )
+    .await;
+    assert_eq!(rejected_preview.status(), StatusCode::OK);
+    let rejected_html = html(rejected_preview).await;
+    assert!(rejected_html.contains("Incorrect book"));
+    assert!(rejected_html.contains("name=\"confirmed\" value=\"yes\""));
     assert_eq!(
         request(
             &app,
@@ -269,7 +314,7 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
             &rejected_path,
             &admin_cookie,
             ORIGIN,
-            &format!("csrf_token={csrf}&expected_revision=1&action=reject&reason=Incorrect+book")
+            &format!("{reject_body}&confirmed=yes")
         )
         .await
         .status(),

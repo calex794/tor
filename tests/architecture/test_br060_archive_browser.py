@@ -11,10 +11,12 @@ class Br060ArchiveBrowserTests(unittest.TestCase):
         script = "tools/br060_archive_browser_pg.cjs"
         self.assertIn("node --check " + script, workflow)
         self.assertIn(
-            'TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node ' + script,
+            'TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser ' + script,
             workflow,
         )
-        self.assertEqual(workflow.count("node " + script + "\n"), 1)
+        self.assertEqual(workflow.count("ci_timed_browser " + script + "\n"), 1)
+        self.assertIn('if node "$scenario" "$@"; then', workflow)
+        self.assertIn('return "$result"', workflow)
 
     def test_disposable_sql_and_real_http_cannot_be_replaced_by_mocks(self):
         code = (ROOT / "tools/br060_archive_browser_pg.cjs").read_text()
