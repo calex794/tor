@@ -595,17 +595,17 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(digest(&image), variant.sha256);
     }
 
-    private_cleanup::verify_private_variant_retention(
-        url.clone(),
-        &catalog,
-        &slots,
-        &jobs,
-        store.clone(),
-        &client,
+    private_cleanup::verify_private_variant_retention(private_cleanup::PrivateRetentionCase {
+        url: &url,
+        catalog: &catalog,
+        slots: &slots,
+        jobs: &jobs,
+        store: store.clone(),
+        client: &client,
         source,
         reviewer,
         job,
-    )
+    })
     .await;
 
     let card = slots
