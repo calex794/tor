@@ -240,7 +240,7 @@ pub(super) async fn verify(
         url,
         &format!(
             "SELECT request_revision FROM book_ordinary_deletion_requests
-             WHERE book_id={book} ORDER BY id DESC LIMIT 1"
+             WHERE book_id={book} ORDER BY requested_at DESC LIMIT 1"
         ),
     );
     let review_path = format!("/moderation/books/{book}/deletion");
