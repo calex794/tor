@@ -132,10 +132,7 @@ mod tests {
     async fn confirmation_is_separate_and_escapes_rejection_reason() {
         assert_eq!(was_confirmed(None), Ok(false));
         assert_eq!(was_confirmed(Some("yes")), Ok(true));
-        assert_eq!(
-            was_confirmed(Some("false")),
-            Err(StatusCode::BAD_REQUEST)
-        );
+        assert_eq!(was_confirmed(Some("false")), Err(StatusCode::BAD_REQUEST));
         let response = confirmation_page(ReviewIntent {
             kind: "registration",
             subject_id: 91,
@@ -146,7 +143,9 @@ mod tests {
         });
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["cache-control"], "no-store");
-        let body = axum::body::to_bytes(response.into_body(), 262144).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 262144)
+            .await
+            .unwrap();
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains("name=\"confirmed\" value=\"yes\""));
         assert!(html.contains("name=\"expected_revision\" value=\"3\""));
