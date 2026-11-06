@@ -378,11 +378,12 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &format!("/moderation/books/{book}/deletion"),
             &reader_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),
-        StatusCode::FORBIDDEN
+        StatusCode::FORBIDDEN,
+        "site moderator must not finalize deletion of their own Book"
     );
     let moderator_queue = "/moderation/books/deletions";
     assert_eq!(
