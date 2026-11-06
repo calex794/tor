@@ -22,6 +22,14 @@ pub(super) struct ReviewIntent<'a> {
 }
 
 pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
+    if intent.subject_id <= 0
+        || (intent.kind != "cover" && intent.revision <= 0)
+        || intent.revision < 0
+        || intent.reason.len() > 2000
+        || (intent.action == "reject" && intent.reason.trim().is_empty())
+    {
+        return private_response(StatusCode::BAD_REQUEST, &[]);
+    }
     let (label, post_path, revision_field, action_field, back) = match intent.kind {
         "registration" => (
             "регистрации книги",
