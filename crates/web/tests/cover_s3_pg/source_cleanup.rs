@@ -1,13 +1,13 @@
 //! Real MinIO + PostgreSQL proof that one original may serve multiple jobs.
 use std::sync::Arc;
 use tor_books::repositories::{
+    cover_private_cleanup::PgPrivateCoverVariantRemovals,
     cover_source_cleanup::PgPrivateCoverSourceRemovals,
-    cover_slots::PgCoverSlots,
 };
 use tor_ingest::{
     domain::cover::CoverVariant,
-    repositories::{cover_jobs::PgCoverJobs, s3::S3CoverStore},
-    services::cover_jobs::CoverObjectStore,
+    repositories::s3::S3CoverStore,
+    services::cover_jobs::{CoverJobs, CoverObjectStore},
 };
 use tor_web::{
     cover_private_cleanup::PrivateCoverVariantCleanup,
@@ -129,7 +129,7 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
     .await;
 
     let variant_cleanup = PrivateCoverVariantCleanup::new(
-        super::private_cleanup::private_variant_ledger(catalog),
+        PgPrivateCoverVariantRemovals::new(catalog.pool()),
         Arc::new(store.clone()),
     );
     let source_cleanup = PrivateCoverSourceCleanup::new(
