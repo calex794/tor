@@ -21,9 +21,7 @@ use deletion_queue_render::{render_deletion_queue, DeletionQueueFilters};
 #[path = "moderation_registration.rs"]
 mod registration;
 use tor_accounts::{
-    repositories::moderation_books::{
-        ModerationBook, ModerationBooksError,
-    },
+    repositories::moderation_books::{ModerationBook, ModerationBooksError},
     services::security::session_token_digest,
 };
 
@@ -462,12 +460,14 @@ mod deletion_queue_tests {
 
     #[test]
     fn escapes_titles_and_never_trusts_client_actor_or_book_state() {
-        let rows = vec![tor_accounts::repositories::moderation_books::ModerationDeletionRequest {
-            book_id: 42,
-            title: "<script>alert(1)</script>".into(),
-            owner_user_id: 7,
-            request_revision: 2,
-        }];
+        let rows = vec![
+            tor_accounts::repositories::moderation_books::ModerationDeletionRequest {
+                book_id: 42,
+                title: "<script>alert(1)</script>".into(),
+                owner_user_id: 7,
+                request_revision: 2,
+            },
+        ];
         let page = render_deletion_queue(
             &rows,
             "csrf",
