@@ -4,26 +4,30 @@
 use crate::pages;
 use tor_accounts::repositories::moderation_books::ModerationDeletionRequest;
 
+pub(super) struct DeletionQueueFilters<'a> {
+    pub search: Option<&'a str>,
+    pub level: Option<&'a str>,
+    pub wait: Option<&'a str>,
+}
+
 pub(super) fn render_deletion_queue(
     rows: &[ModerationDeletionRequest],
     csrf: &str,
     registration_count: i64,
     cover_count: i64,
     deletion_count: i64,
-    search: Option<&str>,
-    level: Option<&str>,
-    wait: Option<&str>,
+    filters: DeletionQueueFilters<'_>,
 ) -> String {
     let token = pages::escape_html(csrf);
-    let search = pages::escape_html(search.unwrap_or(""));
-    let level = level.unwrap_or("");
+    let search = pages::escape_html(filters.search.unwrap_or(""));
+    let level = filters.level.unwrap_or("");
     let selected = |tier: &str| if level == tier { " selected" } else { "" };
     let level_all = selected("");
     let level_basic = selected("basic");
     let level_adult = selected("adult");
     let level_pro = selected("pro_adult");
     let level_legacy = selected("legacy");
-    let wait = wait.unwrap_or("");
+    let wait = filters.wait.unwrap_or("");
     let waiting_selected = |age: &str| if wait == age { " selected" } else { "" };
     let wait_any = waiting_selected("");
     let wait_new = waiting_selected("lt24");
