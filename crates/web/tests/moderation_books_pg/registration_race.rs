@@ -100,7 +100,11 @@ async fn independent_reviewers_cannot_both_decide_one_registration() {
             || (status_b == StatusCode::SEE_OTHER && status_a == StatusCode::CONFLICT),
         "two site moderators must produce one 303 and one 409: {status_a}/{status_b}"
     );
-    let loser = if status_a == StatusCode::CONFLICT { a } else { b };
+    let loser = if status_a == StatusCode::CONFLICT {
+        a
+    } else {
+        b
+    };
     assert_eq!(loser.headers()[header::CACHE_CONTROL], "no-store");
     let error_html = html(loser).await;
     assert!(!error_html.contains("Independent reviewer A"));
@@ -145,16 +149,9 @@ async fn independent_reviewers_cannot_both_decide_one_registration() {
         "the sole decision must be attributed to the actual winning reviewer"
     );
     assert_eq!(
-        request(
-            &app,
-            "POST",
-            &url_path,
-            &cookie_a,
-            ORIGIN,
-            &approve
-        )
-        .await
-        .status(),
+        request(&app, "POST", &url_path, &cookie_a, ORIGIN, &approve)
+            .await
+            .status(),
         StatusCode::CONFLICT
     );
     assert_eq!(
