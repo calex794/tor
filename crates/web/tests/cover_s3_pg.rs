@@ -43,6 +43,9 @@ use tor_web::{
 };
 use tower::ServiceExt;
 
+#[path = "cover_s3_pg/private_cleanup.rs"]
+mod private_cleanup;
+
 const BUCKET: &str = "tor-private-obs09-ci";
 const BOOK_ID: i64 = 950;
 const SOURCE_KEY: &str = "staging/covers/sources/obs09-owner-950.png";
@@ -591,6 +594,19 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(image.get(8..12), Some(&b"WEBP"[..]));
         assert_eq!(digest(&image), variant.sha256);
     }
+
+    private_cleanup::verify_private_variant_retention(private_cleanup::PrivateRetentionCase {
+        url: &url,
+        catalog: &catalog,
+        slots: &slots,
+        jobs: &jobs,
+        store: store.clone(),
+        client: &client,
+        source,
+        reviewer,
+        job,
+    })
+    .await;
 
     let card = slots
         .public_variant(BOOK_ID, PublicCoverKind::Card)

@@ -72,6 +72,13 @@ pub trait CoverObjectStore: Send + Sync {
         Err(CoverError::Forbidden)
     }
 
+    /// Remove ONLY an obsolete immutable private variant selected by the
+    /// B-owned, seven-day PostgreSQL retention and fenced lease ledger.
+    /// Never accept browser input or delete sources, current slots, or paid files.
+    async fn remove_private_staging_variant(&self, _key: &str) -> Result<(), CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
     /// A source must be verified by a signed PUT, HEAD, and bounded GET.
     /// Stores without source-upload support fail closed.
     async fn put_source_verified(

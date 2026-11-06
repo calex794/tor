@@ -112,7 +112,8 @@ impl PgCoverSlots {
             return Ok(true);
         }
         sqlx::query(
-            "UPDATE book_cover_review_requests SET state='superseded'
+            "UPDATE book_cover_review_requests
+             SET state='superseded',superseded_at=clock_timestamp()
              WHERE book_id=$1 AND state='pending'",
         )
         .bind(book_id)
