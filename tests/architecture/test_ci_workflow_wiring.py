@@ -256,6 +256,18 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
             self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
 
+    def test_rec13_step_timing_keeps_real_benchmark_and_failure_handling(self):
+        shell = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        browser = (ROOT / "tools/rec13_browser.cjs").read_text()
+        for stage in ("cargo_build", "playwright_setup", "http_ready", "browser_acceptance"):
+            self.assertIn('ci_rec_step_done "' + stage + '"', shell)
+        self.assertIn("CI_REC13_STEP_SECONDS stage=$stage", shell)
+        self.assertIn("set -Eeuo pipefail", shell)
+        self.assertIn("node tools/rec13_browser.cjs", shell)
+        self.assertIn("await benchmarkOrganicActivation({", browser)
+        self.assertIn("CI_REC13_STEP_SECONDS stage=organic_post_load", browser)
+        self.assertIn("REC13 browser PASS:", browser)
+
     def test_pg_client_uses_existing_runner_binaries_with_safe_fallback(self):
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
             with self.subTest(workflow=filename):
