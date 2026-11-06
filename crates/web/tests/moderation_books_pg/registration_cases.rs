@@ -281,6 +281,8 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     let owner_reason = html(owner_status).await;
     assert!(owner_reason.contains("Причина отказа"));
     assert!(owner_reason.contains("Incorrect book"));
+    assert!(owner_reason.contains("Регистрация отклонена"));
+    assert!(owner_reason.contains("Текущая видимость книги: скрыта"));
     assert!(!owner_reason.contains("Site Moderator"));
     assert!(!owner_reason.contains(&format!("(#{admin})")));
     let accepted_status = html(
@@ -297,6 +299,67 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     .await;
     assert!(accepted_status.contains("Регистрация одобрена"));
     assert!(!accepted_status.contains("Site Moderator"));
+    // Operational visibility changes do not rewrite immutable registration
+    // approval, even if the Book is later hidden and held by site staff.
+    let status_path = format!("/me/books/{book}/registration-status");
+    let visibility_path = format!("/moderation/books/{book}/visibility");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!(
+                "csrf_token={csrf}&expected_status=active&expected_revision=2&new_status=hidden"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let hidden_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(hidden_status.contains("Регистрация одобрена"));
+    assert!(hidden_status.contains("Текущая видимость книги: скрыта"));
+    assert!(!hidden_status.contains("Регистрация отклонена"));
+    assert!(!hidden_status.contains("Причина отказа</h2>"));
+    assert!(!hidden_status.contains("Site Moderator"));
+
+    let hold_path = format!("/moderation/books/{book}/hold");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &hold_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&expected_hold=false&new_hold=true")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let held_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(held_status.contains("Регистрация одобрена"));
+    assert!(held_status.contains("Текущая видимость книги: скрыта"));
+    assert!(held_status.contains("административное удержание"));
+    assert!(!held_status.contains("Site Moderator"));
+    assert_eq!(
+        request(&app, "GET", &status_path, &admin_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_registration_decisions WHERE book_id={book}")
+        ),
+        "1",
+        "a visibility change and hold must not create new review decisions"
+    );
     // A site moderator can browse approved/refused applications across all
     // three queues, but neither the owner nor anonymous readers can inspect
     // the reviewer ledger. Filters apply before the page size in PostgreSQL.
