@@ -832,3 +832,5 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
 
 #[path = "moderation_books_pg/registration_cases.rs"]
 mod registration_cases;
+#[path = "moderation_books_pg/registration_race.rs"]
+mod registration_race;
