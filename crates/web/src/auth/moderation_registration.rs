@@ -51,26 +51,30 @@ fn error_code(e: ModerationBooksError) -> StatusCode {
     }
 }
 
+struct RegistrationQueueFilters<'a> {
+    search: Option<&'a str>,
+    level: Option<&'a str>,
+    wait: Option<&'a str>,
+}
+
 fn render(
     items: &[RegistrationCandidate],
     count: i64,
     csrf: &str,
     covers_count: i64,
     deletions_count: i64,
-    search: Option<&str>,
-    level: Option<&str>,
-    wait: Option<&str>,
+    filters: RegistrationQueueFilters<'_>,
 ) -> String {
     let token = pages::escape_html(csrf);
-    let search = pages::escape_html(search.unwrap_or(""));
-    let level = level.unwrap_or("");
+    let search = pages::escape_html(filters.search.unwrap_or(""));
+    let level = filters.level.unwrap_or("");
     let selected = |tier: &str| if level == tier { " selected" } else { "" };
     let all_selected = selected("");
     let basic_selected = selected("basic");
     let adult_selected = selected("adult");
     let pro_selected = selected("pro_adult");
     let legacy_selected = selected("legacy");
-    let wait = wait.unwrap_or("");
+    let wait = filters.wait.unwrap_or("");
     let wait_selected = |bucket: &str| if wait == bucket { " selected" } else { "" };
     let wait_all = wait_selected("");
     let wait_recent = wait_selected("lt24");
@@ -225,9 +229,11 @@ pub(super) async fn queue(
             &csrf,
             covers_count,
             deletions_count,
-            query.q.as_deref(),
-            query.level.as_deref(),
-            query.wait.as_deref(),
+            RegistrationQueueFilters {
+                search: query.q.as_deref(),
+                level: query.level.as_deref(),
+                wait: query.wait.as_deref(),
+            },
         )),
         &cookies,
     );
@@ -332,7 +338,18 @@ mod tests {
             owner_user_id: Some(37),
             revision: 1,
         }];
-        let body = render(&rows, 1, "csrf", 2, 3, None, None, None);
+        let body = render(
+            &rows,
+            1,
+            "csrf",
+            2,
+            3,
+            RegistrationQueueFilters {
+                search: None,
+                level: None,
+                wait: None,
+            },
+        );
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
         assert!(body.contains("Регистрация (1)"));
