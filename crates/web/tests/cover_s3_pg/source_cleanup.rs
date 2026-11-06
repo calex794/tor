@@ -108,6 +108,19 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         .await
         .unwrap();
     assert_ne!(rejected_job, pending_job);
+    assert_eq!(
+        jobs.enqueue(
+            shared_source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "retired-shared-source-rejected"
+        )
+        .await
+        .unwrap(),
+        rejected_job,
+        "a verified source permits idempotent replay of an existing recipe"
+    );
     pg_sql(
         &url,
         &format!("UPDATE cover_variant_jobs SET status='done' WHERE id={rejected_job}"),
@@ -239,6 +252,18 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         .await
         .is_err(),
         "new recipes must not be able to enqueue after source retirement"
+    );
+    assert!(
+        jobs.enqueue(
+            shared_source,
+            BOOK_ID,
+            BOOK_ID,
+            1,
+            "retired-shared-source-rejected"
+        )
+        .await
+        .is_err(),
+        "an already retired original must also reject old recipe replays"
     );
     assert!(store
         .remove_private_staging_source("staging/covers/variants/retired.webp")
