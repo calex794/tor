@@ -88,6 +88,14 @@ SELECT :'book_id' || ':' || :'chapter_id';`, values).split(':');
   await reader.page.waitForURL(base + conversation);
   await restored();
 
+  // Friendship must not become a private-book reading entitlement.
+  const authorCsrf = await author.page.locator('form[action$="/friend"] [name="csrf_token"]').inputValue();
+  for (const [client, peer, token] of [[author, reader.id, authorCsrf], [reader, author.id, saved.csrf_token]]) {
+    const request = await client.context.request.post(base + '/users/' + peer + '/friend', {
+      form: { csrf_token: token }, headers: { Origin: base }, maxRedirects: 0,
+    });
+    assert.equal(request.status(), 303);
+  }
   fixture("UPDATE books SET visibility='draft' WHERE id=:'book';", bookValues);
   await hidden();
   for (const client of [reader, outsider]) {
@@ -106,6 +114,9 @@ SELECT :'book_id' || ':' || :'chapter_id';`, values).split(':');
   await restored();
   await reader.page.screenshot({ path: path.join(out, 's015-notification-restored-' + name + '.png'), fullPage: true });
   assert.equal((await post(reader, saved)).status(), 303);
-  console.log('S015 ' + name + ': live release notification block/hide/age/stale-form/direct-read PASS');
+  assert.equal((await author.context.request.post(base + '/users/' + reader.id + '/unfriend', {
+    form: { csrf_token: authorCsrf }, headers: { Origin: base }, maxRedirects: 0,
+  })).status(), 303);
+  console.log('S015 ' + name + ': live release notification block/hide/age/stale-form/friend-private-read PASS');
 };
 
