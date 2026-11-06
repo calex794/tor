@@ -88,7 +88,7 @@ impl PgPrivateCoverSourceRemovals {
             )
             INSERT INTO cover_private_source_removals
                 (source_object_id,storage_key)
-            SELECT r.id,r.storage_key FROM retired r
+            SELECT r.id,r.storage_key FROM retired r WHERE true
             ON CONFLICT DO NOTHING",
         )
         .bind(limit)
