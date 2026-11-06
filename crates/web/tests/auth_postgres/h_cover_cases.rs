@@ -397,7 +397,9 @@ pub(super) async fn upload_and_show(
     )
     .await;
     assert_eq!(first.status(), StatusCode::OK);
-    assert!(body_of(first).await.contains("Подтверждение решения по обложке"));
+    assert!(body_of(first)
+        .await
+        .contains("Подтверждение решения по обложке"));
     assert_eq!(
         slots.current_slot(book_id).await.unwrap(),
         None,
@@ -408,7 +410,9 @@ pub(super) async fn upload_and_show(
         request(
             "POST",
             &decision_path,
-            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve&confirmed=yes"),
+            &format!(
+                "csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve&confirmed=yes"
+            ),
             &reviewer_cookie,
             ORIGIN,
         ),
