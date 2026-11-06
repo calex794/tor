@@ -190,6 +190,9 @@ async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
   ]);
   assert(decided.status() === 303,
     viewport + '/' + scheme + ': site moderator cover approval refused');
+  // The 303 response precedes the browser's redirect navigation. Wait for
+  // that navigation to finish before opening the private decision history.
+  await reviewer.waitForURL(base + '/moderation/covers', { waitUntil: 'load' });
   assert((await owner.context().request.get(base + prefix)).status() === 200,
     'approved cover was not published through its B-owned slot');
 
