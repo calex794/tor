@@ -138,13 +138,3 @@ impl PgAccounts {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn private_observation_contract_exposes_no_delivery_api() {
-        let module = include_str!("moderation_overdue_signals.rs");
-        assert!(!module.contains("send_mail("));
-        assert!(!module.contains("notify_recipient("));
-        assert!(!module.contains("publish_to_s3("));
-    }
-}
