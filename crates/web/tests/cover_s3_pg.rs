@@ -356,13 +356,29 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let cover_path = format!("/moderation/covers/{}/decision", review_request.id);
+    let cover_body = format!("csrf_token={csrf}&expected_slot_revision=0&action=approve");
+    let preview = moderation_request(
+        &moderator_app,
+        "POST",
+        &cover_path,
+        &cookie,
+        origin,
+        &cover_body,
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()[header::CACHE_CONTROL], "no-store");
+    let preview_html = to_bytes(preview.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&preview_html).contains("name=\"confirmed\" value=\"yes\""));
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), None);
     let approved = moderation_request(
         &moderator_app,
         "POST",
-        &format!("/moderation/covers/{}/decision", review_request.id),
+        &cover_path,
         &cookie,
         origin,
-        &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        &format!("{cover_body}&confirmed=yes"),
     )
     .await;
     assert_eq!(approved.status(), StatusCode::SEE_OTHER);
@@ -373,7 +389,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             &format!("/moderation/covers/{}/decision", review_request.id),
             &cookie,
             origin,
-            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve&confirmed=yes"),
         )
         .await
         .status(),
