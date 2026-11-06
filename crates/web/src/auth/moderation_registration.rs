@@ -11,7 +11,9 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::{
     repositories::{
-        moderation_books::ModerationBooksError, moderation_registration::RegistrationCandidate,
+        moderation_books::ModerationBooksError,
+        moderation_queue_age::ModerationQueueAgeSummary,
+        moderation_registration::RegistrationCandidate,
     },
     services::security::session_token_digest,
 };
@@ -58,6 +60,35 @@ struct RegistrationQueueFilters<'a> {
     wait: Option<&'a str>,
 }
 
+fn render_age_summary(summary: &ModerationQueueAgeSummary) -> String {
+    let registrations_24 = summary.registrations.at_least_24h;
+    let registrations_72 = summary.registrations.at_least_72h;
+    let covers_24 = summary.covers.at_least_24h;
+    let covers_72 = summary.covers.at_least_72h;
+    let deletions_24 = summary.deletions.at_least_24h;
+    let deletions_72 = summary.deletions.at_least_72h;
+    format!(
+        r#"<section aria-labelledby="moderation-wait-heading">
+        <h2 id="moderation-wait-heading">Контроль времени ожидания</h2>
+        <p>Служебная сводка текущих заявок. Пороги 24 и 72 часа —
+           ориентиры для ручной проверки, а не утверждённые SLA
+           и не автоматические уведомления.</p>
+        <ul>
+          <li>Регистрация:
+            <a href="/moderation/books/registrations?wait=gte24">от 24 ч: {registrations_24}</a>,
+            <a href="/moderation/books/registrations?wait=gte72">от 72 ч: {registrations_72}</a>
+            (время от создания книги, только первичная заявка)</li>
+          <li>Обложки:
+            <a href="/moderation/covers?wait=gte24">от 24 ч: {covers_24}</a>,
+            <a href="/moderation/covers?wait=gte72">от 72 ч: {covers_72}</a></li>
+          <li>Удаление:
+            <a href="/moderation/books/deletions?wait=gte24">от 24 ч: {deletions_24}</a>,
+            <a href="/moderation/books/deletions?wait=gte72">от 72 ч: {deletions_72}</a>
+            (без заявок на собственные книги)</li>
+        </ul></section>"#
+    )
+}
+
 fn render(
     items: &[RegistrationCandidate],
     count: i64,
@@ -65,7 +96,9 @@ fn render(
     covers_count: i64,
     deletions_count: i64,
     filters: RegistrationQueueFilters<'_>,
+    age: &ModerationQueueAgeSummary,
 ) -> String {
+    let age_summary = render_age_summary(age);
     let token = pages::escape_html(csrf);
     let search = pages::escape_html(filters.search.unwrap_or(""));
     let level = filters.level.unwrap_or("");
@@ -137,6 +170,7 @@ fn render(
               <a href="/moderation/books/control">Контроль</a>
             </nav>
               <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
+            {age_summary}
             <form method="get" action="/moderation/books/registrations">
               <label for="registration-search">Поиск по названию или ID книги</label>
               <input id="registration-search" name="q" maxlength="120" value="{search}">
@@ -208,6 +242,10 @@ pub(super) async fn queue(
         Ok(count) => count,
         Err(e) => return deny(error_code(e)),
     };
+    let age_summary = match state.accounts.moderation_queue_age_summary(&digest).await {
+        Ok(summary) => summary,
+        Err(error) => return deny(error_code(error)),
+    };
     let rows = match state
         .accounts
         .moderation_registration_queue_with_wait_age(
@@ -235,6 +273,7 @@ pub(super) async fn queue(
                 level: query.level.as_deref(),
                 wait: query.wait.as_deref(),
             },
+            &age_summary,
         )),
         &cookies,
     );
@@ -379,6 +418,7 @@ mod tests {
                 level: None,
                 wait: None,
             },
+            &ModerationQueueAgeSummary::default(),
         );
         assert!(body.contains("&lt;script&gt;private&lt;/script&gt;"));
         assert!(!body.contains("<script>"));
@@ -387,6 +427,9 @@ mod tests {
         assert!(body.contains("name=\"q\""));
         assert!(body.contains("name=\"level\""));
         assert!(body.contains("name=\"wait\""));
+        assert!(body.contains("Контроль времени ожидания"));
+        assert!(body.contains("/moderation/covers?wait=gte72"));
+        assert!(body.contains("/moderation/books/deletions?wait=gte24"));
         assert!(body.contains("Обложки (2)"));
         assert!(body.contains("Удаление (3)"));
         assert!(body.contains("/moderation/books/51/registration"));
