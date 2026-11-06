@@ -459,10 +459,9 @@ jobs:
           cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-social --test chapter_release_notifications_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          # All four test targets share the same crate and test flags;
+          # Cargo still executes each complete target, with one frontend invocation.
+          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1

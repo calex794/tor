@@ -296,6 +296,24 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("sudo apt-get install -y postgresql-client", code)
                 self.assertIn("Using preinstalled PostgreSQL client", code)
 
+    def test_line_a_account_targets_share_cargo_without_losing_tests(self):
+        joined = (
+            "cargo test -p tor-accounts "
+            "--test access_audit_pg --test auth_observation_pg "
+            "--test credentials_pg --test slices_pg "
+            "-- --ignored --test-threads=1"
+        )
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                line_a = pg.split(
+                    "      - name: Line A credential and login audit PostgreSQL checks", 1
+                )[1].split("      - name: D-04 diagnostic HTTP logs", 1)[0]
+                self.assertEqual(line_a.count("cargo test -p tor-accounts"), 1)
+                self.assertIn(joined, line_a)
+                self.assertIn("cargo test -p tor-web --test password_change_http_pg a_07_", line_a)
+                self.assertIn("cargo test -p tor-web --test account_sessions_http_pg a_03_", line_a)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
