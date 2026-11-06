@@ -281,4 +281,16 @@ pub(super) async fn verify_private_variant_retention(case: PrivateRetentionCase<
             .await
             .unwrap());
     }
+    super::source_cleanup::verify_retired_shared_source(PrivateRetentionCase {
+        url: &url,
+        catalog,
+        slots,
+        jobs,
+        store: store.clone(),
+        client,
+        source,
+        reviewer,
+        job,
+    })
+    .await;
 }
