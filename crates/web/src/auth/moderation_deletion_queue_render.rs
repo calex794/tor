@@ -12,6 +12,7 @@ pub(super) fn render_deletion_queue(
     deletion_count: i64,
     search: Option<&str>,
     level: Option<&str>,
+    wait: Option<&str>,
 ) -> String {
     let token = pages::escape_html(csrf);
     let search = pages::escape_html(search.unwrap_or(""));
@@ -22,6 +23,12 @@ pub(super) fn render_deletion_queue(
     let level_adult = selected("adult");
     let level_pro = selected("pro_adult");
     let level_legacy = selected("legacy");
+    let wait = wait.unwrap_or("");
+    let waiting_selected = |age: &str| if wait == age { " selected" } else { "" };
+    let wait_any = waiting_selected("");
+    let wait_new = waiting_selected("lt24");
+    let wait_day = waiting_selected("gte24");
+    let wait_three = waiting_selected("gte72");
     let mut cards = String::new();
     for item in rows {
         let title = pages::escape_html(&item.title);
@@ -56,6 +63,7 @@ pub(super) fn render_deletion_queue(
                  <input type=\"hidden\" name=\"before\" value=\"{}\">
                  <input type=\"hidden\" name=\"q\" value=\"{search}\">
                  <input type=\"hidden\" name=\"level\" value=\"{level}\">
+                 <input type=\"hidden\" name=\"wait\" value=\"{wait}\">
                  <button type=\"submit\">Следующая страница</button></form>",
                 last.book_id
             ));
@@ -85,6 +93,13 @@ pub(super) fn render_deletion_queue(
                    <option value="adult"{level_adult}>18+</option>
                    <option value="pro_adult"{level_pro}>21+</option>
                    <option value="legacy"{level_legacy}>Не указан</option>
+                 </select>
+                 <label for="deletion-wait">Время ожидания заявки</label>
+                 <select id="deletion-wait" name="wait">
+                   <option value=""{wait_any}>Любое время</option>
+                   <option value="lt24"{wait_new}>До 24 часов</option>
+                   <option value="gte24"{wait_day}>От 24 часов</option>
+                   <option value="gte72"{wait_three}>От 72 часов</option>
                  </select>
                  <button type="submit">Найти</button>
                  <a href="/moderation/books/deletions">Сбросить</a>
