@@ -1,5 +1,5 @@
 //! B-owned, durable private-variant cleanup. This is NOT public CDN purge.
- //! No review history, original uploads, or currently attached slots are deleted.
+//! No review history, original uploads, or currently attached slots are deleted.
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -25,7 +25,9 @@ impl PgPrivateCoverVariantRemovals {
     /// The anti-join prevents an old page of rows starving newer candidates.
     pub async fn stage_eligible(&self, limit: i64) -> Result<u64, sqlx::Error> {
         if !(1..=20).contains(&limit) {
-            return Err(sqlx::Error::Protocol("invalid private-cover cleanup batch".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid private-cover cleanup batch".into(),
+            ));
         }
         let result = sqlx::query(
             "INSERT INTO cover_private_variant_removals(job_id,variant_name,storage_key)
@@ -56,7 +58,9 @@ impl PgPrivateCoverVariantRemovals {
     /// Re-check terminal decisions and the current attached slot on each claim.
     pub async fn claim(&self, limit: i64) -> Result<Vec<PrivateVariantRemoval>, sqlx::Error> {
         if !(1..=3).contains(&limit) {
-            return Err(sqlx::Error::Protocol("invalid private-cover removal lease count".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid private-cover removal lease count".into(),
+            ));
         }
         let rows = sqlx::query(
             "WITH eligible AS (
