@@ -237,6 +237,25 @@ class WorkflowWiringTests(unittest.TestCase):
         for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
             self.assertIn("ci_timed_browser tools/" + filename, reader)
 
+    def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
+        manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+        phases = (
+            "traffic_storage_catalog", "books_import_authoring",
+            "reading_library", "referrals_recommendations_social",
+            "commerce_support", "http_security",
+        )
+        for job in (required, manual):
+            body = job.split("      - name: Database and HTTP integration\n", 1)[1].split(
+                "      - name: D-04 real HTTP and PostgreSQL sessions", 1)[0]
+            self.assertEqual(
+                tuple(re.findall(r'ci_pg_phase_done "([a-z_]+)"', body)), phases)
+            self.assertIn("CI_PG_PHASE_SECONDS phase=$phase", body)
+            self.assertIn("ci_pg_started=$SECONDS", body)
+            self.assertIn("cargo test -p tor-web --test paid_grants_http_pg", body)
+            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
