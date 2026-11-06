@@ -11,8 +11,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::{
     repositories::{
-        moderation_books::ModerationBooksError,
-        moderation_queue_age::ModerationQueueAgeSummary,
+        moderation_books::ModerationBooksError, moderation_queue_age::ModerationQueueAgeSummary,
         moderation_registration::RegistrationCandidate,
     },
     services::security::session_token_digest,
