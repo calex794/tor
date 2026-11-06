@@ -72,6 +72,10 @@ fn render(
     let legacy_selected = selected("legacy");
     let wait = wait.unwrap_or("");
     let wait_selected = |bucket: &str| if wait == bucket { " selected" } else { "" };
+    let wait_all = wait_selected("");
+    let wait_recent = wait_selected("lt24");
+    let wait_day = wait_selected("gte24");
+    let wait_three = wait_selected("gte72");
     let mut cards = String::new();
     for item in items {
         let title = pages::escape_html(&item.title);
@@ -141,10 +145,10 @@ fn render(
               </select>
               <label for="registration-wait">Время ожидания регистрации</label>
               <select id="registration-wait" name="wait">
-                <option value=""{wait_selected("")}>Любое время</option>
-                <option value="lt24"{wait_selected("lt24")}>До 24 часов</option>
-                <option value="gte24"{wait_selected("gte24")}>От 24 часов</option>
-                <option value="gte72"{wait_selected("gte72")}>От 72 часов</option>
+                <option value=""{wait_all}>Любое время</option>
+                <option value="lt24"{wait_recent}>До 24 часов</option>
+                <option value="gte24"{wait_day}>От 24 часов</option>
+                <option value="gte72"{wait_three}>От 72 часов</option>
               </select>
               <button type="submit">Найти</button>
               <a href="/moderation/books/registrations">Сбросить</a>
