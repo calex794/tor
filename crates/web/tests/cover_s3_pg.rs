@@ -43,6 +43,7 @@ use tor_web::{
 };
 use tower::ServiceExt;
 
+#[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
 
 const BUCKET: &str = "tor-private-obs09-ci";
