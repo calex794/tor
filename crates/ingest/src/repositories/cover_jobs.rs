@@ -152,6 +152,7 @@ impl PgCoverJobs {
                 AND s.status='verified' AND b.owner_user_id=$3
                 AND NOT b.admin_hold AND NOT b.is_deleted
                 AND COALESCE(p.revision,0)=$4
+             FOR SHARE OF s
              ON CONFLICT (source_object_id,recipe_version) DO NOTHING
              RETURNING id",
         )
