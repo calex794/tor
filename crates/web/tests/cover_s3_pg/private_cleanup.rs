@@ -6,7 +6,7 @@ use tor_books::repositories::{
 };
 use tor_ingest::{
     repositories::{cover_jobs::PgCoverJobs, s3::S3CoverStore},
-    services::cover_jobs::CoverObjectStore,
+    services::cover_jobs::{CoverJobs, CoverObjectStore},
 };
 use tor_web::cover_private_cleanup::PrivateCoverVariantCleanup;
 
