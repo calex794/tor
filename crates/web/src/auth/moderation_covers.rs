@@ -37,6 +37,7 @@ pub(super) struct CoverDecisionForm {
     expected_slot_revision: i64,
     action: String,
     reason: Option<String>,
+    confirmed: Option<String>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -104,7 +105,7 @@ fn queue_body(
                 width="152" height="228" loading="lazy"
                 alt="Приватный предпросмотр кандидата">
             <details class="moderation-review-confirm" open>
-            <summary>Подтвердить решение по обложке #{review}</summary>
+            <summary>Проверить обложку #{review}</summary>
             <p>Проверьте приватный предпросмотр. Одобрение заменит
                публичную обложку; отказ оставит прежнюю версию.</p>
             <form method="post" action="/moderation/covers/{review}/decision">
@@ -112,8 +113,8 @@ fn queue_body(
               <input type="hidden" name="expected_slot_revision" value="{rev}">
               <label for="reason-{review}">Причина отказа (обязательна при отклонении)</label>
               <textarea id="reason-{review}" name="reason" maxlength="2000" rows="2"></textarea>
-              <button type="submit" name="action" value="approve">Одобрить обложку</button>
-              <button type="submit" name="action" value="reject">Отклонить</button>
+              <button type="submit" name="action" value="approve">Продолжить одобрение</button>
+              <button type="submit" name="action" value="reject">Продолжить отказ</button>
             </form></details>
             <p><a href="/moderation/books/{book}/cover-history">
               История решений по обложке</a>
@@ -323,6 +324,30 @@ pub(super) async fn decide(
         "reject" => false,
         _ => return deny(StatusCode::BAD_REQUEST),
     };
+    let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
+        Ok(confirmed) => confirmed,
+        Err(status) => return super::moderation_books::decision_error(status, "/moderation/covers"),
+    };
+    if !confirmed {
+        let reason = form.reason.as_deref().unwrap_or("").trim();
+        if id <= 0
+            || form.expected_slot_revision < 0
+            || reason.len() > 2000
+            || (!approve && reason.is_empty())
+        {
+            return super::moderation_books::decision_error(StatusCode::BAD_REQUEST, "/moderation/covers");
+        }
+        return super::moderation_confirm::confirmation_page(
+            super::moderation_confirm::ReviewIntent {
+                kind: "cover",
+                subject_id: id,
+                revision: form.expected_slot_revision,
+                action: &form.action,
+                reason,
+                csrf: &form.csrf_token,
+            },
+        );
+    }
     let repo = PgCoverReview::new(state.accounts.pool().clone());
     match repo
         .decide(
