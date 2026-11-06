@@ -241,9 +241,8 @@ pub(super) async fn decide(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let confirmed = match super::super::moderation_confirm::was_confirmed(
-        form.confirmed.as_deref(),
-    ) {
+    let confirmed = match super::super::moderation_confirm::was_confirmed(form.confirmed.as_deref())
+    {
         Ok(confirmed) => confirmed,
         Err(status) => return super::decision_error(status, "/moderation/books/registrations"),
     };
@@ -255,7 +254,10 @@ pub(super) async fn decide(
             || reason.len() > 2000
             || (form.action == "reject" && reason.is_empty())
         {
-            return super::decision_error(StatusCode::BAD_REQUEST, "/moderation/books/registrations");
+            return super::decision_error(
+                StatusCode::BAD_REQUEST,
+                "/moderation/books/registrations",
+            );
         }
         return super::super::moderation_confirm::confirmation_page(
             super::super::moderation_confirm::ReviewIntent {
