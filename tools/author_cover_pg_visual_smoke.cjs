@@ -80,8 +80,7 @@ async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width
     ['/moderation/covers', /^Обложки \(\d+\)$/],
     ['/moderation/books/deletions', /^Удаление \(\d+\)$/],
   ];
-  for (let i = 0; i < tabs.length; i++) {
-    const [url, label] = tabs[i];
+  for (const [url, label] of tabs) {
     const denied = await owner.context().request.get(base + url);
     assert(denied.status() === 403,
       viewport + '/' + scheme + ': ordinary Book owner opened a site queue');
@@ -106,18 +105,36 @@ async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width
         url.split('/').pop()].join('-') + '.png'),
       fullPage: false,
     });
-    // The next real server-rendered queue must be usable with the keyboard
-    // on mobile and desktop, without relying on pointer-only click handlers.
-    const nextUrl = tabs[(i + 1) % tabs.length][0];
-    const nextTab = nav.locator('a[href="' + nextUrl + '"]');
-    await nextTab.focus();
-    assert(await nextTab.evaluate(el => el === document.activeElement),
-      viewport + '/' + scheme + ': moderator queue tab cannot receive focus');
-    await reviewer.keyboard.press('Enter');
-    await reviewer.waitForURL(base + nextUrl);
-    assert(await reviewer.locator('nav[aria-label="Очереди модератора"] ' +
-      'a[aria-current="page"]').getAttribute('href') === nextUrl,
-    viewport + '/' + scheme + ': keyboard navigation lost the active tab');
+
+    // Native link keyboard access is an acceptance condition, not simply
+    // presence of an aria-current attribute in the HTML. Traverse from the
+    // start of the document so hidden/mobile nav elements cannot mask failure.
+    const target = nav.getByRole('link', { name: label });
+    let tabReached = false;
+    for (let press = 0; press < 80; press++) {
+      await reviewer.keyboard.press('Tab');
+      if (await target.evaluate(link => link === document.activeElement)) {
+        tabReached = true;
+        break;
+      }
+    }
+    assert(tabReached,
+      viewport + '/' + scheme + ': site queue tab unreachable with Tab keyboard');
+    // The HTTP response can arrive before the replacement document has loaded.
+    // Synchronize on the real navigation, otherwise aria-current is a race.
+    const [viaKeyboard] = await Promise.all([
+      reviewer.waitForResponse(r =>
+        r.url() === base + url && r.request().method() === 'GET'),
+      reviewer.waitForEvent('load'),
+      reviewer.keyboard.press('Enter'),
+    ]);
+    assert(viaKeyboard.status() === 200,
+      viewport + '/' + scheme + ': Enter cannot activate the moderator queue link');
+    const current = reviewer.getByRole('navigation', { name: 'Очереди модератора' })
+      .locator('a[aria-current="page"]');
+    await current.waitFor({ state: 'visible' });
+    assert(await current.count() === 1 && await current.getAttribute('href') === url,
+      'keyboard-activated queue lost current tab marker');
   }
 }
 
@@ -168,43 +185,45 @@ async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
   const [decided] = await Promise.all([
     reviewer.waitForResponse(r =>
       r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
-    reviewer.getByRole('button', { name: 'Одобрить обложку' }).click(),
+    reviewer.getByRole('button', { name: 'Одобрить обложку' }).focus()
+      .then(() => reviewer.keyboard.press('Enter')),
   ]);
   assert(decided.status() === 303,
     viewport + '/' + scheme + ': site moderator cover approval refused');
+  // The 303 response precedes the browser's redirect navigation. Wait for
+  // that navigation to finish before opening the private decision history.
+  await reviewer.waitForURL(base + '/moderation/covers', { waitUntil: 'load' });
   assert((await owner.context().request.get(base + prefix)).status() === 200,
     'approved cover was not published through its B-owned slot');
 
-  // MOD-UI-01: both private audit views must reflect the actual decision.
-  // The author can see the approved cover but must never learn who reviewed it.
+  // MOD-UI-01: historical decisions and reviewer identities are site-private.
   const bookHistory = '/moderation/books/' + bookId + '/history';
   assert((await owner.context().request.get(base + bookHistory)).status() === 403,
     'Book owner obtained private moderator decision history');
   assert((await owner.context().request.get(
     base + '/moderation/books/reviews')).status() === 403,
-  'Book owner obtained the site-wide reviewed decisions index');
+    'Book owner obtained the reviewed-decision index');
   const historyResponse = await reviewer.goto(base + bookHistory);
   assert(historyResponse && historyResponse.status() === 200,
-    'Site moderator cannot read approved cover history');
+    'Site moderator cannot read the approved cover history');
   const historyHtml = await reviewer.content();
   assert(historyHtml.includes('Системная история книги #' + bookId) &&
     historyHtml.includes('Обложка: Одобрено') &&
     historyHtml.includes('Независимый модератор обложек'),
-  'Site moderator history does not attribute the real cover decision');
+    'Site moderator history lost reviewer attribution');
   const reviewed = await reviewer.goto(
     base + '/moderation/books/reviews?kind=cover&outcome=approved');
   assert(reviewed && reviewed.status() === 200,
-    'Site moderator cannot filter previously approved cover decisions');
-  assert(await reviewer.locator(
-    'a[href="' + bookHistory + '"]').count() >= 1,
-  'Reviewed decisions archive lost the approved Book');
+    'Site moderator cannot filter approved cover decisions');
+  assert(await reviewer.locator('a[href="' + bookHistory + '"]').count() >= 1,
+    'Reviewed decisions index lost the approved Book');
   assert((await reviewer.context().request.get(
     base + '/moderation/books/reviews?kind=chapter')).status() === 400,
-  'Unknown moderation kind was silently accepted');
+    'Unexpected moderation decision type was accepted');
   const publicBook = await owner.context().request.get(base + '/books/' + bookId);
   assert(publicBook.status() === 200 &&
     !(await publicBook.text()).includes('Независимый модератор обложек'),
-  'Public Book page leaked private moderator identity');
+    'Public Book page exposed the private reviewer identity');
 }
 
 async function readyCover(page, bookId, viewport, scheme) {
