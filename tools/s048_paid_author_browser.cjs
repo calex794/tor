@@ -11,7 +11,7 @@ const csrf = process.env.S048_CSRF;
 assert(/^\d+$/.test(book) && /^\d+$/.test(chapter) &&
   owner && other && csrf, 'isolated S048 fixture missing');
 const editor = origin + '/me/books/' + book + '/chapters/' + chapter + '/edit';
-const bookPage = origin + '/me/books/' + book;
+const issuesPage = origin + '/me/books/' + book + '/issues';
 function cookies(session) {
   return [
     { name: 'tor-dev-session', value: session, url: origin },
@@ -51,7 +51,7 @@ function cookies(session) {
         assert(sizes[0] <= sizes[1] + 1, device + ': horizontal overflow');
         await page.getByLabel('Текст главы (Markdown, до 50 000 символов)').fill(next);
         await page.getByRole('button', { name: 'Сохранить изменения', exact: true }).click();
-        await page.waitForURL(bookPage);
+        await page.waitForURL(issuesPage);
         const edited = await page.goto(editor);
         assert.equal(edited.status(), 200, device + ': updated editor unavailable');
         assert.equal(await page.getByLabel('Текст главы (Markdown, до 50 000 символов)').inputValue(),
