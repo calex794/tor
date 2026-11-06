@@ -336,8 +336,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     let csrf = tor_accounts::services::security::generate_session_token();
     let cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
     let second_csrf = tor_accounts::services::security::generate_session_token();
-    let second_cookie =
-        format!("tor-dev-session={second_token}; tor-dev-csrf={second_csrf}");
+    let second_cookie = format!("tor-dev-session={second_token}; tor-dev-csrf={second_csrf}");
     assert_eq!(
         moderation_request(&moderator_app, "GET", "/moderation/covers", "", origin, "")
             .await
@@ -469,10 +468,20 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         format!("csrf_token={second_csrf}&expected_slot_revision=0&action=approve&confirmed=yes");
     let (first_result, second_result) = tokio::join!(
         moderation_request(
-            &moderator_app, "POST", &cover_path, &cookie, origin, &first_confirmed_body
+            &moderator_app,
+            "POST",
+            &cover_path,
+            &cookie,
+            origin,
+            &first_confirmed_body
         ),
         moderation_request(
-            &moderator_app, "POST", &cover_path, &second_cookie, origin, &second_confirmed_body
+            &moderator_app,
+            "POST",
+            &cover_path,
+            &second_cookie,
+            origin,
+            &second_confirmed_body
         ),
     );
     let first_status = first_result.status();
