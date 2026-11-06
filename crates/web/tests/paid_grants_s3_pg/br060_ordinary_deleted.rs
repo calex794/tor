@@ -163,7 +163,7 @@ pub(super) async fn verify(
     book: i64,
     purchased: (i64, i64, i64),
     chapters: (i64, i64, i64),
-    sessions: (&str, &str, &str, &str),
+    sessions: (&str, &str, &str, &PgAccounts),
     csrf: &str,
 ) -> Value {
     let (chapter, purchase_id, v1) = purchased;
