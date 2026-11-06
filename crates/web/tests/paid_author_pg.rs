@@ -2,6 +2,9 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
+#[path = "paid_author_pg/s048_browser.rs"]
+mod s048_browser;
+
 use async_trait::async_trait;
 use aws_sdk_s3::{
     config::{retry::RetryConfig, BehaviorVersion, Credentials, Region},
@@ -964,6 +967,25 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         ),
         "1",
         "duplicate status POST must never create a second audit event"
+    );
+    // Full Chromium POST through this live Axum router with real PG/MinIO,
+    // after the S047->S048 issue has been durably resolved to verified V3.
+    s048_browser::verify(app, &owner_session, &other_session, &csrf, book, chapter_id).await;
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}")
+        ),
+        "5",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT version_id FROM chapter_first_release_events WHERE chapter_id={chapter_id}"
+            )
+        ),
+        version_id.to_string(),
     );
     pool.close().await;
 }
