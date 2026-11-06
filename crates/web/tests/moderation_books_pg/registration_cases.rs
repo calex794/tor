@@ -206,15 +206,29 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     );
     let confirmed_body = format!("{body}&confirmed=yes");
     assert_eq!(
-        request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &confirmed_body)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &confirmed_body)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "double decision must not rewrite reviewer or audit"
     );
