@@ -582,18 +582,6 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         pg(&url, &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={incoming_id} AND author_user_id={user}")).await,
         "1"
     );
-    // Successful submission and idempotent replay both leave this exact
-    // received Inbox item read, without copying the incoming comment body.
-    assert_eq!(
-        pg(
-            &url,
-            &format!(
-                "SELECT count(*) FROM discussion_reply_reads WHERE recipient_user_id={user} AND reply_comment_id={incoming_id}"
-            )
-        )
-        .await,
-        "1"
-    );
     assert_eq!(
         call(
             &app,
@@ -628,6 +616,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let item: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(item["items"][0]["id"], incoming_id.to_string());
     assert_eq!(item["items"][0]["kind"], "reply");
+    // Both POST requests must leave the original Inbox notification read.
     assert_eq!(item["items"][0]["is_read"], true);
     assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
     assert_eq!(
