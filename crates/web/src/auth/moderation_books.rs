@@ -33,6 +33,7 @@ pub(super) struct PageQuery {
     before: Option<i64>,
     q: Option<String>,
     level: Option<String>,
+    wait: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -351,11 +352,12 @@ pub(super) async fn deletion_queue(
     };
     let rows = match state
         .accounts
-        .moderation_pending_deletions_with_access_level(
+        .moderation_pending_deletions_with_wait_age(
             &digest,
             query.before,
             query.q.as_deref(),
             query.level.as_deref().filter(|level| !level.is_empty()),
+            query.wait.as_deref().filter(|wait| !wait.is_empty()),
         )
         .await
     {
@@ -372,6 +374,7 @@ pub(super) async fn deletion_queue(
             deletion_count,
             query.q.as_deref(),
             query.level.as_deref(),
+            query.wait.as_deref(),
         )),
         &cookies,
     );
@@ -463,7 +466,7 @@ mod deletion_queue_tests {
             owner_user_id: 7,
             request_revision: 2,
         }];
-        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None, None);
+        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3, None, None, None);
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
@@ -473,6 +476,7 @@ mod deletion_queue_tests {
         assert!(page.contains("value=\"approve\""));
         assert!(page.contains("moderation-review-confirm"));
         assert!(page.contains("name=\"level\""));
+        assert!(page.contains("name=\"wait\""));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
         let response = private_response(Html(page), &[]);
