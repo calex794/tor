@@ -34,6 +34,7 @@ pub mod cover_cdn_purge;
 pub mod cover_delivery;
 mod cover_http;
 pub mod cover_private_cleanup;
+pub mod cover_private_source_cleanup;
 mod layer_reader_assets;
 mod layer_reader_pages;
 mod recommendation_http;
