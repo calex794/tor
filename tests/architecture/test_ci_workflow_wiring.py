@@ -223,6 +223,20 @@ class WorkflowWiringTests(unittest.TestCase):
                 commands.append(found)
         self.assertEqual(commands[0], commands[1])
 
+    def test_reader_and_search_browser_waits_keep_real_page_assertions(self):
+        # The real Chromium runs, screenshots and SQL-backed assertions remain;
+        # only waiting for unrelated idle network connections is removed.
+        for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
+            with self.subTest(script=filename):
+                code = (ROOT / "tools" / filename).read_text()
+                self.assertNotIn("'networkidle'", code)
+                self.assertIn("waitUntil: 'load'", code)
+                self.assertIn("chromium.launch({ headless: true })", code)
+                self.assertIn("screenshot({", code)
+        reader = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
+            self.assertIn("ci_timed_browser tools/" + filename, reader)
+
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         preflight = sections["preflight"]
