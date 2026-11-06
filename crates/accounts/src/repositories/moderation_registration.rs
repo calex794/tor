@@ -54,7 +54,11 @@ impl PgAccounts {
         access_level: Option<&str>,
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
         self.moderation_registration_queue_with_wait_age(
-            session, before, search, access_level, None,
+            session,
+            before,
+            search,
+            access_level,
+            None,
         )
         .await
     }
