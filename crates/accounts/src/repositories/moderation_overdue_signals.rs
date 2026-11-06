@@ -137,4 +137,3 @@ impl PgAccounts {
         Ok(OverdueScanResult { opened, resolved })
     }
 }
-
