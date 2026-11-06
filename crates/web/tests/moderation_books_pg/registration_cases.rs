@@ -135,6 +135,44 @@ async fn initial_book_registration_requires_site_approval_and_keeps_private_revi
     assert_eq!(missing.status(), StatusCode::OK);
     assert!(!html(missing).await.contains(&decision_path));
 
+    // Age-level restriction runs in PostgreSQL, before the 40-item limit.
+    // The test Book is basic; 18+/21+ and legacy NULL must not match.
+    for (tier, should_include) in [
+        ("basic", true),
+        ("adult", false),
+        ("pro_adult", false),
+        ("legacy", false),
+    ] {
+        let result = request(
+            &app,
+            "GET",
+            &format!("{queue_path}?level={tier}"),
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await;
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(
+            html(result).await.contains(&decision_path),
+            should_include,
+            "unexpected registration queue tier {tier}"
+        );
+    }
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &format!("{queue_path}?level=untrusted"),
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+
     assert_eq!(
         request(
             &app, "POST", &format!("/moderation/books/{book}/visibility"),
