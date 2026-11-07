@@ -30,6 +30,7 @@ jobs:
           --health-retries 12
     env:
       PGHOST: 127.0.0.1
+      TOR_LISTEN_ADDR: 127.0.0.1:3089
       PGUSER: tor_app
       PGDATABASE: tor_ci
       PGPASSWORD: tor-f04-sandbox-app
