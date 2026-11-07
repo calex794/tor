@@ -172,13 +172,16 @@ async fn observe(
         });
     }
     // Anonymous counters remain independent from personal behavior paths.
-    let _accepted = recorder.try_record_with_flow(BehaviorEvent {
-        route: RouteCode::from_family(passport.route_family),
-        status: StatusGroup::from_status(status),
-        latency: LatencyGroup::from_elapsed(elapsed),
-        subject,
-        at_millis: recorder.uptime_millis(),
-    }, flow_pageview);
+    let _accepted = recorder.try_record_with_flow(
+        BehaviorEvent {
+            route: RouteCode::from_family(passport.route_family),
+            status: StatusGroup::from_status(status),
+            latency: LatencyGroup::from_elapsed(elapsed),
+            subject,
+            at_millis: recorder.uptime_millis(),
+        },
+        flow_pageview,
+    );
     response.extensions_mut().insert(observation);
     response
 }
@@ -399,7 +402,11 @@ mod tests {
             if bot {
                 builder = builder.header("user-agent", "Googlebot/2.1");
             }
-            let response = app.clone().oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
+            let response = app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
         let delta = recorder.drain_for_persistence().unwrap();
@@ -411,5 +418,4 @@ mod tests {
         assert_eq!(row.opted_in_html_requests, 0);
         assert_eq!(row.observed_opted_in_visit_starts, 0);
     }
-
 }
