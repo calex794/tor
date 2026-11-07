@@ -142,7 +142,6 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/traffic_behavior/tests/ril_costs_pg.rs",
     "crates/traffic_behavior/tests/ril_sql_costs_pg.rs",
     "crates/web/tests/ril_sqlx_http_pg.rs",
-    "crates/web/tests/f04_rising_pg.rs",
     "crates/storage/tests/keyring_rotation_pg.rs",
     "crates/storage/tests/storage_gc_pg.rs",
     "crates/storage/tests/storage_paid_grant_pg.rs",
