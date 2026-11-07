@@ -1,12 +1,12 @@
 //! Real PostgreSQL 18 evidence: stage, claim/fence, crash recovery and retention.
 use sqlx::{postgres::PgPoolOptions, Row};
 use std::time::Duration;
+use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
 use tor_traffic_behavior::{
     domain::RollupDelta, repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent,
     FlowPageview, GapBucket, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder, Transition,
 };
 use uuid::Uuid;
-use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
 
 fn sample() -> RollupDelta {
     let mut delta = RollupDelta::default();
