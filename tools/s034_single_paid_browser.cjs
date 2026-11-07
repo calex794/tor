@@ -382,6 +382,12 @@ async function verify(browser, buyer, viewport) {
       purchase + ",'ci:s034-single:" + buyer.id + "','refund')");
     const reader = await page.goto(SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase);
     assert.equal(reader.status(), 403);
+    const commentsDenied = await context.request.get(
+      SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
+      new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
+    );
+    assert.equal(commentsDenied.status(), 403, "refund must also revoke private discussion read");
+    assert.equal(commentCount(), 2, "revocation retains immutable discussion facts");
     assert(!(await page.content()).includes("Оплаченная V1: кириллица"));
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
