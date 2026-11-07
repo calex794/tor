@@ -45,7 +45,6 @@ const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
     ("book_pending_deletion", "Удаление книг", "Книги, поставленные на удаление."),
     ("book_moderation_passed", "Модерация: одобрено", "Книга прошла модерацию."),
     ("book_moderation_problem", "Модерация: проблемы", "Книга скрыта или ограничена модерацией."),
-    ("moderation_overdue", "Просроченные заявки модерации", "Служебные сигналы ожидания для администратора сайта."),
     ("refund", "Возвраты читателя", "Решения по вашим возвратам."),
     ("refund_author", "Возвраты автора", "Возвраты по вашим книгам."),
     ("payout", "Выплаты", "Финансовые события по выводу средств."),
@@ -56,6 +55,13 @@ const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
     ("daily_reader_digest", "Ежедневная сводка", "Сводка новых глав, авторских обновлений и подборок."),
 ];
 
+// This kind must never appear in an ordinary reader's bell preferences.
+const ADMIN_MODERATION_PREF: (&str, &str, &str) = (
+    "moderation_overdue",
+    "Просроченные заявки модерации",
+    "Служебные сигналы ожидания для администратора сайта.",
+);
+
 #[derive(Clone)]
 pub struct PgNotifications {
     pool: PgPool,
@@ -64,6 +70,21 @@ pub struct PgNotifications {
 impl PgNotifications {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    async fn can_configure_moderation_alerts(&self, actor: i64) -> Result<bool, MailError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM account_roles role
+                JOIN users u ON u.id=role.user_id
+                WHERE role.user_id=$1 AND role.role='administrator'
+                  AND role.is_active AND u.account_state='active'
+            )",
+        )
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)
     }
 
     /// Delivers to existing in-app bells only when explicitly invoked by an
@@ -437,9 +458,12 @@ impl PgNotifications {
         .map_err(unavailable)?
         .into_iter()
         .collect();
+        let admin = self.can_configure_moderation_alerts(actor).await?;
         Ok(NOTIFICATION_KIND_OPTIONS
             .iter()
-            .map(|&(kind, label, description)| NotificationPreference {
+            .copied()
+            .chain(admin.then_some(ADMIN_MODERATION_PREF))
+            .map(|(kind, label, description)| NotificationPreference {
                 kind,
                 label,
                 description,
@@ -448,7 +472,7 @@ impl PgNotifications {
             .collect())
     }
 
-    /// Save all 22 checkboxes atomically; unchecked known kinds are disabled.
+    /// Save visible kinds atomically (22 general, plus 1 for active site admins).
     /// Ignore submitted unknown names, and never trust a recipient in a form.
     pub async fn set_preferences(
         &self,
@@ -458,9 +482,12 @@ impl PgNotifications {
         if actor <= 0 {
             return Err(MailError::Invalid);
         }
+        let admin = self.can_configure_moderation_alerts(actor).await?;
         let kinds: Vec<String> = NOTIFICATION_KIND_OPTIONS
             .iter()
-            .map(|&(kind, _, _)| kind.to_owned())
+            .copied()
+            .chain(admin.then_some(ADMIN_MODERATION_PREF))
+            .map(|(kind, _, _)| kind.to_owned())
             .collect();
         let enabled: Vec<String> = kinds
             .iter()
