@@ -64,7 +64,7 @@ fn session_failure(status: StatusCode) -> Response {
         private_response(status, &[])
     }
 }
-fn error(error: TeamError) -> Response {
+fn team_error(error: TeamError) -> Response {
     let status = match error {
         TeamError::Invalid => StatusCode::BAD_REQUEST,
         TeamError::Missing => StatusCode::NOT_FOUND,
@@ -127,7 +127,7 @@ async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
     };
     let teams = match s.teams.list_owned(actor).await {
         Ok(teams) => teams,
-        Err(error) => return error(error),
+        Err(error) => return team_error(error),
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
     page("Мои команды", &list_html(&teams, &csrf), &cookies)
@@ -155,7 +155,7 @@ async fn create(
         .await
     {
         Ok(team) => private_response(Redirect::to(&format!("/me/teams/{}", team.id)), &[]),
-        Err(error) => error(error),
+        Err(error) => team_error(error),
     }
 }
 
@@ -170,6 +170,6 @@ async fn detail(
     };
     match s.teams.owned(actor, team_id).await {
         Ok(team) => page("Команда", &detail_html(&team), &[]),
-        Err(error) => error(error),
+        Err(error) => team_error(error),
     }
 }
