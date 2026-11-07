@@ -68,7 +68,8 @@ SCOPE_CALLS = {
     "manageable_book_source_links", "update_book_source_links",
     "manageable_lifecycle", "update_lifecycle",
     "manageable_access_level", "verified_upgrade_book_access_level",
-    "moderation_books", "moderate_book_hold", "moderate_book_visibility",
+    "moderation_books", "moderation_overdue_inbox",
+    "moderate_book_hold", "moderate_book_visibility",
     "moderation_pending_deletions", "moderation_pending_deletions_filtered",
     "moderation_pending_deletions_with_access_level",
     "moderation_pending_deletions_with_wait_age", "moderate_ordinary_deletion",
@@ -364,6 +365,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/books/{id}/registration-history", "history"): "crates/web/src/auth/moderation_registration.rs",
             ("GET", "/moderation/books/{id}/history", "book_history"): "crates/web/src/auth/moderation_book_history.rs",
             ("GET", "/moderation/books/reviews", "reviewed_index"): "crates/web/src/auth/moderation_book_history.rs",
+            ("GET", "/moderation/books/alerts", "page"): "crates/web/src/auth/moderation_overdue_inbox.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -511,6 +513,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "session_actor(&digest)" in evidence
                 and "actor.moderator || actor.administrator" in evidence
                 and "session_token_digest(&token)" in evidence
+            )
+        elif entry["source"] == "crates/web/src/auth/moderation_overdue_inbox.rs":
+            scoped = bool(
+                re.search(r"\bmoderation_overdue_inbox\s*\(\s*&digest", evidence)
+                and "session_token_digest(&token)" in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "StatusCode::UNAUTHORIZED" in evidence
             )
         elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
             # Book approval is the only reviewed moderation capability.
