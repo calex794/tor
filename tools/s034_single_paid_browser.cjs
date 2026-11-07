@@ -32,6 +32,14 @@ async function verify(browser, buyer, viewport) {
   for (const id of [buyer.id, chapter.id, chapter.version]) assert(Number.isSafeInteger(id) && id > 0);
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  // Report only HTTP method/status for this private API; never log content,
+  // grant values, cookies or submitted text to CI artifacts.
+  const commentTraffic = [];
+  page.on("response", (reply) => {
+    if (new URL(reply.url()).pathname.endsWith("/paid-comments")) {
+      commentTraffic.push(reply.request().method() + ":" + reply.status());
+    }
+  });
   const assetId = fixture.asset_object_id;
   assert.match(assetId, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
   const assetGrantPath = "/api/v1/reader/chapters/" + chapter.id +
@@ -189,10 +197,22 @@ async function verify(browser, buyer, viewport) {
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
       " AND version_id=" + chapter.version);
     assert.equal(commentCount(), 0);
+    async function assertCommentCount(expected) {
+      await page.waitForFunction((n) =>
+        document.querySelectorAll("#paid-chapter-comments .comment-card").length === n,
+        expected, {timeout: 8500}
+      ).catch(() => {});
+      const actual = await comments.locator(".comment-card").count();
+      if (actual !== expected) {
+        const status = (await comments.locator('[role="status"]').textContent() || "").slice(0, 90);
+        assert.fail("S011 comment UI mismatch: expected=" + expected +
+          ", rendered=" + actual + ", db=" + commentCount() +
+          ", responses=" + commentTraffic.join(",") + ", status=" + status);
+      }
+    }
     await comments.getByLabel("Текст комментария").fill("Вопрос по купленной редакции");
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await page.waitForFunction(() => document.querySelectorAll(
-      "#paid-chapter-comments .comment-card").length === 1);
+    await assertCommentCount(1);
     assert.equal(commentCount(), 1);
     assert.equal(number("SELECT count(*) FROM discussion_anchors a JOIN discussion_comments c " +
       "ON c.id=a.comment_id WHERE c.author_user_id=" + buyer.id +
@@ -201,8 +221,7 @@ async function verify(browser, buyer, viewport) {
     await comments.getByRole("button", {name:"Ответить"}).first().click();
     await comments.getByLabel("Текст комментария").fill("Ответ к той же редакции");
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await page.waitForFunction(() => document.querySelectorAll(
-      "#paid-chapter-comments .comment-card").length === 2);
+    await assertCommentCount(2);
     assert.equal(commentCount(), 2);
     assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
