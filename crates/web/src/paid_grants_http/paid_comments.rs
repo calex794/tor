@@ -146,9 +146,7 @@ pub(super) async fn list(
         .list(
             actor,
             &digest,
-            purchase.get(),
-            chapter.get(),
-            version.get(),
+            (purchase.get(), chapter.get(), version.get()),
             after,
             25,
         )
