@@ -687,7 +687,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(head.content_type(), Some("image/webp"));
         assert_eq!(
             head.cache_control(),
-            Some("public, max-age=31536000, immutable")
+            Some("public, max-age=60, must-revalidate")
         );
     }
     for kind in [PublicCoverKind::Card, PublicCoverKind::Main] {

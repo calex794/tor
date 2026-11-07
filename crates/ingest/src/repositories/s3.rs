@@ -153,7 +153,10 @@ impl CoverObjectStore for S3CoverStore {
             .copy_source(format!("{}/{source_key}", self.private_bucket))
             .metadata_directive(aws_sdk_s3::types::MetadataDirective::Replace)
             .content_type("image/webp")
-            .cache_control("public, max-age=31536000, immutable")
+            // Moderator revocation must not leave a new browser-cached copy
+            // fresh for a year. The Yandex resource must also set its separate
+            // browser TTL <= 60 seconds; edge TTL can stay longer with purge.
+            .cache_control("public, max-age=60, must-revalidate")
             .metadata("sha256", &hash)
             .send()
             .await
