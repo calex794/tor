@@ -45,6 +45,8 @@ use tower::ServiceExt;
 
 #[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
+#[path = "cover_s3_pg/source_cleanup.rs"]
+mod source_cleanup;
 
 const BUCKET: &str = "tor-private-obs09-ci";
 const BOOK_ID: i64 = 950;
