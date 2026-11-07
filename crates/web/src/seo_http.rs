@@ -3,7 +3,7 @@
 //! public mode AND confirms the HTTP publication barrier.
 use super::{pages, AppState};
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
 };
@@ -30,6 +30,28 @@ fn base_url(origin: &TrustedSeoOrigin) -> String {
         .book_url(book)
         .trim_end_matches("/books/1")
         .to_owned()
+}
+
+const BOOKS_PER_SITEMAP: u64 = 10_000;
+const MAX_SITEMAP_PARTS: u64 = 10_000;
+
+fn sitemap_parts(max_id: u64) -> Option<u64> {
+    if max_id == 0 { return Some(0); }
+    let parts = 1 + (max_id - 1) / BOOKS_PER_SITEMAP;
+    (parts <= MAX_SITEMAP_PARTS).then_some(parts)
+}
+
+fn xml_for_index(base: &str, parts: u64) -> String {
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for index in 0..parts {
+        xml.push_str(&format!(
+            "  <sitemap><loc>{base}/sitemaps/books/{index}</loc></sitemap>\n"
+        ));
+    }
+    xml.push_str("</sitemapindex>\n");
+    xml
 }
 
 fn xml_for_books(base: &str, ids: &[u64]) -> String {
@@ -63,20 +85,49 @@ pub(super) async fn robots_txt() -> Response {
 }
 
 pub(super) async fn sitemap_xml(State(state): State<AppState>) -> Response {
-    let mut ids = Vec::new();
-    let mut origin = None;
-    if indexing_active() {
-        origin = trusted_origin();
-        let Some(search) = state.search.as_ref() else {
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
-        };
-        match search.seo_public_book_ids().await {
-            Ok(found) => ids = found,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        }
+    let Some(origin) = trusted_origin().filter(|_| indexing_active()) else {
+        return xml_response(xml_for_index("", 0));
+    };
+    let Some(search) = state.search.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let parts = match search.seo_max_public_book_id().await {
+        Ok(max_id) => match sitemap_parts(max_id) {
+            Some(parts) => parts,
+            None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        },
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    xml_response(xml_for_index(&base_url(&origin), parts))
+}
+
+pub(super) async fn sitemap_books(
+    State(state): State<AppState>,
+    Path(bucket): Path<u32>,
+) -> Response {
+    let Some(origin) = trusted_origin().filter(|_| indexing_active()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(search) = state.search.as_ref() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let parts = match search.seo_max_public_book_id().await {
+        Ok(max_id) => match sitemap_parts(max_id) {
+            Some(parts) => parts,
+            None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        },
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    if u64::from(bucket) >= parts {
+        return StatusCode::NOT_FOUND.into_response();
     }
-    let base = origin.as_ref().map(base_url).unwrap_or_default();
-    let xml = xml_for_books(&base, &ids);
+    match search.seo_public_book_ids_in_bucket(bucket).await {
+        Ok(ids) => xml_response(xml_for_books(&base_url(&origin), &ids)),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+fn xml_response(xml: String) -> Response {
     (
         StatusCode::OK,
         [
@@ -154,6 +205,20 @@ mod tests {
         assert_eq!(xml.matches("<loc>").count(), 2);
         assert!(xml.contains("<loc>https://pandaolate.ru/books/42</loc>"));
         assert!(!xml.contains("/books/0</loc>"));
+    }
+
+    #[test]
+    fn seo_06_sitemap_index_splits_100k_books_without_offset() {
+        assert_eq!(sitemap_parts(0), Some(0));
+        assert_eq!(sitemap_parts(1), Some(1));
+        assert_eq!(sitemap_parts(10_000), Some(1));
+        assert_eq!(sitemap_parts(10_001), Some(2));
+        assert_eq!(sitemap_parts(100_000), Some(10));
+        assert_eq!(sitemap_parts(100_001), Some(11));
+        assert_eq!(sitemap_parts(100_000_001), None);
+        let xml = xml_for_index("https://pandaolate.ru", 10);
+        assert_eq!(xml.matches("<sitemap>").count(), 10);
+        assert!(xml.contains("/sitemaps/books/9"));
     }
 
     #[test]
