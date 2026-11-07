@@ -104,7 +104,6 @@ async fn text_issue_script() -> Response {
     )
         .into_response()
 }
-
 async fn health() -> &'static str {
     "ok"
 }
@@ -121,7 +120,6 @@ async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
     }
     (StatusCode::OK, "ok") // demo mode has neither PG adapter
 }
-
 async fn public_cards(
     repo: &dyn PublicBookRepository,
     limit: usize,
@@ -144,7 +142,6 @@ async fn public_cards(
         })
         .collect())
 }
-
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
     if let Some(catalog) = state.postgres.as_ref() {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
@@ -524,6 +521,10 @@ fn make_router_with_paid_checkout(
         .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
+        )
+        .route(
+            "/assets/newboo-paid-comments.mjs",
+            get(pages::paid_comments_script),
         )
         .route(
             "/assets/newboo-layer-reader.mjs",

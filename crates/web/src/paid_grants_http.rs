@@ -8,6 +8,7 @@ mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
 mod layer_reader;
+mod paid_comments;
 mod text_issues;
 
 use crate::{
@@ -487,6 +488,12 @@ fn router_inner(
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",
                 post(text_issues::submit).layer(DefaultBodyLimit::max(4096)),
+            )
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/paid-comments",
+                get(paid_comments::list)
+                    .post(paid_comments::submit)
+                    .layer(DefaultBodyLimit::max(4096)),
             )
             .route("/me/purchases", get(purchased_library));
     }

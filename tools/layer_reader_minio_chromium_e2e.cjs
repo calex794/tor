@@ -26,6 +26,8 @@ assert(csrf, "Layer shell must provide server-generated CSRF token");
 const scripts = {
   "/assets/newboo-paid-reader.mjs":
     fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs"),
+  "/assets/newboo-paid-comments.mjs":
+    fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs"),
   "/assets/newboo-layer-reader.mjs":
     fs.readFileSync("crates/web/assets/newboo-layer-reader.mjs"),
 };

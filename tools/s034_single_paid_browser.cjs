@@ -32,6 +32,14 @@ async function verify(browser, buyer, viewport) {
   for (const id of [buyer.id, chapter.id, chapter.version]) assert(Number.isSafeInteger(id) && id > 0);
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  // Report only HTTP method/status for this private API; never log content,
+  // grant values, cookies or submitted text to CI artifacts.
+  const commentTraffic = [];
+  page.on("response", (reply) => {
+    if (new URL(reply.url()).pathname.endsWith("/paid-comments")) {
+      commentTraffic.push(reply.request().method() + ":" + reply.status());
+    }
+  });
   const assetId = fixture.asset_object_id;
   assert.match(assetId, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
   const assetGrantPath = "/api/v1/reader/chapters/" + chapter.id +
@@ -180,6 +188,55 @@ async function verify(browser, buyer, viewport) {
     await page.waitForFunction(() => document.querySelector('[data-paid-issues] [role="status"]')
       ?.textContent === "Такое сообщение уже отправлялось.");
     assert.equal(issueCount(), 1, "identical correction replay must not duplicate issue");
+
+    // S011: this is the live Rust + MinIO paid reader, not a mocked
+    // discussion view. The edition is decrypted before comment UI mounts.
+    // Both viewport runs post to one canonical edition; unique body labels
+    // distinguish the current buyer's comment from the prior buyer's thread.
+    const buyerLabel = viewport.width === 1440 ? "desktop" : "mobile";
+    const ownBody = "Вопрос по купленной редакции (" + buyerLabel + ")";
+    const ownReply = "Ответ к той же редакции (" + buyerLabel + ")";
+    const comments = page.locator("#paid-chapter-comments");
+    await comments.waitFor({state:"visible"});
+    const commentCount = () => number("SELECT count(*) FROM discussion_comments WHERE " +
+      "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
+      " AND version_id=" + chapter.version);
+    assert.equal(commentCount(), 0);
+    // The discussion may already contain other readers' comments.
+    // Accept exactly one new, identifiable comment rather than assuming
+    // the entire edition thread contains only this test buyer's writing.
+    async function assertOwnCommentVisible(body, expectedOwnCount) {
+      await page.waitForFunction((expectedBody) => [...document.querySelectorAll(
+        "#paid-chapter-comments .comment-card"
+      )].some((card) => card.textContent?.includes(expectedBody)), body,
+      {timeout: 8500}).catch(() => {});
+      const matching = await comments.locator(".comment-card").filter({hasText:body}).count();
+      const saved = commentCount();
+      if (matching !== 1 || saved !== expectedOwnCount) {
+        const status = (await comments.locator('[role="status"]').textContent() || "").slice(0, 90);
+        const total = await comments.locator(".comment-card").count();
+        assert.fail("S011 comment UI mismatch: matching=" + matching + ", total=" + total +
+          ", expectedOwnDb=" + expectedOwnCount + ", actualOwnDb=" + saved +
+          ", responses=" + commentTraffic.join(",") + ", status=" + status);
+      }
+    }
+    await comments.getByLabel("Текст комментария").fill(ownBody);
+    await comments.getByRole("button", {name:"Отправить"}).click();
+    await assertOwnCommentVisible(ownBody, 1);
+    assert.equal(commentCount(), 1);
+    assert.equal(number("SELECT count(*) FROM discussion_anchors a JOIN discussion_comments c " +
+      "ON c.id=a.comment_id WHERE c.author_user_id=" + buyer.id +
+      " AND c.version_id=" + chapter.version), 1,
+      "selected paid quote must be anchored to the exact purchased version");
+    await comments.locator(".comment-card").filter({hasText:ownBody})
+      .getByRole("button", {name:"Ответить"}).click();
+    await comments.getByLabel("Текст комментария").fill(ownReply);
+    await comments.getByRole("button", {name:"Отправить"}).click();
+    await assertOwnCommentVisible(ownReply, 2);
+    assert.equal(commentCount(), 2);
+    assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
+      "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
+      " AND parent_id IS NOT NULL"), 1);
 
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
@@ -355,6 +412,12 @@ async function verify(browser, buyer, viewport) {
       purchase + ",'ci:s034-single:" + buyer.id + "','refund')");
     const reader = await page.goto(SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase);
     assert.equal(reader.status(), 403);
+    const commentsDenied = await context.request.get(
+      SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
+      new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
+    );
+    assert.equal(commentsDenied.status(), 403, "refund must also revoke private discussion read");
+    assert.equal(commentCount(), 2, "revocation retains immutable discussion facts");
     assert(!(await page.content()).includes("Оплаченная V1: кириллица"));
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",

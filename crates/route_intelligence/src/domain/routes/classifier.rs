@@ -317,6 +317,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/personal-books/{id}/chapters/{chapter_id}"), "GET") => Some(302),
         (Some("/personal-books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(303),
         (Some("/personal-books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(304),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "GET") => Some(305),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "POST") => Some(306),
+        (Some("/assets/newboo-paid-comments.mjs"), "GET") => Some(307),
         _ => None,
     };
     index

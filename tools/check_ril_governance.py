@@ -266,6 +266,35 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: sealed history must invoke A/CSRF helper")
         else:
             evidence += "\n" + functions.get("authenticate_sealed_admin", "")
+    # S011: new exact-version paid comment handlers share a single A+D guard
+    # helper. Inspect THAT helper and the explicit call; never accept an
+    # arbitrary comment route or trust a descriptive "scoped" policy alone.
+    paid_comment_binding = (
+        entry["source"] == "crates/web/src/paid_grants_http.rs"
+        and (entry["method"], entry["template"], entry["handler"]) in {
+            ("GET", "/api/v1/reader/chapters/{chapter_id}/paid-comments", "paid_comments::list"),
+            ("POST", "/api/v1/reader/chapters/{chapter_id}/paid-comments", "paid_comments::submit"),
+        }
+    )
+    if paid_comment_binding:
+        auth = functions.get("authorized", "")
+        helper_called = re.search(
+            r"\bauthorized\s*\(\s*&state,\s*&headers,\s*chapter,\s*purchase,\s*version\s*\)",
+            body,
+        )
+        if not (
+            helper_called
+            and ".session_token(headers)" in auth
+            and "active_session_user(&digest)" in auth
+            and "StatusCode::UNAUTHORIZED" in auth
+            and "resolve_entitlement(" in auth
+            and "EntitlementDecision::Allowed" in auth
+            and "pinned.chapter_id == chapter && pinned.version_id == version" in auth
+            and "PgPaidChapterComments::new" in body
+        ):
+            errors.append(f"{label}: S011 paid discussion missing reviewed live A/D purchase+version guard")
+        else:
+            evidence += "\n" + auth
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -541,6 +570,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
             )
+        elif paid_comment_binding:
+            # Exact canonical E repository operation with caller-bound actor,
+            # not just a generic method called "list" or "create".
+            operation = "list" if entry["method"] == "GET" else "create"
+            scoped = bool(re.search(rf"\.{operation}\s*\(\s*actor\s*,", body)
+                and re.search(r"\bauthorized\s*\(\s*&state,", body))
         else:
             scoped = _contains_scoped_call(evidence, proof)
         if not scoped:
