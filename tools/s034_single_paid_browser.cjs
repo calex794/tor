@@ -197,31 +197,37 @@ async function verify(browser, buyer, viewport) {
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
       " AND version_id=" + chapter.version);
     assert.equal(commentCount(), 0);
-    async function assertCommentCount(expected) {
-      await page.waitForFunction((n) =>
-        document.querySelectorAll("#paid-chapter-comments .comment-card").length === n,
-        expected, {timeout: 8500}
-      ).catch(() => {});
-      const actual = await comments.locator(".comment-card").count();
-      if (actual !== expected) {
+    // The discussion may already contain other readers' comments.
+    // Accept exactly one new, identifiable comment rather than assuming
+    // the entire edition thread contains only this test buyer's writing.
+    async function assertOwnCommentVisible(body, expectedOwnCount) {
+      await page.waitForFunction((expectedBody) => [...document.querySelectorAll(
+        "#paid-chapter-comments .comment-card"
+      )].some((card) => card.textContent?.includes(expectedBody)), body,
+      {timeout: 8500}).catch(() => {});
+      const matching = await comments.locator(".comment-card").filter({hasText:body}).count();
+      const saved = commentCount();
+      if (matching !== 1 || saved !== expectedOwnCount) {
         const status = (await comments.locator('[role="status"]').textContent() || "").slice(0, 90);
-        assert.fail("S011 comment UI mismatch: expected=" + expected +
-          ", rendered=" + actual + ", db=" + commentCount() +
+        const total = await comments.locator(".comment-card").count();
+        assert.fail("S011 comment UI mismatch: matching=" + matching + ", total=" + total +
+          ", expectedOwnDb=" + expectedOwnCount + ", actualOwnDb=" + saved +
           ", responses=" + commentTraffic.join(",") + ", status=" + status);
       }
     }
     await comments.getByLabel("Текст комментария").fill("Вопрос по купленной редакции");
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await assertCommentCount(1);
+    await assertOwnCommentVisible("Вопрос по купленной редакции", 1);
     assert.equal(commentCount(), 1);
     assert.equal(number("SELECT count(*) FROM discussion_anchors a JOIN discussion_comments c " +
       "ON c.id=a.comment_id WHERE c.author_user_id=" + buyer.id +
       " AND c.version_id=" + chapter.version), 1,
       "selected paid quote must be anchored to the exact purchased version");
-    await comments.getByRole("button", {name:"Ответить"}).first().click();
+    await comments.locator(".comment-card").filter({hasText:"Вопрос по купленной редакции"})
+      .getByRole("button", {name:"Ответить"}).click();
     await comments.getByLabel("Текст комментария").fill("Ответ к той же редакции");
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await assertCommentCount(2);
+    await assertOwnCommentVisible("Ответ к той же редакции", 2);
     assert.equal(commentCount(), 2);
     assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
