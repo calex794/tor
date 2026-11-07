@@ -473,17 +473,39 @@ fn make_router_with_paid_checkout(
     } else {
         book_router
     };
-    let mut app = Router::new()
+    // Only the four public HTML routes get A-owned optional consent
+    // verification. The account/session lookup is disabled by default and
+    // shares the same signer, opt-in and single-instance safety gates as RIL.
+    let public_pages = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
+        .route("/reader/{id}", get(reader_page));
+    let public_pages = if let Some(control) = follow_control.as_ref() {
+        let (accounts, cookies) = control.browser_context();
+        let context = auth::behavior_consent::PublicFlowConsentContext::new(
+            accounts.clone(),
+            cookies.clone(),
+        );
+        if context.enabled() {
+            public_pages.layer(axum::middleware::from_fn_with_state(
+                context,
+                auth::behavior_consent::annotate_public_flow,
+            ))
+        } else {
+            public_pages
+        }
+    } else {
+        public_pages
+    };
+    let mut app = Router::new()
+        .merge(public_pages)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route(
             "/api/v1/covers/{id}/{variant}/direct-grant",
             get(cover_http::cover_direct_grant),
         )
         .route("/api/v1/books/{id}/toc", get(book_toc))
-        .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/newboo-text-issues.js", get(text_issue_script))
         .route(

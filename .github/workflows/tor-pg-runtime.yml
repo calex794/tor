@@ -342,7 +342,8 @@ jobs:
           cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
-          TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
+          TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
+            TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 

@@ -41,7 +41,7 @@ mod admin_refund_review;
 pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
-mod behavior_consent;
+pub(crate) mod behavior_consent;
 mod book_access_level;
 mod book_comments;
 mod book_description;
