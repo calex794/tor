@@ -146,8 +146,15 @@ jobs:
           npx playwright install --only-shell chromium
       - name: PostgreSQL client
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Create isolated roles and database
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -252,6 +259,13 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
+          # Timing only; all original commands and ordering remain unchanged.
+          ci_pg_started=$SECONDS
+          ci_pg_phase_done() {
+            local phase="$1"
+            echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
+            ci_pg_started=$SECONDS
+          }
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
@@ -265,6 +279,7 @@ jobs:
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
@@ -302,6 +317,7 @@ jobs:
           cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "books_import_authoring"
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
@@ -326,6 +342,7 @@ jobs:
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "reading_library"
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
@@ -341,6 +358,7 @@ jobs:
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test text_issues_pg e_12_ -- --ignored --test-threads=1
+          ci_pg_phase_done "referrals_recommendations_social"
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
@@ -358,6 +376,7 @@ jobs:
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
+          ci_pg_phase_done "commerce_support"
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
@@ -375,6 +394,7 @@ jobs:
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "http_security"
 
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
@@ -466,10 +486,9 @@ jobs:
           cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-social --test chapter_release_notifications_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          # All four test targets share the same crate and test flags;
+          # Cargo still executes each complete target, with one frontend invocation.
+          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
@@ -511,8 +530,13 @@ jobs:
           persist-credentials: false
       - name: Install PostgreSQL client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Verify donor SQL blobs plus TOR cover schema, fresh and upgrade migrations
         run: bash tests/postgres/verify-migrations.sh
   reader-browser:
@@ -551,8 +575,13 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -608,22 +637,33 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:3098/readyz
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
+          ci_timed_browser() {
+            local scenario="$1" started=$SECONDS result
+            shift
+            if node "$scenario" "$@"; then
+              result=0
+            else
+              result=$?
+            fi
+            echo "CI_BROWSER_SCENARIO_SECONDS scenario=$scenario seconds=$((SECONDS-started)) exit=$result"
+            return "$result"
+          }
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/reader_visual_smoke.cjs
           node --check tools/br060_archive_browser_pg.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/br060_archive_browser_pg.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/loop_01_browser_smoke.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/chapter_file_import_browser.cjs
-          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
-          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
-          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
-          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/br060_archive_browser_pg.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
+          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
+          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
+          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
           node --check tools/mail_browser_pg.cjs
           node --check tools/support_browser_pg.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
           node --check tools/referral_share_browser_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
-          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" node tools/referral_share_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
+          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
       - name: S059 real SQL delay, operator diagnostics and writer recovery
         run: python3 tools/operator_trace_pg_smoke.py
       - name: Preserve S059 measured acceptance
@@ -734,8 +774,13 @@ jobs:
           node-version: '22'
       - name: Create disposable PostgreSQL roles and apply canonical migrations
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-cover-browser-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-cover-browser-ci-app';
@@ -1034,8 +1079,13 @@ jobs:
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
@@ -1074,6 +1124,7 @@ jobs:
           key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
             -c "SELECT v.storage_key FROM cover_variants v \
                 JOIN cover_variant_jobs j ON j.id=v.job_id \
+                JOIN book_cover_slots s ON s.job_id=j.id AND s.book_id=j.book_id \
                 WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
           [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
@@ -1198,8 +1249,13 @@ jobs:
           node-version: '22'
       - name: Install PostgreSQL client
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Prepare disposable tor_ci with separate app/migrator privileges
         run: |
           set -euo pipefail
@@ -1368,8 +1424,13 @@ jobs:
       - name: Create disposable PostgreSQL roles, database and SQLx schema
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
@@ -1447,8 +1508,13 @@ jobs:
       - name: Prepare isolated PostgreSQL roles and SQLx schema
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';

@@ -10,12 +10,18 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+#[path = "moderation_decision_errors.rs"]
+mod decision_errors;
+pub(super) use decision_errors::decision_error;
+#[path = "moderation_deletion_queue_render.rs"]
+mod deletion_queue_render;
+#[path = "moderation_book_history.rs"]
+mod history;
+use deletion_queue_render::{render_deletion_queue, DeletionQueueFilters};
 #[path = "moderation_registration.rs"]
 mod registration;
 use tor_accounts::{
-    repositories::moderation_books::{
-        ModerationBook, ModerationBooksError, ModerationDeletionRequest,
-    },
+    repositories::moderation_books::{ModerationBook, ModerationBooksError},
     services::security::session_token_digest,
 };
 
@@ -23,6 +29,9 @@ use tor_accounts::{
 #[serde(deny_unknown_fields)]
 pub(super) struct PageQuery {
     before: Option<i64>,
+    q: Option<String>,
+    level: Option<String>,
+    wait: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -50,15 +59,18 @@ pub(super) struct DeletionReviewForm {
     decision: String,
     #[serde(default)]
     reason: String,
+    confirmed: Option<String>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
-        .route("/moderation/books", get(page))
+        .route("/moderation/books", get(home))
+        .route("/moderation/books/control", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
         .route("/moderation/books/deletions", get(deletion_queue))
         .route("/moderation/books/{id}/deletion", post(review_deletion))
+        .merge(history::router())
         .merge(registration::router())
 }
 
@@ -104,7 +116,8 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                Публикация: {visibility} · {current}</p>
                <p>{registration_reviewer}
                  · <a href="/moderation/books/{id}/registration-history">
-                 Системная история регистрации</a></p>
+                 Системная история регистрации</a>
+                 · <a href="/moderation/books/{id}/history">Все решения модерации</a></p>
                <form method="post" action="/moderation/books/{id}/hold">
                <input type="hidden" name="csrf_token" value="{csrf}">
                <input type="hidden" name="expected_hold" value="{held}">
@@ -150,7 +163,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
     if rows.len() == 40 {
         if let Some(last) = rows.last() {
             list.push_str(&format!(
-                r#"<a href="/moderation/books?before={}">Следующая страница</a>"#,
+                r#"<a href="/moderation/books/control?before={}">Следующая страница</a>"#,
                 last.id
             ));
         }
@@ -165,7 +178,9 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                 <a href="/moderation/books/registrations">Регистрация</a>
                 <a href="/moderation/covers">Обложки</a>
                 <a href="/moderation/books/deletions">Удаление</a>
+                <a href="/moderation/books/control" aria-current="page">Контроль</a>
               </nav>
+              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
               <p>Контроль видимости и удержаний — не подтверждение заявки.</p>
               <p>Удержание не меняет авторскую публикацию и не создаёт
               административное право на платные главы.</p>
@@ -173,6 +188,31 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
         ),
     )
     .0
+}
+
+/// Open the workbench on real requests, never on emergency controls.
+/// Gate the redirect itself by a live site-moderator session.
+pub(super) async fn home(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    // The queue read revalidates this session/role in PostgreSQL, rather than
+    // treating a web-only role bit as sufficient authority.
+    if let Err(error) = state
+        .accounts
+        .moderation_registration_pending_count(&digest)
+        .await
+    {
+        return deny(error_code(error));
+    }
+    private_response(Redirect::to("/moderation/books/registrations"), &[])
 }
 
 pub(super) async fn page(
@@ -228,7 +268,7 @@ pub(super) async fn submit(
         .moderate_book_hold(&digest, id, form.expected_hold, form.new_hold)
         .await
     {
-        Ok(()) => private_response(Redirect::to("/moderation/books"), &[]),
+        Ok(()) => private_response(Redirect::to("/moderation/books/control"), &[]),
         Err(error) => deny(error_code(error)),
     }
 }
@@ -264,69 +304,9 @@ pub(super) async fn submit_visibility(
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to("/moderation/books"), &[]),
+        Ok(_) => private_response(Redirect::to("/moderation/books/control"), &[]),
         Err(error) => deny(error_code(error)),
     }
-}
-
-fn render_deletion_queue(
-    rows: &[ModerationDeletionRequest],
-    csrf: &str,
-    registration_count: i64,
-    cover_count: i64,
-    deletion_count: i64,
-) -> String {
-    let token = pages::escape_html(csrf);
-    let mut cards = String::new();
-    for item in rows {
-        let title = pages::escape_html(&item.title);
-        cards.push_str(&format!(
-            r#"<article class="me-now-card"><h2>{title}</h2>
-               <p>Книга #{book} · Владелец #{owner} · Заявка #{revision}</p>
-               <form method="post" action="/moderation/books/{book}/deletion">
-                 <input type="hidden" name="csrf_token" value="{token}">
-                 <input type="hidden" name="request_revision" value="{revision}">
-                 <label for="deletion-reason-{book}">Причина отказа (обязательна для отказа)</label>
-                 <input id="deletion-reason-{book}" name="reason" maxlength="2000">
-                 <button type="submit" name="decision" value="approve">Одобрить и удалить</button>
-                 <button type="submit" name="decision" value="reject">Отклонить удаление</button>
-               </form></article>"#,
-            book = item.book_id,
-            owner = item.owner_user_id,
-            revision = item.request_revision
-        ));
-    }
-    if cards.is_empty() {
-        cards.push_str("<p>Ожидающих решения заявок нет.</p>");
-    }
-    if rows.len() == 40 {
-        if let Some(last) = rows.last() {
-            cards.push_str(&format!(
-                "<p><a href=\"/moderation/books/deletions?before={}\">Следующая страница</a></p>",
-                last.book_id
-            ));
-        }
-    }
-    pages::layout(
-        "Модерация удаления книг",
-        "Одобрение заявок на обычное удаление книги.",
-        &format!(
-            r#"<section class="me-page"><div class="container">
-               <h1>Кабинет модератора</h1>
-               <nav aria-label="Очереди модератора">
-                 <a href="/moderation/books/registrations">Регистрация ({registration_count})</a>
-                 <a href="/moderation/covers">Обложки ({cover_count})</a>
-                 <a href="/moderation/books/deletions" aria-current="page">Удаление ({deletion_count})</a>
-               </nav>
-               <h2>Заявки на удаление книг</h2>
-               <p>Это решение не удаляет главы и не предоставляет платные права.
-                  После одобрения книга удаляется из публичного доступа сразу.
-                  Купленные и сохранённые главы остаются в личных библиотеках.</p>
-               {cards}<p><a href="/moderation/books">К модерации книг</a></p>
-               </div></section>"#
-        ),
-    )
-    .0
 }
 
 pub(super) async fn deletion_queue(
@@ -371,7 +351,13 @@ pub(super) async fn deletion_queue(
     };
     let rows = match state
         .accounts
-        .moderation_pending_deletions(&digest, query.before)
+        .moderation_pending_deletions_with_wait_age(
+            &digest,
+            query.before,
+            query.q.as_deref(),
+            query.level.as_deref().filter(|level| !level.is_empty()),
+            query.wait.as_deref().filter(|wait| !wait.is_empty()),
+        )
         .await
     {
         Ok(rows) => rows,
@@ -385,6 +371,11 @@ pub(super) async fn deletion_queue(
             registration_count,
             cover_count,
             deletion_count,
+            DeletionQueueFilters {
+                search: query.q.as_deref(),
+                level: query.level.as_deref(),
+                wait: query.wait.as_deref(),
+            },
         )),
         &cookies,
     );
@@ -415,6 +406,22 @@ pub(super) async fn review_deletion(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+    let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
+        Ok(confirmed) => confirmed,
+        Err(status) => return decision_error(status, "/moderation/books/deletions"),
+    };
+    if !confirmed {
+        return super::moderation_confirm::confirmation_page(
+            super::moderation_confirm::ReviewIntent {
+                kind: "deletion",
+                subject_id: id,
+                revision: form.request_revision,
+                action: &form.decision,
+                reason: form.reason.trim(),
+                csrf: &form.csrf_token,
+            },
+        );
+    }
     match state
         .accounts
         .moderate_ordinary_deletion(
@@ -427,7 +434,7 @@ pub(super) async fn review_deletion(
         .await
     {
         Ok(()) => private_response(Redirect::to("/moderation/books/deletions"), &[]),
-        Err(error) => deny(error_code(error)),
+        Err(error) => decision_error(error_code(error), "/moderation/books/deletions"),
     }
 }
 
@@ -470,13 +477,26 @@ mod deletion_queue_tests {
 
     #[test]
     fn escapes_titles_and_never_trusts_client_actor_or_book_state() {
-        let rows = vec![ModerationDeletionRequest {
-            book_id: 42,
-            title: "<script>alert(1)</script>".into(),
-            owner_user_id: 7,
-            request_revision: 2,
-        }];
-        let page = render_deletion_queue(&rows, "csrf", 1, 2, 3);
+        let rows = vec![
+            tor_accounts::repositories::moderation_books::ModerationDeletionRequest {
+                book_id: 42,
+                title: "<script>alert(1)</script>".into(),
+                owner_user_id: 7,
+                request_revision: 2,
+            },
+        ];
+        let page = render_deletion_queue(
+            &rows,
+            "csrf",
+            1,
+            2,
+            3,
+            DeletionQueueFilters {
+                search: None,
+                level: None,
+                wait: None,
+            },
+        );
         assert!(page.contains("&lt;script&gt;"));
         assert!(!page.contains("<script>"));
         assert!(page.contains("/moderation/books/42/deletion"));
@@ -484,6 +504,9 @@ mod deletion_queue_tests {
         assert!(page.contains("Обложки (2)"));
         assert!(page.contains("Удаление (3)"));
         assert!(page.contains("value=\"approve\""));
+        assert!(page.contains("moderation-review-confirm"));
+        assert!(page.contains("name=\"level\""));
+        assert!(page.contains("name=\"wait\""));
         assert!(page.contains("value=\"reject\""));
         assert!(page.contains("name=\"request_revision\" value=\"2\""));
         let response = private_response(Html(page), &[]);

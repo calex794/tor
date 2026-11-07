@@ -378,11 +378,12 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &format!("/moderation/books/{book}/deletion"),
             &reader_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),
-        StatusCode::FORBIDDEN
+        StatusCode::FORBIDDEN,
+        "site moderator must not finalize deletion of their own Book"
     );
     let moderator_queue = "/moderation/books/deletions";
     assert_eq!(
@@ -402,13 +403,53 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(queue_html.contains("Archived &lt;unsafe&gt;"));
     assert!(queue_html.contains(&format!("/moderation/books/{book}/deletion")));
     let review_action = format!("/moderation/books/{book}/deletion");
+    // Waiting time is measured from the original owner deletion request,
+    // not the content's 18+/21+ rating or the Book's creation date.
+    let recent_queue = html(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=lt24",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(recent_queue.contains(&review_action));
+    let old_queue = html(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=gte72",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(!old_queue.contains(&review_action));
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/moderation/books/deletions?wait=unknown",
+            &outsider_cookie,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Audit timestamps remain immutable. A fresh request must not match the
+    // three-day waiting bucket; the filter does not modify its source row.
     assert_eq!(
         call(
             &app,
             "POST",
             &review_action,
             &reader_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),
@@ -426,13 +467,33 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let preview = call(
+        &app,
+        "POST",
+        &review_action,
+        &outsider_cookie,
+        &format!("csrf_token={csrf}&request_revision=2&decision=approve"),
+    )
+    .await;
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert!(html(preview).await.contains("Подтверждение решения"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT lifecycle_status FROM books WHERE id={book}")
+        ),
+        "pending_deletion",
+        "first moderator POST may only preview and must not complete deletion"
+    );
+    let approved_body =
+        format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes");
     assert_eq!(
         call(
             &app,
             "POST",
             &review_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &approved_body
         )
         .await
         .status(),
@@ -444,7 +505,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &review_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &approved_body
         )
         .await
         .status(),
@@ -530,13 +591,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
         StatusCode::BAD_REQUEST
     );
 
+    let reject_body = format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied");
+    let reject_preview = call(&app, "POST", &reject_action, &outsider_cookie, &reject_body).await;
+    assert_eq!(reject_preview.status(), StatusCode::OK);
+    assert!(html(reject_preview).await.contains("Причина отказа:"));
     assert_eq!(
         call(
             &app,
             "POST",
             &reject_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=reject&reason=denied")
+            &format!("{reject_body}&confirmed=yes")
         )
         .await
         .status(),
@@ -567,7 +632,7 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             "POST",
             &reject_action,
             &outsider_cookie,
-            &format!("csrf_token={csrf}&request_revision=2&decision=approve")
+            &format!("csrf_token={csrf}&request_revision=2&decision=approve&confirmed=yes")
         )
         .await
         .status(),

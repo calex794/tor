@@ -108,9 +108,133 @@ pub(super) async fn page(
     )
 }
 
+/// The author sees the review result independently from any later
+/// visibility restriction. No site reviewer metadata is loaded or rendered.
+pub(super) async fn registration_status(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let (outcome, reason, visibility, held) =
+        match state.authoring.owner_registration_status(actor, id).await {
+            Ok(Some(review)) => review,
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    private_response(
+        axum::response::Html(render_registration_result(
+            id,
+            &outcome,
+            reason.as_deref(),
+            &visibility,
+            held,
+        )),
+        &[],
+    )
+}
+
+fn render_registration_result(
+    book_id: i64,
+    outcome: &str,
+    reason: Option<&str>,
+    visibility: &str,
+    held: bool,
+) -> String {
+    let (label, explanation) = match outcome {
+        "pending" => (
+            "Ожидает модерации",
+            "Заявка на регистрацию ещё не рассмотрена.",
+        ),
+        "approved" => (
+            "Регистрация одобрена",
+            "Модерация регистрации завершена. Публикацию выполняет владелец.",
+        ),
+        "rejected" => (
+            "Регистрация отклонена",
+            "Заявка на регистрацию отклонена модератором сайта.",
+        ),
+        "not_required" => (
+            "Регистрация без проверки",
+            "Для регистрации этой книги отдельное одобрение не требовалось.",
+        ),
+        _ => (
+            "Статус регистрации не установлен",
+            "Невозможно подтвердить результат регистрации.",
+        ),
+    };
+    let visibility_note = match visibility {
+        "active" => "Текущая видимость книги: разрешена.",
+        "hidden" => "Текущая видимость книги: скрыта.",
+        "blocked" => "Текущая видимость книги: заблокирована.",
+        "pending_moderation" => "Текущая видимость книги: ожидает решения.",
+        _ => "Текущая видимость книги: не установлена.",
+    };
+    let hold_note = if held {
+        "<p>Дополнительно действует административное удержание.</p>"
+    } else {
+        ""
+    };
+    let reason_html = if outcome == "rejected" {
+        reason
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(String::new, |reason| {
+                format!(
+                    "<section aria-label=\"Причина отказа\"><h2>Причина отказа</h2>\
+                     <p>{}</p></section>",
+                    crate::pages::escape_html(reason)
+                )
+            })
+    } else {
+        String::new()
+    };
+    crate::pages::layout(
+        "Проверка регистрации книги",
+        "Результат регистрации и отдельные ограничения видимости.",
+        &format!(
+            "<section class=\"section auth-section\"><div class=\"container\">\
+             <h1>{label}</h1><p>{explanation}</p>\
+             <p>{visibility_note}</p>{hold_note}{reason_html}\
+             <p><a href=\"/me/books/{book_id}\">Вернуться к книге</a></p>\
+             </div></section>"
+        ),
+    )
+    .0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_result_exposes_rejection_reason_but_not_private_reviewer() {
+        let html = render_registration_result(
+            51,
+            "rejected",
+            Some("<script>reason</script>"),
+            "hidden",
+            false,
+        );
+        assert!(html.contains("Причина отказа"));
+        assert!(html.contains("&lt;script&gt;reason&lt;/script&gt;"));
+        assert!(!html.contains("<script>reason</script>"));
+        assert!(!html.contains("reviewer_user_id"));
+        assert!(!html.contains("moderator_user_id"));
+        assert!(html.contains("/me/books/51"));
+        let pending = render_registration_result(51, "pending", None, "pending_moderation", false);
+        assert!(pending.contains("Ожидает модерации"));
+        assert!(!pending.contains("Причина отказа</h2>"));
+        let hidden_approved = render_registration_result(51, "approved", None, "hidden", true);
+        assert!(hidden_approved.contains("Регистрация одобрена"));
+        assert!(hidden_approved.contains("Текущая видимость книги: скрыта"));
+        assert!(hidden_approved.contains("административное удержание"));
+        assert!(!hidden_approved.contains("Регистрация отклонена"));
+        assert!(!hidden_approved.contains("Причина отказа</h2>"));
+    }
 
     #[test]
     fn b_12_author_cursor_never_accepts_unbounded_or_malformed_input() {

@@ -47,8 +47,13 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -104,22 +109,33 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:3098/readyz
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
+          ci_timed_browser() {
+            local scenario="$1" started=$SECONDS result
+            shift
+            if node "$scenario" "$@"; then
+              result=0
+            else
+              result=$?
+            fi
+            echo "CI_BROWSER_SCENARIO_SECONDS scenario=$scenario seconds=$((SECONDS-started)) exit=$result"
+            return "$result"
+          }
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/reader_visual_smoke.cjs
           node --check tools/br060_archive_browser_pg.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/br060_archive_browser_pg.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/loop_01_browser_smoke.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/chapter_file_import_browser.cjs
-          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
-          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
-          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
-          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/br060_archive_browser_pg.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
+          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
+          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
+          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
           node --check tools/mail_browser_pg.cjs
           node --check tools/support_browser_pg.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
           node --check tools/referral_share_browser_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
-          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" node tools/referral_share_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
+          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
       - name: S059 real SQL delay, operator diagnostics and writer recovery
         run: python3 tools/operator_trace_pg_smoke.py
       - name: Preserve S059 measured acceptance

@@ -20,7 +20,9 @@ use tor_discussions::{
         comments::{CommentBody, CommentIntentKey},
         spoilers::{mask_mentions, parse, Segment},
     },
-    repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
+    repositories::public_book_comments::{
+        CreateResult, PgPublicBookComments, PublicComment, ReadStateResult,
+    },
 };
 
 pub(super) async fn mention_script() -> Response {
@@ -345,6 +347,18 @@ pub(super) async fn submit(
         .await
     {
         CreateResult::Created(_) | CreateResult::Replayed(_) => {
+            // S012: an answer from Inbox marks that received notification as
+            // read, including idempotent retries. Only a verified recipient
+            // can change the read state; a forged return_to cannot read
+            // another user's notification.
+            if let Some(parent_id) = form.parent_id.filter(|_| redirect_to_inbox) {
+                match store.set_reply_read_state(actor, parent_id, true).await {
+                    ReadStateResult::Updated | ReadStateResult::NotFound => {}
+                    // The comment was committed, so the same command_key can
+                    // safely be retried to finish the read-state update.
+                    ReadStateResult::Unavailable => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                }
+            }
             let destination = if redirect_to_inbox {
                 "/me/inbox".to_owned()
             } else {

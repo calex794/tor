@@ -28,9 +28,60 @@ impl PgAccounts {
         session: &[u8; 32],
         before: Option<i64>,
     ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
-        if before.is_some_and(|id| id <= 0) {
+        self.moderation_registration_queue_filtered(session, before, None)
+            .await
+    }
+
+    /// Search is evaluated in PostgreSQL before keyset LIMIT 40, never on a
+    /// clipped HTML result set. Site authorization remains inside the query tx.
+    pub async fn moderation_registration_queue_filtered(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        self.moderation_registration_queue_with_access_level(session, before, search, None)
+            .await
+    }
+
+    /// Age rating is the Book's attested access_level, not the reader's age.
+    /// Keep NULL legacy levels explicit instead of silently treating them as basic.
+    pub async fn moderation_registration_queue_with_access_level(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        self.moderation_registration_queue_with_wait_age(
+            session,
+            before,
+            search,
+            access_level,
+            None,
+        )
+        .await
+    }
+
+    /// Waiting time is based on creation of the initial registration request.
+    /// The public Book access rating is a separate filter, never a time range.
+    pub async fn moderation_registration_queue_with_wait_age(
+        &self,
+        session: &[u8; 32],
+        before: Option<i64>,
+        search: Option<&str>,
+        access_level: Option<&str>,
+        wait_age: Option<&str>,
+    ) -> Result<Vec<RegistrationCandidate>, ModerationBooksError> {
+        if before.is_some_and(|id| id <= 0)
+            || search.is_some_and(|q| q.len() > 120 || q.contains('\0'))
+            || access_level
+                .is_some_and(|value| !matches!(value, "basic" | "adult" | "pro_adult" | "legacy"))
+            || wait_age.is_some_and(|age| !matches!(age, "lt24" | "gte24" | "gte72"))
+        {
             return Err(ModerationBooksError::Invalid);
         }
+        let search = search.map(str::trim).filter(|q| !q.is_empty());
         let mut tx = self
             .pool()
             .begin()
@@ -43,9 +94,20 @@ impl PgAccounts {
              WHERE registration_requires_review AND visibility_status='pending_moderation'
                AND registration_approval_decision_id IS NULL AND NOT is_deleted
                AND ($1::bigint IS NULL OR id<$1)
+               AND ($2::text IS NULL OR id::text=$2
+                    OR position(lower($2) in lower(title))>0)
+               AND ($3::text IS NULL OR access_level=$3
+                    OR ($3='legacy' AND access_level IS NULL))
+               AND ($4::text IS NULL
+                    OR ($4='lt24' AND created_at > now() - interval '24 hours')
+                    OR ($4='gte24' AND created_at <= now() - interval '24 hours')
+                    OR ($4='gte72' AND created_at <= now() - interval '72 hours'))
              ORDER BY id DESC LIMIT 40",
         )
         .bind(before)
+        .bind(search)
+        .bind(access_level)
+        .bind(wait_age)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;

@@ -88,8 +88,15 @@ jobs:
           python3 tools/check_contracts.py
       - name: Prepare isolated database
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
           CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';

@@ -43,6 +43,11 @@ use tor_web::{
 };
 use tower::ServiceExt;
 
+#[path = "cover_s3_pg/private_cleanup.rs"]
+mod private_cleanup;
+#[path = "cover_s3_pg/source_cleanup.rs"]
+mod source_cleanup;
+
 const BUCKET: &str = "tor-private-obs09-ci";
 const BOOK_ID: i64 = 950;
 const SOURCE_KEY: &str = "staging/covers/sources/obs09-owner-950.png";
@@ -280,6 +285,34 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         ),
     )
     .await;
+    // Two independent live site moderators race for the same immutable request.
+    let second_token = tor_accounts::services::security::generate_session_token();
+    let second_session_digest =
+        tor_accounts::services::security::session_token_digest(&second_token);
+    let second_reviewer = accounts
+        .register_with_session(
+            &format!(
+                "obs09-second-cover-moderator-{}@example.invalid",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            "Independent second cover reviewer",
+            &tor_accounts::services::security::hash_password("Obs09SecondMod2026!").unwrap(),
+            &second_session_digest,
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(reviewer, second_reviewer);
+    pg_sql(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) VALUES({second_reviewer},'moderator',true)"
+        ),
+    )
+    .await;
     let reviews = PgCoverReview::new(catalog.pool());
     let review_request = reviews
         .pending(&session_digest, None)
@@ -307,6 +340,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     );
     let csrf = tor_accounts::services::security::generate_session_token();
     let cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
+    let second_csrf = tor_accounts::services::security::generate_session_token();
+    let second_cookie = format!("tor-dev-session={second_token}; tor-dev-csrf={second_csrf}");
     assert_eq!(
         moderation_request(&moderator_app, "GET", "/moderation/covers", "", origin, "")
             .await
@@ -326,6 +361,65 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
     let html = to_bytes(queue.into_body(), 262144).await.unwrap();
     assert!(String::from_utf8_lossy(&html).contains("Первая обложка"));
+    let review_form_path = format!("/moderation/covers/{}/decision", review_request.id);
+    let recent = moderation_request(
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&wait=lt24",
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(recent.status(), StatusCode::OK);
+    let recent_html = to_bytes(recent.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&recent_html).contains(&review_form_path));
+    let too_old = moderation_request(
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&wait=gte72",
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(too_old.status(), StatusCode::OK);
+    let old_html = to_bytes(too_old.into_body(), 262144).await.unwrap();
+    assert!(!String::from_utf8_lossy(&old_html).contains(&review_form_path));
+    assert_eq!(
+        moderation_request(
+            &moderator_app,
+            "GET",
+            "/moderation/covers?wait=unknown",
+            &cookie,
+            origin,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    pg_sql(
+        &url,
+        &format!(
+            "UPDATE book_cover_review_requests
+             SET submitted_at=now()-interval '5 days' WHERE id={}",
+            review_request.id
+        ),
+    )
+    .await;
+    let aged = moderation_request(
+        &moderator_app,
+        "GET",
+        "/moderation/covers?q=950&kind=first&wait=gte72",
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(aged.status(), StatusCode::OK);
+    let aged_html = to_bytes(aged.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&aged_html).contains(&review_form_path));
     let preview = moderation_request(
         &moderator_app,
         "GET",
@@ -356,16 +450,77 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    let approved = moderation_request(
+    let cover_path = format!("/moderation/covers/{}/decision", review_request.id);
+    let cover_body = format!("csrf_token={csrf}&expected_slot_revision=0&action=approve");
+    let preview = moderation_request(
         &moderator_app,
         "POST",
-        &format!("/moderation/covers/{}/decision", review_request.id),
+        &cover_path,
         &cookie,
         origin,
-        &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+        &cover_body,
     )
     .await;
-    assert_eq!(approved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()[header::CACHE_CONTROL], "no-store");
+    let preview_html = to_bytes(preview.into_body(), 262144).await.unwrap();
+    assert!(String::from_utf8_lossy(&preview_html).contains("name=\"confirmed\" value=\"yes\""));
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), None);
+    // Simultaneous final HTTP POSTs: PostgreSQL row locks and the slot CAS
+    // must yield exactly one approval and one stale request (409).
+    let first_confirmed_body = format!("{cover_body}&confirmed=yes");
+    let second_confirmed_body =
+        format!("csrf_token={second_csrf}&expected_slot_revision=0&action=approve&confirmed=yes");
+    let (first_result, second_result) = tokio::join!(
+        moderation_request(
+            &moderator_app,
+            "POST",
+            &cover_path,
+            &cookie,
+            origin,
+            &first_confirmed_body
+        ),
+        moderation_request(
+            &moderator_app,
+            "POST",
+            &cover_path,
+            &second_cookie,
+            origin,
+            &second_confirmed_body
+        ),
+    );
+    let first_status = first_result.status();
+    let second_status = second_result.status();
+    assert!(
+        (first_status == StatusCode::SEE_OTHER && second_status == StatusCode::CONFLICT)
+            || (first_status == StatusCode::CONFLICT && second_status == StatusCode::SEE_OTHER),
+        "two independent moderators must yield one 303 and one 409; got {first_status} / {second_status}"
+    );
+    let winning_reviewer = if first_status == StatusCode::SEE_OTHER {
+        reviewer
+    } else {
+        second_reviewer
+    };
+    let loser = if first_status == StatusCode::CONFLICT {
+        first_result
+    } else {
+        second_result
+    };
+    assert_eq!(loser.headers()[header::CACHE_CONTROL], "no-store");
+    let denied_html = to_bytes(loser.into_body(), 262144).await.unwrap();
+    assert!(!String::from_utf8_lossy(&denied_html).contains("staging/covers/"));
+    assert_eq!(
+        pg_sql(
+            &url,
+            &format!(
+                "SELECT count(*) FROM book_cover_review_decisions WHERE request_id={}",
+                review_request.id
+            ),
+        )
+        .await,
+        "1",
+        "racing moderators must append exactly one immutable decision"
+    );
     assert_eq!(
         moderation_request(
             &moderator_app,
@@ -373,7 +528,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             &format!("/moderation/covers/{}/decision", review_request.id),
             &cookie,
             origin,
-            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve"),
+            &format!("csrf_token={csrf}&expected_slot_revision=0&action=approve&confirmed=yes"),
         )
         .await
         .status(),
@@ -385,9 +540,44 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .await
         .unwrap();
     assert_eq!(history.len(), 1);
-    assert_eq!(history[0].reviewer_user_id, reviewer);
+    assert_eq!(history[0].reviewer_user_id, winning_reviewer);
     assert_eq!(history[0].outcome, "approved");
     assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 1)));
+    let decision_history_path = format!("/moderation/books/{BOOK_ID}/history");
+    assert_eq!(
+        moderation_request(
+            &moderator_app,
+            "GET",
+            &decision_history_path,
+            "",
+            origin,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let history_response = moderation_request(
+        &moderator_app,
+        "GET",
+        &decision_history_path,
+        &cookie,
+        origin,
+        "",
+    )
+    .await;
+    assert_eq!(history_response.status(), StatusCode::OK);
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let history_page = to_bytes(history_response.into_body(), 262144)
+        .await
+        .unwrap();
+    let history_page = String::from_utf8_lossy(&history_page);
+    assert!(history_page.contains("Обложка: Одобрено"));
+    assert!(history_page.contains(&format!("(#{winning_reviewer})")));
+    assert!(!history_page.contains("staging/covers/"));
 
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);
@@ -406,6 +596,19 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(image.get(8..12), Some(&b"WEBP"[..]));
         assert_eq!(digest(&image), variant.sha256);
     }
+
+    private_cleanup::verify_private_variant_retention(private_cleanup::PrivateRetentionCase {
+        url: &url,
+        catalog: &catalog,
+        slots: &slots,
+        jobs: &jobs,
+        store: store.clone(),
+        client: &client,
+        source,
+        reviewer,
+        job,
+    })
+    .await;
 
     let card = slots
         .public_variant(BOOK_ID, PublicCoverKind::Card)

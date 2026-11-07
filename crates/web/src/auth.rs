@@ -84,6 +84,7 @@ mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
 mod moderation_books;
+mod moderation_confirm;
 mod moderation_covers;
 mod notification_settings;
 mod notifications;
@@ -394,6 +395,10 @@ fn router_inner(
             get(book_title_suggestions::script),
         )
         .route("/me/books/{id}", get(author_book_page::page))
+        .route(
+            "/me/books/{id}/registration-status",
+            get(author_book_page::registration_status),
+        )
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))

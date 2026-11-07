@@ -5,6 +5,9 @@ use crate::domain::MailError;
 use sqlx::PgPool;
 use std::{collections::HashMap, fmt::Write};
 
+#[path = "notification_read_policy.rs"]
+mod read_policy;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
     pub id: i64,
@@ -344,12 +347,13 @@ impl PgNotifications {
         {
             return Err(MailError::Invalid);
         }
-        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
+        let sql = format!(
             r#"SELECT n.id,n.kind,n.title,n.body,n.url,
                       to_char((n.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),
                       n.read_at IS NOT NULL
                FROM user_notifications n
                WHERE n.recipient_user_id=$1 AND ($2::bigint IS NULL OR n.id<$2)
+                 AND {}
                  AND (
                    $4::text='notifications'
                    OR ($4='releases' AND n.kind IN (
@@ -384,14 +388,16 @@ impl PgNotifications {
                      )
                  )
                ORDER BY n.id DESC LIMIT $3"#,
-        )
-        .bind(actor)
-        .bind(before)
-        .bind(i64::from(limit))
-        .bind(section)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(unavailable)?;
+            read_policy::VISIBLE
+        );
+        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(&sql)
+            .bind(actor)
+            .bind(before)
+            .bind(i64::from(limit))
+            .bind(section)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
         Ok(rows
             .into_iter()
             .map(|r| UserNotification {
@@ -471,9 +477,10 @@ impl PgNotifications {
         if actor <= 0 || id <= 0 {
             return Err(MailError::Invalid);
         }
-        let count = sqlx::query(
+        let sql = format!(
             r#"UPDATE user_notifications n SET read_at=COALESCE(n.read_at,clock_timestamp())
              WHERE n.recipient_user_id=$1 AND n.id=$2
+                 AND {}
                -- A stale form left open in the browser must not acknowledge
                -- or navigate through an already revoked/expired proposal.
                  AND NOT EXISTS (
@@ -497,13 +504,15 @@ impl PgNotifications {
                          AND t.expires_at>clock_timestamp()
                      )
                  )"#,
-        )
-        .bind(actor)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(unavailable)?
-        .rows_affected();
+            read_policy::VISIBLE
+        );
+        let count = sqlx::query(&sql)
+            .bind(actor)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(unavailable)?
+            .rows_affected();
         Ok(count == 1)
     }
 
@@ -511,15 +520,17 @@ impl PgNotifications {
         if actor <= 0 {
             return Err(MailError::Invalid);
         }
-        sqlx::query(
-            "UPDATE user_notifications SET read_at=clock_timestamp()
-             WHERE recipient_user_id=$1 AND read_at IS NULL",
-        )
-        .bind(actor)
-        .execute(&self.pool)
-        .await
-        .map(|result| result.rows_affected())
-        .map_err(unavailable)
+        let sql = format!(
+            "UPDATE user_notifications n SET read_at=clock_timestamp()
+             WHERE n.recipient_user_id=$1 AND n.read_at IS NULL AND {}",
+            read_policy::VISIBLE
+        );
+        sqlx::query(&sql)
+            .bind(actor)
+            .execute(&self.pool)
+            .await
+            .map(|result| result.rows_affected())
+            .map_err(unavailable)
     }
 }
 

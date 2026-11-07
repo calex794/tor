@@ -152,6 +152,7 @@ impl PgCoverJobs {
                 AND s.status='verified' AND b.owner_user_id=$3
                 AND NOT b.admin_hold AND NOT b.is_deleted
                 AND COALESCE(p.revision,0)=$4
+             FOR SHARE OF s
              ON CONFLICT (source_object_id,recipe_version) DO NOTHING
              RETURNING id",
         )
@@ -166,13 +167,15 @@ impl PgCoverJobs {
         if let Some(id) = inserted {
             return Ok(id);
         }
-        // Idempotent replay of an identical source/recipe is allowed even
-        // after the slot revision changes. Cross-actor/source replay is not.
+        // A duplicate recipe is idempotent only while its source is
+        // verified. A source share lock serializes replay with retirement.
         sqlx::query_scalar::<_, i64>(
             "SELECT j.id FROM cover_variant_jobs j
+             JOIN cover_upload_objects s ON s.id=j.source_object_id
              WHERE j.source_object_id=$1 AND j.book_id=$2
                AND j.actor_user_id=$3 AND j.expected_slot_revision=$4
-               AND j.recipe_version=$5",
+               AND j.recipe_version=$5 AND s.status='verified'
+             FOR SHARE OF s",
         )
         .bind(source_id)
         .bind(book_id)
