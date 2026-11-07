@@ -43,8 +43,7 @@ mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, home_recent_with_updates,
-    CatalogPageQuery,
-    PublicBookCard,
+    CatalogPageQuery, PublicBookCard,
 };
 
 pub fn escape_html(value: &str) -> String {
