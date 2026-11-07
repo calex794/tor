@@ -6,7 +6,7 @@ pub mod repositories;
 pub mod services;
 
 pub use domain::{
-    FlowCountRow, FlowPageview, FlowVisitWindows, FLOW_SOURCES, FLOW_SURFACES,
+    FlowCountRow, FlowHourlyCount, FlowPageview, FlowVisitWindows, FLOW_SOURCES, FLOW_SURFACES,
     BehaviorEvent, BehaviorSketch, GapBucket, Hygiene, LatencyGroup, PathAssessment, PathReport,
     RollupDelta, RouteCode, SketchSnapshot, SqlCostCount, SqlCostEvent, StatusGroup, Transition,
     VerifiedSubjectKey, MAX_SUBJECTS, PATH_VERSION, PATH_WINDOW,
