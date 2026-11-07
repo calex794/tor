@@ -55,6 +55,8 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
   input.maxLength = 2000;
   const submit = node("button", "Отправить");
   submit.type = "submit";
+  // Do not accept a click while an entitlement-backed list is loading.
+  submit.disabled = true;
   form.append(input, submit);
   section.append(selectionLabel, entries, more, form, status);
   article.insertAdjacentElement("afterend", section);
@@ -110,6 +112,7 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
   async function load(reset) {
     if (busy || !alive) return;
     busy = true;
+    submit.disabled = true;
     try {
       const data = await send("GET", {after:reset ? null : cursor});
       if (String(data.version_id) !== String(version)) throw new Error("wrong edition");
@@ -123,7 +126,10 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
       entries.replaceChildren();
       more.hidden = true;
       status.textContent = "Комментарии недоступны. Проверьте право чтения.";
-    } finally { busy = false; }
+    } finally {
+      busy = false;
+      submit.disabled = !alive;
+    }
   }
   const onSelection = () => {
     if (!alive || parentId) return;
