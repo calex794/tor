@@ -5,6 +5,8 @@ edition.workspace = true
 
 [features]
 default = []
+# Explicitly selected only by isolated PG/MinIO/CDN HTTP tests; not a runtime flag.
+test-cdn-loopback = []
 s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]

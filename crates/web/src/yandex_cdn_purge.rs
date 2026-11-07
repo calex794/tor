@@ -22,9 +22,9 @@ pub struct YandexCdnPurge {
     bearer: String,
     // The real binary always uses the fixed Yandex Cloud HTTPS management APIs.
     // Only unit tests may redirect HTTP traffic to a loopback test server.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-cdn-loopback"))]
     test_cdn_endpoint: Option<String>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-cdn-loopback"))]
     test_operation_endpoint: Option<String>,
 }
 
@@ -110,15 +110,15 @@ impl YandexCdnPurge {
             client,
             resource_id,
             bearer,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-cdn-loopback"))]
             test_cdn_endpoint: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-cdn-loopback"))]
             test_operation_endpoint: None,
         })
     }
 
     fn cdn_endpoint(&self) -> &str {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-cdn-loopback"))]
         if let Some(endpoint) = &self.test_cdn_endpoint {
             return endpoint;
         }
@@ -126,11 +126,35 @@ impl YandexCdnPurge {
     }
 
     fn operation_endpoint(&self) -> &str {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-cdn-loopback"))]
         if let Some(endpoint) = &self.test_operation_endpoint {
             return endpoint;
         }
         OPERATION_HOST
+    }
+
+    /// Only an explicitly selected test build can redirect the management API.
+    /// Reject external hosts, DNS names, credentials, paths, and missing ports.
+    /// The normal s3-covers production build always uses the fixed HTTPS hosts.
+    #[cfg(any(test, feature = "test-cdn-loopback"))]
+    #[doc(hidden)]
+    pub fn with_loopback_endpoint(mut self, endpoint: &str) -> Result<Self, CoverError> {
+        let url = reqwest::Url::parse(endpoint).map_err(|_| CoverError::Invalid)?;
+        if url.scheme() != "http"
+            || url.host_str() != Some("127.0.0.1")
+            || url.port().is_none()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(CoverError::Invalid);
+        }
+        let endpoint = endpoint.trim_end_matches('/').to_owned();
+        self.test_cdn_endpoint = Some(endpoint.clone());
+        self.test_operation_endpoint = Some(endpoint);
+        Ok(self)
     }
 
     /// Submit one *specific* file path. A missing response is an error, not
