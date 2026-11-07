@@ -2073,6 +2073,83 @@
       "source": "crates/web/src/auth/moderation_overdue_inbox.rs",
       "handler": "page",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "index",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/new",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "new_book",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/personal-books/new",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "create_book",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/{id}",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "book",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/{id}/edit",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "edit_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/personal-books/{id}/edit",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "update_book",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/{id}/chapters/new",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "new_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/personal-books/{id}/chapters/new",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "create_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/{id}/chapters/{chapter_id}",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "read_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/personal-books/{id}/chapters/{chapter_id}/edit",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "edit_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/personal-books/{id}/chapters/{chapter_id}/edit",
+      "source": "crates/web/src/auth/personal_books.rs",
+      "handler": "update_chapter",
+      "policy": "owner"
     }
   ]
 }

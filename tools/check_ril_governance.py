@@ -92,6 +92,7 @@ OWNER_CALLS = {
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book",
+    "list_books", "book", "list_chapters", "chapter", "create_book", "update_book", "create_chapter", "update_chapter",
 
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
@@ -219,7 +220,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load", "administrator"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load", "administrator", "form_allowed"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body

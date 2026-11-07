@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 294] = [
+static ROUTES: [RouteRegistration; 305] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -304,6 +304,17 @@ static ROUTES: [RouteRegistration; 294] = [
     RouteRegistration::new("/me/books/{id}/registration-status", "GET", "/me/", Prefix, Page, Dashboard, Read), // 291
     RouteRegistration::new("/moderation/books/reviews", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 292
     RouteRegistration::new("/moderation/books/alerts", "GET", "/moderation/", Exact, TrafficSurface::Admin, Dashboard, Read), // 293
+    RouteRegistration::new("/personal-books", "GET", "/personal-books/", Exact, Page, Dashboard, Read), // 294
+    RouteRegistration::new("/personal-books/new", "GET", "/personal-books/", Exact, Page, Dashboard, Read), // 295
+    RouteRegistration::new("/personal-books/new", "POST", "/personal-books/", Exact, Page, Dashboard, Write), // 296
+    RouteRegistration::new("/personal-books/{id}", "GET", "/personal-books/", Prefix, Page, Dashboard, Read), // 297
+    RouteRegistration::new("/personal-books/{id}/edit", "GET", "/personal-books/", Prefix, Page, Dashboard, Read), // 298
+    RouteRegistration::new("/personal-books/{id}/edit", "POST", "/personal-books/", Prefix, Page, Dashboard, Write), // 299
+    RouteRegistration::new("/personal-books/{id}/chapters/new", "GET", "/personal-books/", Prefix, Page, Dashboard, Read), // 300
+    RouteRegistration::new("/personal-books/{id}/chapters/new", "POST", "/personal-books/", Prefix, Page, Dashboard, Write), // 301
+    RouteRegistration::new("/personal-books/{id}/chapters/{chapter_id}", "GET", "/personal-books/", Prefix, Page, Dashboard, Read), // 302
+    RouteRegistration::new("/personal-books/{id}/chapters/{chapter_id}/edit", "GET", "/personal-books/", Prefix, Page, Dashboard, Read), // 303
+    RouteRegistration::new("/personal-books/{id}/chapters/{chapter_id}/edit", "POST", "/personal-books/", Prefix, Page, Dashboard, Write), // 304
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

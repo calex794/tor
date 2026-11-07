@@ -306,6 +306,17 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/registration-status"), "GET") => Some(291),
         (Some("/moderation/books/reviews"), "GET") => Some(292),
         (Some("/moderation/books/alerts"), "GET") => Some(293),
+        (Some("/personal-books"), "GET") => Some(294),
+        (Some("/personal-books/new"), "GET") => Some(295),
+        (Some("/personal-books/new"), "POST") => Some(296),
+        (Some("/personal-books/{id}"), "GET") => Some(297),
+        (Some("/personal-books/{id}/edit"), "GET") => Some(298),
+        (Some("/personal-books/{id}/edit"), "POST") => Some(299),
+        (Some("/personal-books/{id}/chapters/new"), "GET") => Some(300),
+        (Some("/personal-books/{id}/chapters/new"), "POST") => Some(301),
+        (Some("/personal-books/{id}/chapters/{chapter_id}"), "GET") => Some(302),
+        (Some("/personal-books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(303),
+        (Some("/personal-books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(304),
         _ => None,
     };
     index
