@@ -74,10 +74,10 @@ jobs:
           done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
-      # Move the feature-specific lint away from the longer PG job only when
-      # both CI suites are selected; standalone Rust runs do not need it.
-      - name: Combined S3 feature Clippy (paired PostgreSQL suite)
-        if: ${{ github.workflow == 'TOR integration CI' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
+      # The short S3 cover job owns this lint if its suite is selected.
+      # Fall back to Rust when cover_s3 is not selected alongside PostgreSQL.
+      - name: Combined S3 feature Clippy (PG selected without cover_s3)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
         run: cargo build --release -p tor-web
@@ -1147,6 +1147,11 @@ jobs:
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
           test "$code" = 403
+      # This parallel S3 runner has spare time after real MinIO/PG acceptance.
+      # Required CI only: run the shared lint here when both Rust and PG run.
+      - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: MinIO diagnostics on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true

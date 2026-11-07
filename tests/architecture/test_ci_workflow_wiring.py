@@ -296,23 +296,42 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("sudo apt-get install -y postgresql-client", code)
                 self.assertIn("Using preinstalled PostgreSQL client", code)
 
-    def test_s3_clippy_moves_off_pg_critical_path_without_losing_coverage(self):
-        # With both suites selected, Rust owns this check; PG-only and
-        # standalone PG runs retain it. Standalone Rust does not gain work.
-        required_text = (WORKFLOWS / CI_WORKFLOW).read_text()
-        self.assertIn("name: TOR integration CI", required_text)
-        required = job_sections(required_text)
-        rust_manual = job_sections((WORKFLOWS / "rust-demo.yml").read_text())["demo"]
-        pg_manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+    def test_s3_clippy_runs_once_on_selected_parallel_lane(self):
+        # Keep required and manual work identical except selector/preflight.
+        # On full CI with cover_s3, the shorter S3 job owns the lint;
+        # without cover_s3 Rust does, and PG-only/manual PG still own it.
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        manual_rust = job_sections((WORKFLOWS / "rust-demo.yml").read_text())["demo"]
+        manual_cover = job_sections((WORKFLOWS / "tor-cover-s3.yml").read_text())["s3-cover-build"]
+        manual_pg = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
         clippy = "cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings"
-        rust_gate = """${{ github.workflow == 'TOR integration CI' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}"""
+        rust_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}"""
+        cover_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}"""
         pg_gate = """${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}"""
-        for job in (required["demo"], rust_manual):
+        for job in (required["demo"], manual_rust):
             self.assertEqual(job.count(clippy), 1)
-            self.assertIn("if: " + rust_gate, job)
-        for job in (required["postgres-runtime"], pg_manual):
+            self.assertIn("if: " + rust_gate + "\n        run: " + clippy, job)
+        for job in (required["s3-cover-build"], manual_cover):
             self.assertEqual(job.count(clippy), 1)
-            self.assertIn("if: " + pg_gate, job)
+            self.assertIn("if: " + cover_gate + "\n        run: " + clippy, job)
+        for job in (required["postgres-runtime"], manual_pg):
+            self.assertEqual(job.count(clippy), 1)
+            self.assertIn("if: " + pg_gate + "\n        run: " + clippy, job)
+
+        # For all successful selection combinations, PG brings exactly
+        # one feature lint owner; for failed selection PG is the owner.
+        import itertools
+        for rust_selected, pg_selected, cover_selected in itertools.product(
+                (False, True), repeat=3):
+            owners = (
+                int(rust_selected and pg_selected and not cover_selected)
+                + int(cover_selected and rust_selected and pg_selected)
+                + int(pg_selected and not rust_selected)
+            )
+            self.assertEqual(owners, int(pg_selected))
+        self.assertIn("needs.select.result == 'success'", rust_gate)
+        self.assertIn("needs.select.result == 'success'", cover_gate)
+        self.assertIn("needs.select.result != 'success'", pg_gate)
 
     def test_line_a_account_targets_share_cargo_without_losing_tests(self):
         joined = (
