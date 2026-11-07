@@ -1,7 +1,9 @@
 //! F-04: bounded public-only PostgreSQL projection for homepage/genre spotlights.
 use crate::{
     domain::{SearchBook, SearchError},
-    services::showcases::{ReleaseShowcaseRepository, RisingShowcaseRepository, ShowcaseRepository},
+    services::showcases::{
+        ReleaseShowcaseRepository, RisingShowcaseRepository, ShowcaseRepository,
+    },
 };
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
