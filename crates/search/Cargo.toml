@@ -10,5 +10,4 @@ serde.workspace = true
 sqlx.workspace = true
 
 [dev-dependencies]
-tor-reading = { path = "../reading" }
 tokio.workspace = true
