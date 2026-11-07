@@ -295,6 +295,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: S011 paid discussion missing reviewed live A/D purchase+version guard")
         else:
             evidence += "\n" + auth
+    # Logout wrapper delegates directly to its reviewed sibling handler.
+    # Check the live callee: comments or policy labels cannot replace CSRF.
+    if (entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+            == ("POST", "/logout", "logout")
+            and "session_security::logout(State(state), headers, Form(form)).await" in body):
+        sibling = ROOT / "crates/web/src/auth/session_security.rs"
+        caller = _functions(sibling.read_text(encoding="utf-8")).get("logout", "")
+        if ("state.cookies.same_origin(&headers)" in caller
+                and "valid_csrf(&headers" in caller
+                and "StatusCode::FORBIDDEN" in caller
+                and ".revoke_session(&digest)" in caller):
+            evidence += "\n" + caller
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -569,6 +582,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*(?:,|\))", evidence))
                 and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
+            )
+        elif entry["source"] == "crates/web/src/auth/teams.rs":
+            # S026: owner-only Team methods and verified A session. Unlike
+            # book_members, Team ownership grants no canonical Book rights.
+            required = {"index": "list_owned", "create": "create", "detail": "owned"}
+            operation = required.get(entry["handler"])
+            identity = functions.get("actor", "")
+            scoped = bool(
+                operation
+                and re.search(rf"\.{operation}\s*\(\s*actor\s*(?:,|\))", body)
+                and re.search(r"\bactor\s*\(\s*&s\s*,\s*&headers\s*\)", body)
+                and ".active_session_user(&session_token_digest(&token))" in identity
+                and "StatusCode::UNAUTHORIZED" in identity
             )
         elif paid_comment_binding:
             # Exact canonical E repository operation with caller-bound actor,

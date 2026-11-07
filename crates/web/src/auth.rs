@@ -109,6 +109,7 @@ mod session_security;
 mod settings_routes;
 mod support_bundle;
 mod sync_actions;
+mod teams;
 mod text_issues;
 mod types;
 use types::*;
@@ -182,6 +183,7 @@ fn router_inner(
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
+    let team_routes = teams::router(accounts.clone(), cookies.clone());
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -429,7 +431,8 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes)
-        .merge(personal_routes);
+        .merge(personal_routes)
+        .merge(team_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
@@ -583,18 +586,11 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Form(form): Form<LogoutForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
+    // session_security::logout enforces same-origin and CSRF itself.
     session_security::logout(State(state), headers, Form(form)).await
 }

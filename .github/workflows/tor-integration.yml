@@ -74,10 +74,10 @@ jobs:
           done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
-      # Move the feature-specific lint away from the longer PG job only when
-      # both CI suites are selected; standalone Rust runs do not need it.
-      - name: Combined S3 feature Clippy (paired PostgreSQL suite)
-        if: ${{ github.workflow == 'TOR integration CI' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
+      # The short S3 cover job owns this lint if its suite is selected.
+      # Fall back to Rust when cover_s3 is not selected alongside PostgreSQL.
+      - name: Combined S3 feature Clippy (PG selected without cover_s3)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
         run: cargo build --release -p tor-web
@@ -276,6 +276,30 @@ jobs:
             echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
             ci_pg_started=$SECONDS
           }
+          # Diagnose compilation versus test execution without changing any Cargo command.
+          # The env -u executions and nested REC13 shell have their own boundaries.
+          ci_pg_cargo_index=0
+          cargo() {
+            local start_us=${EPOCHREALTIME/./}
+            local status=0
+            local package=unknown target=lib prev= arg
+            for arg in "$@"; do
+              case "$prev" in
+                -p) package="$arg" ;;
+                --test) target="$arg" ;;
+              esac
+              case "$arg" in
+                -p|--test) prev="$arg" ;;
+                *) prev= ;;
+              esac
+            done
+            command cargo "$@" || status=$?
+            local end_us=${EPOCHREALTIME/./}
+            ci_pg_cargo_index=$((ci_pg_cargo_index + 1))
+            printf 'CI_PG_CARGO_MS seq=%d package=%s target=%s elapsed_ms=%d status=%d\n' \
+              "$ci_pg_cargo_index" "$package" "$target" "$(((end_us-start_us)/1000))" "$status"
+            return "$status"
+          }
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
@@ -291,6 +315,7 @@ jobs:
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
           ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test f04_rising_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
@@ -1148,6 +1173,11 @@ jobs:
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
           test "$code" = 403
+      # This parallel S3 runner has spare time after real MinIO/PG acceptance.
+      # Required CI only: run the shared lint here when both Rust and PG run.
+      - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: MinIO diagnostics on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
@@ -1214,6 +1244,14 @@ jobs:
           PGPASSWORD=tor-f02-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
             | tee "$RUNNER_TEMP/f02-taxonomy-100k-sql.txt"
+      - name: F-04 rising shelf query plan on 100k books and 100k completions
+        run: |
+          set -o pipefail
+          PGPASSWORD=tor-f02-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/f04_rising_seed.sql \
+            | tee "$RUNNER_TEMP/f04-rising-100k-seed.txt"
+          cargo test -p tor-search --test f04_rising_perf_pg -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/f04-rising-100k-report.txt"
       - name: Preserve query plans and timing evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -1222,6 +1260,8 @@ jobs:
           path: |
             ${{ runner.temp }}/f02-pg100k-report.txt
             ${{ runner.temp }}/f02-taxonomy-100k-sql.txt
+            ${{ runner.temp }}/f04-rising-100k-seed.txt
+            ${{ runner.temp }}/f04-rising-100k-report.txt
           if-no-files-found: warn
           retention-days: 14
   paid-private-e2e:
