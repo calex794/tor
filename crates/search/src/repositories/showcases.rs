@@ -1,7 +1,9 @@
 //! F-04: bounded public-only PostgreSQL projection for homepage/genre spotlights.
 use crate::{
     domain::{SearchBook, SearchError},
-    services::showcases::{ReleaseShowcaseRepository, ShowcaseRepository},
+    services::showcases::{
+        ReleaseShowcaseRepository, RisingShowcaseRepository, ShowcaseRepository,
+    },
 };
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
@@ -93,6 +95,73 @@ impl ReleaseShowcaseRepository for PgShowcases {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
+        rows.into_iter().map(decode_book).collect()
+    }
+}
+
+/// Exact live SQL used for PostgreSQL EXPLAIN and 100k-row load checks.
+pub const RISING_SHOWCASE_SQL: &str = "WITH periods AS (
+               SELECT c.book_id, c.user_id,
+                 MAX(CASE WHEN c.completed_at >= now() - interval '7 days'
+                          THEN 1 ELSE 0 END) AS current_reader,
+                 MAX(CASE WHEN c.completed_at < now() - interval '7 days'
+                          THEN 1 ELSE 0 END) AS previous_reader
+               FROM reader_chapter_completions c
+               JOIN users u ON u.id=c.user_id AND u.account_state='active'
+               JOIN books valid ON valid.id=c.book_id
+               JOIN chapters chapter ON chapter.id=c.chapter_id
+                 AND chapter.book_id=c.book_id
+               JOIN chapter_publications publication ON publication.chapter_id=chapter.id
+               JOIN chapter_versions edition ON edition.id=publication.version_id
+                 AND edition.chapter_id=chapter.id
+               JOIN outbox_events e ON e.id=c.source_event_id
+                 AND e.event_type='ChapterCompletedV1'
+                 AND e.schema_version=1 AND e.aggregate_kind='chapter'
+                 AND e.aggregate_id=c.chapter_id
+                 AND e.payload->>'user_id'=c.user_id::text
+                 AND e.payload->>'book_id'=c.book_id::text
+                 AND e.payload->>'chapter_id'=c.chapter_id::text
+                 AND e.payload->>'version_id'=c.first_version_id::text
+                 AND e.payload->>'authority'='C-verified-free-position'
+               WHERE c.completed_at >= now() - interval '14 days'
+                 AND c.purchase_id IS NULL
+                 AND c.user_id<>valid.owner_user_id
+                 AND valid.visibility='public'
+                 AND valid.visibility_status='active'
+                 AND valid.access_level='basic'
+                 AND valid.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+                 AND NOT valid.admin_hold AND NOT valid.is_deleted
+                 AND chapter.visibility='public' AND chapter.access_level='free'
+                 AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+                 AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at<=now())
+               GROUP BY c.book_id,c.user_id
+             ), growth AS (
+               SELECT book_id,
+                 SUM(current_reader) AS this_week,
+                 SUM(previous_reader) AS last_week
+               FROM periods GROUP BY book_id
+               HAVING SUM(current_reader)>=3
+                 AND SUM(current_reader)>SUM(previous_reader)
+             )
+             SELECT b.id,b.title,b.target_language,b.author_name,b.genres,b.tags,b.fandoms
+             FROM growth g JOIN books b ON b.id=g.book_id
+             ORDER BY (g.this_week-g.last_week) DESC,g.this_week DESC,b.id DESC
+             LIMIT $1";
+
+#[async_trait]
+impl RisingShowcaseRepository for PgShowcases {
+    async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        if !(1..=24).contains(&limit) {
+            return Err(SearchError::Invalid);
+        }
+        // Count unique C-verified readers, not views, likes or repeated chapter
+        // completions. The two disjoint seven-day windows use committed C facts.
+        // Only existing, currently public free publications are discoverable.
+        let rows = sqlx::query(RISING_SHOWCASE_SQL)
+            .bind(i64::try_from(limit).map_err(|_| SearchError::Invalid)?)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| SearchError::Unavailable)?;
         rows.into_iter().map(decode_book).collect()
     }
 }

@@ -145,6 +145,11 @@ jobs:
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
           test "$code" = 403
+      # This parallel S3 runner has spare time after real MinIO/PG acceptance.
+      # Required CI only: run the shared lint here when both Rust and PG run.
+      - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: MinIO diagnostics on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
