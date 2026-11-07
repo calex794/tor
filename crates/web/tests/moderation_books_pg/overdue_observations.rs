@@ -241,6 +241,35 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         &url,
         &format!("UPDATE account_roles SET is_active=true WHERE user_id={reviewer_id}"),
     );
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let mod_cookie = format!("tor-dev-session={reviewer_token}");
+    let owner_cookie = format!("tor-dev-session={token}");
+    assert_eq!(
+        request(&app, "GET", "/moderation/books/alerts", &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "GET", "/moderation/books/alerts?before=0", &mod_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let response = request(&app, "GET", "/moderation/books/alerts", &mod_cookie, ORIGIN, "").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let inbox_html = html(response).await;
+    assert!(inbox_html.contains(&format!("Регистрация книги #{registration}")));
+    assert!(inbox_html.contains(&format!("Обложка #{cover_request}")));
+    assert!(inbox_html.contains(&format!("Удаление #{deletion_book}")));
+    assert!(inbox_html.contains("/moderation/books/deletions?wait=gte72"));
 
     // A resolution cannot send stale alerts: reconciliation closes both
     // 24h/72h observations without deleting historical evidence.
@@ -287,5 +316,11 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         "5",
         "closed observation keys remain immutable on subsequent scans"
     );
+    let refreshed = request(&app, "GET", "/moderation/books/alerts", &mod_cookie, ORIGIN, "").await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let page = html(refreshed).await;
+    assert!(!page.contains(&format!("Регистрация книги #{registration}")));
+    assert!(!page.contains(&format!("Обложка #{cover_request}")));
+    assert!(!page.contains(&format!("Удаление #{deletion_book}")));
     pool.close().await;
 }
