@@ -30,6 +30,7 @@ mod chapter_import_assets;
 pub mod chapter_import_queue_http;
 pub mod chapter_import_worker;
 pub mod cover_cdn_cleanup;
+pub mod cover_cdn_config;
 pub mod cover_cdn_purge;
 pub mod cover_delivery;
 mod cover_http;

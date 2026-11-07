@@ -59,6 +59,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if !demo && env::var("DATABASE_URL").is_ok() && !tor_web::activate_ril_sqlx_observation() {
         eprintln!("RIL SQLx completion telemetry disabled (subscriber unavailable)");
     }
+    // CDN public bucket is a separate explicit opt-in. This only configures
+    // the adapter: it does not publish, delete, purge, or start any worker.
+    let cdn_config = tor_web::cover_cdn_config::from_environment(
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        cfg!(feature = "s3-covers"),
+    )?;
+    #[cfg(not(feature = "s3-covers"))]
+    let _ = &cdn_config;
+
     // Private cover S3 is an explicit operator-owned opt-in. A deployment
     // without S3 continues serving books, but never invents image URLs.
     #[cfg(feature = "s3-covers")]
@@ -68,6 +78,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
                 let client = aws_sdk_s3::Client::new(&config);
                 let store = tor_ingest::repositories::s3::S3CoverStore::new(client, bucket)?;
+                let store = if let Some(cdn) = cdn_config.as_ref() {
+                    store.with_public_cdn(cdn.bucket.clone(), cdn.origin.clone())?
+                } else {
+                    store
+                };
                 Some(Arc::new(store))
             }
             Err(env::VarError::NotPresent) => None,
