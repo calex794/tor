@@ -216,3 +216,6 @@ async fn s020_catalog_http_rechecks_session_and_age_without_seo_leak() {
     );
     check(&get_as(&app, &path, &cookie).await.1, &["basic"]);
 }
+
+#[path = "catalog_pagination_http_pg/f04_rising.rs"]
+mod f04_rising;
