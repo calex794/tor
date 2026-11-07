@@ -247,3 +247,6 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     );
     // Personal books are in separate PG tables and never projected into public catalog.
 }
+
+#[path = "s033_personal_http_pg/s026_teams.rs"]
+mod s026_teams;

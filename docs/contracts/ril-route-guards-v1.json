@@ -2171,6 +2171,27 @@
       "source": "crates/web/src/auth/personal_books.rs",
       "handler": "update_chapter",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "index",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "create",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams/{id}",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "detail",
+      "policy": "owner"
     }
   ]
 }
