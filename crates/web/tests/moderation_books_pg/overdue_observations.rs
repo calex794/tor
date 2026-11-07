@@ -162,6 +162,86 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         "repeating a scan must not produce duplicate events"
     );
 
+    // Only a live site moderator sees actionable observations. The higher
+    // 72-hour bucket suppresses a duplicate 24-hour line for the same request.
+    let reviewer_token = generate_session_token();
+    let reviewer_id = accounts
+        .register_with_session(
+            &format!("overdue-reviewer-{nonce}@example.invalid"),
+            "Overdue site moderator",
+            &password,
+            &session_token_digest(&reviewer_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({reviewer_id},'moderator',true)"
+        ),
+    );
+    let reviewer_digest = session_token_digest(&reviewer_token);
+    assert!(accounts
+        .moderation_overdue_inbox(&session_token_digest(&token), None)
+        .await
+        .is_err());
+    assert!(accounts
+        .moderation_overdue_inbox(&reviewer_digest, Some(0))
+        .await
+        .is_err());
+    let inbox = accounts
+        .moderation_overdue_inbox(&reviewer_digest, None)
+        .await
+        .unwrap();
+    let own: Vec<_> = inbox
+        .iter()
+        .filter(|item| {
+            (item.request_kind == "registration" && item.source_id == registration)
+                || (item.request_kind == "cover" && item.source_id == cover_request)
+                || (item.request_kind == "deletion" && item.source_id == deletion_book)
+        })
+        .collect();
+    assert_eq!(own.len(), 3, "show one highest-threshold alert per request");
+    assert!(own.iter().any(|item| {
+        item.request_kind == "registration" && item.threshold_hours == 72
+    }));
+    assert!(own.iter().any(|item| item.request_kind == "cover" && item.threshold_hours == 24));
+    assert!(own.iter().any(|item| item.request_kind == "deletion" && item.threshold_hours == 72));
+
+    // A site moderator who owns the deletion request must not see it here.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({owner},'moderator',true)"
+        ),
+    );
+    let owner_inbox = accounts
+        .moderation_overdue_inbox(&session_token_digest(&token), None)
+        .await
+        .unwrap();
+    assert!(!owner_inbox.iter().any(|item| {
+        item.request_kind == "deletion" && item.source_id == deletion_book
+    }));
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=false WHERE user_id={owner}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=false WHERE user_id={reviewer_id}"),
+    );
+    assert!(accounts
+        .moderation_overdue_inbox(&reviewer_digest, None)
+        .await
+        .is_err(), "revoked site-role loses access at the repository boundary");
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=true WHERE user_id={reviewer_id}"),
+    );
+
     // A resolution cannot send stale alerts: reconciliation closes both
     // 24h/72h observations without deleting historical evidence.
     pg(
