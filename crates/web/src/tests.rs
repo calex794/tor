@@ -137,7 +137,8 @@ async fn seo_06_disabled_sitemap_never_discloses_demo_books() {
     assert!(robots.contains("User-agent: *"));
     assert!(!robots.contains("Sitemap:"));
     let (_, map) = get("/sitemap.xml").await;
-    assert!(map.contains("<urlset"));
+    assert!(map.contains("<sitemapindex"));
     assert!(!map.contains("<loc>"));
+    assert_eq!(get("/sitemaps/books/0").await.0, StatusCode::NOT_FOUND);
     assert!(!map.contains("/books/"));
 }
