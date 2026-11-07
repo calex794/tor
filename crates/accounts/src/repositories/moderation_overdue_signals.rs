@@ -16,7 +16,7 @@ impl PgAccounts {
     pub async fn probe_moderation_overdue_observations(&self) -> Result<(), sqlx::Error> {
         sqlx::query("SELECT id,signal_state FROM moderation_overdue_signals LIMIT 0")
             .execute(self.pool())
-        .await?;
+            .await?;
         Ok(())
     }
 
