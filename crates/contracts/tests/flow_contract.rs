@@ -52,26 +52,73 @@ fn flow_01_only_successful_verified_html_pages_enter_funnel() {
     ] {
         assert!(!page(route).eligible_for_funnel(), "{route:?}");
     }
-    assert!(!PageViewEvidence { method: RequestMethod::Other, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { status: 404, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { status: 302, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { status: 500, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { response_kind: ResponseKind::Other, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { visibility_confirmed: false, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { hygiene: TrafficHygiene::SuspectedAutomation, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
-    assert!(!PageViewEvidence { hygiene: TrafficHygiene::Unclassified, ..page(RouteSurface::BookDetail) }.eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        method: RequestMethod::Other,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        status: 404,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        status: 302,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        status: 500,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        response_kind: ResponseKind::Other,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        visibility_confirmed: false,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        hygiene: TrafficHygiene::SuspectedAutomation,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
+    assert!(!PageViewEvidence {
+        hygiene: TrafficHygiene::Unclassified,
+        ..page(RouteSurface::BookDetail)
+    }
+    .eligible_for_funnel());
 }
 
 #[test]
 fn flow_01_separate_external_acquisition_from_internal_discovery() {
     let event = finish(1, CHANNELS);
-    assert_eq!(event.channels().acquisition, AcquisitionChannel::ExternalOrganicSearch);
-    assert_eq!(event.channels().discovery, DiscoveryChannel::OrganicRecommendation);
+    assert_eq!(
+        event.channels().acquisition,
+        AcquisitionChannel::ExternalOrganicSearch
+    );
+    assert_eq!(
+        event.channels().discovery,
+        DiscoveryChannel::OrganicRecommendation
+    );
     assert_eq!(event.fact(), VerifiedFact::ChapterFinished);
     assert_eq!(event.event_id(), [1; 16]);
-    assert_ne!(DiscoveryChannel::SiteSearch, DiscoveryChannel::OrganicRecommendation);
-    assert_ne!(DiscoveryChannel::PaidInternalAdvertisement, DiscoveryChannel::OrganicRecommendation);
-    assert_ne!(AcquisitionChannel::ExternalReferral, AcquisitionChannel::DirectOrUnknown);
+    assert_ne!(
+        DiscoveryChannel::SiteSearch,
+        DiscoveryChannel::OrganicRecommendation
+    );
+    assert_ne!(
+        DiscoveryChannel::PaidInternalAdvertisement,
+        DiscoveryChannel::OrganicRecommendation
+    );
+    assert_ne!(
+        AcquisitionChannel::ExternalReferral,
+        AcquisitionChannel::DirectOrUnknown
+    );
 }
 
 #[test]
@@ -118,22 +165,46 @@ fn flow_01_ten_chapter_events_from_one_reader_are_not_ten_unique_readers() {
     assert_eq!(count_canonical_conversions(&completions), Ok(10));
     // One reader can finish ten chapters; only the registered-reader metric
     // applies period-wide DISTINCT, never the sum of daily or chapter uniques.
-    assert_eq!(Metric::RegisteredReadersUnique.period_aggregation(), PeriodAggregation::DistinctRegisteredReaders);
+    assert_eq!(
+        Metric::RegisteredReadersUnique.period_aggregation(),
+        PeriodAggregation::DistinctRegisteredReaders
+    );
 }
 
 #[test]
 fn flow_01_untrusted_client_or_http_request_cannot_claim_domain_result() {
     let facts = [
-        (VerifiedFact::BookOpened, FactAuthority::AuthorizedBookNavigation),
-        (VerifiedFact::ChapterStarted, FactAuthority::ReaderTransaction),
-        (VerifiedFact::ChapterFinished, FactAuthority::ReaderTransaction),
-        (VerifiedFact::LibrarySaved, FactAuthority::LibraryTransaction),
-        (VerifiedFact::PurchaseCommitted, FactAuthority::CommerceTransaction),
-        (VerifiedFact::AdImpressionBilled, FactAuthority::AdLedgerTransaction),
+        (
+            VerifiedFact::BookOpened,
+            FactAuthority::AuthorizedBookNavigation,
+        ),
+        (
+            VerifiedFact::ChapterStarted,
+            FactAuthority::ReaderTransaction,
+        ),
+        (
+            VerifiedFact::ChapterFinished,
+            FactAuthority::ReaderTransaction,
+        ),
+        (
+            VerifiedFact::LibrarySaved,
+            FactAuthority::LibraryTransaction,
+        ),
+        (
+            VerifiedFact::PurchaseCommitted,
+            FactAuthority::CommerceTransaction,
+        ),
+        (
+            VerifiedFact::AdImpressionBilled,
+            FactAuthority::AdLedgerTransaction,
+        ),
     ];
     for (fact, authority) in facts {
         assert!(VerifiedConversion::new([1; 16], fact, authority, CHANNELS).is_ok());
-        for forbidden in [FactAuthority::ClientClaim, FactAuthority::TechnicalTelemetry] {
+        for forbidden in [
+            FactAuthority::ClientClaim,
+            FactAuthority::TechnicalTelemetry,
+        ] {
             assert_eq!(
                 VerifiedConversion::new([1; 16], fact, forbidden, CHANNELS),
                 Err(FlowContractError::UntrustedFactAuthority)
@@ -169,7 +240,8 @@ fn flow_01_reconciliation_is_bounded_and_conflicting_evidence_fails() {
         VerifiedFact::ChapterStarted,
         FactAuthority::ReaderTransaction,
         CHANNELS,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         count_canonical_conversions(&[first, conflicting]),
         Err(FlowContractError::ConflictingCanonicalEvidence)
