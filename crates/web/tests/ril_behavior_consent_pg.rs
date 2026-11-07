@@ -41,7 +41,10 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG test URL");
     assert!(url.ends_with("/tor_ci"), "never run against production");
     assert_eq!(std::env::var("TOR_RIL_SINGLE_INSTANCE").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("TOR_FLOW_PUBLIC_OPT_IN_ENABLED").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("TOR_FLOW_PUBLIC_OPT_IN_ENABLED").as_deref(),
+        Ok("1")
+    );
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool());
@@ -100,8 +103,16 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     let cookies = format!("{session}; {csrf_cookie}");
     // Before explicit opt-in, a valid logged-in cookie cannot become an
     // identified public route path, even when the FLOW feature is available.
-    assert_eq!(send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(), StatusCode::OK);
-    assert_eq!(tor_web::ril_path_report_for_diagnostics().unwrap().assessed_events, 0);
+    assert_eq!(
+        send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        tor_web::ril_path_report_for_diagnostics()
+            .unwrap()
+            .assessed_events,
+        0
+    );
     let enable = format!("choice=enable&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", "/me/behavior", &enable, "", ORIGIN)
@@ -155,10 +166,15 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     for surface in ["/", "/catalog"] {
         let response = send(&app, "GET", surface, "", &cookies, ORIGIN).await;
         assert_eq!(response.status(), StatusCode::OK, "{surface}");
-        assert!(response.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"));
+        assert!(response.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html"));
     }
     assert_eq!(
-        tor_web::ril_path_report_for_diagnostics().unwrap().assessed_events,
+        tor_web::ril_path_report_for_diagnostics()
+            .unwrap()
+            .assessed_events,
         5
     );
 
