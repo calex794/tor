@@ -90,6 +90,7 @@ mod notification_settings;
 mod notifications;
 mod paid_completion;
 mod password_change;
+mod personal_books;
 mod password_reset;
 mod private_reader;
 mod profile_http;
@@ -180,6 +181,7 @@ fn router_inner(
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+    let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -426,7 +428,8 @@ fn router_inner(
             observation_state,
             behavior_consent::annotate_verified_ril,
         ))
-        .merge(chapter_routes);
+        .merge(chapter_routes)
+        .merge(personal_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
