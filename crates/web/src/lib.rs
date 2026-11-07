@@ -38,9 +38,9 @@ pub mod cover_private_source_cleanup;
 mod layer_reader_assets;
 mod layer_reader_pages;
 mod recommendation_http;
-mod seo_http;
 pub mod recommendation_worker;
 mod referral_book_http;
+mod seo_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
@@ -148,7 +148,7 @@ async fn public_cards(
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
     if let Some(catalog) = state.postgres.as_ref() {
-            let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
+        let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
         let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
         let rows = showcase
             .latest_added(None, 12)
@@ -307,7 +307,7 @@ async fn book_detail(
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
         let html = seo_http::decorate_book(&state, book.id, html).await;
-            return cover_http::book_html(&state, &headers, book.id, html).await;
+        return cover_http::book_html(&state, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -579,7 +579,7 @@ fn make_router_with_paid_checkout(
             paid_checkout_browser: active_auth
                 && modes.paid_browser
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
-                    private_admin_reader_enabled: active_auth && modes.admin_reader,
+            private_admin_reader_enabled: active_auth && modes.admin_reader,
             private_admin_sealed_reader_enabled: active_auth
                 && modes.admin_reader
                 && modes.paid_browser,
