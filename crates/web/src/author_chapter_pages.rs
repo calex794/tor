@@ -56,7 +56,6 @@ pub fn detail_with_covers_with_demand(
     )
 }
 
-/// All presentation controls for a bounded, owner-only chapter list.
 pub struct OwnerChapterPageOptions<'a> {
     pub uploads_enabled: bool,
     pub latest_job: Option<&'a str>,
@@ -67,7 +66,6 @@ pub struct OwnerChapterPageOptions<'a> {
     pub has_previous_page: bool,
 }
 
-/// Owner-only, keyset-paged list. Public book pages retain their own TOC.
 pub fn detail_with_covers_with_demand_page(
     book: &OwnedBook,
     published: bool,
@@ -205,11 +203,9 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
-    let age_settings_link = if age_editor_enabled {
+    let age_settings_link = age_editor_enabled.then(|| {
         format!("<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>", book.id)
-    } else {
-        String::new()
-    };
+    }).unwrap_or_default();
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
