@@ -42,6 +42,7 @@ pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
+pub(crate) use behavior_consent::{annotate_public_flow, PublicFlowConsentContext};
 mod book_access_level;
 mod book_comments;
 mod book_description;
