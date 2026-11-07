@@ -26,6 +26,18 @@ pub struct FlowCountRow {
     pub observed_opted_in_visit_starts: i64,
 }
 
+/// Read-only hourly aggregate returned by bounded PostgreSQL queries.
+/// The hour is a Unix UTC epoch boundary; no individual identity is exposed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FlowHourlyCount {
+    pub hour_epoch: i64,
+    pub surface: i16,
+    pub acquisition_hint: i16,
+    pub html_requests: i64,
+    pub opted_in_html_requests: i64,
+    pub observed_opted_in_visit_starts: i64,
+}
+
 /// Only the five known HTML surfaces can become audience measurements.
 pub fn surface_index(surface: RouteSurface) -> Option<usize> {
     match surface {
