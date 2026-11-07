@@ -12,10 +12,9 @@ use axum::{
     response::{Redirect, Response},
 };
 use serde::Deserialize;
+use std::time::Duration;
 use tor_accounts::services::{ril_pseudonym::RilSubjectSigner, security::session_token_digest};
 use tor_traffic_behavior::VerifiedSubjectKey;
-use std::time::Duration;
-
 
 #[derive(Deserialize)]
 pub(super) struct BehaviorConsentForm {
@@ -86,13 +85,10 @@ async fn verified_opted_in_subject(
     let signer = signer?;
     let token = cookies.session_token(headers)?;
     let digest = session_token_digest(&token);
-    let verified = tokio::time::timeout(
-        budget,
-        accounts.ril_verified_opted_in_session(&digest),
-    )
-    .await
-    .ok()?
-    .ok()??;
+    let verified = tokio::time::timeout(budget, accounts.ril_verified_opted_in_session(&digest))
+        .await
+        .ok()?
+        .ok()??;
     Some(VerifiedSubjectKey::from_hmac_digest(
         signer.pseudonym(verified.0, verified.1),
     ))
@@ -134,7 +130,9 @@ pub(crate) async fn annotate_public_flow(
         });
     if response.status() == StatusCode::OK && html {
         if let Some(subject) = subject {
-            response.extensions_mut().insert(VerifiedRilSubject(subject));
+            response
+                .extensions_mut()
+                .insert(VerifiedRilSubject(subject));
         }
     }
     response
