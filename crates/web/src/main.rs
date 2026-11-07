@@ -1,4 +1,5 @@
 mod book_schedule_worker;
+mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
 mod social_notification_consumer;
 mod support_cleanup;
@@ -199,6 +200,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
     )
     .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    // The bell is a distinct explicit opt-in: enabling observation alone
+    // must never start recipient-facing delivery.
+    let bell_setting =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_DELIVERY_ENABLED")?;
+    let bell_recipients =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_RECIPIENT_POLICY")?;
+    let bell_thresholds =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_SLA_POLICY")?;
+    let bell_delivery_enabled = moderation_overdue_bell_worker::worker_opt_in(
+        bell_setting.as_deref(),
+        bell_recipients.as_deref(),
+        bell_thresholds.as_deref(),
+        overdue_observer_enabled,
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    let mut pending_overdue_bell: Option<tor_social::repositories::notifications::PgNotifications> =
+        None;
     let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
     let app = match env::var("DATABASE_URL") {
@@ -266,6 +287,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .await
                         .map_err(|_| "MOD overdue observation ledger migration is not applied")?;
                     pending_overdue_observer = Some(accounts.clone());
+                }
+                if bell_delivery_enabled {
+                    // This path is allowed only after the live authenticated
+                    // ledger probe; no new pool or migration is created.
+                    pending_overdue_bell = Some(
+                        tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                    );
                 }
                 if schedule_worker_enabled {
                     let author = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
@@ -434,8 +462,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None
     };
     let _overdue_observer = pending_overdue_observer.map(|accounts| {
-        println!("TOR moderation overdue observation enabled (no notifications)");
+        println!("TOR moderation overdue observation enabled");
         moderation_overdue_worker::start(accounts)
+    });
+    let _overdue_bell_worker = pending_overdue_bell.map(|notifications| {
+        println!("TOR moderation overdue in-app admin bell enabled (no external delivery)");
+        moderation_overdue_bell_worker::start(notifications)
     });
     let _scheduled_release_worker = pending_scheduled_release_worker.map(|author| {
         println!("TOR S058 scheduled release worker enabled");
