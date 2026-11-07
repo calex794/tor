@@ -12,8 +12,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::{
     repositories::{
-        moderation_books::ModerationBooksError,
-        moderation_overdue_inbox::OverdueInboxItem,
+        moderation_books::ModerationBooksError, moderation_overdue_inbox::OverdueInboxItem,
     },
     services::security::session_token_digest,
 };
@@ -111,7 +110,11 @@ pub(super) async fn page(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let rows = match state.accounts.moderation_overdue_inbox(&digest, query.before).await {
+    let rows = match state
+        .accounts
+        .moderation_overdue_inbox(&digest, query.before)
+        .await
+    {
         Ok(rows) => rows,
         Err(ModerationBooksError::Denied) => return deny(StatusCode::FORBIDDEN),
         Err(ModerationBooksError::Invalid) => return deny(StatusCode::BAD_REQUEST),
