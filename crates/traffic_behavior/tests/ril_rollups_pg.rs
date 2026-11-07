@@ -3,9 +3,10 @@ use sqlx::{postgres::PgPoolOptions, Row};
 use std::time::Duration;
 use tor_traffic_behavior::{
     domain::RollupDelta, repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent,
-    GapBucket, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder, Transition,
+    FlowPageview, GapBucket, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder, Transition,
 };
 use uuid::Uuid;
+use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
 
 fn sample() -> RollupDelta {
     let mut delta = RollupDelta::default();
@@ -44,6 +45,12 @@ fn sample() -> RollupDelta {
             gap: GapBucket::Fast,
         }),
     );
+    let page = FlowPageview {
+        surface: RouteSurface::BookDetail,
+        acquisition_hint: AcquisitionChannel::ExternalOrganicSearch,
+    };
+    delta.record_flow(page, false, false);
+    delta.record_flow(page, true, true);
     delta
 }
 
@@ -62,6 +69,20 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     let batch = sample();
     assert_eq!(batch.route_rows().iter().map(|v| v.count).sum::<i64>(), 3);
     assert_eq!(batch.transition_rows().len(), 1);
+    assert_eq!(batch.flow_rows().len(), 1);
+    assert_eq!(batch.flow_rows()[0].html_requests, 2);
+    assert_eq!(batch.flow_rows()[0].opted_in_html_requests, 1);
+    assert_eq!(batch.flow_rows()[0].observed_opted_in_visit_starts, 1);
+    let before_flow: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(html_requests),0)::bigint,
+                COALESCE(SUM(opted_in_html_requests),0)::bigint,
+                COALESCE(SUM(observed_opted_in_visit_starts),0)::bigint
+           FROM ril_flow_hourly
+          WHERE bucket=date_trunc('hour',now()) AND surface_code=2 AND acquisition_hint=0",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     let before: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(request_count),0)::bigint FROM ril_route_hourly
@@ -140,6 +161,19 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
     assert_eq!(after - before, 3);
+    let after_flow: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(html_requests),0)::bigint,
+                COALESCE(SUM(opted_in_html_requests),0)::bigint,
+                COALESCE(SUM(observed_opted_in_visit_starts),0)::bigint
+           FROM ril_flow_hourly
+          WHERE bucket=date_trunc('hour',now()) AND surface_code=2 AND acquisition_hint=0",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(after_flow.0 - before_flow.0, 2);
+    assert_eq!(after_flow.1 - before_flow.1, 1);
+    assert_eq!(after_flow.2 - before_flow.2, 1);
 
     let row = sqlx::query(
         "SELECT requests,http_errors,slow_requests FROM ril_daily_rollup
@@ -194,6 +228,19 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
     assert_eq!(final_count - before, 6);
+    let final_flow: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(html_requests),0)::bigint,
+                COALESCE(SUM(opted_in_html_requests),0)::bigint,
+                COALESCE(SUM(observed_opted_in_visit_starts),0)::bigint
+           FROM ril_flow_hourly
+          WHERE bucket=date_trunc('hour',now()) AND surface_code=2 AND acquisition_hint=0",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(final_flow.0 - before_flow.0, 4);
+    assert_eq!(final_flow.1 - before_flow.1, 2);
+    assert_eq!(final_flow.2 - before_flow.2, 2);
 
     // Retention removes only finished old batches. Pending data remains
     // recoverable; old summaries and their tombstones are independently scoped.
