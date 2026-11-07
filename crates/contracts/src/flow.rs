@@ -85,7 +85,9 @@ pub struct PageViewEvidence {
 }
 
 impl PageViewEvidence {
-    pub fn eligible_for_funnel(self) -> bool {
+    /// Safe low-cardinality count of *HTTP responses*, not verified humans.
+    /// Unclassified visitors may be counted here, but never as unique people.
+    pub fn observed_html_request(self) -> bool {
         let page = matches!(
             self.surface,
             RouteSurface::Home
@@ -97,9 +99,14 @@ impl PageViewEvidence {
         self.method == RequestMethod::Get
             && self.status == 200
             && self.response_kind == ResponseKind::Html
-            && self.hygiene == TrafficHygiene::Eligible
+            && self.hygiene != TrafficHygiene::SuspectedAutomation
             && self.visibility_confirmed
             && page
+    }
+
+    /// Verified/opted-in subset, not proof of biological human attention.
+    pub fn eligible_for_funnel(self) -> bool {
+        self.observed_html_request() && self.hygiene == TrafficHygiene::Eligible
     }
 }
 
