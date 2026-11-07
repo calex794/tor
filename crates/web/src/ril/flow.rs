@@ -152,7 +152,10 @@ mod tests {
 
     fn html() -> HeaderMap {
         let mut h = HeaderMap::new();
-        h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        h.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
         h
     }
 
@@ -164,21 +167,31 @@ mod tests {
         assert!(request.observed(404, &html(), true, true).is_none());
         assert!(request.observed(200, &html(), false, true).is_none());
         assert!(request.observed(301, &html(), true, true).is_none());
-        assert!(FlowRequest::new(Some("/api/v1/books"), &Method::GET, &HeaderMap::new())
-            .observed(200, &html(), true, true)
-            .is_none());
-        assert!(FlowRequest::new(Some("/books/{id}"), &Method::POST, &HeaderMap::new())
-            .observed(200, &html(), true, true)
-            .is_none());
+        assert!(
+            FlowRequest::new(Some("/api/v1/books"), &Method::GET, &HeaderMap::new())
+                .observed(200, &html(), true, true)
+                .is_none()
+        );
+        assert!(
+            FlowRequest::new(Some("/books/{id}"), &Method::POST, &HeaderMap::new())
+                .observed(200, &html(), true, true)
+                .is_none()
+        );
         let mut non_html = HeaderMap::new();
-        non_html.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        non_html.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
         assert!(request.observed(200, &non_html, true, true).is_none());
     }
 
     #[test]
     fn flow_02_suspected_bots_are_excluded_without_persisting_ua() {
         let mut request = HeaderMap::new();
-        request.insert(header::USER_AGENT, HeaderValue::from_static("Googlebot/2.1"));
+        request.insert(
+            header::USER_AGENT,
+            HeaderValue::from_static("Googlebot/2.1"),
+        );
         assert!(FlowRequest::new(Some("/catalog"), &Method::GET, &request)
             .observed(200, &html(), true, false)
             .is_none());
@@ -206,7 +219,10 @@ mod tests {
             header::REFERER,
             HeaderValue::from_static("https://www.google.com.attacker.net/search"),
         );
-        assert_eq!(referrer_hint(&headers), AcquisitionChannel::ExternalReferral);
+        assert_eq!(
+            referrer_hint(&headers),
+            AcquisitionChannel::ExternalReferral
+        );
         assert_eq!(
             referrer_hint(&HeaderMap::new()),
             AcquisitionChannel::DirectOrUnknown
