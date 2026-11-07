@@ -85,6 +85,7 @@ TEST_SUITES = {
     "crates/storage/tests/storage_registry_pg.rs": {"rust", "postgres"},
     "crates/contracts/tests/paid_delivery_contract.rs": {"rust", "crypto"},
     "crates/search/tests/f02_load_pg.rs": {"rust", "search_load"},
+    "crates/search/tests/f04_rising_perf_pg.rs": {"rust", "search_load"},
     "crates/search/tests/search_pg.rs": {"rust", "postgres"},
     "crates/search/tests/catalog_window_pg.rs": {"rust", "postgres"},
     "crates/web/tests/catalog_pagination_http_pg.rs": {"rust", "postgres"},
