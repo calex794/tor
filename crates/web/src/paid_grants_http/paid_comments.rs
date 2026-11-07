@@ -12,8 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tor_accounts::{
-    repositories::scoped_actions::ScopedActionAdmission,
-    services::security::session_token_digest,
+    repositories::scoped_actions::ScopedActionAdmission, services::security::session_token_digest,
 };
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
 use tor_discussions::{
@@ -57,7 +56,12 @@ fn parsed_anchor(body: &CommentInput) -> Result<Option<NewAnchor<'_>>, StatusCod
         (Some(block_index), Some(start_utf16), Some(end_utf16), Some(quote))
             if body.parent_id.is_none() =>
         {
-            Ok(Some(NewAnchor { block_index, start_utf16, end_utf16, quote }))
+            Ok(Some(NewAnchor {
+                block_index,
+                start_utf16,
+                end_utf16,
+                quote,
+            }))
         }
         _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
     }
@@ -73,7 +77,10 @@ async fn authorized(
     if state.reader_s3_origin.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
-    let token = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = state
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let digest = session_token_digest(&token);
     let id = state
         .accounts
@@ -99,8 +106,14 @@ async fn authorized(
 
 fn private_json(value: serde_json::Value) -> Response {
     let mut response = private_response(Json(value), &[]);
-    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
-    response.headers_mut().insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     response
 }
 
@@ -111,7 +124,9 @@ pub(super) async fn list(
     Query(q): Query<CommentQuery>,
 ) -> Response {
     let (Some(chapter), Some(purchase), Some(version)) = (
-        positive(&chapter_raw), positive(&q.purchase_id), positive(&q.version_id),
+        positive(&chapter_raw),
+        positive(&q.purchase_id),
+        positive(&q.version_id),
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -127,7 +142,18 @@ pub(super) async fn list(
         Err(status) => return deny(status),
     };
     let storage = PgPaidChapterComments::new(state.accounts.pool().clone());
-    match storage.list(actor, &digest, purchase.get(), chapter.get(), version.get(), after, 25).await {
+    match storage
+        .list(
+            actor,
+            &digest,
+            purchase.get(),
+            chapter.get(),
+            version.get(),
+            after,
+            25,
+        )
+        .await
+    {
         Ok(Some(page)) => private_json(json!({
             "version_id": version.get().to_string(),
             "items": page.items.into_iter().map(|c| json!({
@@ -151,17 +177,22 @@ pub(super) async fn submit(
     headers: HeaderMap,
     Json(input): Json<CommentInput>,
 ) -> Response {
-    if headers.get(header::ORIGIN).and_then(|value| value.to_str().ok())
+    if headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
         != Some(state.cookies.origin.as_str())
         || !state.cookies.same_origin(&headers)
-        || !headers.get("x-csrf-token")
+        || !headers
+            .get("x-csrf-token")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
     {
         return deny(StatusCode::FORBIDDEN);
     }
     let (Some(chapter), Some(purchase), Some(version)) = (
-        positive(&chapter_raw), positive(&input.purchase_id), positive(&input.version_id),
+        positive(&chapter_raw),
+        positive(&input.purchase_id),
+        positive(&input.version_id),
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -182,7 +213,11 @@ pub(super) async fn submit(
         Err(status) => return deny(status),
     };
     let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
-    match state.accounts.permit_comment_action(actor, &command_digest).await {
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
         Ok(ScopedActionAdmission::Allowed) => {}
         Ok(ScopedActionAdmission::Limited { .. }) => return deny(StatusCode::TOO_MANY_REQUESTS),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -196,21 +231,31 @@ pub(super) async fn submit(
     };
     let hash: [u8; 32] = Sha256::digest(format!(
         "chapter:{}\nversion:{}\nparent:{:?}\n{}\n{}",
-        chapter.get(), version.get(), input.parent_id, scope, body.as_str()
-    )).into();
+        chapter.get(),
+        version.get(),
+        input.parent_id,
+        scope,
+        body.as_str()
+    ))
+    .into();
     let comments = PgPaidChapterComments::new(state.accounts.pool().clone());
-    match comments.create(
-        actor, &digest, purchase.get(),
-        NewChapterComment {
-            chapter_id: chapter.get(),
-            version_id: version.get(),
-            body: body.as_str(),
-            command_key: key.as_str(),
-            payload_hash: &hash,
-            parent_id: input.parent_id,
-            anchor,
-        },
-    ).await {
+    match comments
+        .create(
+            actor,
+            &digest,
+            purchase.get(),
+            NewChapterComment {
+                chapter_id: chapter.get(),
+                version_id: version.get(),
+                body: body.as_str(),
+                command_key: key.as_str(),
+                payload_hash: &hash,
+                parent_id: input.parent_id,
+                anchor,
+            },
+        )
+        .await
+    {
         CreateResult::Created(id) => private_json(json!({"status":"sent","id":id})),
         CreateResult::Replayed(id) => private_json(json!({"status":"repeat","id":id})),
         CreateResult::Invalid => deny(StatusCode::UNPROCESSABLE_ENTITY),
@@ -230,8 +275,10 @@ mod tests {
             "command_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#;
         assert!(serde_json::from_str::<CommentInput>(json).is_ok());
         assert!(serde_json::from_str::<CommentInput>(&json.replace(
-            "\"version_id\":\"9\"", "\"version_id\":\"9\",\"user_id\":99"
-        )).is_err());
+            "\"version_id\":\"9\"",
+            "\"version_id\":\"9\",\"user_id\":99"
+        ))
+        .is_err());
         let mut form = serde_json::from_str::<CommentInput>(json).unwrap();
         form.parent_id = Some(2);
         form.anchor_block = Some(1);
