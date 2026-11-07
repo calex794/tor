@@ -318,6 +318,23 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         &url,
         &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={deletion_book}"),
     );
+    // A one-record cycle may resolve only one signal even when five
+    // legitimate stale observations remain; the worker drains over ticks.
+    let first_cleanup = accounts
+        .scan_moderation_overdue_observations(1)
+        .await
+        .unwrap();
+    assert_eq!(first_cleanup.resolved, 1);
+    let partial: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM moderation_overdue_signals
+             WHERE ({subset}) AND signal_state='resolved'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert!(partial <= 1, "one scan cannot resolve more than its limit");
     accounts
         .scan_moderation_overdue_observations(500)
         .await
