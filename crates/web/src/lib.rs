@@ -38,6 +38,7 @@ pub mod cover_private_source_cleanup;
 mod layer_reader_assets;
 mod layer_reader_pages;
 mod recommendation_http;
+mod seo_http;
 pub mod recommendation_worker;
 mod referral_book_http;
 pub use cover_http::{
@@ -505,6 +506,8 @@ fn make_router_with_paid_checkout(
     let mut app = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
+        .route("/robots.txt", get(seo_http::robots_txt))
+        .route("/sitemap.xml", get(seo_http::sitemap_xml))
         .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route(
