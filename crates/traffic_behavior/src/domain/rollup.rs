@@ -1,8 +1,8 @@
 //! Fixed-size, in-process hourly deltas. No raw request data or identities.
 //! Each dimension is an enum value, never a free-form label.
 use super::{
-    flow::{acquisition_index, surface_index}, BehaviorEvent, FlowCountRow, FlowPageview,
-    GapBucket, RouteCode, FLOW_SOURCES, FLOW_SURFACES,
+    flow::{acquisition_index, surface_index},
+    BehaviorEvent, FlowCountRow, FlowPageview, GapBucket, RouteCode, FLOW_SOURCES, FLOW_SURFACES,
 };
 
 const ROUTES: usize = 15;
@@ -133,12 +133,7 @@ impl RollupDelta {
 
     /// Called only for an already filtered, successful HTML pageview.
     /// The subject key never enters this fixed-dimensional rollup.
-    pub fn record_flow(
-        &mut self,
-        pageview: FlowPageview,
-        opted_in: bool,
-        started: bool,
-    ) {
+    pub fn record_flow(&mut self, pageview: FlowPageview, opted_in: bool, started: bool) {
         let Some(surface) = surface_index(pageview.surface) else {
             return;
         };
@@ -196,7 +191,11 @@ impl RollupDelta {
         self.routes.iter().flatten().flatten().all(|n| *n == 0)
             && self.transitions.iter().flatten().flatten().all(|n| *n == 0)
             && self.sql.iter().all(|item| item.requests == 0)
-            && self.flow.iter().flatten().all(|cell| cell.html_requests == 0)
+            && self
+                .flow
+                .iter()
+                .flatten()
+                .all(|cell| cell.html_requests == 0)
     }
 
     pub fn capped_cells(&self) -> u64 {
