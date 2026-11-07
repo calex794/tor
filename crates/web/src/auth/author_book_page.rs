@@ -100,6 +100,7 @@ pub(super) async fn page(
                 latest_job: latest_cover.as_deref(),
                 demand_count,
                 paid_editor_enabled: state.paid_author_available,
+                age_editor_enabled: state.age_editor_enabled,
                 next: page.next,
                 has_previous_page: cursor.is_some(),
             },
