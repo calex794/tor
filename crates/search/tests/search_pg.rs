@@ -311,6 +311,35 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
     assert_eq!(listed[0].author_name, "Автор F04");
     assert_eq!(listed[0].genres, vec!["f04-test-genre".to_owned()]);
 
+    // S020/P0: the anonymous homepage's latest-books projection is public
+    // discovery, not an entitled catalogue. Age upgrades must revoke the
+    // title BEFORE applying LIMIT, even if an older 18+/21+ reader can open it.
+    for tier in ["adult", "pro_adult"] {
+        sqlx::query("UPDATE books SET access_level=$1 WHERE id=$2")
+            .bind(tier)
+            .bind(visible_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            service.latest_added(Some("f04-test-genre"), 1).await.unwrap().is_empty(),
+            "{tier} title leaked through anonymous home showcase"
+        );
+    }
+    // Legacy NULL is unknown: never treat it as an implicit public basic tier.
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service.latest_added(Some("f04-test-genre"), 1).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(service.latest_added(Some("f04-test-genre"), 1).await.unwrap().len(), 1);
+
     // No cache: each transition must be reflected in the very next request.
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(visible_id)
