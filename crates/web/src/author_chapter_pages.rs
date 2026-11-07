@@ -65,7 +65,6 @@ pub struct OwnerChapterPageOptions<'a> {
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
-
 pub fn detail_with_covers_with_demand_page(
     book: &OwnedBook,
     published: bool,
@@ -148,7 +147,6 @@ pub fn detail_with_covers_with_demand_page(
         }
         items.push_str("</nav>");
     }
-
     let status = if published {
         "Опубликована"
     } else {
