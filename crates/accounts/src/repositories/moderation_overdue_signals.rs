@@ -10,6 +10,16 @@ pub struct OverdueScanResult {
 }
 
 impl PgAccounts {
+    /// Called only when the operator opted in to background observation.
+    /// Fail startup rather than silently operating without the additive ledger.
+    /// The restricted tor_app role needs read access, not schema-owner DDL.
+    pub async fn probe_moderation_overdue_observations(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT id,signal_state FROM moderation_overdue_signals LIMIT 0")
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
     /// Manually invoked internal scan; no user-supplied values are used in SQL.
     /// Serializes concurrent scanners and reconciles immutable request keys.
     ///
