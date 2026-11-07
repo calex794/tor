@@ -2,10 +2,9 @@
 //! Reuse the existing registered S033 PostgreSQL HTTP test target.
 use super::{body, cookie, csrf_from_page, send, signup, ORIGIN};
 use axum::http::{header, StatusCode};
-use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_accounts::repositories::PgAccounts;
-use tor_books::{repositories::PgCatalog, repositories::translation_teams::PgTranslationTeams};
+use tor_books::{repositories::translation_teams::PgTranslationTeams, repositories::PgCatalog};
 use tor_reading::repositories::PgReader;
 
 #[tokio::test]
@@ -36,21 +35,25 @@ async fn s026_team_creation_is_owner_only_and_never_grants_book_rights() {
     assert_eq!(anonymous.headers()[header::CACHE_CONTROL], "no-store");
     let page = send(&app, "GET", "/me/teams", &owner, "").await;
     assert_eq!(page.status(), StatusCode::OK);
-    assert_eq!(page.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(
+        page.headers()["x-robots-tag"],
+        "noindex, nofollow, noarchive"
+    );
     let csrf = csrf_from_page(&body(page).await);
     let csrf_page = send(&app, "GET", "/me/teams", &owner, "").await;
     let csrf_cookie = cookie(&csrf_page, "tor-dev-csrf=");
     let cookies = format!("{owner}; {csrf_cookie}");
 
-    let request = format!(
-        "name=Team%3Cscript%3E&description=%3Csvg%3E&csrf_token={csrf}"
-    );
+    let request = format!("name=Team%3Cscript%3E&description=%3Csvg%3E&csrf_token={csrf}");
     let invalid = send(&app, "POST", "/me/teams", &owner, &request).await;
     assert_eq!(invalid.status(), StatusCode::FORBIDDEN, "no CSRF cookie");
 
     let created = send(&app, "POST", "/me/teams", &cookies, &request).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    let route = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let route = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     assert!(route.starts_with("/me/teams/"));
     let detail = send(&app, "GET", &route, &cookies, "").await;
     assert_eq!(detail.status(), StatusCode::OK);
@@ -104,32 +107,31 @@ async fn s026_team_creation_is_owner_only_and_never_grants_book_rights() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    let team = PgTranslationTeams::new(pool.clone()).owned(actor, id).await.unwrap();
+    let team = PgTranslationTeams::new(pool.clone())
+        .owned(actor, id)
+        .await
+        .unwrap();
     assert_eq!(team.owner_user_id, actor);
     assert_eq!(team.name, "Team<script>");
-    let number: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM translation_teams WHERE owner_user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let number: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM translation_teams WHERE owner_user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(number, 1, "duplicate did not create a second Team");
-    let book_grants: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM book_members WHERE user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let book_grants: i64 = sqlx::query_scalar("SELECT count(*) FROM book_members WHERE user_id=$1")
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(book_grants, 0, "Team does not authorize access to any Book");
-    let paid_grants: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_purchase_facts WHERE user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let paid_grants: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(paid_grants, 0, "Team does not grant purchased chapters");
 
     sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")

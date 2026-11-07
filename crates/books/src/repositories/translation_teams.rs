@@ -40,9 +40,13 @@ pub fn validate_team(name: &str, description: &str) -> Result<(String, String), 
 fn decode(row: PgRow) -> Result<TranslationTeam, TeamError> {
     Ok(TranslationTeam {
         id: row.try_get("id").map_err(|_| TeamError::Unavailable)?,
-        owner_user_id: row.try_get("owner_user_id").map_err(|_| TeamError::Unavailable)?,
+        owner_user_id: row
+            .try_get("owner_user_id")
+            .map_err(|_| TeamError::Unavailable)?,
         name: row.try_get("name").map_err(|_| TeamError::Unavailable)?,
-        description: row.try_get("description").map_err(|_| TeamError::Unavailable)?,
+        description: row
+            .try_get("description")
+            .map_err(|_| TeamError::Unavailable)?,
     })
 }
 
@@ -139,12 +143,17 @@ mod tests {
 
     #[test]
     fn s026_team_name_is_bounded_and_safe() {
-        assert_eq!(validate_team("  Книга  ", " Текст ").unwrap(),
-                   ("Книга".into(), "Текст".into()));
+        assert_eq!(
+            validate_team("  Книга  ", " Текст ").unwrap(),
+            ("Книга".into(), "Текст".into())
+        );
         for name in ["", "   ", "\n", "name\u{0000}", "\tT"] {
             assert_eq!(validate_team(name, ""), Err(TeamError::Invalid));
         }
         assert_eq!(validate_team(&"a".repeat(101), ""), Err(TeamError::Invalid));
-        assert_eq!(validate_team("Team", &"x".repeat(2001)), Err(TeamError::Invalid));
+        assert_eq!(
+            validate_team("Team", &"x".repeat(2001)),
+            Err(TeamError::Invalid)
+        );
     }
 }

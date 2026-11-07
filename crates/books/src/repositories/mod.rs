@@ -1,5 +1,4 @@
 pub mod book_members;
-pub mod translation_teams;
 pub(crate) mod chapter_number;
 pub mod cover_private_cleanup;
 pub mod cover_publication_ops;
@@ -9,6 +8,7 @@ pub mod cover_slots;
 pub mod cover_source_cleanup;
 pub mod personal_books;
 pub mod recommendation_policy;
+pub mod translation_teams;
 // B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
 pub(crate) mod owner_transfer;
 // B-09d canonical Book tier, locked under caller-owned transfer transaction.
