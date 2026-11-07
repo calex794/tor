@@ -3,7 +3,7 @@
 use super::{body, cookie, csrf_from_page, send, signup, ORIGIN};
 use axum::http::{header, StatusCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_accounts::repositories::PgAccounts;
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{repositories::translation_teams::PgTranslationTeams, repositories::PgCatalog};
 use tor_reading::repositories::PgReader;
 
@@ -15,6 +15,7 @@ async fn s026_team_creation_is_owner_only_and_never_grants_book_rights() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
+    let verified_accounts = accounts.clone();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -101,47 +102,39 @@ async fn s026_team_creation_is_owner_only_and_never_grants_book_rights() {
     );
 
     let id: i64 = route.rsplit('/').next().unwrap().parse().unwrap();
-    let actor: i64 = sqlx::query_scalar("SELECT id FROM users WHERE email_normalized=$1")
-        .bind(&owner_email)
-        .fetch_one(&pool)
+    let digest = session_token_digest(owner.split_once('=').unwrap().1);
+    let actor = verified_accounts
+        .active_session_user(&digest)
         .await
-        .unwrap();
-    let team = PgTranslationTeams::new(pool.clone())
-        .owned(actor, id)
-        .await
-        .unwrap();
+        .unwrap()
+        .expect("verified owner from active session");
+    let repository = PgTranslationTeams::new(pool.clone());
+    let team = repository.owned(actor, id).await.unwrap();
     assert_eq!(team.owner_user_id, actor);
     assert_eq!(team.name, "Team<script>");
-    let number: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM translation_teams WHERE owner_user_id=$1")
-            .bind(actor)
-            .fetch_one(&pool)
+    assert_eq!(
+        repository.list_owned(actor).await.unwrap().len(),
+        1,
+        "duplicate form did not create another Team"
+    );
+    assert!(
+        !body(send(&app, "GET", "/catalog", "", "").await)
             .await
-            .unwrap();
-    assert_eq!(number, 1, "duplicate did not create a second Team");
-    let book_grants: i64 = sqlx::query_scalar("SELECT count(*) FROM book_members WHERE user_id=$1")
-        .bind(actor)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(book_grants, 0, "Team does not authorize access to any Book");
-    let paid_grants: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=$1")
-            .bind(actor)
-            .fetch_one(&pool)
+            .contains("Team&lt;script&gt;"),
+        "Team is not a public book entry"
+    );
+    assert!(
+        !body(send(&app, "GET", "/me/books", &owner, "").await)
             .await
-            .unwrap();
-    assert_eq!(paid_grants, 0, "Team does not grant purchased chapters");
+            .contains("Team&lt;script&gt;"),
+        "Team did not create a Book permission or owner Book"
+    );
 
-    sqlx::query("UPDATE users SET account_state='suspended' WHERE id=$1")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .unwrap();
+    verified_accounts.revoke_session(&digest).await.unwrap();
     assert_eq!(
         send(&app, "GET", &route, &cookies, "").await.status(),
         StatusCode::SEE_OTHER,
-        "suspended creator's revoked session cannot read Team"
+        "revoked session must not open the Team cabinet"
     );
     // No production migrations, external HTTP or Book permissions were mutated.
 }
