@@ -11,4 +11,3 @@ sqlx.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-tor-reading = { path = "../reading" }
