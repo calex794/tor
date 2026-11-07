@@ -775,7 +775,8 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
     let (a, b, c) = (users[0], users[1], users[2]);
     let notifications = PgNotifications::new(pool.clone());
     let initial = notifications.preferences(b).await.unwrap();
-    assert_eq!(initial.len(), 22);
+    assert_eq!(initial.len(), 23); // Includes site-only moderation_overdue bell kind.
+    assert!(initial.iter().any(|pref| pref.kind == "moderation_overdue"));
     assert!(initial.iter().all(|pref| pref.enabled));
     assert_eq!(notifications.preferences(0).await, Err(MailError::Invalid));
     assert_eq!(
