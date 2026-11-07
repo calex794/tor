@@ -176,8 +176,8 @@ async fn f_04_rising_rejects_repeat_readers_owner_and_revoked_publication() {
             "UPDATE books SET admin_hold=FALSE WHERE id=99810",
         ),
         (
-            "UPDATE chapters SET admin_hold=TRUE WHERE id=99820",
-            "UPDATE chapters SET admin_hold=FALSE WHERE id=99820",
+            "UPDATE chapters SET admin_hold=TRUE WHERE id IN (99820,99821)",
+            "UPDATE chapters SET admin_hold=FALSE WHERE id IN (99820,99821)",
         ),
         (
             "UPDATE books SET visibility='draft' WHERE id=99810",
