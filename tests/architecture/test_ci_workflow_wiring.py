@@ -256,6 +256,30 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
             self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
 
+    def test_postgres_cargo_command_timing_keeps_fail_fast_and_targets(self):
+        # Timing is shell-local and does not change any cargo test arguments,
+        # filters, test binaries, shared PostgreSQL ordering or the manual job.
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
+        manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+        expected = (
+            "traffic_storage_catalog", "books_import_authoring",
+            "reading_library", "referrals_recommendations_social",
+            "commerce_support", "http_security",
+        )
+        for job in (required, manual):
+            body = job.split("      - name: Database and HTTP integration\n", 1)[1].split(
+                "      - name: D-04 real HTTP and PostgreSQL sessions", 1)[0]
+            self.assertEqual(tuple(re.findall(r'ci_pg_phase_done "([a-z_]+)"', body)), expected)
+            self.assertIn("CI_PG_CARGO_MS seq=%d package=%s target=%s elapsed_ms=%d status=%d", body)
+            self.assertIn('command cargo "$@" || status=$?', body)
+            self.assertIn('return "$status"', body)
+            self.assertIn('local start_us=${EPOCHREALTIME/./}', body)
+            self.assertIn('local end_us=${EPOCHREALTIME/./}', body)
+            self.assertIn('env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test', body)
+            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertGreaterEqual(len(re.findall(r'(?m)^\s+cargo test -p ', body)), 100)
+            self.assertNotIn("set +e", body)
+
     def test_rec13_step_timing_keeps_real_benchmark_and_failure_handling(self):
         shell = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
         browser = (ROOT / "tools/rec13_browser.cjs").read_text()
