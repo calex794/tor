@@ -50,4 +50,59 @@ pub(super) const VISIBLE: &str = r#"
                 AND object.verified_at IS NOT NULL
           ))
       )
+)) AND
+-- A stored moderation bell never grants operational access. Revoked admin
+-- roles and no-longer-pending source requests hide the notice before LIMIT,
+-- including read/unread update routes, even without a new worker scan.
+(n.kind <> 'moderation_overdue' OR EXISTS (
+    SELECT 1 FROM outbox_events e
+    JOIN moderation_overdue_signals s ON s.id=e.aggregate_id
+    JOIN users recipient ON recipient.id=n.recipient_user_id
+      AND recipient.account_state='active'
+    JOIN account_roles role ON role.user_id=recipient.id
+      AND role.role='administrator' AND role.is_active
+    WHERE e.id=n.source_event_id
+      AND e.event_type='moderation.overdue'
+      AND e.aggregate_kind='moderation_overdue_signal'
+      AND e.payload->>'recipient_user_id'=n.recipient_user_id::text
+      AND s.signal_state='open'
+      AND (
+        (s.request_kind='registration' AND s.source_revision=0
+         AND EXISTS (
+           SELECT 1 FROM books b WHERE b.id=s.source_id
+             AND b.registration_requires_review
+             AND b.visibility_status='pending_moderation'
+             AND b.registration_approval_decision_id IS NULL
+             AND NOT b.is_deleted
+             AND b.created_at<=now()-make_interval(hours=>s.threshold_hours::integer)
+             AND NOT EXISTS (
+               SELECT 1 FROM book_registration_decisions d WHERE d.book_id=b.id
+             )
+         ))
+        OR (s.request_kind='cover' AND s.source_revision=0
+         AND EXISTS (
+           SELECT 1 FROM book_cover_review_requests c
+           JOIN books b ON b.id=c.book_id
+           WHERE c.id=s.source_id AND c.state='pending'
+             AND NOT b.is_deleted
+             AND c.submitted_at<=now()-make_interval(hours=>s.threshold_hours::integer)
+         ))
+        OR (s.request_kind='deletion'
+         AND EXISTS (
+           SELECT 1 FROM book_ordinary_deletion_requests request
+           JOIN books b ON b.id=request.book_id
+           WHERE request.book_id=s.source_id
+             AND request.request_revision=s.source_revision
+             AND request.owner_user_id<>recipient.id
+             AND b.lifecycle_status='pending_deletion'
+             AND b.lifecycle_revision=request.request_revision
+             AND NOT b.is_deleted
+             AND request.requested_at<=now()-make_interval(hours=>s.threshold_hours::integer)
+             AND NOT EXISTS (
+               SELECT 1 FROM book_ordinary_deletion_decisions d
+               WHERE d.book_id=request.book_id
+                 AND d.request_revision=request.request_revision
+             )
+         ))
+      )
 ))"#;
