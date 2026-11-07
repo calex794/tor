@@ -1,8 +1,8 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
 use crate::domain::{
-    BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, SqlCostEvent,
-    VerifiedSubjectKey, MAX_SUBJECTS,
+    BehaviorEvent, BehaviorSketch, FlowPageview, FlowVisitWindows, PathReport, RollupDelta,
+    SketchSnapshot, SqlCostEvent, VerifiedSubjectKey, MAX_SUBJECTS,
 };
 use crate::services::paths_worker::PathRecorder;
 use std::collections::{HashSet, VecDeque};
@@ -18,7 +18,7 @@ use std::{
 
 const MAX_QUEUE: usize = 4_096;
 enum Message {
-    Event(BehaviorEvent),
+    Event(BehaviorEvent, Option<FlowPageview>),
     Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
@@ -45,13 +45,14 @@ impl TrafficRecorder {
             .name("tor-ril-traffic".to_owned())
             .spawn(move || {
                 let mut sketch = BehaviorSketch::new(max_subjects);
+                let mut visits = FlowVisitWindows::new(max_subjects);
                 let mut rollup = RollupDelta::default();
                 let mut revoked = HashSet::<VerifiedSubjectKey>::new();
                 let mut expirations = VecDeque::<(Instant, VerifiedSubjectKey)>::new();
                 let mut fail_closed = false;
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(mut event) => {
+                        Message::Event(mut event, flow) => {
                             // An in-flight request may arrive after consent has
                             // been revoked. It cannot recreate the old path.
                             while let Some((time, key)) = expirations.front().copied() {
@@ -69,6 +70,12 @@ impl TrafficRecorder {
                             }
                             let transition = sketch.record(event);
                             rollup.record(event, transition);
+                            if let Some(pageview) = flow {
+                                let started = event
+                                    .subject
+                                    .is_some_and(|key| visits.observe(key, event.at_millis));
+                                rollup.record_flow(pageview, event.subject.is_some(), started);
+                            }
                             if event.subject.is_some() {
                                 let _ = path_sink.try_record(event);
                             }
@@ -94,6 +101,7 @@ impl TrafficRecorder {
                                 }
                             }
                             sketch.forget_subject(key);
+                            visits.forget(key);
                             // This sends behind all previously submitted path
                             // events; the reply confirms their deletion.
                             let deleted = path_sink.forget_for_privacy(key).is_some();
@@ -115,7 +123,17 @@ impl TrafficRecorder {
     }
 
     pub fn try_record(&self, event: BehaviorEvent) -> bool {
-        match self.sender.try_send(Message::Event(event)) {
+        self.try_record_with_flow(event, None)
+    }
+
+    /// Atomic best-effort enqueue: the RIL event and its bounded HTML sample
+    /// either enter the same worker queue together or are dropped together.
+    pub fn try_record_with_flow(
+        &self,
+        event: BehaviorEvent,
+        flow: Option<FlowPageview>,
+    ) -> bool {
+        match self.sender.try_send(Message::Event(event, flow)) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
