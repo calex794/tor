@@ -353,4 +353,42 @@ mod tests {
         assert_eq!(delta.sql_rows()[0].sqlx_elapsed_us, 900);
         assert!(recorder.drain_for_persistence().unwrap().is_empty());
     }
+    #[test]
+    fn flow_02_uses_same_nonblocking_queue_and_keeps_visit_window_across_drains() {
+        use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
+        let recorder = TrafficRecorder::start(8, 32);
+        let page = FlowPageview {
+            surface: RouteSurface::Catalogue,
+            acquisition_hint: AcquisitionChannel::ExternalOrganicSearch,
+        };
+        let mut first = event();
+        first.subject = Some(VerifiedSubjectKey::from_hmac_digest([51; 16]));
+        first.at_millis = 100;
+        assert!(recorder.try_record_with_flow(first, Some(page)));
+        let mut second = first;
+        second.at_millis = 200;
+        assert!(recorder.try_record_with_flow(second, Some(page)));
+        let mut anonymous = second;
+        anonymous.subject = None;
+        assert!(recorder.try_record_with_flow(anonymous, Some(page)));
+        let first_batch = recorder.drain_for_persistence().unwrap();
+        let row = first_batch.flow_rows()[0];
+        assert_eq!(row.html_requests, 3);
+        assert_eq!(row.opted_in_html_requests, 2);
+        assert_eq!(row.observed_opted_in_visit_starts, 1);
+        assert!(recorder.drain_for_persistence().unwrap().flow_rows().is_empty());
+
+        let mut later = first;
+        later.at_millis = 1_800_201;
+        assert!(recorder.try_record_with_flow(later, Some(page)));
+        let next_batch = recorder.drain_for_persistence().unwrap();
+        assert_eq!(next_batch.flow_rows()[0].observed_opted_in_visit_starts, 1);
+
+        assert_eq!(recorder.forget_subject_for_privacy(first.subject.unwrap()), Some(true));
+        assert!(recorder.try_record_with_flow(later, Some(page)));
+        let revoked = recorder.drain_for_persistence().unwrap();
+        assert_eq!(revoked.flow_rows()[0].opted_in_html_requests, 0);
+        assert_eq!(revoked.flow_rows()[0].html_requests, 1);
+    }
+
 }
