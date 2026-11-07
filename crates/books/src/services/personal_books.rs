@@ -61,9 +61,18 @@ mod tests {
     #[test]
     fn s033_rejects_empty_and_oversized_materials() {
         assert_eq!(clean_book(" ", "").unwrap_err(), PersonalError::Invalid);
-        assert_eq!(clean_book("a", &"x".repeat(10_001)).unwrap_err(), PersonalError::Invalid);
-        assert_eq!(clean_chapter("a", &"x".repeat(500_001)).unwrap_err(), PersonalError::Invalid);
-        assert_eq!(clean_book("  Личное  ", "  Черновик "), Ok(("Личное".into(), "Черновик".into())));
+        assert_eq!(
+            clean_book("a", &"x".repeat(10_001)).unwrap_err(),
+            PersonalError::Invalid
+        );
+        assert_eq!(
+            clean_chapter("a", &"x".repeat(500_001)).unwrap_err(),
+            PersonalError::Invalid
+        );
+        assert_eq!(
+            clean_book("  Личное  ", "  Черновик "),
+            Ok(("Личное".into(), "Черновик".into()))
+        );
         assert!(clean_chapter("Глава", "").is_ok());
     }
 }
