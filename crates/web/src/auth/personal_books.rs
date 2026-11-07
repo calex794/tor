@@ -72,9 +72,20 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .with_state(state)
 }
 
-async fn actor(state: &PersonalState, headers: &HeaderMap) -> Result<i64, Response> {
+#[derive(Clone, Copy)]
+enum ActorError {
+    Login,
+    Unavailable,
+}
+fn actor_error(error: ActorError) -> Response {
+    match error {
+        ActorError::Login => private_response(Redirect::to("/login"), &[]),
+        ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+}
+async fn actor(state: &PersonalState, headers: &HeaderMap) -> Result<i64, ActorError> {
     let Some(token) = state.cookies.session_token(headers) else {
-        return Err(private_response(Redirect::to("/login"), &[]));
+        return Err(ActorError::Login);
     };
     match state
         .accounts
@@ -82,8 +93,8 @@ async fn actor(state: &PersonalState, headers: &HeaderMap) -> Result<i64, Respon
         .await
     {
         Ok(Some(id)) => Ok(id),
-        Ok(None) => Err(private_response(Redirect::to("/login"), &[])),
-        Err(_) => Err(private_response(StatusCode::SERVICE_UNAVAILABLE, &[])),
+        Ok(None) => Err(ActorError::Login),
+        Err(_) => Err(ActorError::Unavailable),
     }
 }
 fn error(error: PersonalError) -> Response {
@@ -200,7 +211,7 @@ fn chapter_detail(chapter: &PersonalChapter) -> String {
 async fn index(State(s): State<PersonalState>, headers: HeaderMap) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s.books.list_books(actor).await {
         Ok(books) => display("Личные книги", &book_list(&books), &[]),
@@ -209,7 +220,7 @@ async fn index(State(s): State<PersonalState>, headers: HeaderMap) -> Response {
 }
 async fn new_book(State(s): State<PersonalState>, headers: HeaderMap) -> Response {
     if let Err(e) = actor(&s, &headers).await {
-        return e;
+        return actor_error(e);
     }
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
     display(
@@ -235,7 +246,7 @@ async fn create_book(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s
         .books
@@ -257,7 +268,7 @@ async fn book(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     let book = match s.books.book(actor, book_id).await {
         Ok(book) => book,
@@ -276,7 +287,7 @@ async fn edit_book(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     let book = match s.books.book(actor, book_id).await {
         Ok(book) => book,
@@ -307,7 +318,7 @@ async fn update_book(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s
         .books
@@ -330,7 +341,7 @@ async fn new_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     if let Err(e) = s.books.book(actor, book_id).await {
         return error(e);
@@ -360,7 +371,7 @@ async fn create_chapter(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s
         .books
@@ -386,7 +397,7 @@ async fn read_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s.books.chapter(actor, book_id, chapter_id).await {
         Ok(chapter) => display("Личная глава", &chapter_detail(&chapter), &[]),
@@ -400,7 +411,7 @@ async fn edit_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     let chapter = match s.books.chapter(actor, book_id, chapter_id).await {
         Ok(ch) => ch,
@@ -431,7 +442,7 @@ async fn update_chapter(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return actor_error(e),
     };
     match s
         .books
