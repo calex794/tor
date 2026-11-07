@@ -35,7 +35,10 @@ pub(crate) fn start(accounts: PgAccounts) -> tokio::task::JoinHandle<()> {
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             timer.tick().await;
-            match accounts.scan_moderation_overdue_observations(BATCH_LIMIT).await {
+            match accounts
+                .scan_moderation_overdue_observations(BATCH_LIMIT)
+                .await
+            {
                 Ok(result) if result.opened > 0 || result.resolved > 0 => {
                     tracing::info!(
                         opened = result.opened,
