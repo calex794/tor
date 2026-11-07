@@ -23,6 +23,8 @@ async fn demo_serves_real_html_routes() {
         "/books/1",
         "/login",
         "/register",
+        "/robots.txt",
+        "/sitemap.xml",
         "/healthz",
         "/readyz",
         "/assets/site.css",
@@ -127,4 +129,15 @@ async fn no_user_or_finance_write_routes() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn seo_06_disabled_sitemap_never_discloses_demo_books() {
+    let (_, robots) = get("/robots.txt").await;
+    assert!(robots.contains("User-agent: *"));
+    assert!(!robots.contains("Sitemap:"));
+    let (_, map) = get("/sitemap.xml").await;
+    assert!(map.contains("<urlset"));
+    assert!(!map.contains("<loc>"));
+    assert!(!map.contains("/books/"));
 }
