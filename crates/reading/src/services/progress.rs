@@ -58,6 +58,8 @@ pub struct ContinueReading {
     /// Zero when the saved version is no longer current; never invent a
     /// position in edited text.
     pub block_index: i32,
+    /// True only when a finalized ordinary deletion has an exact actor-owned free pin.
+    pub archived_saved: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -78,7 +78,7 @@ target="/opt/tor/releases/$sha"
   refuse 'verified candidate has not been delivered'
 [[ $(stat -c '%U:%G' "$inbox") == tor-deploy:tor-deploy ]] ||
   refuse 'incoming candidate must be owned by tor-deploy'
-for f in tor-web tor-migrate tor-web.sha256 tor-migrate.sha256 tor-release-manifest tor-release-manifest.sig; do
+for f in tor-web tor-migrate tor-trace-store tor-web.sha256 tor-migrate.sha256 tor-trace-store.sha256 tor-release-manifest tor-release-manifest.sig; do
   [[ -f "$inbox/$f" && ! -L "$inbox/$f" ]] ||
     refuse "staged $f is missing or unsafe"
 done
@@ -96,6 +96,7 @@ expected_manifest=$(
   printf 'TOR_RELEASE_SHA %s\n' "$sha"
   cat "$inbox/tor-web.sha256"
   cat "$inbox/tor-migrate.sha256"
+  cat "$inbox/tor-trace-store.sha256"
 )
 [[ $(cat "$inbox/tor-release-manifest") == "$expected_manifest" ]] ||
   refuse 'signed manifest does not match the selected SHA and checksums'
@@ -103,9 +104,12 @@ expected_manifest=$(
   refuse 'unexpected tor-web checksum format'
 [[ $(cat "$inbox/tor-migrate.sha256") =~ ^[a-f0-9]{64}[[:space:]][[:space:]]tor-migrate$ ]] ||
   refuse 'unexpected migrator checksum format'
+[[ $(cat "$inbox/tor-trace-store.sha256") =~ ^[a-f0-9]{64}[[:space:]][[:space:]]tor-trace-store$ ]] ||
+  refuse 'unexpected trace-store checksum format'
 (cd "$inbox" &&
   sha256sum -c --status tor-web.sha256 &&
-  sha256sum -c --status tor-migrate.sha256) ||
+  sha256sum -c --status tor-migrate.sha256 &&
+  sha256sum -c --status tor-trace-store.sha256) ||
   refuse 'staged binaries have unexpected hashes'
 echo 'TOR_RELEASE_SIGNATURE_OK'
 
@@ -118,15 +122,16 @@ if [[ -e "$target" ]]; then
 else
   temporary=$(mktemp -d "/opt/tor/releases/.candidate-$sha-XXXXXXXX")
   trap 'rm -rf -- "$temporary"' EXIT
-  for f in tor-web tor-migrate; do
+  for f in tor-web tor-migrate tor-trace-store; do
     install -o root -g root -m 0755 "$inbox/$f" "$temporary/$f"
   done
-  for f in tor-web.sha256 tor-migrate.sha256 tor-release-manifest tor-release-manifest.sig; do
+  for f in tor-web.sha256 tor-migrate.sha256 tor-trace-store.sha256 tor-release-manifest tor-release-manifest.sig; do
     install -o root -g root -m 0644 "$inbox/$f" "$temporary/$f"
   done
   (cd "$temporary" &&
     sha256sum -c --status tor-web.sha256 &&
-    sha256sum -c --status tor-migrate.sha256) ||
+    sha256sum -c --status tor-migrate.sha256 &&
+    sha256sum -c --status tor-trace-store.sha256) ||
     refuse 'root-owned copy failed checksum verification'
   # mktemp -d defaults to 0700: tor-web runs as tor-deploy and must
   # traverse the new root-owned release directory after switching.
@@ -137,7 +142,8 @@ fi
 
 (cd "$target" &&
   sha256sum -c --status tor-web.sha256 &&
-  sha256sum -c --status tor-migrate.sha256) ||
+  sha256sum -c --status tor-migrate.sha256 &&
+  sha256sum -c --status tor-trace-store.sha256) ||
   refuse 'candidate release checksum mismatch'
 [[ $(cat "$target/tor-release-manifest") == "$expected_manifest" ]] ||
   refuse 'root-owned release manifest differs from signed candidate'
@@ -148,6 +154,8 @@ ssh-keygen -Y verify -f "$signers" -I tor-release -n tor-release \
   refuse 'privileged migrator must be root owned'
 [[ $(stat -c '%U:%G' "$target/tor-web") == root:root ]] ||
   refuse 'server binary must be root owned'
+[[ $(stat -c '%U:%G' "$target/tor-trace-store") == root:root && -x "$target/tor-trace-store" ]] ||
+  refuse 'trace-store binary must be root owned and executable'
 [[ $(stat -c '%a' "$target") == 755 ]] ||
   refuse 'server process cannot traverse release directory'
 

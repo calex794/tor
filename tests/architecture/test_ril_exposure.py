@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 273)  # S014 adds two guarded profile subscription POSTs; no public write.
-        self.assertEqual(report["route_pairs"], 271)  # Includes S014 account-scoped profile follows.
+        self.assertEqual(report["route_bindings"], 295)  # BR-060 includes the moderated ordinary-deletion review GET/POST routes.
+        self.assertEqual(report["route_pairs"], 293)  # Plus two independent reviewed moderation actions.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])

@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
@@ -54,18 +55,189 @@ async function actualPng(page) {
   return Buffer.from(data.split(',')[1], 'base64');
 }
 
+
+const ciDb = process.env.APP_URL;
+if (process.env.GITHUB_ACTIONS !== 'true' || !ciDb) {
+  throw new Error('Moderator cover browser needs disposable GitHub CI');
+}
+const dbUrl = new URL(ciDb);
+if (!['postgres:', 'postgresql:'].includes(dbUrl.protocol) ||
+    dbUrl.hostname !== '127.0.0.1' || dbUrl.port !== '5432' ||
+    dbUrl.pathname !== '/tor_ci' || dbUrl.username !== 'tor_app' ||
+    dbUrl.search || dbUrl.hash) {
+  throw new Error('Refusing non-disposable cover moderation SQL fixture');
+}
+function pg(sql) {
+  return execFileSync('psql', [
+    '-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1',
+    '--dbname', ciDb, '--command', sql,
+  ], { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+async function verifyModeratorWorkbench(reviewer, owner, viewport, scheme, width, height) {
+  await reviewer.setViewportSize({ width, height });
+  const tabs = [
+    ['/moderation/books/registrations', /^Регистрация \(\d+\)$/],
+    ['/moderation/covers', /^Обложки \(\d+\)$/],
+    ['/moderation/books/deletions', /^Удаление \(\d+\)$/],
+  ];
+  for (const [url, label] of tabs) {
+    const denied = await owner.context().request.get(base + url);
+    assert(denied.status() === 403,
+      viewport + '/' + scheme + ': ordinary Book owner opened a site queue');
+    const response = await reviewer.goto(base + url);
+    assert(response && response.status() === 200,
+      viewport + '/' + scheme + ': independent site reviewer cannot open ' + url);
+    const nav = reviewer.getByRole('navigation', { name: 'Очереди модератора' });
+    assert(await nav.count() === 1, 'moderator workbench has no common three-tab nav');
+    assert(await nav.getByRole('link', { name: label }).count() === 1,
+      viewport + '/' + scheme + ': expected queue/counter missing on ' + url);
+    assert(await nav.locator('a[aria-current="page"]').count() === 1,
+      'site moderator must know which queue is selected');
+    const metrics = await reviewer.evaluate(() => ({
+      width: document.documentElement.clientWidth,
+      doc: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+    }));
+    assert(metrics.doc <= metrics.width + 1 && metrics.body <= metrics.width + 1,
+      viewport + '/' + scheme + ': moderator queue overflows: ' + JSON.stringify(metrics));
+    await reviewer.screenshot({
+      path: path.join(output, ['moderator-workbench', viewport, scheme,
+        url.split('/').pop()].join('-') + '.png'),
+      fullPage: false,
+    });
+
+    // Native link keyboard access is an acceptance condition, not simply
+    // presence of an aria-current attribute in the HTML. Traverse from the
+    // start of the document so hidden/mobile nav elements cannot mask failure.
+    const target = nav.getByRole('link', { name: label });
+    let tabReached = false;
+    for (let press = 0; press < 80; press++) {
+      await reviewer.keyboard.press('Tab');
+      if (await target.evaluate(link => link === document.activeElement)) {
+        tabReached = true;
+        break;
+      }
+    }
+    assert(tabReached,
+      viewport + '/' + scheme + ': site queue tab unreachable with Tab keyboard');
+    // The HTTP response can arrive before the replacement document has loaded.
+    // Synchronize on the real navigation, otherwise aria-current is a race.
+    const [viaKeyboard] = await Promise.all([
+      reviewer.waitForResponse(r =>
+        r.url() === base + url && r.request().method() === 'GET'),
+      reviewer.waitForEvent('load'),
+      reviewer.keyboard.press('Enter'),
+    ]);
+    assert(viaKeyboard.status() === 200,
+      viewport + '/' + scheme + ': Enter cannot activate the moderator queue link');
+    const current = reviewer.getByRole('navigation', { name: 'Очереди модератора' })
+      .locator('a[aria-current="page"]');
+    await current.waitFor({ state: 'visible' });
+    assert(await current.count() === 1 && await current.getAttribute('href') === url,
+      'keyboard-activated queue lost current tab marker');
+  }
+}
+
+async function approveReadyCover(reviewer, owner, bookId, viewport, scheme) {
+  const prefix = '/covers/' + bookId + '/main.webp';
+  assert((await owner.context().request.get(base + prefix)).status() === 404,
+    'unapproved processed cover leaked through public URL');
+  let form;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const queue = await reviewer.goto(base + '/moderation/covers');
+    assert(queue && queue.status() === 200,
+      viewport + '/' + scheme + ': independent site reviewer cannot view cover queue');
+    const candidates = reviewer.locator('article.me-now-card').filter({
+      hasText: 'Книга #' + bookId + ' ·',
+    });
+    if (await candidates.count() === 1) {
+      form = candidates.locator('form[action^="/moderation/covers/"][action$="/decision"]');
+      assert(await form.count() === 1, 'reviewer queue lacks exact candidate form');
+      break;
+    }
+    await reviewer.waitForTimeout(1000);
+  }
+  assert(form, viewport + '/' + scheme + ': cover worker never created review request');
+  const preview = await reviewer.context().request.get(
+    base + (await reviewer.locator('article.me-now-card').filter({
+      hasText: 'Книга #' + bookId + ' ·',
+    }).locator('img[src^="/moderation/covers/"]').getAttribute('src'))
+  );
+  assert(preview.status() === 200, 'site reviewer could not preview protected WebP');
+  const previewBytes = await preview.body();
+  assert(previewBytes.subarray(0, 4).toString() === 'RIFF' &&
+    previewBytes.subarray(8, 12).toString() === 'WEBP',
+    'moderator preview was not a decoded WebP');
+  // First POST is a private no-write confirmation page. The staged cover
+  // must still be inaccessible through the public URL after this click.
+  const [review] = await Promise.all([
+    reviewer.waitForResponse(r =>
+      r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
+    form.locator('button[name=action][value=approve]').click(),
+  ]);
+  assert(review.status() === 200,
+    viewport + '/' + scheme + ': cover review did not open confirmation');
+  assert(await reviewer.getByRole('heading', {
+    name: /Подтверждение решения по обложке/,
+  }).count() === 1, 'missing explicit second-step cover confirmation');
+  assert((await owner.context().request.get(base + prefix)).status() === 404,
+    'review preview published a staged cover before confirmation');
+  const [decided] = await Promise.all([
+    reviewer.waitForResponse(r =>
+      r.request().method() === 'POST' && /\/moderation\/covers\/\d+\/decision$/.test(r.url())),
+    reviewer.getByRole('button', { name: 'Одобрить обложку' }).focus()
+      .then(() => reviewer.keyboard.press('Enter')),
+  ]);
+  assert(decided.status() === 303,
+    viewport + '/' + scheme + ': site moderator cover approval refused');
+  // The 303 response precedes the browser's redirect navigation. Wait for
+  // that navigation to finish before opening the private decision history.
+  await reviewer.waitForURL(base + '/moderation/covers', { waitUntil: 'load' });
+  assert((await owner.context().request.get(base + prefix)).status() === 200,
+    'approved cover was not published through its B-owned slot');
+
+  // MOD-UI-01: historical decisions and reviewer identities are site-private.
+  const bookHistory = '/moderation/books/' + bookId + '/history';
+  assert((await owner.context().request.get(base + bookHistory)).status() === 403,
+    'Book owner obtained private moderator decision history');
+  assert((await owner.context().request.get(
+    base + '/moderation/books/reviews')).status() === 403,
+    'Book owner obtained the reviewed-decision index');
+  const historyResponse = await reviewer.goto(base + bookHistory);
+  assert(historyResponse && historyResponse.status() === 200,
+    'Site moderator cannot read the approved cover history');
+  const historyHtml = await reviewer.content();
+  assert(historyHtml.includes('Системная история книги #' + bookId) &&
+    historyHtml.includes('Обложка: Одобрено') &&
+    historyHtml.includes('Независимый модератор обложек'),
+    'Site moderator history lost reviewer attribution');
+  const reviewed = await reviewer.goto(
+    base + '/moderation/books/reviews?kind=cover&outcome=approved');
+  assert(reviewed && reviewed.status() === 200,
+    'Site moderator cannot filter approved cover decisions');
+  assert(await reviewer.locator('a[href="' + bookHistory + '"]').count() >= 1,
+    'Reviewed decisions index lost the approved Book');
+  assert((await reviewer.context().request.get(
+    base + '/moderation/books/reviews?kind=chapter')).status() === 400,
+    'Unexpected moderation decision type was accepted');
+  const publicBook = await owner.context().request.get(base + '/books/' + bookId);
+  assert(publicBook.status() === 200 &&
+    !(await publicBook.text()).includes('Независимый модератор обложек'),
+    'Public Book page exposed the private reviewer identity');
+}
+
 async function readyCover(page, bookId, viewport, scheme) {
   for (let i = 0; i < 50; i++) {
     const response = await page.goto(base + '/me/books/' + bookId + '/settings/covers');
     assert(response && response.status() === 200,
       viewport + '/' + scheme + ': owner settings lost authorization while processing');
-    if (await page.getByText('Обложка готова.').isVisible()) {
+    if (await page.getByText('Обложка одобрена модератором.').isVisible()) {
       assert(await page.locator('img[data-cover-picker-image]').getAttribute('src')
         === '/covers/' + bookId + '/main.webp',
       'Ready cover must use the B-owned published WebP');
       return;
     }
-    assert(!(await page.getByText(/Ошибка обработки обложки/).isVisible()),
+    assert(!(await page.getByText(/Ошибка обработки обложки|Модератор отклонил обложку/).isVisible()),
       viewport + '/' + scheme + ': worker rejected image');
     await page.waitForTimeout(1000);
   }
@@ -75,6 +247,18 @@ async function readyCover(page, bookId, viewport, scheme) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
+    const moderatorContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const moderator = await moderatorContext.newPage();
+    const moderatorMail = 'cover.site.reviewer.' + process.env.GITHUB_RUN_ID + '@example.invalid';
+    await moderator.goto(base + '/register');
+    await moderator.getByLabel('Отображаемое имя').fill('Независимый модератор обложек');
+    await moderator.getByLabel('Электронная почта').fill(moderatorMail);
+    await moderator.getByLabel('Пароль (12–128 символов)').fill('CoverBrowserStrongPassword2026');
+    await moderator.getByRole('button', { name: 'Создать учётную запись' }).click();
+    await moderator.waitForURL('**/me');
+    const reviewerId = pg("SELECT id FROM users WHERE email_normalized='" + moderatorMail + "'");
+    assert(/^[1-9]\d*$/.test(reviewerId), 'moderator fixture must be newly registered');
+    pg('INSERT INTO account_roles(user_id,role,is_active) VALUES(' + reviewerId + ", 'moderator', TRUE)");
     for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       for (const scheme of ['light', 'dark']) {
         const context = await browser.newContext({
@@ -290,6 +474,8 @@ async function readyCover(page, bookId, viewport, scheme) {
 
         await page.getByRole('button', { name: 'Загрузить обложку' }).click();
         await page.waitForURL(base + '/me/books/' + bookId + '/settings/covers');
+        await verifyModeratorWorkbench(moderator, page, viewport, scheme, width, height);
+        await approveReadyCover(moderator, page, bookId, viewport, scheme);
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 

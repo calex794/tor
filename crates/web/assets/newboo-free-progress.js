@@ -29,8 +29,13 @@
   );
   if (!spans.length) return;
   const notice = document.querySelector("[data-free-progress-notice]");
-  const endpoint = "/api/v1/me/progress/free";
-  const readUrl = endpoint + "?chapter_id=" + encodeURIComponent(chapterId);
+  // Archive mode must use the separately gated historical free-pin API.
+  // A dataset flag can only request that API; it cannot create a pin or a right.
+  const archived = article.dataset.freeProgressArchive === "1";
+  const endpoint = archived
+    ? "/api/v1/me/progress/archived-free" : "/api/v1/me/progress/free";
+  const readUrl = endpoint + "?chapter_id=" + encodeURIComponent(chapterId) +
+    (archived ? "&version_id=" + encodeURIComponent(versionId) : "");
   let revision = 0;
   let enabled = false;
   let blocked = false;

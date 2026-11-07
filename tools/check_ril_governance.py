@@ -48,11 +48,13 @@ SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
+    "archived_free_state", "save_archived_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
     "visible_summary", "set_like",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
+    "pinned_free_chapter", "pinned_free_chapters", "saved_archive_chapters", "purchased_only_books",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
@@ -65,13 +67,25 @@ SCOPE_CALLS = {
     "manageable_book_description", "update_book_description",
     "manageable_book_source_links", "update_book_source_links",
     "manageable_lifecycle", "update_lifecycle",
+    "manageable_access_level", "verified_upgrade_book_access_level",
     "moderation_books", "moderate_book_hold", "moderate_book_visibility",
+    "moderation_pending_deletions", "moderation_pending_deletions_filtered",
+    "moderation_pending_deletions_with_access_level",
+    "moderation_pending_deletions_with_wait_age", "moderate_ordinary_deletion",
+    "pending_count", "pending", "pending_filtered", "pending_with_access_level",
+    "pending_with_wait_age",
+    "preview", "decide", "private_history",
+    "moderation_registration_pending_count", "moderation_registration_queue",
+    "moderation_registration_queue_filtered", "moderation_registration_queue_with_access_level",
+    "moderation_registration_queue_with_wait_age",
+    "moderate_book_registration", "private_book_registration_approver",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
-    "list_owned_books", "create_owned_book", "owned_book",
+    "list_owned_books", "create_owned_book", "owned_book", "owner_registration_status",
+    "ordinary_deletion_view", "advance_ordinary_deletion",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
@@ -162,6 +176,15 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     if "::" not in handler:
         return source
     module, _ = handler.rsplit("::", 1)
+    # BR-060: only the two reviewed archive progress handlers may delegate
+    # from the private archive router to its sibling sync_actions module.
+    # Retain fail-closed resolution for all other nested handlers.
+    if (source == root / "crates/web/src/auth/saved_free_chapters.rs"
+            and handler in {
+                "super::sync_actions::get_archived_free",
+                "super::sync_actions::put_archived_free",
+            }):
+        return source.parent / "sync_actions.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
@@ -326,9 +349,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing support requester capability boundary")
     if entry["template"].startswith("/moderation/"):
         allowed_moderation = {
-            ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books", "home"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books/control", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/books/deletions", "deletion_queue"): "crates/web/src/auth/moderation_books.rs",
+            ("POST", "/moderation/books/{id}/deletion", "review_deletion"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/covers", "page"): "crates/web/src/auth/moderation_covers.rs",
+            ("GET", "/moderation/covers/{id}/preview", "preview"): "crates/web/src/auth/moderation_covers.rs",
+            ("POST", "/moderation/covers/{id}/decision", "decide"): "crates/web/src/auth/moderation_covers.rs",
+            ("GET", "/moderation/books/{id}/cover-history", "history"): "crates/web/src/auth/moderation_covers.rs",
+            ("GET", "/moderation/books/registrations", "queue"): "crates/web/src/auth/moderation_registration.rs",
+            ("POST", "/moderation/books/{id}/registration", "decide"): "crates/web/src/auth/moderation_registration.rs",
+            ("GET", "/moderation/books/{id}/registration-history", "history"): "crates/web/src/auth/moderation_registration.rs",
+            ("GET", "/moderation/books/{id}/history", "book_history"): "crates/web/src/auth/moderation_book_history.rs",
+            ("GET", "/moderation/books/reviews", "reviewed_index"): "crates/web/src/auth/moderation_book_history.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -439,18 +474,58 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
             )
+        elif entry["source"] == "crates/web/src/auth/moderation_covers.rs":
+            cover_ops = {"page": "pending_with_wait_age", "preview": "preview",
+                         "decide": "decide", "history": "private_history"}
+            operation = cover_ops.get(entry["handler"])
+            scoped = bool(
+                operation
+                and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+                and "session(&state, &headers)" in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+            )
+        elif entry["source"] == "crates/web/src/auth/moderation_registration.rs":
+            registration_ops = {
+                "queue": "moderation_registration_queue_with_wait_age",
+                "decide": "moderate_book_registration",
+                "history": "private_book_registration_approver",
+            }
+            operation = registration_ops.get(entry["handler"])
+            scoped = bool(
+                operation
+                and re.search(rf"\b{operation}\s*\(\s*&digest", evidence)
+                and "session_token_digest(&token)" in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+            )
+        elif entry["source"] == "crates/web/src/auth/moderation_book_history.rs":
+            history_ops = {
+                "book_history": "private_book_moderation_history",
+                "reviewed_index": "private_reviewed_moderation_decisions",
+            }
+            operation = history_ops.get(entry["handler"])
+            scoped = bool(
+                operation
+                and re.search(rf"\b{operation}\s*\(\s*&digest", evidence)
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "session_token_digest(&token)" in evidence
+            )
         elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
             # Book approval is the only reviewed moderation capability.
             # The live session/role are locked again in the PG mutation.
-            if entry["method"] == "GET":
-                operation = "moderation_books"
-            else:
-                operation = (
-                    "moderate_book_visibility" if entry["handler"] == "submit_visibility"
-                    else "moderate_book_hold"
-                )
+            operation = {
+                "home": "moderation_registration_pending_count",
+                "page": "moderation_books",
+                "submit": "moderate_book_hold",
+                "submit_visibility": "moderate_book_visibility",
+                "deletion_queue": "moderation_pending_deletions_with_wait_age",
+                "review_deletion": "moderate_ordinary_deletion",
+
+            }.get(entry["handler"], "__unreviewed_moderation_operation__")
             scoped = (
-                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
+                bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*(?:,|\))", evidence))
                 and "session_token_digest(&token)" in evidence
                 and "session_actor(&digest)" in evidence
             )

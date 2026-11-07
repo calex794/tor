@@ -50,8 +50,13 @@ jobs:
           node-version: '22'
       - name: Create disposable PostgreSQL roles and apply canonical migrations
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-cover-browser-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-cover-browser-ci-app';
@@ -118,7 +123,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci

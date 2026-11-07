@@ -478,6 +478,9 @@ impl PgReadingSync {
     }
 }
 
+#[path = "sync_archived_free.rs"]
+mod archived_free;
+
 #[path = "sync_started.rs"]
 mod started;
 

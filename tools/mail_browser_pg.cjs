@@ -28,7 +28,9 @@ function fixtureBook(visibility) {
   return id;
 }
 module.exports = async (browser, base, out) => {
-  for (const [name, width] of [['desktop', 1440], ['mobile', 390]]) {
+  // Desktop and mobile own separate browser contexts, users, conversations,
+  // notifications and book fixtures. Run both complete journeys concurrently.
+  await Promise.all([['desktop', 1440], ['mobile', 390]].map(async ([name, width]) => {
     const clients = [];
     try {
       for (const suffix of ['a', 'b', 'c', 'd']) {
@@ -175,6 +177,7 @@ module.exports = async (browser, base, out) => {
         assert.equal(reply.status(), 303);
       }
       await a.page.reload();
+      assert.equal(await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).count(), 1, 'unblocked users can start a friendship');
       assert.equal(await a.page.locator('[data-message-id]').count(), 50);
       await a.page.getByRole('link', {name: 'Предыдущие сообщения', exact: true}).click();
       await a.page.waitForFunction(() => document.querySelectorAll('[data-message-id]').length === 55);
@@ -205,6 +208,41 @@ module.exports = async (browser, base, out) => {
       assert.equal(bookMessage.book_previews[0].cover_url, '');
       assert(bookMessage.body_without_book_links.includes('/books/' + hiddenBook));
       assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third user is still denied');
+      // S015: both pending-request exits must be usable from each HTML surface.
+      for (const surface of ['profile', 'mail']) {
+        const aUrl = surface === 'profile'
+          ? base + '/users/' + encodeURIComponent('Почта ' + name + ' b') : base + conversation;
+        const bUrl = surface === 'profile'
+          ? base + '/users/' + encodeURIComponent('Почта ' + name + ' a') : base + conversation;
+        await a.page.goto(aUrl);
+        await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
+        await a.page.waitForURL(aUrl);
+        await b.page.goto(bUrl);
+        assert.equal(await b.page.getByRole('button', { name: 'Принять в друзья', exact: true }).count(), 1);
+        const cancelForm = a.page.locator('form[action="/users/' + b.id + '/unfriend"]');
+        const cancelData = await cancelForm.evaluate(el => Object.fromEntries(new FormData(el)));
+        assert.equal((await a.context.request.post(base + '/users/' + b.id + '/unfriend', {
+          form: { csrf_token: 'invalid' }, headers: { Origin: base }, maxRedirects: 0,
+        })).status(), 403, 'forged cancellation must not change pending friendship');
+        await a.page.getByRole('button', { name: 'Отменить заявку', exact: true }).click();
+        await a.page.waitForURL(aUrl);
+        assert.equal((await a.context.request.post(base + '/users/' + b.id + '/unfriend', {
+          form: cancelData, headers: { Origin: base }, maxRedirects: 0,
+        })).status(), 303, 'repeated cancellation is harmless');
+        await b.page.reload();
+        assert.equal(await b.page.getByRole('button', { name: 'Принять в друзья', exact: true }).count(), 0);
+        assert.equal(await b.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).count(), 1);
+        await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
+        await a.page.waitForURL(aUrl);
+        await b.page.reload();
+        await b.page.getByRole('button', { name: 'Отклонить заявку', exact: true }).click();
+        await b.page.waitForURL(bUrl);
+        await a.page.reload();
+        assert.equal(await a.page.getByRole('button', { name: 'Отменить заявку', exact: true }).count(), 0);
+        assert.equal(await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).count(), 1);
+      }
+      await a.page.goto(base + conversation);
+      await b.page.goto(base + conversation);
       await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
       await a.page.waitForURL(base + conversation);
       await b.page.reload();
@@ -213,6 +251,15 @@ module.exports = async (browser, base, out) => {
       await a.page.reload();
       assert.equal(await a.page.getByRole('button', { name: 'Удалить из друзей', exact: true }).count(), 1,
         'friendship is accepted only on reciprocal request');
+      await a.page.getByRole('button', { name: 'Удалить из друзей', exact: true }).click();
+      await a.page.waitForURL(base + conversation);
+      await b.page.reload();
+      assert.equal(await b.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).count(), 1);
+      await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
+      await a.page.waitForURL(base + conversation);
+      await b.page.reload();
+      await b.page.getByRole('button', { name: 'Принять в друзья', exact: true }).click();
+      await b.page.waitForURL(base + conversation);
       await b.page.getByRole('button', { name: 'Заблокировать собеседника', exact: true }).click();
       await b.page.waitForURL(base + conversation);
       assert.equal(await b.page.getByLabel('Ваше сообщение', { exact: true }).count(), 0);
@@ -228,6 +275,7 @@ module.exports = async (browser, base, out) => {
         form: submitted, headers: { Origin: base }, maxRedirects: 0,
       })).status(), 403, 'only blocker can remove their block');
       await a.page.reload();
+      assert.equal(await a.page.getByRole('button', { name: /Добавить в друзья|Принять в друзья|Отменить заявку|Отклонить заявку|Удалить из друзей/ }).count(), 0, 'blocked account has no friendship controls');
       assert.equal(await a.page.locator('[data-message-id]').count(), 50, 'blocked participants retain the latest history page');
       await a.page.screenshot({ path: path.join(out, `mail-blocked-${name}.png`), fullPage: true });
       await b.page.getByRole('button', { name: 'Снять мою блокировку', exact: true }).click();
@@ -237,6 +285,8 @@ module.exports = async (browser, base, out) => {
       await a.page.screenshot({ path: path.join(out, `mail-conversation-${name}.png`), fullPage: true });
       const sizes = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       assert(sizes[0] <= sizes[1] + 1, 'mail page has no horizontal overflow');
+      console.log(`S015 ${name}: profile/mail request/cancel/reject/accept/block with PG and CSRF PASS`);
+      await require('./s015_notification_privacy_browser_pg.cjs')(a, b, c, base, out, name, conversation);
       // HTML remains usable with scripting disabled.
       const noJs = await browser.newContext({ javaScriptEnabled: false, storageState: await a.context.storageState(), viewport: { width, height: 900 } });
       try {
@@ -441,5 +491,6 @@ module.exports = async (browser, base, out) => {
       console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline/disband PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
-  }
+  }));
 };
+

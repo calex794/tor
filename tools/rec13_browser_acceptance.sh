@@ -9,9 +9,32 @@ fi
 root="${RUNNER_TEMP:-/tmp}/rec13-browser"
 mkdir -p "$root/shots" "$root/node"
 exec > >(tee "$root/browser.log") 2>&1
+# TIMING: measure required steps in both standalone and reused-browser modes.
+ci_rec_started=$SECONDS
+ci_rec_step_done() {
+  local stage="$1"
+  echo "CI_REC13_STEP_SECONDS stage=$stage seconds=$((SECONDS-ci_rec_started))"
+  ci_rec_started=$SECONDS
+}
 cargo build -p tor-web
-npm install --prefix "$root/node" --no-save playwright@1.56.1
-"$root/node/node_modules/.bin/playwright" install --with-deps chromium
+ci_rec_step_done "cargo_build"
+# The mandatory PostgreSQL job has already installed Playwright and the
+# headless Chromium shell. Reuse them only when explicitly requested; keep
+# this acceptance script self-contained for its independent workflow.
+if [[ "${TOR_REC_REUSE_PLAYWRIGHT:-0}" == 1 ]]; then
+  # Playwright's executablePath() points to *headed* Chromium, which is
+  # intentionally absent in --only-shell mode. Launch the real headless shell
+  # instead, so missing browser dependencies fail before starting the test.
+  node -e "const p=require('playwright'); if (require('playwright/package.json').version !== '1.56.1') process.exit(1); p.chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
+  node_path="$PWD/node_modules"
+else
+  npm install --prefix "$root/node" --no-save playwright@1.56.1
+  # Standalone REC acceptance uses the same real headless Chromium as the
+  # mandatory PG job. Avoid optional Ubuntu fonts downloaded via apt mirrors.
+  "$root/node/node_modules/.bin/playwright" install --only-shell chromium
+  node_path="$root/node/node_modules"
+fi
+ci_rec_step_done "playwright_setup"
 TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
   TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
   DATABASE_URL="$TEST_DATABASE_URL" ./target/debug/tor-web >"$root/server.log" 2>&1 &
@@ -30,5 +53,7 @@ for attempt in $(seq 1 45); do
   sleep 1
  done
 curl --fail --silent http://127.0.0.1:3108/readyz
-NODE_PATH="$root/node/node_modules" APP_URL="$TEST_DATABASE_URL" \
+ci_rec_step_done "http_ready"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
+ci_rec_step_done "browser_acceptance"

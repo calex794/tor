@@ -1,8 +1,11 @@
 mod book_access_level;
+pub use book_access_level::ManagedBookAccessLevel;
 mod book_description;
 pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
 pub use book_lifecycle::ManagedBookLifecycle;
+mod book_ordinary_deletion;
+pub use book_ordinary_deletion::OrdinaryDeletionView;
 mod book_related;
 pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
 mod book_source_links;
@@ -48,7 +51,6 @@ use sqlx::{
 use std::time::Duration;
 mod readiness;
 use readiness::{require_latest_migration, REQUIRED_MIGRATION};
-
 #[derive(Clone)]
 pub struct PgCatalog {
     pool: PgPool,
@@ -202,7 +204,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let existing = sqlx::query(
                 "SELECT payload_hash, book_id FROM book_create_commands
@@ -230,9 +231,9 @@ impl PgAuthoring {
             return Err(AuthorError::Conflict);
         }
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, visibility_status, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
+            "INSERT INTO books (source_identity, target_language, title, visibility, visibility_status, registration_requires_review, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
                  original_title, original_language, source_url, release_year, project_status, catalog_section, alt_titles)
-             VALUES ($1, $2, $3, 'draft', 'pending_moderation', $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
+             VALUES ($1, $2, $3, 'draft', 'pending_moderation', TRUE, $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
@@ -450,7 +451,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let row = sqlx::query(
                 "SELECT payload_hash, chapter_id, version_id, saved_revision

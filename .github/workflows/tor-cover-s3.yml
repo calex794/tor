@@ -89,8 +89,13 @@ jobs:
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
@@ -129,6 +134,7 @@ jobs:
           key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
             -c "SELECT v.storage_key FROM cover_variants v \
                 JOIN cover_variant_jobs j ON j.id=v.job_id \
+                JOIN book_cover_slots s ON s.job_id=j.id AND s.book_id=j.book_id \
                 WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
           [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' \

@@ -6,7 +6,6 @@ on:
       - tests/load/**
       - crates/search/src/repositories/catalog.rs
       - migrations/202610300021_public_catalog_exact_projection.sql
-      - tools/ci_test_map.py
       # Workflow wiring is checked by unconditional Repository rules.
       # It cannot change the HTTP load harness and must not start a 35m load job.
   workflow_dispatch:

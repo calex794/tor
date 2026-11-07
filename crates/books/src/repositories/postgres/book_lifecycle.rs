@@ -90,7 +90,10 @@ impl PgAuthoring {
         let current_status: String = current
             .try_get("lifecycle_status")
             .map_err(|_| AuthorError::Unavailable)?;
-        if current_status == "pending_deletion" {
+        if matches!(
+            current_status.as_str(),
+            "pending_deletion" | "ordinary_deleted"
+        ) {
             return Err(AuthorError::Forbidden);
         }
         let revision: i64 = current
@@ -126,6 +129,7 @@ mod tests {
         }
         for invalid in [
             "pending_deletion",
+            "ordinary_deleted",
             "ongoing",
             "paused",
             "public",

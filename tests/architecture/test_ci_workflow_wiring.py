@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
+    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -83,6 +83,236 @@ class WorkflowWiringTests(unittest.TestCase):
                 )
                 self.assertNotEqual(manual, expected)
                 self.assertEqual(sections[job_id], expected)
+
+    def test_exact_postgres_test_file_selection_matches_real_job_invocations(self):
+        # A new job invoking a mapped test must update the authority map and
+        # trigger full CI rather than silently skipping the new consumer.
+        combined = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        standalone = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())
+        pg = combined["postgres-runtime"]
+        manual_pg = standalone["postgres-runtime"]
+        other_jobs = "\n".join(body for job, body in combined.items()
+                               if job != "postgres-runtime")
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 95)
+        for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file())
+                parts = Path(path).parts
+                self.assertEqual((parts[0], parts[2]), ("crates", "tests"))
+                package = "tor-" + parts[1]
+                test_target = Path(path).stem
+                invocation = (r"\bcargo test -p " + re.escape(package)
+                              + r"(?: [^\n]*?)? --test " + re.escape(test_target)
+                              + r"(?=\s|$)")
+                self.assertRegex(pg, invocation)
+                self.assertRegex(manual_pg, invocation)
+                self.assertNotRegex(other_jobs, invocation)
+
+    def test_postgres_chromium_installs_only_headless_shell(self):
+        # Keep the real Chromium/OS dependencies; download only the browser
+        # executable used by default headless Playwright journeys.
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                self.assertIn("npx playwright install --only-shell chromium", pg)
+                self.assertNotIn("npx playwright install --with-deps", pg)
+                self.assertIn("npm install --no-save playwright@1.56.1", pg)
+
+    def test_pg_restart_and_backup_reuse_d04_built_server(self):
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                self.assertEqual(pg.count("cargo build -p tor-web\n"), 1)
+                self.assertIn("      - name: D-04 real HTTP and PostgreSQL sessions", pg)
+                self.assertIn("          cargo build -p tor-web\n", pg)
+                for drill in (
+                    "bash tools/tor_pg_restart_smoke.sh",
+                    "bash tools/tor_pg_backup_restore_smoke.sh",
+                ):
+                    self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
+
+    def test_reader_and_visual_use_headless_chromium_shell(self):
+        # Both manual jobs must remain identical to the required integration jobs.
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_file in (
+            ("reader-browser", "tor-reader-visual.yml"),
+            ("visual", "visual-smoke.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_file).read_text())[job],
+                ):
+                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    self.assertIn("npm install --no-save playwright@1.56.1", body)
+
+    def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_filename in (
+            ("author-cover", "tor-cover-browser.yml"),
+            ("paid-private-e2e", "tor-paid-grant-e2e.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_filename).read_text())[job],
+                ):
+                    if job == "paid-private-e2e":
+                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps", body)
+                        self.assertIn("chromium.launch({headless:true})", body)
+                    else:
+                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    self.assertIn("npm install --no-save playwright@1.56.1", body)
+
+    def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
+        mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
+        self.assertIn("Promise.all([['desktop', 1440], ['mobile', 390]].map(async", mail)
+        self.assertIn("for (const client of clients) await client.context.close()", mail)
+        self.assertIn("mail.${name}.${suffix}@example.test", mail)
+        for filename in (CI_WORKFLOW, "tor-reader-visual.yml"):
+            reader = job_sections((WORKFLOWS / filename).read_text())["reader-browser"]
+            self.assertIn("ci_timed_browser tools/reader_visual_smoke.cjs", reader)
+            self.assertIn('if node "$scenario" "$@"; then', reader)
+
+    def test_rec13_reuses_browser_only_in_pg_jobs(self):
+        script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        self.assertIn("TOR_REC_REUSE_PLAYWRIGHT:-0", script)
+        self.assertIn("npm install --prefix", script)
+        self.assertIn("install --only-shell chromium", script)
+        self.assertNotIn("install --with-deps chromium", script)
+        self.assertIn("require('playwright/package.json').version !== '1.56.1'", script)
+        self.assertIn("p.chromium.launch({headless:true}).then(b=>b.close())", script)
+        self.assertNotIn("p.chromium.executablePath()", script)
+        self.assertIn('NODE_PATH="$node_path"', script)
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+            self.assertIn("npx playwright install --only-shell chromium", pg)
+            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", pg)
+        standalone = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", standalone)
+        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", standalone)
+
+    def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]
+        expected = (
+            "reader_visual_smoke.cjs",
+            "br060_archive_browser_pg.cjs",
+            "author_chapter_visual_smoke.cjs",
+            "loop_01_browser_smoke.cjs",
+            "chapter_file_import_browser.cjs",
+            "home_spotlight_visual_smoke.cjs",
+            "search_visual_smoke.cjs",
+            "ranking_visual_smoke.cjs",
+            "paid_reader_browser_smoke.cjs",
+            "batch_checkout_chromium_pg.cjs",
+            "referral_share_browser_smoke.cjs",
+        )
+        commands = []
+        for name, body in (("required", required), ("manual", manual)):
+            with self.subTest(workflow=name):
+                self.assertIn("CI_BROWSER_SCENARIO_SECONDS", body)
+                self.assertIn('return "$result"', body)
+                self.assertIn('if node "$scenario" "$@"; then', body)
+                self.assertIn("set -euo pipefail", body)
+                found = tuple(re.findall(r"ci_timed_browser tools/([\w-]+\.cjs)", body))
+                self.assertEqual(found, expected)
+                commands.append(found)
+        self.assertEqual(commands[0], commands[1])
+
+    def test_reader_and_search_browser_waits_keep_real_page_assertions(self):
+        # The real Chromium runs, screenshots and SQL-backed assertions remain;
+        # only waiting for unrelated idle network connections is removed.
+        for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
+            with self.subTest(script=filename):
+                code = (ROOT / "tools" / filename).read_text()
+                self.assertNotIn("'networkidle'", code)
+                self.assertIn("waitUntil: 'load'", code)
+                self.assertIn("chromium.launch({ headless: true })", code)
+                self.assertIn("screenshot({", code)
+        reader = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
+            self.assertIn("ci_timed_browser tools/" + filename, reader)
+
+    def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
+        manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+        phases = (
+            "traffic_storage_catalog", "books_import_authoring",
+            "reading_library", "referrals_recommendations_social",
+            "commerce_support", "http_security",
+        )
+        for job in (required, manual):
+            body = job.split("      - name: Database and HTTP integration\n", 1)[1].split(
+                "      - name: D-04 real HTTP and PostgreSQL sessions", 1)[0]
+            self.assertEqual(
+                tuple(re.findall(r'ci_pg_phase_done "([a-z_]+)"', body)), phases)
+            self.assertIn("CI_PG_PHASE_SECONDS phase=$phase", body)
+            self.assertIn("ci_pg_started=$SECONDS", body)
+            self.assertIn("cargo test -p tor-web --test paid_grants_http_pg", body)
+            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
+
+    def test_rec13_step_timing_keeps_real_benchmark_and_failure_handling(self):
+        shell = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        browser = (ROOT / "tools/rec13_browser.cjs").read_text()
+        for stage in ("cargo_build", "playwright_setup", "http_ready", "browser_acceptance"):
+            self.assertIn('ci_rec_step_done "' + stage + '"', shell)
+        self.assertIn("CI_REC13_STEP_SECONDS stage=$stage", shell)
+        self.assertIn("set -Eeuo pipefail", shell)
+        self.assertIn("node tools/rec13_browser.cjs", shell)
+        self.assertIn("await benchmarkOrganicActivation({", browser)
+        self.assertIn("CI_REC13_STEP_SECONDS stage=organic_post_load", browser)
+        self.assertIn("REC13 browser PASS:", browser)
+
+    def test_other_postgres_jobs_use_runner_client_with_apt_fallback(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        jobs = (
+            "migrations", "reader-browser", "author-cover",
+            "s3-cover-build", "paid-private-e2e",
+            "sealed-remote-copy", "purchased-v1-recovery",
+        )
+        for name in jobs:
+            with self.subTest(job=name):
+                body = integration[name]
+                self.assertIn("command -v psql", body)
+                self.assertIn("command -v pg_isready", body)
+                self.assertIn("psql --version", body)
+                self.assertIn('Using preinstalled PostgreSQL client', body)
+                self.assertIn("sudo apt-get update", body)
+                self.assertIn("sudo apt-get install -y postgresql-client", body)
+        self.assertEqual(len(jobs), 7)
+
+    def test_pg_client_uses_existing_runner_binaries_with_safe_fallback(self):
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
+            with self.subTest(workflow=filename):
+                code = (WORKFLOWS / filename).read_text()
+                self.assertIn("command -v psql", code)
+                self.assertIn("command -v pg_isready", code)
+                self.assertIn("sudo apt-get update -qq", code)
+                self.assertIn("sudo apt-get install -y postgresql-client", code)
+                self.assertIn("Using preinstalled PostgreSQL client", code)
+
+    def test_line_a_account_targets_share_cargo_without_losing_tests(self):
+        joined = (
+            "cargo test -p tor-accounts "
+            "--test access_audit_pg --test auth_observation_pg "
+            "--test credentials_pg --test slices_pg "
+            "-- --ignored --test-threads=1"
+        )
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                line_a = pg.split(
+                    "      - name: Line A credential and login audit PostgreSQL checks", 1
+                )[1].split("      - name: D-04 diagnostic HTTP logs", 1)[0]
+                self.assertEqual(line_a.count("cargo test -p tor-accounts"), 1)
+                self.assertIn(joined, line_a)
+                self.assertIn("cargo test -p tor-web --test password_change_http_pg a_07_", line_a)
+                self.assertIn("cargo test -p tor-web --test account_sessions_http_pg a_03_", line_a)
 
     def test_preflight_is_fast_and_all_expensive_jobs_depend_on_it(self):
         sections = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())

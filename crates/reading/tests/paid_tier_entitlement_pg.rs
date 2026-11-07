@@ -169,6 +169,87 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
         .purchased_allowed(buyer, purchase, chapter, v1)
         .await
         .unwrap());
+
+    // BR-060: a later paid V2 must not rewrite the immutable V1 purchase.
+    let v2: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'New paid V2 without a settlement') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter)
+        .bind(v2)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v2)
+        .await
+        .unwrap());
+
+    // Completed *ordinary* deletion must deindex the Book without changing
+    // the exact buyer-owned V1, but must not grant any unsold later edition.
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
+    assert!(!sync
+        .purchased_allowed(other, purchase, chapter, v1)
+        .await
+        .unwrap());
+    assert_eq!(
+        sync.purchased_body_for_validation(buyer, purchase, chapter, v1)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("Paid V1 private marker")
+    );
+
+    // Live age revocation still wins over an otherwise retained purchase.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
+    assert!(sync
+        .purchased_body_for_validation(buyer, purchase, chapter, v1)
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
+
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)

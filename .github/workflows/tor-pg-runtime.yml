@@ -55,11 +55,21 @@ jobs:
       - name: Chromium for S037 swap acceptance
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          # PG jobs use the default headless browser; unlike pixel-layout jobs,
+          # they do not install headed Chromium or fetch optional font packs.
+          # The full PostgreSQL/HTTP/Chromium regression still runs below.
+          npx playwright install --only-shell chromium
       - name: PostgreSQL client
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Create isolated roles and database
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -164,6 +174,13 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
+          # Timing only; all original commands and ordering remain unchanged.
+          ci_pg_started=$SECONDS
+          ci_pg_phase_done() {
+            local phase="$1"
+            echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
+            ci_pg_started=$SECONDS
+          }
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
@@ -177,6 +194,7 @@ jobs:
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
@@ -198,6 +216,8 @@ jobs:
           cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
           cargo test -p tor-books --lib s020_pg_access_level_monotonic_live_grant_membership_and_cas -- --ignored --test-threads=1
+          cargo test -p tor-web --test s020_age_editor_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
@@ -212,6 +232,7 @@ jobs:
           cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "books_import_authoring"
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
@@ -230,10 +251,13 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
+          cargo test -p tor-web --test c08_saved_free_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "reading_library"
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
@@ -241,7 +265,7 @@ jobs:
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
-          bash tools/rec13_browser_acceptance.sh
+          TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
@@ -249,6 +273,7 @@ jobs:
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test text_issues_pg e_12_ -- --ignored --test-threads=1
+          ci_pg_phase_done "referrals_recommendations_social"
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
@@ -266,6 +291,7 @@ jobs:
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
+          ci_pg_phase_done "commerce_support"
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
@@ -283,6 +309,7 @@ jobs:
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "http_security"
 
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
@@ -321,24 +348,40 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # The D-04 step already built this exact debug binary in this job.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_restart_smoke.sh
       - name: I-11 PostgreSQL 18 backup and clean restore drill
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # Reuse the verified binary without two additional Cargo invocations.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          # Reuse D-04 binary; no extra Cargo build or staging/VPS permissions.
+          test -x ./target/debug/tor-web
+          python3 tools/s061_cutover_pg_smoke.py
+      - name: Preserve S061 real cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s061-real-cutover-pg
+          path: ${{ runner.temp }}/s061-real-cutover/report.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
           cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-social --test chapter_release_notifications_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          # All four test targets share the same crate and test flags;
+          # Cargo still executes each complete target, with one frontend invocation.
+          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1

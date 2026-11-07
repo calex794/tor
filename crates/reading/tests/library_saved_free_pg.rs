@@ -1,7 +1,10 @@
 //! C-08/BR-060: saving a Book pins its released free chapter editions.
 //! Disposable PG only; NOT evidence of completed ordinary deletion or reader UI.
 use sqlx::{PgPool, Row};
-use tor_reading::repositories::PgLibrary;
+use tor_reading::{
+    repositories::{PgLibrary, PgReadingProgress, PgReadingSync},
+    services::{progress::ReadingPlace, sync::SyncError},
+};
 
 async fn chapter(
     pool: &PgPool,
@@ -85,6 +88,22 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     .fetch_one(&pool)
     .await
     .unwrap();
+    let mut token_a = [0_u8; 32];
+    token_a[..16].copy_from_slice(&nonce.to_le_bytes());
+    token_a[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut token_b = token_a;
+    token_b[31] ^= 1;
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour'),($3,$4,now()+interval '1 hour')",
+    )
+    .bind(user_a)
+    .bind(token_a.as_slice())
+    .bind(user_b)
+    .bind(token_b.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES($1,'ru','C08 saved free','public','basic') RETURNING id",
@@ -94,8 +113,9 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     .await
     .unwrap();
 
-    let (free1, v1) = chapter(&pool, book, 1, "public", "free", true).await;
+    // Import chapter 2 first: visible TOC follows chapter numbering, not IDs.
     let (free2, v2) = chapter(&pool, book, 2, "public", "free", true).await;
+    let (free1, v1) = chapter(&pool, book, 1, "public", "free", true).await;
     let (paid, _) = chapter(&pool, book, 3, "public", "paid", true).await;
     let (draft, _) = chapter(&pool, book, 4, "draft", "free", true).await;
     let (future, _) = chapter(&pool, book, 5, "public", "free", true).await;
@@ -119,7 +139,65 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .unwrap();
     let library = PgLibrary::new(pool.clone());
     library.add_book(user_a, book).await.unwrap();
-    assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
+    assert_eq!(pins(&pool, user_a).await, vec![(free2, v2), (free1, v1)]);
+    let saved_first = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved_first.version_id, v1);
+    assert_eq!(saved_first.body_markdown, "Original chapter 1");
+    assert!(saved_first.saved_place.is_none());
+    // A cursor only restores its own immutable edition, never creates access.
+    sqlx::query(
+        "INSERT INTO reader_book_positions
+         (user_id,book_id,chapter_id,chapter_no,chapter_revision,
+          version_id,block_index,char_offset)
+         VALUES($1,$2,$3,1,1,$4,1,8)",
+    )
+    .bind(user_a)
+    .bind(book)
+    .bind(free1)
+    .bind(v1)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let anchored = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        anchored.saved_place,
+        Some(ReadingPlace {
+            block_index: 1,
+            char_offset: 8,
+        })
+    );
+    assert!(library
+        .pinned_free_chapter(user_b, free1, &token_b)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(library
+        .pinned_free_chapter(user_a, paid, &token_a)
+        .await
+        .unwrap()
+        .is_none());
+    let one = library
+        .pinned_free_chapters(user_a, book, 1, None, &token_a)
+        .await
+        .unwrap();
+    assert_eq!(one.items.len(), 1);
+    assert_eq!(one.items[0].chapter_no, 1);
+    assert_eq!(one.next_cursor, Some(1));
+    let next = library
+        .pinned_free_chapters(user_a, book, 1, one.next_cursor, &token_a)
+        .await
+        .unwrap();
+    assert_eq!(next.items.len(), 1);
+    assert_eq!(next.items[0].chapter_no, 2);
+    assert!(next.next_cursor.is_none());
     let first = library.list_books(user_a, 10, None).await.unwrap();
     assert_eq!(first.items.len(), 1);
     assert_eq!(first.items[0].book_id, book);
@@ -141,7 +219,14 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .await
         .unwrap();
     library.add_book(user_a, book).await.unwrap();
-    assert_eq!(pins(&pool, user_a).await, vec![(free1, v1), (free2, v2)]);
+    assert_eq!(pins(&pool, user_a).await, vec![(free2, v2), (free1, v1)]);
+    let historical = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(historical.version_id, v1);
+    assert_eq!(historical.body_markdown, "Original chapter 1");
 
     // A newly available free chapter is pinned on a deliberate replay only.
     sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
@@ -174,8 +259,231 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     let saved = library.list_books(user_a, 10, None).await.unwrap();
     assert_eq!(saved.items.len(), 1);
     assert!(saved.items[0].pending_deletion);
-    assert_eq!(pins(&pool, user_a).await[0], (free1, v1));
+    assert_eq!(pins(&pool, user_a).await[1], (free1, v1));
+    let still_readable = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still_readable.version_id, v1);
+    // Completed ordinary removal preserves the reader's exact saved-free V1.
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(), visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let tombstone = library.list_books(user_a, 10, None).await.unwrap();
+    assert_eq!(tombstone.items.len(), 1);
+    assert!(!tombstone.items[0].pending_deletion);
+    assert!(tombstone.items[0].ordinary_deleted);
     assert!(library.add_book(user_a, book).await.is_err());
+    let pinned = library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pinned.version_id, v1);
+    assert_eq!(pinned.body_markdown, "Original chapter 1");
+    assert_eq!(
+        pinned.saved_place,
+        Some(ReadingPlace {
+            block_index: 1,
+            char_offset: 8,
+        })
+    );
+    // The private Continue card must use the actor's exact saved V1,
+    // even when the Book has been deindexed and V2 is currently published.
+    let resume = PgReadingProgress::new(pool.clone());
+    let archived = resume.continue_reading(user_a).await.unwrap();
+    assert_eq!(archived.len(), 1);
+    assert_eq!(archived[0].chapter_id, free1);
+    assert_eq!(archived[0].block_index, 1);
+    assert!(archived[0].archived_saved);
+    assert!(resume.continue_reading(user_b).await.unwrap().is_empty());
+
+    // A historical V1 is allowed to advance only through its exact live pin,
+    // active session and the same per-Book CAS revision as public progress.
+    let archived_sync = PgReadingSync::new(pool.clone());
+    let current = archived_sync
+        .archived_free_state(user_a, free1, v1, &token_a)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.version_id, v1);
+    assert_eq!(current.place.char_offset, 8);
+    let advanced = ReadingPlace {
+        block_index: 1,
+        char_offset: 11,
+    };
+    let committed = archived_sync
+        .save_archived_free(
+            user_a,
+            free1,
+            v1,
+            advanced,
+            current.receipt.revision,
+            &token_a,
+        )
+        .await
+        .unwrap();
+    assert!(committed.revision > current.receipt.revision);
+    assert_eq!(
+        archived_sync
+            .archived_free_state(user_a, free1, v1, &token_a)
+            .await
+            .unwrap()
+            .unwrap()
+            .place,
+        advanced
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                v1,
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 12,
+                },
+                current.receipt.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::Conflict),
+        "stale tab cannot overwrite a newly committed archive cursor"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                new_version,
+                advanced,
+                committed.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::NotFound),
+        "public V2 never replaces the pinned free V1"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(user_b, free1, v1, advanced, 0, &token_a,)
+            .await,
+        Err(SyncError::NotFound),
+        "another reader's token is not an entitlement"
+    );
+    assert_eq!(
+        archived_sync
+            .save_archived_free(
+                user_a,
+                free1,
+                v1,
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 1000,
+                },
+                committed.revision,
+                &token_a,
+            )
+            .await,
+        Err(SyncError::Invalid),
+        "UTF-16 offsets must be checked against the pinned version body"
+    );
+    let completed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_chapter_completions WHERE user_id=$1 AND chapter_id=$2",
+    )
+    .bind(user_a)
+    .bind(free1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(completed, 0, "scroll sync never mints a completion event");
+
+    // Repointed public V2 progress is never mapped onto older saved V1.
+    sqlx::query("UPDATE reader_book_positions SET version_id=$2 WHERE user_id=$1 AND book_id=$3")
+        .bind(user_a)
+        .bind(new_version)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .unwrap()
+        .saved_place
+        .is_none());
+    assert!(resume.continue_reading(user_a).await.unwrap().is_empty());
+    assert_eq!(
+        library
+            .pinned_free_chapters(user_a, book, 50, None, &token_a)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        3
+    );
+    assert!(library
+        .pinned_free_chapter(user_b, free1, &token_b)
+        .await
+        .unwrap()
+        .is_some());
+
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        archived_sync
+            .save_archived_free(user_a, free1, v1, advanced, committed.revision, &token_a)
+            .await,
+        Err(SyncError::NotFound),
+        "admin hold denies position changes, not just text"
+    );
+    assert!(library
+        .pinned_free_chapters(user_a, book, 50, None, &token_a)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library.add_book(user_a, book).await.is_err());
+    // A revoked session cannot read an existing pinned V1 or its private TOC,
+    // even though the account, Book and immutable pin remain active.
+    sqlx::query("UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND token_hash=$2")
+        .bind(user_a)
+        .bind(token_a.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .pinned_free_chapter(user_a, free1, &token_a)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(library
+        .pinned_free_chapters(user_a, book, 50, None, &token_a)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(pins(&pool, user_a).await[1], (free1, v1));
     library.remove_book(user_a, book).await.unwrap();
     assert!(pins(&pool, user_a).await.is_empty());
     assert_eq!(pins(&pool, user_b).await.len(), 3);
@@ -192,5 +500,484 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
         .execute(&pool)
         .await
         .unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn br060_mixed_archive_only_lists_owned_versions_after_ordinary_deletion() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Mixed archive','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-mixed-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let outsider: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Outsider','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-mixed-outsider-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut digest = [0_u8; 32];
+    digest[..16].copy_from_slice(&nonce.to_le_bytes());
+    digest[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut other_digest = digest;
+    other_digest[31] ^= 0x5a;
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour'),($3,$4,now()+interval '1 hour')",
+    )
+    .bind(actor)
+    .bind(digest.as_slice())
+    .bind(outsider)
+    .bind(other_digest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Mixed archive','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:mixed:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (free_id, free_v1) = chapter(&pool, book, 1, "public", "free", true).await;
+    let (paid_id, paid_v1) = chapter(&pool, book, 2, "public", "paid", true).await;
+    let (not_owned_id, _) = chapter(&pool, book, 3, "public", "paid", true).await;
+    let (another_free_id, _) = chapter(&pool, book, 4, "public", "free", true).await;
+
+    let library = PgLibrary::new(pool.clone());
+    library.add_book(actor, book).await.unwrap();
+    let paid_purchase: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,12900,'RUB') RETURNING id",
+    )
+    .bind(actor)
+    .bind(paid_id)
+    .bind(paid_v1)
+    .bind(format!("br060-mixed-purchase-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let updated_free: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Not pinned new free V2') RETURNING id",
+    )
+    .bind(free_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(free_id)
+        .bind(updated_free)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Remove the extra free pin to verify it does not enter via the public TOC.
+    sqlx::query("DELETE FROM reader_saved_free_chapters WHERE user_id=$1 AND chapter_id=$2")
+        .bind(actor)
+        .bind(another_free_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = library
+        .saved_archive_chapters(actor, book, 1, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 1);
+    assert_eq!(first.items[0].chapter_id, free_id);
+    assert_eq!(first.items[0].saved_free_version_no, Some(1));
+    assert!(first.items[0].purchased.is_none());
+    assert_eq!(first.next_cursor, Some(1));
+    let second = library
+        .saved_archive_chapters(actor, book, 1, first.next_cursor, &digest)
+        .await
+        .unwrap();
+    assert_eq!(second.items.len(), 1);
+    assert_eq!(second.items[0].chapter_id, paid_id);
+    assert!(second.items[0].saved_free_version_no.is_none());
+    assert_eq!(
+        second.items[0].purchased.as_ref().unwrap().purchase_id,
+        paid_purchase
+    );
+    assert_eq!(second.next_cursor, None);
+    let all = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(all.items.len(), 2);
+    assert!(all
+        .items
+        .iter()
+        .all(|c| ![not_owned_id, another_free_id].contains(&c.chapter_id)));
+    assert!(library
+        .saved_archive_chapters(outsider, book, 50, None, &other_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, None, &other_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    let pinned = library
+        .pinned_free_chapter(actor, free_id, &digest)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pinned.version_id, free_v1);
+
+    // A reader may have paid for a chapter without ever bookmarking its Book.
+    // The ordinary-deleted Book must still appear as a private purchased-only
+    // group; it must not appear twice when a separate bookmark exists.
+    let bought_only_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Only purchased','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:bought-only:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (bought_chapter, bought_v1) =
+        chapter(&pool, bought_only_book, 1, "public", "paid", true).await;
+    let bought_purchase: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,12900,'RUB') RETURNING id",
+    )
+    .bind(actor)
+    .bind(bought_chapter)
+    .bind(bought_v1)
+    .bind(format!("br060-bought-only-purchase-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(bought_only_book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let bought_only = library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap();
+    assert_eq!(bought_only.items.len(), 1);
+    assert_eq!(bought_only.items[0].book_id, bought_only_book);
+    assert!(bought_only.items[0].ordinary_deleted);
+    assert!(!bought_only.items[0].pending_deletion);
+    assert!(bought_only.next_cursor.is_none());
+    assert_eq!(
+        library
+            .saved_archive_chapters(actor, bought_only_book, 30, None, &digest)
+            .await
+            .unwrap()
+            .items[0]
+            .purchased
+            .as_ref()
+            .unwrap()
+            .purchase_id,
+        bought_purchase
+    );
+    assert!(library
+        .purchased_only_books(outsider, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &other_digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, Some(bought_only_book))
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(bought_only_book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // A refund suppresses paid navigation, but never erases the free pin.
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(paid_purchase)
+    .bind(format!("br060-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let refunded = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(refunded.items.len(), 1);
+    assert_eq!(refunded.items[0].chapter_id, free_id);
+    // Revoking the purchase removes the bought-only Book group without
+    // mutating the independent free pin in the other saved Book.
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(bought_purchase)
+    .bind(format!("br060-bought-only-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(library
+        .purchased_only_books(actor, &digest, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    pool.close().await;
+}
+
+/// BR-060 acceptance: the private archive must reach deep chapters without
+/// offset pagination, leaking unpublished versions, or unbounded page size.
+/// The fixture runs only against the disposable tor_ci DB in mandatory PG CI.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn br060_archived_10k_keyset_keeps_exact_version() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'BR060 10k reader','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("br060-large-archive-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut digest = [0_u8; 32];
+    digest[..16].copy_from_slice(&nonce.to_le_bytes());
+    digest[16..].copy_from_slice(&nonce.to_le_bytes());
+    let mut different_digest = digest;
+    different_digest[0] ^= 0x5a;
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,now()+interval '1 hour')",
+    )
+    .bind(actor)
+    .bind(digest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Deep archive','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:br060:large-archive:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Bulk construction uses exact published edition IDs and no paid grants.
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level)
+         SELECT $1,g.no,('Глава ' || g.no),'public','free'
+         FROM generate_series(1,10000) AS g(no)",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         SELECT id,1,'Pinned V1' FROM chapters WHERE book_id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id)
+         SELECT c.id,v.id FROM chapters c
+         JOIN chapter_versions v ON v.chapter_id=c.id AND v.version_no=1
+         WHERE c.book_id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id)
+         SELECT $1,c.id,v.id FROM chapters c
+         JOIN chapter_versions v ON v.chapter_id=c.id AND v.version_no=1
+         WHERE c.book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         ordinary_deleted_at=now(),visibility='draft' WHERE id=$1",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let library = PgLibrary::new(pool.clone());
+
+    let first = library
+        .saved_archive_chapters(actor, book, 50, None, &digest)
+        .await
+        .unwrap();
+    assert_eq!(first.items.len(), 50);
+    assert_eq!(first.items.first().unwrap().chapter_no, 1);
+    assert_eq!(first.items.last().unwrap().chapter_no, 50);
+    assert_eq!(first.next_cursor, Some(50));
+
+    // Midpoint and last page are addressed by Chapter keyset, never offset
+    // or insertion ID. All results must remain immutable original V1.
+    for (after, first_number, last_number, next_cursor) in
+        [(5000, 5001, 5050, Some(5050)), (9950, 9951, 10000, None)]
+    {
+        let page = library
+            .saved_archive_chapters(actor, book, 50, Some(after), &digest)
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 50);
+        assert_eq!(page.items.first().unwrap().chapter_no, first_number);
+        assert_eq!(page.items.last().unwrap().chapter_no, last_number);
+        assert_eq!(page.next_cursor, next_cursor);
+        for (position, item) in page.items.iter().enumerate() {
+            assert_eq!(
+                item.chapter_no,
+                first_number + i32::try_from(position).unwrap()
+            );
+            assert_eq!(item.saved_free_version_no, Some(1));
+            assert!(item.purchased.is_none());
+        }
+    }
+    // Inspect the *actual* PgLibrary SQL prepared on this connection, then
+    // capture PostgreSQL's deep-page execution plan for the 10k-row fixture.
+    // Avoid a hand-written SQL proxy whose join order could diverge from C.
+    let prepared: String = sqlx::query_scalar(
+        "SELECT statement FROM pg_prepared_statements
+         WHERE statement LIKE 'WITH eligible_book AS MATERIALIZED%'
+           AND statement LIKE '%reader_saved_free_chapters%'
+         ORDER BY name DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the archive SQL must be prepared on the isolated PG backend");
+    let explain_sql = format!("EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT) {prepared}");
+    let plan_lines: Vec<String> = sqlx::query_scalar(&explain_sql)
+        .bind(actor)
+        .bind(book)
+        .bind(Some(9950_i64))
+        .bind(51_i64)
+        .bind(digest.as_slice())
+        .fetch_all(&pool)
+        .await
+        .expect("EXPLAIN ANALYZE of the exact deep archive query");
+    let plan = plan_lines.join("\n");
+    assert!(
+        plan.lines().any(|line| {
+            line.trim_start().starts_with("Limit")
+                && line.contains("actual time=")
+                && line.contains("rows=50")
+        }),
+        "the deep-page query must return at most the final 50 owned V1 chapters"
+    );
+    assert!(plan.contains("Execution Time:"));
+    assert!(plan.contains("Buffers:"));
+    eprintln!("BR-060 10k archive, deep after=9950, actual EXPLAIN:\n{plan}");
+
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, Some(10000), &digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, None, &different_digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(library
+        .saved_archive_chapters(actor, book, 101, None, &digest)
+        .await
+        .is_err());
+
+    // The data is still present, but a live administrative block revokes all
+    // archive navigation without deleting historical pinned editions.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .saved_archive_chapters(actor, book, 50, Some(9950), &digest)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_saved_free_chapters f
+         JOIN chapters c ON c.id=f.chapter_id
+         WHERE f.user_id=$1 AND c.book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, 10000);
     pool.close().await;
 }

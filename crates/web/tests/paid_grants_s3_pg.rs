@@ -44,6 +44,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/asset_fixture.rs"]
 mod asset_fixture;
+#[path = "paid_grants_s3_pg/br060_ordinary_deleted.rs"]
+mod br060_ordinary_deleted;
 #[path = "paid_grants_s3_pg/completion_helpers.rs"]
 mod completion_helpers;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
@@ -74,6 +76,7 @@ const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <scr
 const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
+const BR060_BUYER_EMAIL: &str = "s034-minio-buyer@tor-ci.example";
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(
@@ -226,8 +229,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let pool = catalog.pool().clone();
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
-    let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
-    let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
+    let (author, author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
+    let (buyer, buyer_cookie) = user(&accounts, BR060_BUYER_EMAIL).await;
     let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
         user(&accounts, "s035-private-desktop@tor-ci.example").await;
@@ -880,8 +883,18 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (&layer_cookie, &csrf),
     )
     .await;
+    let archived_v1 = br060_ordinary_deleted::verify(
+        &app,
+        &url,
+        book,
+        (chapter, purchase_id, v1),
+        (free_chapter, locked_chapter, draft_chapter),
+        (&buyer_cookie, &stranger_cookie, &author_cookie, &accounts),
+        &csrf,
+    )
+    .await;
     fixture_writer::save_ephemeral_fixture(
-        still_v1,
+        archived_v1,
         v1,
         purchase_id,
         (visible_html, reader_csp),
@@ -967,6 +980,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(revoked_finish.status(), StatusCode::NOT_FOUND);
+    br060_ordinary_deleted::verify_refund_archive(
+        &app,
+        book,
+        free_chapter,
+        (chapter, purchase_id),
+        &buyer_cookie,
+    )
+    .await;
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
     pool.close().await;

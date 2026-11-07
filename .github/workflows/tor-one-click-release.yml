@@ -55,17 +55,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: "Собрать сайт и миграции на GitHub, не на VPS"
+      - name: "Собрать сайт, миграции и писатель трасс на GitHub"
         shell: bash
         run: |
           set -euo pipefail
           python3 tools/check_feature_layout.py
           cargo build --release -p tor-web
           cargo build --release -p tor-migrations --bin tor-migrate
+          cargo build --release -p tor-observability --bin tor-trace-store
           sha256sum target/release/tor-web | sed 's#target/release/##' \
             > "$RUNNER_TEMP/tor-web.sha256"
           sha256sum target/release/tor-migrate | sed 's#target/release/##' \
             > "$RUNNER_TEMP/tor-migrate.sha256"
+          sha256sum target/release/tor-trace-store | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-trace-store.sha256"
 
       - name: "Установить SSH с проверкой ключа сервера"
         shell: bash
@@ -85,6 +88,7 @@ jobs:
             printf 'TOR_RELEASE_SHA %s\n' "$TARGET_SHA"
             cat "$RUNNER_TEMP/tor-web.sha256"
             cat "$RUNNER_TEMP/tor-migrate.sha256"
+            cat "$RUNNER_TEMP/tor-trace-store.sha256"
           } > "$RUNNER_TEMP/tor-release-manifest"
           ssh-keygen -Y sign -f "$RUNNER_TEMP/tor_id_ed25519" \
             -n tor-release "$RUNNER_TEMP/tor-release-manifest" >/dev/null
@@ -104,12 +108,14 @@ jobs:
             }
           scp -p "${opts[@]}" target/release/tor-web "$destination:$inbox/tor-web"
           scp -p "${opts[@]}" target/release/tor-migrate "$destination:$inbox/tor-migrate"
+          scp -p "${opts[@]}" target/release/tor-trace-store "$destination:$inbox/tor-trace-store"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-web.sha256" "$destination:$inbox/tor-web.sha256"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-migrate.sha256" "$destination:$inbox/tor-migrate.sha256"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-trace-store.sha256" "$destination:$inbox/tor-trace-store.sha256"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest" "$destination:$inbox/tor-release-manifest"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest.sig" "$destination:$inbox/tor-release-manifest.sig"
           ssh "${opts[@]}" "$destination" \
-            "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256"
+            "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256 && sha256sum -c --status tor-trace-store.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
 
       - name: "Запретить установку устаревшего коммита"
@@ -151,5 +157,6 @@ jobs:
           path: |
             ${{ runner.temp }}/tor-web.sha256
             ${{ runner.temp }}/tor-migrate.sha256
+            ${{ runner.temp }}/tor-trace-store.sha256
           if-no-files-found: warn
           retention-days: 14

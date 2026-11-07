@@ -25,9 +25,10 @@ fn render_index(books: &[OwnedBook], layers: Option<&[OwnedLayerSummary]>) -> Ht
         for book in books {
             write!(
                 &mut list,
-                "<li><a class=\"author-book-link\" href=\"/me/books/{}\">{}</a> <a href=\"/me/books/{}/recommendations\">Рекомендации</a></li>",
+                "<li><a class=\"author-book-link\" href=\"/me/books/{}\">{}</a> <a href=\"/me/books/{}/recommendations\">Рекомендации</a> <a href=\"/me/books/{}/settings/delete\">Удаление книги</a></li>",
                 book.id,
                 escape_html(&book.title),
+                book.id,
                 book.id
             )
             .expect("write String");

@@ -91,6 +91,47 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
     .execute(&mut *tx)
     .await
     .unwrap();
+    // This test checks public B projection, not the moderation handler.
+    // Establish a complete independent site-review fixture in disposable tor_ci;
+    // the database trigger must still reject every slot without this decision.
+    let reviewer: i64 = sqlx::query_scalar(
+        "SELECT id FROM users WHERE id<>905 AND account_state='active'
+         ORDER BY id LIMIT 1",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("independent site reviewer in seeded tor_ci");
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'moderator',TRUE)",
+    )
+    .bind(reviewer)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let review_id: i64 = sqlx::query_scalar(
+        "INSERT INTO book_cover_review_requests
+           (book_id,job_id,submitted_by_user_id,expected_slot_revision,
+            state,reviewer_user_id,decided_at)
+         VALUES(905,$1,905,0,'approved',$2,clock_timestamp())
+         RETURNING id",
+    )
+    .bind(job)
+    .bind(reviewer)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_cover_review_decisions
+           (request_id,book_id,job_id,reviewer_user_id,outcome)
+         VALUES($1,905,$2,$3,'approved')",
+    )
+    .bind(review_id)
+    .bind(job)
+    .bind(reviewer)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO book_cover_slots(book_id,job_id) VALUES (905,$1)")
         .bind(job)
         .execute(&mut *tx)

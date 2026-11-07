@@ -21,7 +21,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
-use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
+use tor_ingest::services::cover_jobs::CoverObjectStore;
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::PgReader;
 use tor_reading::repositories::{
@@ -42,11 +42,13 @@ pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
+mod book_access_level;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_lifecycle;
 mod book_likes;
+mod book_ordinary_deletion;
 mod book_origin_metadata;
 mod book_project_status;
 mod book_registration_http;
@@ -82,6 +84,8 @@ mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
 mod moderation_books;
+mod moderation_confirm;
+mod moderation_covers;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
@@ -98,6 +102,7 @@ mod referral_routes;
 mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
+mod saved_free_chapters;
 mod security_retention;
 mod session_security;
 mod settings_routes;
@@ -197,7 +202,6 @@ fn router_inner(
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let refund_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
@@ -226,8 +230,9 @@ fn router_inner(
         cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
-        cover_jobs,
+        cover_preview_storage: storage.clone(),
         cover_upload_enabled,
+        age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
     let observation_state = state.clone();
     let app = Router::new()
@@ -259,7 +264,9 @@ fn router_inner(
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
         .merge(moderation_books::router())
+        .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
+        .merge(book_ordinary_deletion::router())
         .merge(book_related::router().merge(book_origin_metadata::router()))
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
@@ -303,6 +310,7 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .merge(saved_free_chapters::router())
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
@@ -387,6 +395,10 @@ fn router_inner(
             get(book_title_suggestions::script),
         )
         .route("/me/books/{id}", get(author_book_page::page))
+        .route(
+            "/me/books/{id}/registration-status",
+            get(author_book_page::registration_status),
+        )
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
@@ -492,14 +504,11 @@ async fn cover_settings(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let latest = match state.cover_jobs.as_ref() {
-        Some(jobs) => match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        },
-        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
     let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let latest = match slots.owner_latest_status(id, actor).await {
+        Ok(latest) => latest,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -571,6 +580,7 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
+
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -583,11 +593,5 @@ async fn logout(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
+    session_security::logout(State(state), headers, Form(form)).await
 }

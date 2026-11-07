@@ -44,8 +44,10 @@ pub(super) struct AuthState {
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
     pub(super) ril_signer: Option<RilSubjectSigner>,
-    pub(super) cover_jobs: Option<PgCoverJobs>,
+    pub(super) cover_preview_storage: Option<Arc<dyn CoverObjectStore>>,
     pub(super) cover_upload_enabled: bool,
+    /// Off by default until S020/#486 full cross-surface acceptance.
+    pub(super) age_editor_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +66,7 @@ pub(super) struct SavePlaceForm {
 #[derive(Default, Deserialize)]
 pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
+    pub(super) purchased_after: Option<i64>,
     pub(super) updates_after: Option<String>,
     pub(super) limit: Option<u16>,
 }
