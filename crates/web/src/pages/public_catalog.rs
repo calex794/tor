@@ -136,6 +136,7 @@ fn home_body(
     latest: bool,
     covers: &HashSet<u64>,
     updates: &[PublicBookCard],
+    rising: &[PublicBookCard],
 ) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
@@ -165,6 +166,7 @@ fn home_body(
             "<!--RECENT_RELEASES-->",
             &recent_release_section(updates, covers),
         )
+        .replace("<!--RISING_READERS-->", &rising_section(rising, covers))
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
@@ -190,24 +192,43 @@ fn recent_release_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> St
     )
 }
 
+fn rising_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+    if books.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<section class=\"section home-rising-section\" aria-labelledby=\"home-rising\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-rising\" class=\"ui-section-header__title\">Набирают читателей</h2></header></div>{}</div></section>",
+        book_cards(books, true, "Книги с ростом числа читателей", covers)
+    )
+}
+
+pub fn home_recent_with_growth(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+    rising: &[PublicBookCard],
+) -> Html<String> {
+    home_body(books, true, covers, updates, rising)
+}
+
 /// Explicitly released books only; independent of the existing added-book shelf.
 pub fn home_recent_with_updates(
     books: &[PublicBookCard],
     covers: &HashSet<u64>,
     updates: &[PublicBookCard],
 ) -> Html<String> {
-    home_body(books, true, covers, updates)
+    home_body(books, true, covers, updates, &[])
 }
 
 /// Demo mode cannot claim recent insertion order; only the PG projection can.
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, false, &HashSet::new(), &[])
+    home_body(books, false, &HashSet::new(), &[], &[])
 }
 
 /// F-04 read model supplies descending creation identity, never a false daily top
 /// or a claim about publication time, rating or personal recommendations.
 pub fn home_recent_with_covers(books: &[PublicBookCard], covers: &HashSet<u64>) -> Html<String> {
-    home_body(books, true, covers, &[])
+    home_body(books, true, covers, &[], &[])
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
@@ -333,7 +354,7 @@ pub fn catalog_search_with_covers(
 
 #[cfg(test)]
 pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true, &HashSet::new(), &[])
+    home_body(books, true, &HashSet::new(), &[], &[])
 }
 
 #[cfg(test)]
@@ -504,6 +525,23 @@ mod home_tests {
         assert_eq!(html.matches("home-release-section").count(), 1);
         let empty = home_recent_with_updates(&[book(2, "Новая")], &HashSet::new(), &[]).0;
         assert!(!empty.contains("home-release-section"));
+    }
+
+    #[test]
+    fn rising_section_only_renders_genuine_input_and_escapes_titles() {
+        let page = home_recent_with_growth(
+            &[book(2, "Новая")],
+            &HashSet::new(),
+            &[],
+            &[book(17, "<script>bad</script>")],
+        )
+        .0;
+        assert!(page.contains("Набирают читателей"));
+        assert!(page.contains("href=\"/books/17\""));
+        assert!(page.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!page.contains("<script>bad</script>"));
+        let empty = home_recent_with_growth(&[book(2, "Новая")], &HashSet::new(), &[], &[]).0;
+        assert!(!empty.contains("home-rising-section"));
     }
 
     #[test]

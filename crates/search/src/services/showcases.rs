@@ -86,6 +86,39 @@ impl<'a> ReleaseShowcases<'a> {
     }
 }
 
+/// Genuine weekly growth in distinct readers who completed free chapters.
+/// Repeated opens and multiple chapters from one account do not raise the score.
+#[async_trait]
+pub trait RisingShowcaseRepository: Send + Sync {
+    async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError>;
+}
+
+pub struct RisingShowcases<'a> {
+    repository: &'a dyn RisingShowcaseRepository,
+}
+
+impl<'a> RisingShowcases<'a> {
+    pub fn new(repository: &'a dyn RisingShowcaseRepository) -> Self {
+        Self { repository }
+    }
+
+    pub async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        if !(1..=MAX_SHOWCASE_SIZE).contains(&limit) {
+            return Err(SearchError::Invalid);
+        }
+        let books = self.repository.rising_free_readers(limit).await?;
+        let mut seen = HashSet::new();
+        if books.len() > limit
+            || books
+                .iter()
+                .any(|book| book.id == 0 || !seen.insert(book.id))
+        {
+            return Err(SearchError::Unavailable);
+        }
+        Ok(books)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +173,41 @@ mod tests {
         assert_eq!(
             showcase.latest_added(Some("genre,other"), 2).await,
             Err(SearchError::Invalid)
+        );
+    }
+
+    struct DuplicateRising;
+
+    #[async_trait]
+    impl RisingShowcaseRepository for DuplicateRising {
+        async fn rising_free_readers(&self, _limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+            let book = SearchBook {
+                id: 15,
+                title: "Книга".into(),
+                language: "ru".into(),
+                author_name: String::new(),
+                genres: Vec::new(),
+                tags: Vec::new(),
+                fandoms: Vec::new(),
+            };
+            Ok(vec![book.clone(), book])
+        }
+    }
+
+    #[tokio::test]
+    async fn f_04_rising_rejects_fake_duplicates_and_bad_limits() {
+        let showcase = RisingShowcases::new(&DuplicateRising);
+        assert_eq!(
+            showcase.rising_free_readers(0).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.rising_free_readers(25).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.rising_free_readers(8).await,
+            Err(SearchError::Unavailable)
         );
     }
 

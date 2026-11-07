@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use tor_search::{
     domain::SearchBook,
     repositories::showcases::PgShowcases,
-    services::showcases::{RecentShowcases, ReleaseShowcases},
+    services::showcases::{RecentShowcases, ReleaseShowcases, RisingShowcases},
     SearchError,
 };
 
@@ -47,6 +47,19 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
         .map(card)
         .collect::<Vec<_>>();
 
+    // Opt in only after a real-data PostgreSQL timing and abuse review.
+    let rising = if std::env::var("TOR_RISING_SHELF_ENABLED").as_deref() == Ok("1") {
+        RisingShowcases::new(&repository)
+            .rising_free_readers(12)
+            .await
+            .map_err(status)?
+            .into_iter()
+            .map(card)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
     let mut cover_candidates = latest.clone();
     let mut ids = cover_candidates
         .iter()
@@ -57,8 +70,13 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
             cover_candidates.push(book.clone());
         }
     }
+    for book in &rising {
+        if ids.insert(book.id) {
+            cover_candidates.push(book.clone());
+        }
+    }
     let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cover_candidates).await?;
-    cover_http::homepage_with_cdn(&state, &latest, &releases, &covers).await
+    cover_http::homepage_with_cdn(&state, &latest, &releases, &rising, &covers).await
 }
 
 #[cfg(test)]
