@@ -300,7 +300,7 @@ class WorkflowWiringTests(unittest.TestCase):
         # With both suites selected, Rust owns this check; PG-only and
         # standalone PG runs retain it. Standalone Rust does not gain work.
         required_text = (WORKFLOWS / CI_WORKFLOW).read_text()
-        self.assertIn("name: TOR integration CI\\n", required_text)
+        self.assertIn("name: TOR integration CI", required_text)
         required = job_sections(required_text)
         rust_manual = job_sections((WORKFLOWS / "rust-demo.yml").read_text())["demo"]
         pg_manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
