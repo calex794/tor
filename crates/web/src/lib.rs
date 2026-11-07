@@ -483,7 +483,10 @@ fn make_router_with_paid_checkout(
         .route("/reader/{id}", get(reader_page));
     let public_pages = if let Some(control) = follow_control.as_ref() {
         let (accounts, cookies) = control.browser_context();
-        let context = auth::behavior_consent::PublicFlowConsentContext::new(accounts.clone(), cookies.clone());
+        let context = auth::behavior_consent::PublicFlowConsentContext::new(
+            accounts.clone(),
+            cookies.clone(),
+        );
         if context.enabled() {
             public_pages.layer(axum::middleware::from_fn_with_state(
                 context,
