@@ -322,6 +322,30 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     );
     let bell = tor_social::repositories::notifications::PgNotifications::new(pool.clone());
     assert!(bell
+        .preferences(admin_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|pref| pref.kind == "moderation_overdue"));
+    assert!(bell
+        .preferences(owner)
+        .await
+        .unwrap()
+        .iter()
+        .all(|pref| pref.kind != "moderation_overdue"));
+    // The admin can explicitly turn off this internal channel, but an
+    // ordinary reader is never offered that staff-only preference.
+    bell.set_preferences(admin_id, &[]).await.unwrap();
+    assert_eq!(
+        bell.project_moderation_overdue_to_admin_bell(100)
+            .await
+            .unwrap(),
+        0
+    );
+    bell.set_preferences(admin_id, &["moderation_overdue".to_owned()])
+        .await
+        .unwrap();
+    assert!(bell
         .project_moderation_overdue_to_admin_bell(0)
         .await
         .is_err());
