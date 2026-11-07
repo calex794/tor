@@ -63,6 +63,8 @@ impl PgPaidChapterComments {
 
     /// Same transaction locks B chapter + D purchase before the write. A
     /// browser-selected version or another buyer's purchase never authorizes it.
+    /// D-06 forbids tor_app UPDATE on the library pointer: that immutable
+    /// pointer is read/verified, never row-locked by this query.
     pub async fn create(
         &self,
         actor: i64,
@@ -91,7 +93,7 @@ impl PgPaidChapterComments {
                AND s.revoked_at IS NULL AND s.expires_at>now()
              WHERE p.id=$1 AND p.user_id=$2 AND p.chapter_id=$3 AND p.version_id=$4
                AND tor_purchase_version_readable($2,p.id,p.chapter_id,p.version_id)
-             FOR SHARE OF p,l,ch,b,v,u,s",
+             FOR SHARE OF p,ch,b,v,u,s",
         )
         .bind(purchase)
         .bind(actor)
