@@ -101,10 +101,19 @@ pub(super) fn cdn_image_csp(mut response: Response, origin: Option<&str>) -> Res
 pub(super) async fn homepage_with_cdn(
     state: &AppState,
     cards: &[pages::PublicBookCard],
+    updates: &[pages::PublicBookCard],
     covers: &std::collections::HashSet<u64>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    let html = pages::home_recent_with_covers(cards, covers);
-    let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+    let html = if updates.is_empty() {
+        pages::home_recent_with_covers(cards, covers)
+    } else {
+        pages::home_recent_with_updates(cards, covers, updates)
+    };
+    let mut ids = std::collections::HashSet::new();
+    for book in cards.iter().chain(updates) {
+        ids.insert(book.id);
+    }
+    let ids = ids.into_iter().collect::<Vec<_>>();
     let (html, _) = opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
     Ok(html)
 }
