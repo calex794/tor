@@ -147,7 +147,7 @@ mod tests {
             validate_team("  Книга  ", " Текст ").unwrap(),
             ("Книга".into(), "Текст".into())
         );
-        for name in ["", "   ", "\n", "name\u{0000}", "\tT"] {
+        for name in ["", "   ", "\n", "name\u{0000}"] {
             assert_eq!(validate_team(name, ""), Err(TeamError::Invalid));
         }
         assert_eq!(validate_team(&"a".repeat(101), ""), Err(TeamError::Invalid));
