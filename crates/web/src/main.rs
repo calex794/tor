@@ -1,4 +1,5 @@
 mod book_schedule_worker;
+mod moderation_overdue_worker;
 mod social_notification_consumer;
 mod support_cleanup;
 
@@ -184,6 +185,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     {
         return Err("S058 worker requires authenticated PostgreSQL runtime".into());
     }
+    // Disabled unless explicitly enabled by an operator. This only scans and
+    // stores overdue observations; no notification delivery is activated.
+    let overdue_setting = match env::var("TOR_MOD_OVERDUE_OBSERVER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let overdue_observer_enabled = moderation_overdue_worker::worker_opt_in(
+        overdue_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
@@ -244,6 +260,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                if overdue_observer_enabled {
+                    accounts
+                        .probe_moderation_overdue_observations()
+                        .await
+                        .map_err(|_| "MOD overdue observation ledger migration is not applied")?;
+                    pending_overdue_observer = Some(accounts.clone());
+                }
                 if schedule_worker_enabled {
                     let author = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
                     author
@@ -410,6 +433,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let _overdue_observer = pending_overdue_observer.map(|accounts| {
+        println!("TOR moderation overdue observation enabled (no notifications)");
+        moderation_overdue_worker::start(accounts)
+    });
     let _scheduled_release_worker = pending_scheduled_release_worker.map(|author| {
         println!("TOR S058 scheduled release worker enabled");
         tokio::spawn(async move {
