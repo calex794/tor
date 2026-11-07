@@ -201,9 +201,14 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
-    let age_settings_link = age_editor_enabled.then(|| {
-        format!("<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>", book.id)
-    }).unwrap_or_default();
+    let age_settings_link = if age_editor_enabled {
+        format!(
+            "<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
