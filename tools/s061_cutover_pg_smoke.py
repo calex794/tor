@@ -7,6 +7,7 @@ mechanics, not compatibility between two independently built versions.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -42,6 +43,23 @@ def require_disposable(environment: dict[str, str]) -> Path:
     if not temp.is_absolute() or not temp.is_dir() or temp.is_symlink():
         raise RuntimeError("S061 requires a real absolute GitHub runner temp directory")
     return temp
+
+
+def select_previous_binary(environment: dict[str, str], runner_temp: Path,
+                           candidate_binary: Path) -> tuple[Path, bool]:
+    """Opt-in: previous executable must be an independent runner-local build."""
+    value = environment.get("TOR_S061_PREVIOUS_BINARY", "")
+    if not value:
+        return candidate_binary, False
+    previous = Path(value)
+    if (not previous.is_absolute() or previous.is_symlink()
+            or not previous.is_file() or not os.access(previous, os.X_OK)
+            or not previous.resolve().is_relative_to(runner_temp.resolve())):
+        raise RuntimeError("S061 previous binary must be an executable in runner temp")
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest(previous) == digest(candidate_binary):
+        raise RuntimeError("S061 distinct-binary drill refuses identical binaries")
+    return previous, True
 
 
 def require(condition: bool, message: str) -> None:
@@ -171,6 +189,7 @@ def run() -> None:
     binary = Path("target/debug/tor-web").resolve()
     require(binary.is_file() and os.access(binary, os.X_OK),
             "S061 requires the previously built Rust server")
+    previous_binary, distinct = select_previous_binary(dict(os.environ), runner_temp, binary)
     require(all(no_listener(port) for port in (LIVE_PORT, CANDIDATE_PORT, BAD_PORT)),
             "S061 loopback port already in use")
     before = migration_state()
@@ -188,9 +207,9 @@ def run() -> None:
         candidate = releases / ("b" * 40)
         previous.mkdir(parents=True)
         candidate.mkdir()
-        for target in (previous, candidate):
+        for target, executable in ((previous, previous_binary), (candidate, binary)):
             path = target / "tor-web"
-            shutil.copy2(binary, path)
+            shutil.copy2(executable, path)
             path.chmod(0o700)
         current = root / "current"
         current.symlink_to(previous)
@@ -267,7 +286,8 @@ def run() -> None:
                 "precutover_rejection": True,
                 "cutover": "atomic symlink plus process restart",
                 "postcutover_rollback": True,
-                "same_binary_both_slots": True,
+                "same_binary_both_slots": not distinct,
+                "distinct_binary_validation": distinct,
                 "no_production_or_tls_staging_claim": True,
                 "events": events,
             }
