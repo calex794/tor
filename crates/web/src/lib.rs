@@ -505,6 +505,7 @@ fn make_router_with_paid_checkout(
         .route("/catalog", get(catalog_http::catalog))
         .route("/robots.txt", get(seo_http::robots_txt))
         .route("/sitemap.xml", get(seo_http::sitemap_xml))
+        .route("/sitemaps/books/{bucket}", get(seo_http::sitemap_books))
         .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route(
