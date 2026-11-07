@@ -276,6 +276,30 @@ jobs:
             echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
             ci_pg_started=$SECONDS
           }
+          # Diagnose compilation versus test execution without changing any Cargo command.
+          # The env -u executions and nested REC13 shell have their own boundaries.
+          ci_pg_cargo_index=0
+          cargo() {
+            local start_us=${EPOCHREALTIME/./}
+            local status=0
+            local package=unknown target=lib prev= arg
+            for arg in "$@"; do
+              case "$prev" in
+                -p) package="$arg" ;;
+                --test) target="$arg" ;;
+              esac
+              case "$arg" in
+                -p|--test) prev="$arg" ;;
+                *) prev= ;;
+              esac
+            done
+            command cargo "$@" || status=$?
+            local end_us=${EPOCHREALTIME/./}
+            ci_pg_cargo_index=$((ci_pg_cargo_index + 1))
+            printf 'CI_PG_CARGO_MS seq=%d package=%s target=%s elapsed_ms=%d status=%d\n' \
+              "$ci_pg_cargo_index" "$package" "$target" "$(((end_us-start_us)/1000))" "$status"
+            return "$status"
+          }
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
