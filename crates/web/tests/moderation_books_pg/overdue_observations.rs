@@ -204,11 +204,15 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         })
         .collect();
     assert_eq!(own.len(), 3, "show one highest-threshold alert per request");
-    assert!(own.iter().any(|item| {
-        item.request_kind == "registration" && item.threshold_hours == 72
-    }));
-    assert!(own.iter().any(|item| item.request_kind == "cover" && item.threshold_hours == 24));
-    assert!(own.iter().any(|item| item.request_kind == "deletion" && item.threshold_hours == 72));
+    assert!(own
+        .iter()
+        .any(|item| { item.request_kind == "registration" && item.threshold_hours == 72 }));
+    assert!(own
+        .iter()
+        .any(|item| item.request_kind == "cover" && item.threshold_hours == 24));
+    assert!(own
+        .iter()
+        .any(|item| item.request_kind == "deletion" && item.threshold_hours == 72));
 
     // A site moderator who owns the deletion request must not see it here.
     pg(
@@ -222,9 +226,9 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         .moderation_overdue_inbox(&session_token_digest(&token), None)
         .await
         .unwrap();
-    assert!(!owner_inbox.iter().any(|item| {
-        item.request_kind == "deletion" && item.source_id == deletion_book
-    }));
+    assert!(!owner_inbox
+        .iter()
+        .any(|item| { item.request_kind == "deletion" && item.source_id == deletion_book }));
     pg(
         &url,
         &format!("UPDATE account_roles SET is_active=false WHERE user_id={owner}"),
@@ -233,10 +237,13 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         &url,
         &format!("UPDATE account_roles SET is_active=false WHERE user_id={reviewer_id}"),
     );
-    assert!(accounts
-        .moderation_overdue_inbox(&reviewer_digest, None)
-        .await
-        .is_err(), "revoked site-role loses access at the repository boundary");
+    assert!(
+        accounts
+            .moderation_overdue_inbox(&reviewer_digest, None)
+            .await
+            .is_err(),
+        "revoked site-role loses access at the repository boundary"
+    );
     pg(
         &url,
         &format!("UPDATE account_roles SET is_active=true WHERE user_id={reviewer_id}"),
@@ -251,18 +258,40 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     let mod_cookie = format!("tor-dev-session={reviewer_token}");
     let owner_cookie = format!("tor-dev-session={token}");
     assert_eq!(
-        request(&app, "GET", "/moderation/books/alerts", &owner_cookie, ORIGIN, "")
-            .await
-            .status(),
+        request(
+            &app,
+            "GET",
+            "/moderation/books/alerts",
+            &owner_cookie,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "GET", "/moderation/books/alerts?before=0", &mod_cookie, ORIGIN, "")
-            .await
-            .status(),
+        request(
+            &app,
+            "GET",
+            "/moderation/books/alerts?before=0",
+            &mod_cookie,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
-    let response = request(&app, "GET", "/moderation/books/alerts", &mod_cookie, ORIGIN, "").await;
+    let response = request(
+        &app,
+        "GET",
+        "/moderation/books/alerts",
+        &mod_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     let inbox_html = html(response).await;
@@ -316,7 +345,15 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         "5",
         "closed observation keys remain immutable on subsequent scans"
     );
-    let refreshed = request(&app, "GET", "/moderation/books/alerts", &mod_cookie, ORIGIN, "").await;
+    let refreshed = request(
+        &app,
+        "GET",
+        "/moderation/books/alerts",
+        &mod_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
     assert_eq!(refreshed.status(), StatusCode::OK);
     let page = html(refreshed).await;
     assert!(!page.contains(&format!("Регистрация книги #{registration}")));
