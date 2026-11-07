@@ -53,7 +53,6 @@ impl<'a> RecentShowcases<'a> {
     }
 }
 
-
 /// Read model for real first chapter releases, never inferred from book IDs.
 #[async_trait]
 pub trait ReleaseShowcaseRepository: Send + Sync {
@@ -76,7 +75,11 @@ impl<'a> ReleaseShowcases<'a> {
         }
         let books = self.repository.recent_free_releases(limit).await?;
         let mut ids = HashSet::new();
-        if books.len() > limit || books.iter().any(|book| book.id == 0 || !ids.insert(book.id)) {
+        if books.len() > limit
+            || books
+                .iter()
+                .any(|book| book.id == 0 || !ids.insert(book.id))
+        {
             return Err(SearchError::Unavailable);
         }
         Ok(books)
@@ -144,7 +147,10 @@ mod tests {
 
     #[async_trait]
     impl ReleaseShowcaseRepository for DuplicateReleases {
-        async fn recent_free_releases(&self, _limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        async fn recent_free_releases(
+            &self,
+            _limit: usize,
+        ) -> Result<Vec<SearchBook>, SearchError> {
             let book = SearchBook {
                 id: 42,
                 title: "Выпуск".into(),
@@ -161,8 +167,17 @@ mod tests {
     #[tokio::test]
     async fn releases_reject_duplicates_and_invalid_limits() {
         let showcase = ReleaseShowcases::new(&DuplicateReleases);
-        assert_eq!(showcase.recent_free_releases(0).await, Err(SearchError::Invalid));
-        assert_eq!(showcase.recent_free_releases(25).await, Err(SearchError::Invalid));
-        assert_eq!(showcase.recent_free_releases(12).await, Err(SearchError::Unavailable));
+        assert_eq!(
+            showcase.recent_free_releases(0).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.recent_free_releases(25).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.recent_free_releases(12).await,
+            Err(SearchError::Unavailable)
+        );
     }
 }
