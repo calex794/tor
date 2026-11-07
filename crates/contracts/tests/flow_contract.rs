@@ -252,3 +252,16 @@ fn flow_01_reconciliation_is_bounded_and_conflicting_evidence_fails() {
         Err(FlowContractError::OversizedReconciliation)
     );
 }
+
+#[test]
+fn flow_02_unclassified_html_requests_are_not_verified_funnel_visitors() {
+    let mut evidence = page(RouteSurface::BookDetail);
+    evidence.hygiene = TrafficHygiene::Unclassified;
+    assert!(evidence.observed_html_request());
+    assert!(!evidence.eligible_for_funnel());
+    evidence.hygiene = TrafficHygiene::SuspectedAutomation;
+    assert!(!evidence.observed_html_request());
+    assert!(!evidence.eligible_for_funnel());
+    evidence.hygiene = TrafficHygiene::Eligible;
+    assert!(evidence.eligible_for_funnel());
+}
