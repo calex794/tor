@@ -13,11 +13,7 @@ use axum::{
 };
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
-use std::{
-    io::Cursor,
-    sync::Arc,
-    time::Duration,
-};
+use std::{io::Cursor, sync::Arc, time::Duration};
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
     cover_review::PgCoverReview,
@@ -32,6 +28,8 @@ use tor_ingest::{
     },
 };
 use tor_reading::repositories::PgReader;
+#[cfg(feature = "test-cdn-loopback")]
+use tor_web::yandex_cdn_purge::YandexCdnPurge;
 use tor_web::{
     cover_cdn_cleanup::CoverOriginCleanup,
     cover_cdn_purge::{CoverCdnApi, CoverCdnPurgeWorker},
@@ -39,14 +37,12 @@ use tor_web::{
     cover_worker::{CoverRunner, CoverRunnerMonitor},
 };
 use tower::ServiceExt;
-#[cfg(feature = "test-cdn-loopback")]
-use tor_web::yandex_cdn_purge::YandexCdnPurge;
 
-#[path = "cover_s3_pg/cdn_html.rs"]
-mod cdn_html;
 #[cfg(not(feature = "test-cdn-loopback"))]
 #[path = "cover_s3_pg/cdn_fake.rs"]
 mod cdn_fake;
+#[path = "cover_s3_pg/cdn_html.rs"]
+mod cdn_html;
 #[cfg(feature = "test-cdn-loopback")]
 #[path = "cover_s3_pg/cdn_wire.rs"]
 mod cdn_wire;

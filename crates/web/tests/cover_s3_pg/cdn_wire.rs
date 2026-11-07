@@ -26,16 +26,31 @@ pub(super) async fn start(
         // Both variants are removed from MinIO before any POST. Polling reports
         // two pending operations, a failure + success, then one exact retry.
         for step in 0..8 {
-            let (method, route, operation, outcome, file_index) = match step {
-                0 => ("POST", "/cdn/v1/cache/res-1234:purge", "ci-operation-0", "pending", Some(0)),
-                1 => ("POST", "/cdn/v1/cache/res-1234:purge", "ci-operation-1", "pending", Some(1)),
-                2 => ("GET", "/operations/ci-operation-0", "ci-operation-0", "pending", None),
-                3 => ("GET", "/operations/ci-operation-1", "ci-operation-1", "pending", None),
-                4 => ("GET", "/operations/ci-operation-0", "ci-operation-0", "failed", None),
-                5 => ("GET", "/operations/ci-operation-1", "ci-operation-1", "success", None),
-                6 => ("POST", "/cdn/v1/cache/res-1234:purge", "ci-operation-2", "pending", Some(0)),
-                7 => ("GET", "/operations/ci-operation-2", "ci-operation-2", "success", None),
+            let operation = match step {
+                0 | 2 | 4 => "ci-operation-0",
+                1 | 3 | 5 => "ci-operation-1",
+                6 | 7 => "ci-operation-2",
                 _ => unreachable!(),
+            };
+            let method = if matches!(step, 0 | 1 | 6) {
+                "POST"
+            } else {
+                "GET"
+            };
+            let route = if method == "POST" {
+                "/cdn/v1/cache/res-1234:purge".to_owned()
+            } else {
+                format!("/operations/{operation}")
+            };
+            let outcome = match step {
+                4 => "failed",
+                5 | 7 => "success",
+                _ => "pending",
+            };
+            let file_index = match step {
+                0 | 6 => Some(0),
+                1 => Some(1),
+                _ => None,
             };
             let (mut stream, peer) = listener.accept().await.unwrap();
             assert!(peer.ip().is_loopback(), "mock may accept only loopback");
