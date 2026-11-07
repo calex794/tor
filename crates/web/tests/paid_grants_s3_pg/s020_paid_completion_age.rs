@@ -56,7 +56,10 @@ async fn assert_signed_grants_rejected(
     let payload = json!({"purchase_id": purchase.to_string()}).to_string();
     let chapter_reply = post_grant(app, chapter, Some(session), Some(csrf), ORIGIN, &payload).await;
     assert!(
-        matches!(chapter_reply.status(), StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        matches!(
+            chapter_reply.status(),
+            StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ),
         "age-ineligible buyer must not receive a new paid ciphertext grant: {}",
         chapter_reply.status()
     );
@@ -72,7 +75,10 @@ async fn assert_signed_grants_rejected(
                 .uri(asset_uri)
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ORIGIN, ORIGIN)
-                .header(header::COOKIE, format!("tor-dev-session={session}; tor-dev-csrf={csrf}"))
+                .header(
+                    header::COOKIE,
+                    format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+                )
                 .header("x-csrf-token", csrf)
                 .body(Body::from(payload))
                 .unwrap(),
@@ -80,7 +86,10 @@ async fn assert_signed_grants_rejected(
         .await
         .unwrap();
     assert!(
-        matches!(asset_reply.status(), StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        matches!(
+            asset_reply.status(),
+            StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ),
         "age-ineligible buyer must not receive a signed private image grant: {}",
         asset_reply.status()
     );
