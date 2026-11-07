@@ -380,4 +380,36 @@ mod tests {
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
     }
+    #[tokio::test]
+    async fn flow_02_real_html_is_recorded_but_api_and_bots_are_not() {
+        use axum::response::Html;
+        let recorder = TrafficRecorder::start(8, 64);
+        let app = instrument_with_recorder(
+            Router::new()
+                .route("/books/{id}", get(|| async { Html("<p>read</p>") }))
+                .route("/api/v1/books", get(|| async { Html("<p>not a page</p>") })),
+            recorder.clone(),
+        );
+        for (url, bot) in [
+            ("/books/10?private=DO_NOT_STORE", false),
+            ("/api/v1/books", false),
+            ("/books/20", true),
+        ] {
+            let mut builder = Request::builder().uri(url);
+            if bot {
+                builder = builder.header("user-agent", "Googlebot/2.1");
+            }
+            let response = app.clone().oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let delta = recorder.drain_for_persistence().unwrap();
+        assert_eq!(delta.route_rows().iter().map(|r| r.count).sum::<i64>(), 3);
+        assert_eq!(delta.flow_rows().len(), 1);
+        let row = delta.flow_rows()[0];
+        assert_eq!(row.surface, 2);
+        assert_eq!(row.html_requests, 1);
+        assert_eq!(row.opted_in_html_requests, 0);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
+    }
+
 }
