@@ -306,6 +306,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/registration-status"), "GET") => Some(291),
         (Some("/moderation/books/reviews"), "GET") => Some(292),
         (Some("/moderation/books/alerts"), "GET") => Some(293),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "GET") => Some(294),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "POST") => Some(295),
+        (Some("/assets/newboo-paid-comments.mjs"), "GET") => Some(296),
         _ => None,
     };
     index
