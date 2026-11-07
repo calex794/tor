@@ -144,7 +144,7 @@ async fn public_cards(
 }
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
-    if let Some(catalog) = state.postgres {
+    if let Some(catalog) = state.postgres.as_ref() {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
         // Do not label the original ascending demo catalogue as "newest".
         let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
