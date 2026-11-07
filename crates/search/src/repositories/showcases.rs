@@ -99,17 +99,8 @@ impl ReleaseShowcaseRepository for PgShowcases {
     }
 }
 
-#[async_trait]
-impl RisingShowcaseRepository for PgShowcases {
-    async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
-        if !(1..=24).contains(&limit) {
-            return Err(SearchError::Invalid);
-        }
-        // Count unique C-verified readers, not views, likes or repeated chapter
-        // completions. The two disjoint seven-day windows use committed C facts.
-        // Only existing, currently public free publications are discoverable.
-        let rows = sqlx::query(
-            "WITH periods AS (
+/// Exact live SQL used for PostgreSQL EXPLAIN and 100k-row load checks.
+pub const RISING_SHOWCASE_SQL: &str = "WITH periods AS (
                SELECT c.book_id, c.user_id,
                  MAX(CASE WHEN c.completed_at >= now() - interval '7 days'
                           THEN 1 ELSE 0 END) AS current_reader,
@@ -155,8 +146,18 @@ impl RisingShowcaseRepository for PgShowcases {
              SELECT b.id,b.title,b.target_language,b.author_name,b.genres,b.tags,b.fandoms
              FROM growth g JOIN books b ON b.id=g.book_id
              ORDER BY (g.this_week-g.last_week) DESC,g.this_week DESC,b.id DESC
-             LIMIT $1",
-        )
+             LIMIT $1";
+
+#[async_trait]
+impl RisingShowcaseRepository for PgShowcases {
+    async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        if !(1..=24).contains(&limit) {
+            return Err(SearchError::Invalid);
+        }
+        // Count unique C-verified readers, not views, likes or repeated chapter
+        // completions. The two disjoint seven-day windows use committed C facts.
+        // Only existing, currently public free publications are discoverable.
+        let rows = sqlx::query(RISING_SHOWCASE_SQL)
         .bind(i64::try_from(limit).map_err(|_| SearchError::Invalid)?)
         .fetch_all(&self.pool)
         .await
