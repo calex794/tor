@@ -181,6 +181,33 @@ async function verify(browser, buyer, viewport) {
       ?.textContent === "Такое сообщение уже отправлялось.");
     assert.equal(issueCount(), 1, "identical correction replay must not duplicate issue");
 
+    // S011: this is the live Rust + MinIO paid reader, not a mocked
+    // discussion view. The edition is decrypted before comment UI mounts.
+    const comments = page.locator("#paid-chapter-comments");
+    await comments.waitFor({state:"visible"});
+    const commentCount = () => number("SELECT count(*) FROM discussion_comments WHERE " +
+      "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
+      " AND version_id=" + chapter.version);
+    assert.equal(commentCount(), 0);
+    await comments.getByLabel("Текст комментария").fill("Вопрос по купленной редакции");
+    await comments.getByRole("button", {name:"Отправить"}).click();
+    await page.waitForFunction(() => document.querySelectorAll(
+      "#paid-chapter-comments .comment-card").length === 1);
+    assert.equal(commentCount(), 1);
+    assert.equal(number("SELECT count(*) FROM discussion_anchors a JOIN discussion_comments c " +
+      "ON c.id=a.comment_id WHERE c.author_user_id=" + buyer.id +
+      " AND c.version_id=" + chapter.version), 1,
+      "selected paid quote must be anchored to the exact purchased version");
+    await comments.getByRole("button", {name:"Ответить"}).first().click();
+    await comments.getByLabel("Текст комментария").fill("Ответ к той же редакции");
+    await comments.getByRole("button", {name:"Отправить"}).click();
+    await page.waitForFunction(() => document.querySelectorAll(
+      "#paid-chapter-comments .comment-card").length === 2);
+    assert.equal(commentCount(), 2);
+    assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
+      "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
+      " AND parent_id IS NOT NULL"), 1);
+
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
     assert.equal(purchases(), 1);
@@ -355,6 +382,12 @@ async function verify(browser, buyer, viewport) {
       purchase + ",'ci:s034-single:" + buyer.id + "','refund')");
     const reader = await page.goto(SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase);
     assert.equal(reader.status(), 403);
+    const commentsDenied = await context.request.get(
+      SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
+      new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
+    );
+    assert.equal(commentsDenied.status(), 403, "refund must also revoke private discussion read");
+    assert.equal(commentCount(), 2, "revocation retains immutable discussion facts");
     assert(!(await page.content()).includes("Оплаченная V1: кириллица"));
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",

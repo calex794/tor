@@ -22,6 +22,7 @@ const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
 const data = fixture.reader_html;
 const csp = fixture.reader_csp;
 const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
+const paidCommentScript = fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs");
 // Serve the EXACT two stylesheets used by pages::layout and
 // pages::newboo_stylesheet, not reader-only CSS as both URLs.
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
@@ -110,6 +111,16 @@ const server = http.createServer(async (req, reply) => {
     } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-reader.mjs") {
       send(reply, 200, script, "application/javascript; charset=utf-8",
         { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-comments.mjs") {
+      send(reply, 200, paidCommentScript, "application/javascript; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" &&
+      uri.pathname === "/api/v1/reader/chapters/" + chapter + "/paid-comments") {
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        version_id: grant.version_id, items: [], next_cursor: null,
+      }), "application/json");
     } else if (req.method === "GET" && uri.pathname === "/assets/site.css") {
       send(reply, 200, siteCss, "text/css; charset=utf-8",
         { "cache-control": "public, max-age=3600" });
