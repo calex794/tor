@@ -596,6 +596,5 @@ fn make_router_with_paid_checkout(
         .merge(search_api);
     recommendation_http::instrument(app, rec_runtime)
 }
-
 #[cfg(test)]
 mod tests;
