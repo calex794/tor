@@ -205,10 +205,12 @@ fn chapter_detail(chapter: &PersonalChapter) -> String {
 async fn index(State(s): State<PersonalState>, headers: HeaderMap) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s.books.list_books(actor).await {
         Ok(books) => display("Личные книги", &book_list(&books), &[]),
@@ -246,10 +248,12 @@ async fn create_book(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s
         .books
@@ -271,10 +275,12 @@ async fn book(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     let book = match s.books.book(actor, book_id).await {
         Ok(book) => book,
@@ -293,10 +299,12 @@ async fn edit_book(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     let book = match s.books.book(actor, book_id).await {
         Ok(book) => book,
@@ -327,10 +335,12 @@ async fn update_book(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s
         .books
@@ -353,10 +363,12 @@ async fn new_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     if let Err(e) = s.books.book(actor, book_id).await {
         return error(e);
@@ -386,10 +398,12 @@ async fn create_chapter(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s
         .books
@@ -415,10 +429,12 @@ async fn read_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s.books.chapter(actor, book_id, chapter_id).await {
         Ok(chapter) => display("Личная глава", &chapter_detail(&chapter), &[]),
@@ -432,10 +448,12 @@ async fn edit_chapter(
 ) -> Response {
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     let chapter = match s.books.chapter(actor, book_id, chapter_id).await {
         Ok(ch) => ch,
@@ -466,10 +484,12 @@ async fn update_chapter(
     }
     let actor = match actor(&s, &headers).await {
         Ok(id) => id,
-        Err(e) => return match e {
-            ActorError::Login => private_response(Redirect::to("/login"), &[]),
-            ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+        Err(e) => {
+            return match e {
+                ActorError::Login => private_response(Redirect::to("/login"), &[]),
+                ActorError::Unavailable => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+            }
+        }
     };
     match s
         .books
