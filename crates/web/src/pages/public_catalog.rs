@@ -491,7 +491,6 @@ mod home_tests {
         assert!(!html.contains("<img src=x"));
     }
 
-
     #[test]
     fn releases_render_once_and_escape_untrusted_text() {
         let mut release = book(91, "<script>bad</script>");
