@@ -766,7 +766,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(fake_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    // The separate in-process router has its own grant rate budget. Keep the
+    // The separate in-process router has its own grant rate budget (12/minute).
+    // Keep the
     // original S034 router untouched so later admin-hold/refund checks can
     // still prove D's denial instead of hitting HTTP rate limits.
     let age_signer = PgPrivateDelivery::new(
