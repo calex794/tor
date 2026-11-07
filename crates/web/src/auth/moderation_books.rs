@@ -17,6 +17,8 @@ pub(super) use decision_errors::decision_error;
 mod deletion_queue_render;
 #[path = "moderation_book_history.rs"]
 mod history;
+#[path = "moderation_overdue_inbox.rs"]
+mod overdue_inbox;
 use deletion_queue_render::{render_deletion_queue, DeletionQueueFilters};
 #[path = "moderation_registration.rs"]
 mod registration;
@@ -72,6 +74,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books/{id}/deletion", post(review_deletion))
         .merge(history::router())
         .merge(registration::router())
+        .merge(overdue_inbox::router())
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {
