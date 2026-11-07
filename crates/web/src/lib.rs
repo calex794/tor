@@ -148,9 +148,7 @@ async fn public_cards(
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
     if let Some(catalog) = state.postgres.as_ref() {
-        // The F-04 repository filters draft/held/deleted rows before LIMIT.
-        // Do not label the original ascending demo catalogue as "newest".
-        let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
+            let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
         let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
         let rows = showcase
             .latest_added(None, 12)
@@ -257,7 +255,6 @@ async fn book_detail(
     Query(query): Query<TocQuery>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
         .is_some_and(|book_url| book_url.matches_path(uri.path()))
     {
@@ -494,8 +491,6 @@ fn make_router_with_paid_checkout(
     modes: ReaderModes,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
-    // Only real authenticated PG routers may capture referral book query links.
-    // This layer runs *after* book_detail has accepted public visibility.
     let book_router = Router::new().route("/books/{id}", get(book_detail));
     let book_router = if let Some(control) = follow_control.clone() {
         book_router.route_layer(axum::middleware::from_fn_with_state(
@@ -584,8 +579,7 @@ fn make_router_with_paid_checkout(
             paid_checkout_browser: active_auth
                 && modes.paid_browser
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
-            // Administrator private reading is independent of paid checkout.
-            private_admin_reader_enabled: active_auth && modes.admin_reader,
+                    private_admin_reader_enabled: active_auth && modes.admin_reader,
             private_admin_sealed_reader_enabled: active_auth
                 && modes.admin_reader
                 && modes.paid_browser,
