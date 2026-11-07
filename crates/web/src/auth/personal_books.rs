@@ -239,7 +239,11 @@ async fn create_book(
     };
     match s
         .books
-        .create_book(actor, &form.title, form.description.as_deref().unwrap_or(""))
+        .create_book(
+            actor,
+            &form.title,
+            form.description.as_deref().unwrap_or(""),
+        )
         .await
     {
         Ok(book) => private_response(Redirect::to(&format!("/personal-books/{}", book.id)), &[]),
