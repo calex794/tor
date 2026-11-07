@@ -193,3 +193,72 @@ impl PgSearch {
         .await
     }
 }
+
+impl PgSearch {
+    /// SEO-06: fetch only anonymous, basic, published books with a released
+    /// free version. The predicate is applied in PostgreSQL, never in HTML.
+    /// Reject oversized maps rather than silently omit books from the index.
+    pub async fn seo_public_book_ids(&self) -> Result<Vec<u64>, SearchError> {
+        if self.viewer_digest.is_some() {
+            return Err(SearchError::Invalid);
+        }
+        let rows: Vec<i64> = sqlx::query_scalar(
+            "SELECT b.id FROM books b
+             WHERE b.visibility='public' AND b.visibility_status='active'
+               AND b.access_level='basic' AND b.seo_index_owner='pandaolate'
+               AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND EXISTS (
+                 SELECT 1 FROM chapters c
+                 JOIN chapter_publications p ON p.chapter_id=c.id
+                 JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+                 WHERE c.book_id=b.id AND c.visibility='public'
+                   AND c.access_level='free' AND NOT c.admin_hold
+                   AND NOT c.is_deleted
+                   AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               )
+             ORDER BY b.id LIMIT 1001",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+        if rows.len() > 1000 {
+            return Err(SearchError::Unavailable);
+        }
+        rows.into_iter()
+            .map(|id| u64::try_from(id).map_err(|_| SearchError::Unavailable))
+            .collect()
+    }
+
+    /// Identical SQL gate used before upgrading an individual HTML response
+    /// from noindex to indexable. Session-specific adult content is excluded.
+    pub async fn seo_public_book_indexable(&self, book_id: u64) -> Result<bool, SearchError> {
+        if self.viewer_digest.is_some() {
+            return Err(SearchError::Invalid);
+        }
+        let id = i64::try_from(book_id).map_err(|_| SearchError::Invalid)?;
+        sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM books b
+                WHERE b.id=$1 AND b.visibility='public'
+                  AND b.visibility_status='active' AND b.access_level='basic'
+                  AND b.seo_index_owner='pandaolate'
+                  AND b.lifecycle_status<>'pending_deletion'
+                  AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND EXISTS (
+                    SELECT 1 FROM chapters c
+                    JOIN chapter_publications p ON p.chapter_id=c.id
+                    JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+                    WHERE c.book_id=b.id AND c.visibility='public'
+                      AND c.access_level='free' AND NOT c.admin_hold
+                      AND NOT c.is_deleted
+                      AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+                  )
+            )",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)
+    }
+}
