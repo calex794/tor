@@ -2,14 +2,8 @@
 //! Disposable tor_ci only: do not run against a retained PostgreSQL instance.
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
-use tor_reading::{
-    repositories::PgReadingSync,
-    services::progress::ReadingPlace,
-};
-use tor_search::{
-    repositories::showcases::PgShowcases,
-    services::showcases::RisingShowcases,
-};
+use tor_reading::{repositories::PgReadingSync, services::progress::ReadingPlace};
+use tor_search::{repositories::showcases::PgShowcases, services::showcases::RisingShowcases};
 
 const BOOK: i64 = 99810;
 const CHAPTER: i64 = 99820;
