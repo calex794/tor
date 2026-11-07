@@ -75,7 +75,10 @@ async fn assert_private_asset_grant(
     let response = app.clone().oneshot(request).await.unwrap();
     if allowed {
         assert_eq!(response.status(), StatusCode::OK, "owned V1 image grant");
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "private, no-store");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
         let grant = decode(response).await;
         assert_eq!(grant["schema"], "tor.paid_asset_delivery.v1");
         assert_eq!(grant["version_id"], version.to_string());
@@ -95,7 +98,10 @@ async fn assert_private_asset_grant(
         );
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         assert!(
-            to_bytes(response.into_body(), 8192).await.unwrap().is_empty(),
+            to_bytes(response.into_body(), 8192)
+                .await
+                .unwrap()
+                .is_empty(),
             "no ciphertext URL or wrapped key on age denial"
         );
     }
