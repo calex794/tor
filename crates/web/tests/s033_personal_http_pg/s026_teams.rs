@@ -39,9 +39,8 @@ async fn s026_team_creation_is_owner_only_and_never_grants_book_rights() {
         page.headers()["x-robots-tag"],
         "noindex, nofollow, noarchive"
     );
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
     let csrf = csrf_from_page(&body(page).await);
-    let csrf_page = send(&app, "GET", "/me/teams", &owner, "").await;
-    let csrf_cookie = cookie(&csrf_page, "tor-dev-csrf=");
     let cookies = format!("{owner}; {csrf_cookie}");
 
     let request = format!("name=Team%3Cscript%3E&description=%3Csvg%3E&csrf_token={csrf}");
