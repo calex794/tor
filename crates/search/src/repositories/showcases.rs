@@ -158,10 +158,10 @@ impl RisingShowcaseRepository for PgShowcases {
         // completions. The two disjoint seven-day windows use committed C facts.
         // Only existing, currently public free publications are discoverable.
         let rows = sqlx::query(RISING_SHOWCASE_SQL)
-        .bind(i64::try_from(limit).map_err(|_| SearchError::Invalid)?)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
+            .bind(i64::try_from(limit).map_err(|_| SearchError::Invalid)?)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| SearchError::Unavailable)?;
         rows.into_iter().map(decode_book).collect()
     }
 }
