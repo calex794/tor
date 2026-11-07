@@ -301,12 +301,12 @@ async fn book_detail(
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
-            let html = seo_http::decorate_book(&state, book.id, html).await;
+            let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
             return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
-        let html = seo_http::decorate_book(&state, book.id, html).await;
+        let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
         return cover_http::book_html(&state, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
