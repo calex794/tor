@@ -2066,6 +2066,13 @@
       "source": "crates/web/src/auth/moderation_book_history.rs",
       "handler": "reviewed_index",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/books/alerts",
+      "source": "crates/web/src/auth/moderation_overdue_inbox.rs",
+      "handler": "page",
+      "policy": "scoped"
     }
   ]
 }
