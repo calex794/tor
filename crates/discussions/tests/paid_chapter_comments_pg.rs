@@ -114,7 +114,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         CreateResult::NotFound
     );
     assert!(repo
-        .list(stranger, &other_digest, purchase, chapter, v1, None, 25)
+        .list(stranger, &other_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .is_none());
@@ -149,7 +149,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         CreateResult::Invalid
     );
     let visible = repo
-        .list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .unwrap();
@@ -172,7 +172,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         .await
         .unwrap();
     assert!(repo
-        .list(buyer, &buyer_digest, purchase, chapter, v2, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v2), None, 25)
         .await
         .unwrap()
         .is_none());
@@ -190,7 +190,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         CreateResult::NotFound
     );
     assert_eq!(
-        repo.list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        repo.list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
             .await
             .unwrap()
             .unwrap()
@@ -206,7 +206,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         .await
         .unwrap();
     assert!(repo
-        .list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .is_none());
@@ -216,7 +216,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         .await
         .unwrap();
     assert_eq!(
-        repo.list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        repo.list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
             .await
             .unwrap()
             .unwrap()
@@ -230,7 +230,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         .await
         .unwrap();
     assert!(repo
-        .list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .is_none());
@@ -243,7 +243,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
     .await
     .unwrap();
     assert_eq!(
-        repo.list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        repo.list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
             .await
             .unwrap()
             .unwrap()
@@ -259,7 +259,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
     .await
     .unwrap();
     assert!(repo
-        .list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .is_none());
@@ -277,7 +277,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
         .await
         .unwrap();
     assert!(repo
-        .list(buyer, &buyer_digest, purchase, chapter, v1, None, 25)
+        .list(buyer, &buyer_digest, (purchase, chapter, v1), None, 25)
         .await
         .unwrap()
         .is_none());
