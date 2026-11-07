@@ -201,10 +201,21 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
     .await;
     assert_eq!(source_cleanup.run_batch().await.unwrap().claimed, 0);
     assert_eq!(variant_cleanup.run_batch().await.unwrap().removed, 2);
-    let deleted = source_cleanup.run_batch().await.unwrap();
-    assert_eq!(deleted.claimed, 1);
-    assert_eq!(deleted.removed, 1);
-    assert_eq!(deleted.deferred, 0);
+    // Two independent cleanup workers must not double-claim the shared
+    // original after the last variant has been retired.
+    let second_cleanup = PrivateCoverSourceCleanup::new(
+        PgPrivateCoverSourceRemovals::new(catalog.pool()),
+        Arc::new(store.clone()),
+    );
+    let (first, second) = tokio::join!(
+        source_cleanup.run_batch(),
+        second_cleanup.run_batch(),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(first.claimed + second.claimed, 1);
+    assert_eq!(first.removed + second.removed, 1);
+    assert_eq!(first.deferred + second.deferred, 0);
     assert_eq!(source_cleanup.run_batch().await.unwrap().claimed, 0);
     for key in &pending_keys {
         assert!(client
@@ -240,6 +251,15 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         )
         .await,
         "1"
+    );
+    assert_eq!(
+        pg_sql(
+            &url,
+            "SELECT max(lease_epoch) FROM cover_private_source_removals WHERE state='removed'"
+        )
+        .await,
+        "1",
+        "racing workers must lease the retired source exactly once"
     );
     assert!(
         jobs.enqueue(
