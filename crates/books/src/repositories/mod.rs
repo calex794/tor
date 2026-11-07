@@ -1,6 +1,7 @@
 pub mod book_members;
 pub(crate) mod chapter_number;
 pub mod cover_private_cleanup;
+pub mod cover_publication_ops;
 pub mod cover_publications;
 pub mod cover_review;
 pub mod cover_slots;
