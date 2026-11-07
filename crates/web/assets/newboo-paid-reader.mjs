@@ -680,6 +680,8 @@ export function installPaidReaderSettings(root) {
   selectFont("serif");
 }
 
+import {installPaidComments} from "./newboo-paid-comments.mjs";
+
 // E-12 paid: only after a D-verified S3 grant has decrypted its B-pinned
 // edition. The user explicitly sends a bounded quote; no full body, S3 key
 // or DEK travels in the correction request or is retained in storage.
@@ -859,6 +861,7 @@ export async function startPaidReader(root) {
     }
   }, showPrivateImage);
   installPaidIssueReporter(root, article, blocks, chapter, purchase, versionId, csrf);
+  void installPaidComments(root, article, blocks, chapter, purchase, versionId, csrf);
   // A BFCache return must ask D again, not resurrect decrypted text and Blob
   // URLs from a previously authorized purchase that may have been refunded.
   window.addEventListener("pagehide", () => {
