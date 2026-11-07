@@ -27,7 +27,10 @@ async fn f_04_rising_plan_on_100k_books_and_100k_completions() {
     .await
     .unwrap();
     assert!(book_rows >= 100_000, "must profile large catalogue");
-    assert_eq!(completions, 100_000, "must profile real-scale completion table");
+    assert_eq!(
+        completions, 100_000,
+        "must profile real-scale completion table"
+    );
 
     // Explain the literal production SQL, not a hand-maintained approximation.
     let plan_sql = format!("EXPLAIN (ANALYZE, BUFFERS) {RISING_SHOWCASE_SQL}");
