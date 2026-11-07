@@ -354,7 +354,7 @@ pub fn catalog_search_with_covers(
 
 #[cfg(test)]
 pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true, &HashSet::new(), &[])
+    home_body(books, true, &HashSet::new(), &[], &[])
 }
 
 #[cfg(test)]
