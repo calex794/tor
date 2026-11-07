@@ -118,25 +118,43 @@ mod tests {
     fn no_cdn_origin_or_browser_projection_without_explicit_opt_in() {
         assert_eq!(validate(baseline()).unwrap(), None);
         assert_eq!(
-            validate(CoverCdnSettings { enabled: Some("0"), ..baseline() }).unwrap(),
+            validate(CoverCdnSettings {
+                enabled: Some("0"),
+                ..baseline()
+            })
+            .unwrap(),
             None
         );
         for value in ["", "true", "yes", "01", "2"] {
             assert!(validate(CoverCdnSettings {
                 enabled: Some(value),
                 ..baseline()
-            }).is_err());
+            })
+            .is_err());
             assert!(validate(CoverCdnSettings {
                 html_enabled: Some(value),
                 ..baseline()
-            }).is_err());
+            })
+            .is_err());
         }
         for input in [
-            CoverCdnSettings { html_enabled: Some("1"), ..baseline() },
-            CoverCdnSettings { public_bucket: Some("public-covers"), ..baseline() },
-            CoverCdnSettings { public_origin: Some("https://cdn.example"), ..baseline() },
+            CoverCdnSettings {
+                html_enabled: Some("1"),
+                ..baseline()
+            },
+            CoverCdnSettings {
+                public_bucket: Some("public-covers"),
+                ..baseline()
+            },
+            CoverCdnSettings {
+                public_origin: Some("https://cdn.example"),
+                ..baseline()
+            },
         ] {
-            assert!(validate(input).is_err(), "partial CDN config must stop startup");
+            assert!(
+                validate(input).is_err(),
+                "partial CDN config must stop startup"
+            );
         }
     }
 
@@ -159,22 +177,51 @@ mod tests {
         assert!(validate(CoverCdnSettings {
             html_enabled: Some("0"),
             ..configured
-        }).is_ok());
+        })
+        .is_ok());
         assert!(validate(CoverCdnSettings {
             html_enabled: Some("1"),
             ..configured
-        }).is_ok());
+        })
+        .is_ok());
         for invalid in [
-            CoverCdnSettings { demo: true, ..configured },
-            CoverCdnSettings { postgres_configured: false, ..configured },
-            CoverCdnSettings { s3_compiled: false, ..configured },
-            CoverCdnSettings { private_bucket: None, ..configured },
-            CoverCdnSettings { public_bucket: None, ..configured },
-            CoverCdnSettings { public_origin: None, ..configured },
-            CoverCdnSettings { public_bucket: Some("private-covers"), ..configured },
-            CoverCdnSettings { public_bucket: Some(""), ..configured },
+            CoverCdnSettings {
+                demo: true,
+                ..configured
+            },
+            CoverCdnSettings {
+                postgres_configured: false,
+                ..configured
+            },
+            CoverCdnSettings {
+                s3_compiled: false,
+                ..configured
+            },
+            CoverCdnSettings {
+                private_bucket: None,
+                ..configured
+            },
+            CoverCdnSettings {
+                public_bucket: None,
+                ..configured
+            },
+            CoverCdnSettings {
+                public_origin: None,
+                ..configured
+            },
+            CoverCdnSettings {
+                public_bucket: Some("private-covers"),
+                ..configured
+            },
+            CoverCdnSettings {
+                public_bucket: Some(""),
+                ..configured
+            },
         ] {
-            assert!(validate(invalid).is_err(), "invalid CDN setup must fail closed");
+            assert!(
+                validate(invalid).is_err(),
+                "invalid CDN setup must fail closed"
+            );
         }
     }
 }
