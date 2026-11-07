@@ -239,7 +239,7 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
             "POST",
             &new_chapter_path,
             &owner_cookies,
-            &format!("title=Intrusion&content_markdown=x&csrf_token=invalid")
+            "title=Intrusion&content_markdown=x&csrf_token=invalid"
         )
         .await
         .status(),
