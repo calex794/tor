@@ -74,6 +74,11 @@ jobs:
           done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # Move the feature-specific lint away from the longer PG job only when
+      # both CI suites are selected; standalone Rust runs do not need it.
+      - name: Combined S3 feature Clippy (paired PostgreSQL suite)
+        if: ${{ github.workflow == 'TOR integration CI' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
         run: cargo build --release -p tor-web
       - name: Real HTTP smoke (loopback only)
@@ -184,7 +189,10 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
+      # Keep the same lint in standalone PostgreSQL and PG-only runs.
+      # When Rust and PostgreSQL both run, Rust owns the single lint invocation.
       - name: Combined S3 feature Clippy
+        if: ${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
