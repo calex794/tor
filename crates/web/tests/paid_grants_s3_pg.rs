@@ -438,6 +438,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         [(chapter, v1), (chapter_two, version_two)],
     )
     .await;
+    // S020: separate real buyer keeps negative signing requests away from
+    // the main S034/BR-060 buyer's production 12/minute actor cap.
+    s020_paid_completion_age::verify_isolated_text_grants(
+        &app,
+        &url,
+        &accounts,
+        (book, chapter, chapter_two),
+        v1,
+        &csrf,
+    )
+    .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
