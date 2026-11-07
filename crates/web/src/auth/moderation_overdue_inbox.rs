@@ -77,6 +77,7 @@ fn render(rows: &[OverdueInboxItem]) -> String {
         .unwrap_or_default();
     pages::layout(
         "Служебные сигналы модерации",
+        "Закрытая очередь наблюдений о просроченных заявках модерации",
         &format!(
             r#"<main><h1>Служебные сигналы модерации</h1>
               <nav aria-label="Очереди модерации">
