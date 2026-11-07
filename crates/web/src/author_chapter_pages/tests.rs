@@ -1,4 +1,35 @@
 //! Author book and chapter UI regression cases, including long-book navigation.
+#[test]
+fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
+    let book = OwnedBook {
+        id: 42,
+        title: "Проверка возраста".to_owned(),
+    };
+    let page = |age_editor_enabled| {
+        detail_with_covers_with_demand_page(
+            &book,
+            false,
+            &[],
+            "csrf",
+            OwnerChapterPageOptions {
+                uploads_enabled: false,
+                latest_job: None,
+                demand_count: 0,
+                paid_editor_enabled: false,
+                age_editor_enabled,
+                next: None,
+                has_previous_page: false,
+            },
+        )
+        .0
+    };
+    let disabled = page(false);
+    assert!(!disabled.contains("/settings/access-level"));
+    let enabled = page(true);
+    assert!(enabled.contains("href=\"/me/books/42/settings/access-level\""));
+    assert!(enabled.contains("Возрастной уровень книги"));
+}
+
 use super::*;
 
 #[test]
@@ -24,6 +55,7 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
             latest_job: None,
             demand_count: 0,
             paid_editor_enabled: false,
+            age_editor_enabled: false,
             next: Some(OwnedChapterCursor {
                 number: 501,
                 id: 501,

@@ -49,23 +49,22 @@ pub fn detail_with_covers_with_demand(
             latest_job,
             demand_count,
             paid_editor_enabled: false,
+            age_editor_enabled: false,
             next: None,
             has_previous_page: false,
         },
     )
 }
 
-/// All presentation controls for a bounded, owner-only chapter list.
 pub struct OwnerChapterPageOptions<'a> {
     pub uploads_enabled: bool,
     pub latest_job: Option<&'a str>,
     pub demand_count: i64,
     pub paid_editor_enabled: bool,
+    pub age_editor_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
-
-/// Owner-only, keyset-paged list. Public book pages retain their own TOC.
 pub fn detail_with_covers_with_demand_page(
     book: &OwnedBook,
     published: bool,
@@ -78,6 +77,7 @@ pub fn detail_with_covers_with_demand_page(
         latest_job,
         demand_count,
         paid_editor_enabled,
+        age_editor_enabled,
         next,
         has_previous_page,
     } = options;
@@ -147,7 +147,6 @@ pub fn detail_with_covers_with_demand_page(
         }
         items.push_str("</nav>");
     }
-
     let status = if published {
         "Опубликована"
     } else {
@@ -202,6 +201,14 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
+    let age_settings_link = if age_editor_enabled {
+        format!(
+            "<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
@@ -214,6 +221,7 @@ pub fn detail_with_covers_with_demand_page(
         <p><a href="/me/books/{id}/settings/sources">Ссылки на произведение</a></p>
         <p><a href="/me/books/{id}/settings/project-status">Состояние работы над книгой</a></p>
         <p><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл книги</a></p>
+        {age_settings_link}
         <p><a href="/me/books/{id}/settings/titles">Названия книги</a></p>
         <p><a href="/me/books/{id}/settings/related">Связанные книги</a></p>
         <p><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></p>
@@ -231,7 +239,6 @@ pub fn detail_with_covers_with_demand_page(
     );
     layout(&book.title, "Управление своей книгой", &body)
 }
-
 fn cover_status(latest_job: Option<&str>) -> &'static str {
     match latest_job {
         Some("pending") => "Обложка ожидает обработки.",
@@ -246,7 +253,6 @@ fn cover_status(latest_job: Option<&str>) -> &'static str {
         _ => "Обложка ещё не загружена.",
     }
 }
-
 /// Mirrors NEwBOO's covers settings template and picker, one real TOR slot.
 pub fn cover_settings(
     book: &OwnedBook,
@@ -292,7 +298,6 @@ pub fn cover_settings(
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
 }
-
 /// H-09: only the author sees a private, unpublished-book import preview.
 pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
     let html = include_str!("../templates/author_import_chapters.html")
@@ -582,7 +587,6 @@ pub fn release_chapter(
         &content,
     )
 }
-
 #[cfg(test)]
 pub fn detail(
     book: &OwnedBook,
@@ -592,6 +596,5 @@ pub fn detail(
 ) -> Html<String> {
     detail_with_covers(book, published, chapters, csrf, false, None)
 }
-
 #[cfg(test)]
 mod tests;
