@@ -42,7 +42,7 @@ pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
-    catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
+    catalog, catalog_search_with_covers, home, home_recent_with_covers, home_recent_with_updates, CatalogPageQuery,
     PublicBookCard,
 };
 
