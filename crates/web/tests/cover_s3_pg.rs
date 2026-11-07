@@ -13,14 +13,7 @@ use axum::{
 };
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
-use std::{
-    io::Cursor,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{io::Cursor, sync::Arc, time::Duration};
 use tor_books::repositories::{
     cover_publications::PgPublicCoverPublications,
     cover_review::PgCoverReview,
@@ -35,16 +28,24 @@ use tor_ingest::{
     },
 };
 use tor_reading::repositories::PgReader;
+#[cfg(feature = "test-cdn-loopback")]
+use tor_web::yandex_cdn_purge::YandexCdnPurge;
 use tor_web::{
     cover_cdn_cleanup::CoverOriginCleanup,
-    cover_cdn_purge::{CdnPurgeError, CoverCdnApi, CoverCdnPurgeWorker, PurgeStatus},
+    cover_cdn_purge::{CoverCdnApi, CoverCdnPurgeWorker},
     cover_delivery::CoverDelivery,
     cover_worker::{CoverRunner, CoverRunnerMonitor},
 };
 use tower::ServiceExt;
 
+#[cfg(not(feature = "test-cdn-loopback"))]
+#[path = "cover_s3_pg/cdn_fake.rs"]
+mod cdn_fake;
 #[path = "cover_s3_pg/cdn_html.rs"]
 mod cdn_html;
+#[cfg(feature = "test-cdn-loopback")]
+#[path = "cover_s3_pg/cdn_wire.rs"]
+mod cdn_wire;
 #[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
 #[path = "cover_s3_pg/source_cleanup.rs"]
@@ -149,34 +150,6 @@ fn local_client() -> Client {
         .retry_config(RetryConfig::standard().with_max_attempts(2))
         .build();
     Client::from_conf(config)
-}
-
-/// No cloud credentials or public endpoints in CI: exercise the real PostgreSQL
-/// leases and transitions against a deterministic, in-process CDN mock.
-struct FakeCoverCdn {
-    submits: AtomicUsize,
-    polls: AtomicUsize,
-}
-
-#[async_trait::async_trait]
-impl CoverCdnApi for FakeCoverCdn {
-    async fn submit(&self, path: &str) -> Result<String, CdnPurgeError> {
-        assert!(path.starts_with("/public/covers/950/"));
-        assert!(path.ends_with(".webp*"));
-        let sequence = self.submits.fetch_add(1, Ordering::SeqCst);
-        Ok(format!("ci-operation-{sequence}"))
-    }
-
-    async fn status(&self, _operation_id: &str) -> Result<PurgeStatus, CdnPurgeError> {
-        let call = self.polls.fetch_add(1, Ordering::SeqCst);
-        if call < 2 {
-            Ok(PurgeStatus::Pending)
-        } else if call == 2 {
-            Ok(PurgeStatus::Failed)
-        } else {
-            Ok(PurgeStatus::Success)
-        }
-    }
 }
 
 #[tokio::test]
@@ -816,16 +789,26 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             .unwrap());
     }
     // Exact CDN purge submission and polling stay separate from origin deletion.
-    let fake_cdn = Arc::new(FakeCoverCdn {
-        submits: AtomicUsize::new(0),
-        polls: AtomicUsize::new(0),
-    });
-    let purge = CoverCdnPurgeWorker::new(ledger.clone(), fake_cdn.clone());
+    #[cfg(not(feature = "test-cdn-loopback"))]
+    let fake_cdn = Arc::new(cdn_fake::FakeCoverCdn::default());
+    #[cfg(feature = "test-cdn-loopback")]
+    let (endpoint, http_mock) = cdn_wire::start(&public_urls).await;
+    #[cfg(feature = "test-cdn-loopback")]
+    let api: Arc<dyn CoverCdnApi> = Arc::new(
+        YandexCdnPurge::new("res-1234".into(), "mock-secret-123".into())
+            .unwrap()
+            .with_loopback_endpoint(&endpoint)
+            .unwrap(),
+    );
+    #[cfg(not(feature = "test-cdn-loopback"))]
+    let api: Arc<dyn CoverCdnApi> = fake_cdn.clone();
+    let purge = CoverCdnPurgeWorker::new(ledger.clone(), api);
     let submitted = purge.submit_batch().await.unwrap();
     assert_eq!(submitted.claimed, 2);
     assert_eq!(submitted.submitted, 2);
     assert_eq!(purge.submit_batch().await.unwrap().claimed, 0);
-    assert_eq!(fake_cdn.submits.load(Ordering::SeqCst), 2);
+    #[cfg(not(feature = "test-cdn-loopback"))]
+    assert_eq!(fake_cdn.submissions(), 2);
 
     // Force only local CI retry timestamps forward; real worker waits.
     pg_sql(
@@ -877,7 +860,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     let retry = purge.submit_batch().await.unwrap();
     assert_eq!(retry.claimed, 1);
     assert_eq!(retry.submitted, 1);
-    assert_eq!(fake_cdn.submits.load(Ordering::SeqCst), 3);
+    #[cfg(not(feature = "test-cdn-loopback"))]
+    assert_eq!(fake_cdn.submissions(), 3);
     pg_sql(
         &url,
         "UPDATE public_cover_publications SET retry_after=now()
@@ -895,6 +879,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(state, "purged");
     }
     assert_eq!(purge.poll_batch().await.unwrap().claimed, 0);
+    #[cfg(feature = "test-cdn-loopback")]
+    http_mock.await.unwrap();
     assert!(
         direct
             .publish_cdn_variant(BOOK_ID as u64, PublicCoverKind::Card)
