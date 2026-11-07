@@ -191,6 +191,11 @@ async function verify(browser, buyer, viewport) {
 
     // S011: this is the live Rust + MinIO paid reader, not a mocked
     // discussion view. The edition is decrypted before comment UI mounts.
+    // Both viewport runs post to one canonical edition; unique body labels
+    // distinguish the current buyer's comment from the prior buyer's thread.
+    const buyerLabel = viewport.width === 1440 ? "desktop" : "mobile";
+    const ownBody = "Вопрос по купленной редакции (" + buyerLabel + ")";
+    const ownReply = "Ответ к той же редакции (" + buyerLabel + ")";
     const comments = page.locator("#paid-chapter-comments");
     await comments.waitFor({state:"visible"});
     const commentCount = () => number("SELECT count(*) FROM discussion_comments WHERE " +
@@ -215,19 +220,19 @@ async function verify(browser, buyer, viewport) {
           ", responses=" + commentTraffic.join(",") + ", status=" + status);
       }
     }
-    await comments.getByLabel("Текст комментария").fill("Вопрос по купленной редакции");
+    await comments.getByLabel("Текст комментария").fill(ownBody);
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await assertOwnCommentVisible("Вопрос по купленной редакции", 1);
+    await assertOwnCommentVisible(ownBody, 1);
     assert.equal(commentCount(), 1);
     assert.equal(number("SELECT count(*) FROM discussion_anchors a JOIN discussion_comments c " +
       "ON c.id=a.comment_id WHERE c.author_user_id=" + buyer.id +
       " AND c.version_id=" + chapter.version), 1,
       "selected paid quote must be anchored to the exact purchased version");
-    await comments.locator(".comment-card").filter({hasText:"Вопрос по купленной редакции"})
+    await comments.locator(".comment-card").filter({hasText:ownBody})
       .getByRole("button", {name:"Ответить"}).click();
-    await comments.getByLabel("Текст комментария").fill("Ответ к той же редакции");
+    await comments.getByLabel("Текст комментария").fill(ownReply);
     await comments.getByRole("button", {name:"Отправить"}).click();
-    await assertOwnCommentVisible("Ответ к той же редакции", 2);
+    await assertOwnCommentVisible(ownReply, 2);
     assert.equal(commentCount(), 2);
     assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
