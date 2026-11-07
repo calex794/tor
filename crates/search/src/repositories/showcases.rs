@@ -22,11 +22,19 @@ fn decode_book(row: sqlx::postgres::PgRow) -> Result<SearchBook, SearchError> {
     Ok(SearchBook {
         id: u64::try_from(id).map_err(|_| SearchError::Unavailable)?,
         title: row.try_get("title").map_err(|_| SearchError::Unavailable)?,
-        language: row.try_get("target_language").map_err(|_| SearchError::Unavailable)?,
-        author_name: row.try_get("author_name").map_err(|_| SearchError::Unavailable)?,
-        genres: row.try_get("genres").map_err(|_| SearchError::Unavailable)?,
+        language: row
+            .try_get("target_language")
+            .map_err(|_| SearchError::Unavailable)?,
+        author_name: row
+            .try_get("author_name")
+            .map_err(|_| SearchError::Unavailable)?,
+        genres: row
+            .try_get("genres")
+            .map_err(|_| SearchError::Unavailable)?,
         tags: row.try_get("tags").map_err(|_| SearchError::Unavailable)?,
-        fandoms: row.try_get("fandoms").map_err(|_| SearchError::Unavailable)?,
+        fandoms: row
+            .try_get("fandoms")
+            .map_err(|_| SearchError::Unavailable)?,
     })
 }
 
