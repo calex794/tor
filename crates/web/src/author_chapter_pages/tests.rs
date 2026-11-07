@@ -26,9 +26,7 @@ fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
     let disabled = page(false);
     assert!(!disabled.contains("/settings/access-level"));
     let enabled = page(true);
-    assert!(enabled.contains(
-        "href=\"/me/books/42/settings/access-level\""
-    ));
+    assert!(enabled.contains("href=\"/me/books/42/settings/access-level\""));
     assert!(enabled.contains("Возрастной уровень книги"));
 }
 
