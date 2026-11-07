@@ -1,3 +1,4 @@
+//! Author book and chapter UI regression cases, including long-book navigation.
 #[test]
 fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
     let book = OwnedBook {
@@ -31,7 +32,6 @@ fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
     assert!(enabled.contains("Возрастной уровень книги"));
 }
 
-//! Author book and chapter UI regression cases, including long-book navigation.
 use super::*;
 
 #[test]
