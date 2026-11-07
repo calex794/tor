@@ -594,6 +594,11 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     // The publication ledger must reserve each immutable identity BEFORE S3 COPY.
     // Replays never create a second row, and copied state remains idempotent.
     let ledger = PgPublicCoverPublications::new(catalog.pool());
+    // Only site-moderator-approved current variants are eligible for
+    // background CDN publication. The worker never enumerates raw staging.
+    let candidates = ledger.publication_candidates(3).await.unwrap();
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates.iter().all(|(id, _)| *id == BOOK_ID));
     let mut publication_ids = Vec::new();
     for kind in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let reserved = ledger
@@ -634,6 +639,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert!(ledger.confirm_copy(reserved.id).await.unwrap());
         publication_ids.push(reserved.id);
     }
+    // Reserved identities are retried only after cooldown, not on every tick.
+    assert!(ledger.publication_candidates(3).await.unwrap().is_empty());
     // The CDN bucket is a separate destination: never publish source PNGs or
     // use the private cover bucket as a publicly-readable bucket.
     const PUBLIC_BUCKET: &str = "tor-public-cover-cdn-ci";
@@ -690,6 +697,7 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
             Some("public, max-age=31536000, immutable")
         );
     }
+    assert!(ledger.publication_candidates(3).await.unwrap().is_empty());
     for kind in [PublicCoverKind::Card, PublicCoverKind::Main] {
         let urls = direct
             .current_cdn_urls(&[BOOK_ID as u64, 951], kind)

@@ -138,6 +138,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(enabled) => enabled,
         Err(reason) => return Err(reason.into()),
     };
+    // Separate explicit operator approval. Configuring the CDN bucket/HTML
+    // does not publish covers or start an external Yandex purge worker.
+    let cdn_worker_setting = match env::var("TOR_CDN_COVER_LIFECYCLE_WORKER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let cdn_worker_enabled = tor_web::cover_cdn_lifecycle::worker_opt_in(
+        cdn_worker_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+        cover_store.is_some(),
+        cdn_config.is_some(),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    // Validate the resource and bearer before binding HTTP. Never print secrets
+    // or redirect the management client to a user/environment-supplied host.
+    let cdn_credentials = if cdn_worker_enabled {
+        let resource = env::var("TOR_CDN_COVER_YANDEX_RESOURCE_ID")
+            .map_err(|_| "missing S025 CDN resource ID")?;
+        let bearer = env::var("TOR_CDN_COVER_YANDEX_BEARER")
+            .map_err(|_| "missing S025 CDN bearer")?;
+        Some((resource, bearer))
+    } else {
+        None
+    };
     let chapter_import_worker_setting = match env::var("TOR_CHAPTER_IMPORT_WORKER_ENABLED") {
         Ok(setting) => Some(setting),
         Err(env::VarError::NotPresent) => None,
@@ -156,6 +183,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Do not start jobs until the HTTP application and listener have passed
     // their own readiness checks. No second database pool is opened.
     let mut pending_cover_worker: Option<(
+        PgCatalog,
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+    )> = None;
+    let mut pending_cdn_lifecycle: Option<(
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
@@ -271,6 +302,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             reader.probe().await?;
             if cover_worker_enabled {
                 pending_cover_worker = cover_store
+                    .as_ref()
+                    .map(|storage| (catalog.clone(), storage.clone()));
+            }
+            if cdn_worker_enabled {
+                pending_cdn_lifecycle = cover_store
                     .as_ref()
                     .map(|storage| (catalog.clone(), storage.clone()));
             }
@@ -473,6 +509,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
         println!("TOR private cover worker enabled");
         Some(started)
+    } else {
+        None
+    };
+    let _cdn_lifecycle_worker = if let Some((catalog, storage)) = pending_cdn_lifecycle {
+        let (resource, bearer) = cdn_credentials.expect("validated opt-in credentials");
+        let worker = tor_web::cover_cdn_lifecycle::start(catalog, storage, resource, bearer)
+            .map_err(|_| "invalid S025 CDN provider configuration")?;
+        println!("TOR opt-in S025 approved-cover CDN lifecycle worker enabled");
+        Some(worker)
     } else {
         None
     };
