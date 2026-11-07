@@ -333,28 +333,6 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         .unwrap()
         .iter()
         .all(|pref| pref.kind != "moderation_overdue"));
-    // The admin can explicitly turn off this internal channel, but an
-    // ordinary reader is never offered that staff-only preference.
-    bell.set_preferences(admin_id, &[]).await.unwrap();
-    assert_eq!(
-        bell.project_moderation_overdue_to_admin_bell(100)
-            .await
-            .unwrap(),
-        0
-    );
-    bell.set_preferences(admin_id, &["moderation_overdue".to_owned()])
-        .await
-        .unwrap();
-    assert!(bell
-        .project_moderation_overdue_to_admin_bell(0)
-        .await
-        .is_err());
-    let (projection_a, projection_b) = tokio::join!(
-        bell.project_moderation_overdue_to_admin_bell(100),
-        bell.project_moderation_overdue_to_admin_bell(100),
-    );
-    projection_a.unwrap();
-    projection_b.unwrap();
     let own_notices = || {
         pg(
             &url,
@@ -369,6 +347,31 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
             ),
         )
     };
+    // The admin can explicitly turn off this internal channel, but an
+    // ordinary reader is never offered that staff-only preference.
+    bell.set_preferences(admin_id, &[]).await.unwrap();
+    bell.project_moderation_overdue_to_admin_bell(100)
+        .await
+        .unwrap();
+    assert_eq!(
+        own_notices(),
+        "0",
+        "one administrator's opt-out must not block other recipients"
+    );
+    bell.set_preferences(admin_id, &["moderation_overdue".to_owned()])
+        .await
+        .unwrap();
+    assert!(bell
+        .project_moderation_overdue_to_admin_bell(0)
+        .await
+        .is_err());
+    let (projection_a, projection_b) = tokio::join!(
+        bell.project_moderation_overdue_to_admin_bell(100),
+        bell.project_moderation_overdue_to_admin_bell(100),
+    );
+    projection_a.unwrap();
+    projection_b.unwrap();
+
     assert_eq!(
         own_notices(),
         "5",
@@ -378,23 +381,38 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         .await
         .unwrap();
     assert_eq!(own_notices(), "5", "repeat delivery cannot duplicate bells");
+    // Other site administrators and unrelated applications can coexist in
+    // this shared test DB, so inspect only the five source signals we created.
+    let observed_ids: Vec<i64> = pg(
+        &url,
+        &format!(
+            "SELECT string_agg(n.id::text,',' ORDER BY n.id)
+             FROM user_notifications n
+             JOIN outbox_events e ON e.id=n.source_event_id
+             WHERE n.recipient_user_id={admin_id}
+               AND n.kind='moderation_overdue'
+               AND e.aggregate_id IN (
+                 SELECT id FROM moderation_overdue_signals WHERE {subset}
+               )"
+        ),
+    )
+    .split(',')
+    .map(|raw| raw.parse().unwrap())
+    .collect();
+    assert_eq!(observed_ids.len(), 5);
     let admin_bells = bell.list(admin_id, None, 50).await.unwrap();
     assert_eq!(
         admin_bells
             .iter()
-            .filter(|n| n.kind == "moderation_overdue")
+            .filter(|n| observed_ids.contains(&n.id))
             .count(),
         5
     );
     assert!(admin_bells
         .iter()
-        .filter(|n| n.kind == "moderation_overdue")
-        .all(|n| n.url == "/moderation/books/alerts"));
-    let notice_id = admin_bells
-        .iter()
-        .find(|n| n.kind == "moderation_overdue")
-        .unwrap()
-        .id;
+        .filter(|n| observed_ids.contains(&n.id))
+        .all(|n| n.kind == "moderation_overdue" && n.url == "/moderation/books/alerts"));
+    let notice_id = observed_ids[0];
     assert!(!bell.mark_read(owner, notice_id).await.unwrap());
     pg(
         &url,
@@ -408,7 +426,7 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         .await
         .unwrap()
         .iter()
-        .all(|n| n.kind != "moderation_overdue"));
+        .all(|n| !observed_ids.contains(&n.id)));
     assert!(!bell.mark_read(admin_id, notice_id).await.unwrap());
     pg(
         &url,
@@ -499,8 +517,8 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
             .await
             .unwrap()
             .iter()
-            .all(|n| n.kind != "moderation_overdue"),
-        "stale source events cannot remain readable after request resolution"
+            .all(|n| !observed_ids.contains(&n.id)),
+        "resolved source events cannot remain readable while other alerts are pending"
     );
     assert!(!bell.mark_read(admin_id, notice_id).await.unwrap());
     pool.close().await;
