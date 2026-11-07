@@ -20,6 +20,12 @@ pub struct YandexCdnPurge {
     client: reqwest::Client,
     resource_id: String,
     bearer: String,
+    // The real binary always uses the fixed Yandex Cloud HTTPS management APIs.
+    // Only unit tests may redirect HTTP traffic to a loopback test server.
+    #[cfg(test)]
+    test_cdn_endpoint: Option<String>,
+    #[cfg(test)]
+    test_operation_endpoint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -104,14 +110,38 @@ impl YandexCdnPurge {
             client,
             resource_id,
             bearer,
+            #[cfg(test)]
+            test_cdn_endpoint: None,
+            #[cfg(test)]
+            test_operation_endpoint: None,
         })
+    }
+
+    fn cdn_endpoint(&self) -> &str {
+        #[cfg(test)]
+        if let Some(endpoint) = &self.test_cdn_endpoint {
+            return endpoint;
+        }
+        CDN_HOST
+    }
+
+    fn operation_endpoint(&self) -> &str {
+        #[cfg(test)]
+        if let Some(endpoint) = &self.test_operation_endpoint {
+            return endpoint;
+        }
+        OPERATION_HOST
     }
 
     /// Submit one *specific* file path. A missing response is an error, not
     /// evidence of success. The returned operation ID must be persisted in PG.
     pub async fn submit(&self, path: &str) -> Result<String, CoverError> {
         validated_purge_path(path)?;
-        let url = format!("{CDN_HOST}/cdn/v1/cache/{}:purge", self.resource_id);
+        let url = format!(
+            "{}/cdn/v1/cache/{}:purge",
+            self.cdn_endpoint(),
+            self.resource_id
+        );
         let response = self
             .client
             .post(url)
@@ -137,7 +167,7 @@ impl YandexCdnPurge {
         if !valid_id(operation_id, 128) {
             return Err(CoverError::Invalid);
         }
-        let url = format!("{OPERATION_HOST}/operations/{operation_id}");
+        let url = format!("{}/operations/{operation_id}", self.operation_endpoint());
         let response = self
             .client
             .get(url)
@@ -159,6 +189,10 @@ impl YandexCdnPurge {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "yandex_cdn_purge/http_tests.rs"]
+mod http_tests;
 
 #[cfg(test)]
 mod tests {
