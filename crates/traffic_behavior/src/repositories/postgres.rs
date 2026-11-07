@@ -1,6 +1,6 @@
 //! PostgreSQL RIL-06 batch staging, exclusive leases and exact-once rollups.
 //! No SQL runs in the HTTP request path. The schema contains only finite codes.
-use crate::domain::RollupDelta;
+use crate::domain::{FlowHourlyCount, RollupDelta};
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -68,6 +68,46 @@ impl PgRilRollups {
             expired_lease,
             repeated_attempts,
         })
+    }
+
+    /// FLOW-02 read model: no identity, route path, session or referrer fields.
+    /// A missing hour means no available telemetry, not proven zero visitors.
+    pub async fn read_flow_hourly(
+        &self,
+        hours: u16,
+    ) -> Result<Vec<FlowHourlyCount>, sqlx::Error> {
+        if !(1..=720).contains(&hours) {
+            return Err(sqlx::Error::Protocol(
+                "FLOW hourly window must be 1..=720 hours".into(),
+            ));
+        }
+        let rows = sqlx::query(
+            "SELECT EXTRACT(EPOCH FROM bucket)::bigint AS hour_epoch,
+                    surface_code,acquisition_hint,html_requests,
+                    opted_in_html_requests,observed_opted_in_visit_starts
+               FROM ril_flow_hourly
+              WHERE bucket >= date_trunc('hour',now())
+                    - (($1::integer-1) * INTERVAL '1 hour')
+                AND bucket <= date_trunc('hour',now())
+              ORDER BY bucket,surface_code,acquisition_hint",
+        )
+        .bind(i32::from(hours))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(FlowHourlyCount {
+                    hour_epoch: row.try_get("hour_epoch")?,
+                    surface: row.try_get("surface_code")?,
+                    acquisition_hint: row.try_get("acquisition_hint")?,
+                    html_requests: row.try_get("html_requests")?,
+                    opted_in_html_requests: row.try_get("opted_in_html_requests")?,
+                    observed_opted_in_visit_starts: row.try_get(
+                        "observed_opted_in_visit_starts",
+                    )?,
+                })
+            })
+            .collect()
     }
 
     /// RIL-10 read-only FinOps evidence, bounded to 30 days of retained hourly data.
