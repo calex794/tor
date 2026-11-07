@@ -16,6 +16,7 @@ use tor_reading::{repositories::PgReader, services::ReadingError};
 pub mod achievement_consumer;
 mod auth;
 mod auth_cookies;
+mod homepage_updates;
 mod author_chapter_http;
 mod author_chapter_images;
 mod author_chapter_pages;
@@ -145,36 +146,7 @@ async fn public_cards(
         .collect())
 }
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
-    if let Some(catalog) = state.postgres.as_ref() {
-        // The F-04 repository filters draft/held/deleted rows before LIMIT.
-        // Do not label the original ascending demo catalogue as "newest".
-        let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
-        let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
-        let rows = showcase
-            .latest_added(None, 12)
-            .await
-            .map_err(|error| match error {
-                tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
-                tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-            })?;
-        let cards = rows
-            .into_iter()
-            .map(|book| pages::PublicBookCard {
-                id: book.id,
-                title: book.title,
-                language: book.language,
-                author_name: if book.author_name.is_empty() {
-                    None
-                } else {
-                    Some(book.author_name)
-                },
-                genres: book.genres,
-            })
-            .collect::<Vec<_>>();
-        let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return cover_http::homepage_with_cdn(&state, &cards, &covers).await;
-    }
-    Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
+    homepage_updates::homepage(state).await
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
