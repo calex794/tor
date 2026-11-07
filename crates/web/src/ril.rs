@@ -15,6 +15,7 @@ use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
 
+mod flow;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,
@@ -112,6 +113,7 @@ async fn observe(
         .get::<MatchedPath>()
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
+    let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
     request.extensions_mut().insert(trace_id);
@@ -152,6 +154,14 @@ async fn observe(
         response.extensions_mut().remove::<VerifiedRilSubject>();
         None
     };
+    // FLOW receives only a finite HTML category and coarse source hint.
+    // Anonymous requests can be counted as pageviews, NOT as unique humans.
+    let flow_pageview = flow_request.observed(
+        status,
+        response.headers(),
+        passport.route_known,
+        subject.is_some(),
+    );
     // SQLx events are counted only within this request task; background tasks
     // remain excluded. Zero is genuine only when the subscriber was installed.
     if let Some(measured) = sql_measurement {
@@ -162,13 +172,13 @@ async fn observe(
         });
     }
     // Anonymous counters remain independent from personal behavior paths.
-    let _accepted = recorder.try_record(BehaviorEvent {
+    let _accepted = recorder.try_record_with_flow(BehaviorEvent {
         route: RouteCode::from_family(passport.route_family),
         status: StatusGroup::from_status(status),
         latency: LatencyGroup::from_elapsed(elapsed),
         subject,
         at_millis: recorder.uptime_millis(),
-    });
+    }, flow_pageview);
     response.extensions_mut().insert(observation);
     response
 }
