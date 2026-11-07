@@ -123,8 +123,8 @@ mod tests {
 
 /// Owner-scoped authoring validation (B-01/B-03).
 pub mod authoring;
-pub mod personal_books;
 pub mod book_delayed_schedule;
+pub mod personal_books;
 
 /// B-09/S030: deny unsafe ownership transfers until verified A/B/D/B-10 guards exist.
 pub mod owner_transfer_policy;
