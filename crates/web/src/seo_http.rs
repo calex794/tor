@@ -146,9 +146,10 @@ fn xml_response(xml: String) -> Response {
 pub(super) async fn decorate_book(
     state: &AppState,
     book_id: u64,
+    canonical_request: bool,
     html: Html<String>,
 ) -> Html<String> {
-    if !indexing_active() {
+    if !canonical_request || !indexing_active() {
         return html;
     }
     let Some(search) = state.search.as_ref() else {
