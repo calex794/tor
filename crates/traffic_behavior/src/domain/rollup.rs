@@ -1,6 +1,9 @@
 //! Fixed-size, in-process hourly deltas. No raw request data or identities.
 //! Each dimension is an enum value, never a free-form label.
-use super::{BehaviorEvent, GapBucket, RouteCode};
+use super::{
+    flow::{acquisition_index, surface_index}, BehaviorEvent, FlowCountRow, FlowPageview,
+    GapBucket, RouteCode, FLOW_SOURCES, FLOW_SURFACES,
+};
 
 const ROUTES: usize = 15;
 const STATUS: usize = 6;
@@ -55,6 +58,13 @@ pub struct TransitionCount {
     pub count: i64,
 }
 
+#[derive(Clone, Copy, Default)]
+struct FlowCell {
+    html_requests: u64,
+    opted_in_html_requests: u64,
+    opted_in_visit_starts: u64,
+}
+
 /// A bounded batch is ~10 KiB of fixed-size counters, regardless of traffic.
 /// This aggregation is independent of the long-lived per-subject BehaviorSketch.
 #[derive(Clone)]
@@ -62,6 +72,7 @@ pub struct RollupDelta {
     routes: [[[u64; LATENCY]; STATUS]; ROUTES],
     transitions: [[[u64; GAPS]; ROUTES]; ROUTES],
     sql: [SqlCell; ROUTES],
+    flow: [[FlowCell; FLOW_SOURCES]; FLOW_SURFACES],
     capped_cells: u64,
 }
 
@@ -71,6 +82,7 @@ impl Default for RollupDelta {
             routes: [[[0; LATENCY]; STATUS]; ROUTES],
             transitions: [[[0; GAPS]; ROUTES]; ROUTES],
             sql: [SqlCell::default(); ROUTES],
+            flow: [[FlowCell::default(); FLOW_SOURCES]; FLOW_SURFACES],
             capped_cells: 0,
         }
     }
@@ -119,6 +131,53 @@ impl RollupDelta {
         }
     }
 
+    /// Called only for an already filtered, successful HTML pageview.
+    /// The subject key never enters this fixed-dimensional rollup.
+    pub fn record_flow(
+        &mut self,
+        pageview: FlowPageview,
+        opted_in: bool,
+        started: bool,
+    ) {
+        let Some(surface) = surface_index(pageview.surface) else {
+            return;
+        };
+        let source = acquisition_index(pageview.acquisition_hint);
+        let cell = &mut self.flow[surface][source];
+        if cell.html_requests >= MAX_CELL
+            || (opted_in && cell.opted_in_html_requests >= MAX_CELL)
+            || (started && cell.opted_in_visit_starts >= MAX_CELL)
+        {
+            self.capped_cells = self.capped_cells.saturating_add(1);
+            return;
+        }
+        cell.html_requests += 1;
+        if opted_in {
+            cell.opted_in_html_requests += 1;
+        }
+        if opted_in && started {
+            cell.opted_in_visit_starts += 1;
+        }
+    }
+
+    pub fn flow_rows(&self) -> Vec<FlowCountRow> {
+        let mut rows = Vec::new();
+        for (surface, sources) in self.flow.iter().enumerate() {
+            for (source, cell) in sources.iter().enumerate() {
+                if cell.html_requests > 0 {
+                    rows.push(FlowCountRow {
+                        surface: surface as i16,
+                        acquisition_hint: source as i16,
+                        html_requests: cell.html_requests as i64,
+                        opted_in_html_requests: cell.opted_in_html_requests as i64,
+                        observed_opted_in_visit_starts: cell.opted_in_visit_starts as i64,
+                    });
+                }
+            }
+        }
+        rows
+    }
+
     pub fn sql_rows(&self) -> Vec<SqlCostCount> {
         self.sql
             .iter()
@@ -137,6 +196,7 @@ impl RollupDelta {
         self.routes.iter().flatten().flatten().all(|n| *n == 0)
             && self.transitions.iter().flatten().flatten().all(|n| *n == 0)
             && self.sql.iter().all(|item| item.requests == 0)
+            && self.flow.iter().flatten().all(|cell| cell.html_requests == 0)
     }
 
     pub fn capped_cells(&self) -> u64 {
