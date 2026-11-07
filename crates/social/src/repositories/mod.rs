@@ -6,5 +6,6 @@ pub mod friendships;
 pub mod group_mail;
 pub mod mail;
 mod messages;
+mod moderation_overdue_bell;
 pub(super) mod notification_events;
 pub mod notifications;
