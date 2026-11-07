@@ -96,11 +96,14 @@ impl PgAccounts {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+        // Limit cancellation as well as insertion: a backlog must not turn
+        // a 60-second worker tick into an unbounded database transaction.
+        // A later tick continues from remaining open records.
         let resolved = sqlx::query(
-            "UPDATE moderation_overdue_signals s
-             SET signal_state='resolved',resolved_at=clock_timestamp()
-             WHERE s.signal_state='open'
-               AND NOT (
+            "WITH stale AS (
+               SELECT s.id FROM moderation_overdue_signals s
+               WHERE s.signal_state='open'
+                 AND NOT (
                  (s.request_kind='registration' AND s.source_revision=0
                   AND EXISTS (
                     SELECT 1 FROM books b WHERE b.id=s.source_id
@@ -138,8 +141,16 @@ impl PgAccounts {
                           AND d.request_revision=r.request_revision
                       )
                  ))
-               )",
+               )
+               ORDER BY s.id
+               LIMIT $1
+             )
+             UPDATE moderation_overdue_signals s
+             SET signal_state='resolved',resolved_at=clock_timestamp()
+             FROM stale
+             WHERE s.id=stale.id AND s.signal_state='open'",
         )
+        .bind(i64::from(batch_limit))
         .execute(&mut *tx)
         .await?
         .rows_affected();
