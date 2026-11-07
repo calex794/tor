@@ -591,12 +591,6 @@ async fn logout(
     headers: HeaderMap,
     Form(form): Form<LogoutForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
+    // session_security::logout enforces same-origin and CSRF itself.
     session_security::logout(State(state), headers, Form(form)).await
 }

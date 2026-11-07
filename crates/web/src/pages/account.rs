@@ -434,7 +434,7 @@ mod tests {
         assert!(html.contains("Работа с книгами"));
         assert!(html.contains("Чтение"));
         assert!(html.contains("Сейчас"));
-        for route in ["/me/library", "/me/books", "/me/books/new", "/catalog"] {
+        for route in ["/me/library", "/me/books", "/me/books/new", "/me/teams", "/catalog"] {
             assert!(html.contains(&format!("href=\"{route}\"")));
         }
         assert!(html.contains("name=\"csrf_token\" value=\"csrf-token\""));
