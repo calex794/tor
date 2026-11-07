@@ -202,15 +202,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
     // The bell is a distinct explicit opt-in: enabling observation alone
     // must never start recipient-facing delivery.
-    let bell_setting = moderation_overdue_bell_worker::read_setting(
-        "TOR_MOD_OVERDUE_BELL_DELIVERY_ENABLED",
-    )?;
-    let bell_recipients = moderation_overdue_bell_worker::read_setting(
-        "TOR_MOD_OVERDUE_BELL_RECIPIENT_POLICY",
-    )?;
-    let bell_thresholds = moderation_overdue_bell_worker::read_setting(
-        "TOR_MOD_OVERDUE_BELL_SLA_POLICY",
-    )?;
+    let bell_setting =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_DELIVERY_ENABLED")?;
+    let bell_recipients =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_RECIPIENT_POLICY")?;
+    let bell_thresholds =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_SLA_POLICY")?;
     let bell_delivery_enabled = moderation_overdue_bell_worker::worker_opt_in(
         bell_setting.as_deref(),
         bell_recipients.as_deref(),
@@ -221,9 +218,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
     )
     .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
-    let mut pending_overdue_bell: Option<
-        tor_social::repositories::notifications::PgNotifications,
-    > = None;
+    let mut pending_overdue_bell: Option<tor_social::repositories::notifications::PgNotifications> =
+        None;
     let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
     let app = match env::var("DATABASE_URL") {
