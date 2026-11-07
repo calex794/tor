@@ -31,6 +31,35 @@ class CandidateCutoverGuardTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         DRILL.require_disposable(changed)
 
+    def test_distinct_binary_requires_runner_local_different_executable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            new = root / "new"
+            old = root / "old"
+            new.write_bytes(b"new Rust binary")
+            old.write_bytes(b"previous Rust binary")
+            for binary in (new, old):
+                binary.chmod(0o700)
+            self.assertEqual(DRILL.select_previous_binary({}, root, new), (new, False))
+            self.assertEqual(DRILL.select_previous_binary(
+                {"TOR_S061_PREVIOUS_BINARY": str(old)}, root, new), (old, True))
+            old.write_bytes(new.read_bytes())
+            with self.assertRaises(RuntimeError):
+                DRILL.select_previous_binary({"TOR_S061_PREVIOUS_BINARY": str(old)}, root, new)
+            outside = root.parent / "out-of-runner-old"
+            with self.assertRaises(RuntimeError):
+                DRILL.select_previous_binary(
+                    {"TOR_S061_PREVIOUS_BINARY": str(outside)}, root, new)
+            # A lexical path under runner temp must not escape through '..'.
+            traversal = root / ".." / outside.name
+            with self.assertRaises(RuntimeError):
+                DRILL.select_previous_binary(
+                    {"TOR_S061_PREVIOUS_BINARY": str(traversal)}, root, new)
+            old.unlink()
+            old.symlink_to(new)
+            with self.assertRaises(RuntimeError):
+                DRILL.select_previous_binary({"TOR_S061_PREVIOUS_BINARY": str(old)}, root, new)
+
     def test_atomic_release_pointer_only_accepts_private_release_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -67,6 +96,12 @@ class CandidateCutoverGuardTests(unittest.TestCase):
                 self.assertIn("name: s061-real-cutover-pg", text)
                 self.assertLess(text.index("bash tools/tor_pg_backup_restore_smoke.sh"),
                                 text.index("python3 tools/s061_cutover_pg_smoke.py"))
+        manual_text = manual.read_text()
+        self.assertIn("s061_previous_sha:", manual_text)
+        self.assertIn("S061 build previous binary (manual opt-in only)", manual_text)
+        self.assertIn('git merge-base --is-ancestor "$PREVIOUS_SHA"', manual_text)
+        self.assertIn("git fetch --no-tags --unshallow origin main", manual_text)
+        self.assertIn("TOR_S061_PREVIOUS_BINARY:", manual_text)
         mapper = (ROOT / "tools" / "ci_test_map.py").read_text()
         self.assertIn('"tools/s061_cutover_pg_smoke.py": {"postgres"}', mapper)
 
@@ -77,7 +112,8 @@ class CandidateCutoverGuardTests(unittest.TestCase):
         self.assertIn("atomic_select(current, previous)", text)
         self.assertIn("stop(promoted, force=True)", text)
         self.assertIn("migration_state() == before", text)
-        self.assertIn('"same_binary_both_slots": True', text)
+        self.assertIn('"same_binary_both_slots": not distinct', text)
+        self.assertIn('"distinct_binary_validation": distinct', text)
         self.assertIn('"no_production_or_tls_staging_claim": True', text)
         self.assertNotIn("TOR_DEPLOY_SSH_KEY", text)
         self.assertNotIn("pandaolate.ru", text)
