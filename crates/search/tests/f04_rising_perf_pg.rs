@@ -1,5 +1,5 @@
 //! Large synthetic workload only: actual F-04 repository SQL with EXPLAIN.
- //! C-verified provenance is tested separately via PgReadingSync in f04_rising_pg.
+//! C-verified provenance is tested separately via PgReadingSync in f04_rising_pg.
 use std::time::{Duration, Instant};
 
 use sqlx::PgPool;
