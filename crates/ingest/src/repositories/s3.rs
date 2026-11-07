@@ -197,7 +197,31 @@ impl CoverObjectStore for S3CoverStore {
             .send()
             .await
             .map_err(|_| CoverError::Unavailable)?;
-        Ok(format!("{origin}/{public_key}"))
+        // A successful DELETE request alone does not prove that the public
+        // origin has stopped serving this file. Never advance the PG ledger
+        // to CDN purge while HEAD still sees bytes or returns an error.
+        let head = self
+            .client
+            .head_object()
+            .bucket(bucket)
+            .key(&public_key)
+            .send()
+            .await;
+        match head {
+            Ok(_) => Err(CoverError::Unavailable),
+            Err(error) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let missing = error
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .is_some_and(|code| matches!(code, "NotFound" | "NoSuchKey" | "404"));
+                if missing {
+                    Ok(format!("{origin}/{public_key}"))
+                } else {
+                    Err(CoverError::Unavailable)
+                }
+            }
+        }
     }
 
     async fn remove_private_staging_source(&self, key: &str) -> Result<(), CoverError> {

@@ -74,6 +74,53 @@ impl PgPublicCoverPublications {
         })
     }
 
+    /// Find only current, site-approved public BASIC cover variants still
+    /// missing a confirmed CDN copy. Reserved failures have a retry cooldown.
+    pub async fn publication_candidates(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i64, PublicCoverKind)>, sqlx::Error> {
+        if !(1..=3).contains(&limit) {
+            return Err(sqlx::Error::Protocol(
+                "invalid cover publication batch".into(),
+            ));
+        }
+        let rows = sqlx::query(
+            "SELECT s.book_id,v.variant_name FROM books b
+             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+             JOIN book_cover_review_requests r ON r.job_id=j.id
+               AND r.book_id=b.id AND r.state='approved'
+             JOIN cover_variants v ON v.job_id=j.id
+               AND v.variant_name IN ('card','main')
+             LEFT JOIN public_cover_publications p ON p.book_id=b.id
+               AND p.slot_revision=s.revision AND p.variant_name=v.variant_name
+             WHERE b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+               AND b.access_level='basic' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.owner_user_id=j.actor_user_id AND j.status='done'
+               AND (p.id IS NULL OR (p.state='reserved'
+                    AND p.updated_at < now()-interval '1 minute'))
+             ORDER BY COALESCE(p.updated_at,'1970-01-01'::timestamptz),
+                      s.book_id,v.variant_name LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let id: i64 = row.try_get("book_id")?;
+                let variant: String = row.try_get("variant_name")?;
+                let kind = match variant.as_str() {
+                    "card" => PublicCoverKind::Card,
+                    "main" => PublicCoverKind::Main,
+                    _ => return Err(sqlx::Error::Protocol("invalid cover kind".into())),
+                };
+                Ok((id, kind))
+            })
+            .collect()
+    }
+
     /// Lock the B-owned Book and cover pointers, then record the exact identity
     /// in the *same transaction*. The caller must commit this BEFORE S3 COPY.
     /// Conflicting contents at the same Book/revision/variant fail closed.
