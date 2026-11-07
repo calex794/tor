@@ -300,6 +300,93 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     assert!(inbox_html.contains(&format!("Удаление #{deletion_book}")));
     assert!(inbox_html.contains("/moderation/books/deletions?wait=gte72"));
 
+    // Admin-only projection uses the existing in-app notification bell.
+    // No external mail/push and no automatic worker invokes it.
+    let admin_token = generate_session_token();
+    let admin_id = accounts
+        .register_with_session(
+            &format!("overdue-admin-{nonce}@example.invalid"),
+            "Overdue site administrator",
+            &password,
+            &session_token_digest(&admin_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({admin_id},'administrator',true)"
+        ),
+    );
+    let bell = tor_social::repositories::notifications::PgNotifications::new(pool.clone());
+    assert!(bell.project_moderation_overdue_to_admin_bell(0).await.is_err());
+    let (projection_a, projection_b) = tokio::join!(
+        bell.project_moderation_overdue_to_admin_bell(100),
+        bell.project_moderation_overdue_to_admin_bell(100),
+    );
+    projection_a.unwrap();
+    projection_b.unwrap();
+    let own_notices = || {
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM user_notifications n
+                 JOIN outbox_events e ON e.id=n.source_event_id
+                 WHERE n.recipient_user_id={admin_id}
+                   AND n.kind='moderation_overdue'
+                   AND e.aggregate_id IN (
+                      SELECT id FROM moderation_overdue_signals WHERE {subset}
+                   )"
+            ),
+        )
+    };
+    assert_eq!(own_notices(), "5", "one bell notice per admin and threshold");
+    bell.project_moderation_overdue_to_admin_bell(100)
+        .await
+        .unwrap();
+    assert_eq!(own_notices(), "5", "repeat delivery cannot duplicate bells");
+    let admin_bells = bell.list(admin_id, None, 50).await.unwrap();
+    assert_eq!(
+        admin_bells
+            .iter()
+            .filter(|n| n.kind == "moderation_overdue")
+            .count(),
+        5
+    );
+    assert!(admin_bells
+        .iter()
+        .filter(|n| n.kind == "moderation_overdue")
+        .all(|n| n.url == "/moderation/books/alerts"));
+    let notice_id = admin_bells
+        .iter()
+        .find(|n| n.kind == "moderation_overdue")
+        .unwrap()
+        .id;
+    assert!(!bell.mark_read(owner, notice_id).await.unwrap());
+    pg(
+        &url,
+        &format!(
+            "UPDATE account_roles SET is_active=false
+             WHERE user_id={admin_id} AND role='administrator'"
+        ),
+    );
+    assert!(bell
+        .list(admin_id, None, 50)
+        .await
+        .unwrap()
+        .iter()
+        .all(|n| n.kind != "moderation_overdue"));
+    assert!(!bell.mark_read(admin_id, notice_id).await.unwrap());
+    pg(
+        &url,
+        &format!(
+            "UPDATE account_roles SET is_active=true
+             WHERE user_id={admin_id} AND role='administrator'"
+        ),
+    );
+
     // A resolution cannot send stale alerts: reconciliation closes both
     // 24h/72h observations without deleting historical evidence.
     pg(
@@ -376,5 +463,13 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     assert!(!page.contains(&format!("Регистрация книги #{registration}")));
     assert!(!page.contains(&format!("Обложка #{cover_request}")));
     assert!(!page.contains(&format!("Удаление #{deletion_book}")));
+    assert!(bell
+        .list(admin_id, None, 50)
+        .await
+        .unwrap()
+        .iter()
+        .all(|n| n.kind != "moderation_overdue"),
+        "stale source events cannot remain readable after request resolution");
+    assert!(!bell.mark_read(admin_id, notice_id).await.unwrap());
     pool.close().await;
 }
