@@ -72,10 +72,7 @@ impl PgRilRollups {
 
     /// FLOW-02 read model: no identity, route path, session or referrer fields.
     /// A missing hour means no available telemetry, not proven zero visitors.
-    pub async fn read_flow_hourly(
-        &self,
-        hours: u16,
-    ) -> Result<Vec<FlowHourlyCount>, sqlx::Error> {
+    pub async fn read_flow_hourly(&self, hours: u16) -> Result<Vec<FlowHourlyCount>, sqlx::Error> {
         if !(1..=720).contains(&hours) {
             return Err(sqlx::Error::Protocol(
                 "FLOW hourly window must be 1..=720 hours".into(),
@@ -102,9 +99,8 @@ impl PgRilRollups {
                     acquisition_hint: row.try_get("acquisition_hint")?,
                     html_requests: row.try_get("html_requests")?,
                     opted_in_html_requests: row.try_get("opted_in_html_requests")?,
-                    observed_opted_in_visit_starts: row.try_get(
-                        "observed_opted_in_visit_starts",
-                    )?,
+                    observed_opted_in_visit_starts: row
+                        .try_get("observed_opted_in_visit_starts")?,
                 })
             })
             .collect()
