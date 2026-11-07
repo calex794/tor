@@ -1,16 +1,14 @@
 //! SEO-06: read-only public sitemap and robots projection.
 //! Indexing stays disabled unless the operator explicitly enables the
 //! public mode AND confirms the HTTP publication barrier.
-use super::{AppState, pages};
+use super::{pages, AppState};
 use axum::{
     extract::State,
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
 };
 use tor_search::{
-    domain::seo::{
-        SeoBookFacts, SeoBookView, SeoMode, SeoPage, SeoSite, SeoVisibility,
-    },
+    domain::seo::{SeoBookFacts, SeoBookView, SeoMode, SeoPage, SeoSite, SeoVisibility},
     domain::seo_urls::{BookUrl, TrustedSeoOrigin},
     services::seo::SeoPolicy,
 };
@@ -120,7 +118,11 @@ pub(super) async fn decorate_book(
         },
         view: SeoBookView::Canonical,
     });
-    let Some(path) = decision.canonical_path.as_deref().filter(|_| decision.indexable()) else {
+    let Some(path) = decision
+        .canonical_path
+        .as_deref()
+        .filter(|_| decision.indexable())
+    else {
         return html;
     };
     let Some(book_url) = BookUrl::from_exact_path(path) else {
