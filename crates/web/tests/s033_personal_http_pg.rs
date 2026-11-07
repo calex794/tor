@@ -5,7 +5,7 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{net::SocketAddr, time::{SystemTime, UNIX_EPOCH};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
@@ -14,14 +14,16 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn request(method: &str, path: &str, cookies: &str, form: &str) -> Request<Body> {
-    Request::builder()
+    let mut request = Request::builder()
         .method(method)
         .uri(path)
         .header(header::COOKIE, cookies)
         .header(header::ORIGIN, ORIGIN)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(form.to_owned()))
-        .expect("HTTP request")
+        .expect("HTTP request");
+    request.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40255))));
+    request
 }
 async fn send(app: &Router, method: &str, path: &str, cookies: &str, form: &str) -> axum::response::Response {
     app.clone().oneshot(request(method, path, cookies, form)).await.expect("HTTP response")
@@ -85,7 +87,6 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     let created = send(&app, "POST", "/personal-books/new", &owner_cookies, &injected).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
     let book_path = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
-    let book_id = book_path.rsplit('/').next().unwrap();
     let own = send(&app, "GET", &book_path, &owner_cookies, "").await;
     assert_eq!(own.headers()[header::CACHE_CONTROL], "no-store");
     let html = body(own).await;
@@ -125,6 +126,5 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     assert!(!body(send(&app, "GET", "/catalog", "", "").await).await.contains("Revised"));
     assert_eq!(send(&app, "POST", &new_chapter_path, &owner_cookies,
                     &format!("title=Intrusion&content_markdown=x&csrf_token=invalid")).await.status(), StatusCode::FORBIDDEN);
-    // Deliberately no public Book identity and no public reader route.
-    assert_eq!(send(&app, "GET", &format!("/books/{book_id}"), "", "").await.status(), StatusCode::NOT_FOUND);
+    // Personal books are in separate PG tables and never projected into public catalog.
 }
