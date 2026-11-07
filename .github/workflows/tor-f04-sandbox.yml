@@ -1,0 +1,80 @@
+name: TOR F-04 isolated homepage
+on:
+  pull_request:
+    paths:
+      - .github/workflows/tor-f04-sandbox.yml
+      - tests/smoke/f04_sandbox_seed.sql
+      - tests/smoke/f04_sandbox_http.sh
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  f04-homepage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-f04-sandbox-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: tor_app
+      PGDATABASE: tor_ci
+      PGPASSWORD: tor-f04-sandbox-app
+      DATABASE_URL: postgresql://tor_app:tor-f04-sandbox-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-f04-sandbox-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install local PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Create disposable tor_ci roles and database
+        run: |
+          PGUSER=postgres PGDATABASE=postgres PGPASSWORD=tor-f04-sandbox-superuser psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-f04-sandbox-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-f04-sandbox-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          PGUSER=postgres PGDATABASE=tor_ci PGPASSWORD=tor-f04-sandbox-superuser psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply canonical SQLx migrations
+        run: DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Seed disposable growing book and three synthetic readers
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/smoke/f04_sandbox_seed.sql
+      - name: Build TOR server for loopback-only smoke
+        run: cargo build --release -p tor-web
+      - name: Verify real HTTP with rising shelf off, on, revoked and restored
+        run: bash tests/smoke/f04_sandbox_http.sh
+      - name: Preserve disposable homepage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-f04-sandbox-http
+          path: ${{ runner.temp }}/f04-sandbox/
+          if-no-files-found: warn
+          retention-days: 14
