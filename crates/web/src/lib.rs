@@ -526,6 +526,10 @@ fn make_router_with_paid_checkout(
             get(pages::paid_reader_script),
         )
         .route(
+            "/assets/newboo-paid-comments.mjs",
+            get(pages::paid_comments_script),
+        )
+        .route(
             "/assets/newboo-layer-reader.mjs",
             get(layer_reader_assets::script),
         )
