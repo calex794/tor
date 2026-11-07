@@ -48,7 +48,10 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
         .collect::<Vec<_>>();
 
     let mut cover_candidates = latest.clone();
-    let mut ids = cover_candidates.iter().map(|book| book.id).collect::<HashSet<_>>();
+    let mut ids = cover_candidates
+        .iter()
+        .map(|book| book.id)
+        .collect::<HashSet<_>>();
     for book in &releases {
         if ids.insert(book.id) {
             cover_candidates.push(book.clone());
@@ -56,7 +59,10 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
     }
     let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cover_candidates).await?;
     let html = pages::home_recent_with_updates(&latest, &covers, &releases);
-    let available = cover_candidates.iter().map(|book| book.id).collect::<Vec<_>>();
+    let available = cover_candidates
+        .iter()
+        .map(|book| book.id)
+        .collect::<Vec<_>>();
     let (html, _) = cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &available).await?;
     Ok(html)
 }
