@@ -34,14 +34,25 @@ async fn body(resp: axum::response::Response) -> String {
 }
 fn csrf(html: &str) -> String {
     html.split("name=\"csrf_token\" value=\"")
-        .nth(1).expect("CSRF form field")
-        .split('"').next().expect("value").to_owned()
+        .nth(1)
+        .expect("CSRF form field")
+        .split('"')
+        .next()
+        .expect("value")
+        .to_owned()
 }
 fn cookie(reply: &axum::response::Response, prefix: &str) -> String {
-    reply.headers().get_all(header::SET_COOKIE).iter()
+    reply
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
         .filter_map(|v| v.to_str().ok())
         .find(|v| v.starts_with(prefix))
-        .expect("cookie").split(';').next().expect("pair").to_owned()
+        .expect("cookie")
+        .split(';')
+        .next()
+        .expect("pair")
+        .to_owned()
 }
 async fn signup(app: &Router, email: &str) -> String {
     let page = send(app, "GET", "/register", "", "").await;
@@ -64,9 +75,16 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     let accounts = PgAccounts::from_pool(catalog.pool());
     let reader = PgReader::new(catalog.pool());
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, reader, accounts, false, ORIGIN.to_owned(),
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let owner = signup(&app, &format!("s033-owner-{stamp}@example.invalid")).await;
     let other = signup(&app, &format!("s033-other-{stamp}@example.invalid")).await;
     let guest = send(&app, "GET", "/personal-books", "", "").await;
@@ -76,7 +94,10 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     assert!(body(home).await.contains("href=\"/personal-books\""));
 
     let new = send(&app, "GET", "/personal-books/new", &owner, "").await;
-    assert_eq!(new.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(
+        new.headers()["x-robots-tag"],
+        "noindex, nofollow, noarchive"
+    );
     let csrf_cookie = cookie(&new, "tor-dev-csrf=");
     let csrf = csrf(&body(new).await);
     let owner_cookies = format!("{owner}; {csrf_cookie}");
@@ -93,22 +114,58 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     assert!(html.contains("&lt;script&gt;"));
     assert!(!html.contains("<script></h1>"));
 
-    for path in [&book_path, &format!("{book_path}/edit"), &format!("{book_path}/chapters/new")] {
-        assert_eq!(send(&app, "GET", path, &other, "").await.status(), StatusCode::NOT_FOUND);
-        assert_eq!(send(&app, "GET", path, "", "").await.status(), StatusCode::SEE_OTHER);
+    for path in [
+        &book_path,
+        &format!("{book_path}/edit"),
+        &format!("{book_path}/chapters/new"),
+    ] {
+        assert_eq!(
+            send(&app, "GET", path, &other, "").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            send(&app, "GET", path, "", "").await.status(),
+            StatusCode::SEE_OTHER
+        );
     }
     let foreign_form = format!("title=Hacked&description=x&csrf_token={csrf}");
-    assert_eq!(send(&app, "POST", &format!("{book_path}/edit"), &owner, &foreign_form).await.status(), StatusCode::FORBIDDEN);
-    let edited = send(&app, "POST", &format!("{book_path}/edit"), &owner_cookies,
-                      &format!("title=Revised&description=Mine&csrf_token={csrf}")).await;
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{book_path}/edit"),
+            &owner,
+            &foreign_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let edited = send(
+        &app,
+        "POST",
+        &format!("{book_path}/edit"),
+        &owner_cookies,
+        &format!("title=Revised&description=Mine&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(edited.status(), StatusCode::SEE_OTHER);
     let new_chapter_path = format!("{book_path}/chapters/new");
     let chapter_page = send(&app, "GET", &new_chapter_path, &owner_cookies, "").await;
     let chapter_csrf = csrf(&body(chapter_page).await);
-    let chapter = send(&app, "POST", &new_chapter_path, &owner_cookies,
-                      &format!("title=Private&content_markdown=SECRET_S033_%3Cimg%3E&csrf_token={chapter_csrf}")).await;
+    let chapter = send(
+        &app,
+        "POST",
+        &new_chapter_path,
+        &owner_cookies,
+        &format!("title=Private&content_markdown=SECRET_S033_%3Cimg%3E&csrf_token={chapter_csrf}"),
+    )
+    .await;
     assert_eq!(chapter.status(), StatusCode::SEE_OTHER);
-    let chapter_path = chapter.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let chapter_path = chapter.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     let own_chapter = send(&app, "GET", &chapter_path, &owner, "").await;
     let html = body(own_chapter).await;
     assert!(html.contains("SECRET_S033_&lt;img&gt;"));
