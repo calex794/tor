@@ -3,17 +3,13 @@
 //! authenticated Book moderation, a separate public S3 bucket and Yandex API.
 
 use crate::{
-    cover_cdn_cleanup::CoverOriginCleanup,
-    cover_cdn_purge::CoverCdnPurgeWorker,
-    cover_delivery::CoverDelivery,
-    yandex_cdn_purge::YandexCdnPurge,
+    cover_cdn_cleanup::CoverOriginCleanup, cover_cdn_purge::CoverCdnPurgeWorker,
+    cover_delivery::CoverDelivery, yandex_cdn_purge::YandexCdnPurge,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tor_books::repositories::{
-    cover_publications::PgPublicCoverPublications,
-    cover_slots::PgCoverSlots,
-    PgCatalog,
+    cover_publications::PgPublicCoverPublications, cover_slots::PgCoverSlots, PgCatalog,
 };
 use tor_ingest::{domain::cover::CoverError, services::cover_jobs::CoverObjectStore};
 
@@ -31,11 +27,7 @@ pub fn worker_opt_in(
     match setting {
         None | Some("0") => Ok(false),
         Some("1")
-            if !demo
-                && postgres
-                && auth_enabled
-                && private_storage
-                && public_cdn_configured =>
+            if !demo && postgres && auth_enabled && private_storage && public_cdn_configured =>
         {
             Ok(true)
         }
@@ -58,21 +50,33 @@ impl CoverCdnLifecycle {
         // success. Never log bearer, object keys, path or provider response.
         match self.cdn_purge.poll_batch().await {
             Ok(batch) if batch.claimed > 0 => {
-                tracing::info!(completed = batch.completed, pending = batch.deferred, "S025 CDN status");
+                tracing::info!(
+                    completed = batch.completed,
+                    pending = batch.deferred,
+                    "S025 CDN status"
+                );
             }
             Ok(_) => {}
             Err(_) => tracing::warn!("S025 CDN status unavailable; durable retry pending"),
         }
         match self.origin_cleanup.run_batch().await {
             Ok(batch) if batch.claimed > 0 => {
-                tracing::info!(deleted = batch.origin_deleted, retry = batch.retry_scheduled, "S025 origin retirement");
+                tracing::info!(
+                    deleted = batch.origin_deleted,
+                    retry = batch.retry_scheduled,
+                    "S025 origin retirement"
+                );
             }
             Ok(_) => {}
             Err(_) => tracing::warn!("S025 origin retirement unavailable; durable retry pending"),
         }
         match self.cdn_purge.submit_batch().await {
             Ok(batch) if batch.claimed > 0 => {
-                tracing::info!(submitted = batch.submitted, retry = batch.retry_scheduled, "S025 CDN submission");
+                tracing::info!(
+                    submitted = batch.submitted,
+                    retry = batch.retry_scheduled,
+                    "S025 CDN submission"
+                );
             }
             Ok(_) => {}
             Err(_) => tracing::warn!("S025 CDN submission unavailable; durable retry pending"),

@@ -159,8 +159,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cdn_credentials = if cdn_worker_enabled {
         let resource = env::var("TOR_CDN_COVER_YANDEX_RESOURCE_ID")
             .map_err(|_| "missing S025 CDN resource ID")?;
-        let bearer = env::var("TOR_CDN_COVER_YANDEX_BEARER")
-            .map_err(|_| "missing S025 CDN bearer")?;
+        let bearer =
+            env::var("TOR_CDN_COVER_YANDEX_BEARER").map_err(|_| "missing S025 CDN bearer")?;
         Some((resource, bearer))
     } else {
         None

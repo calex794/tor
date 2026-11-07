@@ -81,7 +81,9 @@ impl PgPublicCoverPublications {
         limit: i64,
     ) -> Result<Vec<(i64, PublicCoverKind)>, sqlx::Error> {
         if !(1..=3).contains(&limit) {
-            return Err(sqlx::Error::Protocol("invalid cover publication batch".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid cover publication batch".into(),
+            ));
         }
         let rows = sqlx::query(
             "SELECT s.book_id,v.variant_name FROM books b
