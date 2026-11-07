@@ -49,6 +49,7 @@ pub fn detail_with_covers_with_demand(
             latest_job,
             demand_count,
             paid_editor_enabled: false,
+            age_editor_enabled: false,
             next: None,
             has_previous_page: false,
         },
@@ -61,6 +62,7 @@ pub struct OwnerChapterPageOptions<'a> {
     pub latest_job: Option<&'a str>,
     pub demand_count: i64,
     pub paid_editor_enabled: bool,
+    pub age_editor_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
@@ -78,6 +80,7 @@ pub fn detail_with_covers_with_demand_page(
         latest_job,
         demand_count,
         paid_editor_enabled,
+        age_editor_enabled,
         next,
         has_previous_page,
     } = options;
@@ -202,6 +205,11 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
+    let age_settings_link = if age_editor_enabled {
+        format!("<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>", book.id)
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
@@ -214,6 +222,7 @@ pub fn detail_with_covers_with_demand_page(
         <p><a href="/me/books/{id}/settings/sources">Ссылки на произведение</a></p>
         <p><a href="/me/books/{id}/settings/project-status">Состояние работы над книгой</a></p>
         <p><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл книги</a></p>
+        {age_settings_link}
         <p><a href="/me/books/{id}/settings/titles">Названия книги</a></p>
         <p><a href="/me/books/{id}/settings/related">Связанные книги</a></p>
         <p><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></p>
