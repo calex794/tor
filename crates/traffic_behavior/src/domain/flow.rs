@@ -46,9 +46,10 @@ pub fn surface_index(surface: RouteSurface) -> Option<usize> {
         RouteSurface::BookDetail => Some(2),
         RouteSurface::ChapterReader => Some(3),
         RouteSurface::AuthenticatedPage => Some(4),
-        RouteSurface::StaticAsset | RouteSurface::Api | RouteSurface::Ops | RouteSurface::Unknown => {
-            None
-        }
+        RouteSurface::StaticAsset
+        | RouteSurface::Api
+        | RouteSurface::Ops
+        | RouteSurface::Unknown => None,
     }
 }
 
