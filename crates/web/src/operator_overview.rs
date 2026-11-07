@@ -140,9 +140,15 @@ fn render(snapshot: &Overview) -> Html<String> {
              <dt>Задержка удаления (&gt;5 мин)</dt><dd>{}</dd>\
              <dt>Задержка CDN (&gt;20 мин)</dt><dd>{}</dd>\
              <dt>Три и более попытки</dt><dd>{}</dd></dl>",
-            counts.reserved, counts.copied, counts.removal_due,
-            counts.origin_deleted, counts.purge_submitted, counts.purged,
-            counts.stale_reserved, counts.overdue_removal, counts.overdue_purge,
+            counts.reserved,
+            counts.copied,
+            counts.removal_due,
+            counts.origin_deleted,
+            counts.purge_submitted,
+            counts.purged,
+            counts.stale_reserved,
+            counts.overdue_removal,
+            counts.overdue_purge,
             counts.repeated_attempts,
         ),
     };

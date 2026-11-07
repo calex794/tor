@@ -888,7 +888,10 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(state, "purged");
     }
     assert_eq!(purge.poll_batch().await.unwrap().claimed, 0);
-    let queue = PgCoverCdnOps::new(catalog.pool()).queue_counts().await.unwrap();
+    let queue = PgCoverCdnOps::new(catalog.pool())
+        .queue_counts()
+        .await
+        .unwrap();
     assert_eq!(queue.purged, 2);
     assert_eq!(queue.origin_deleted, 0);
     assert_eq!(queue.purge_submitted, 0);
