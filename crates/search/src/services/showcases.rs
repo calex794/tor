@@ -108,7 +108,11 @@ impl<'a> RisingShowcases<'a> {
         }
         let books = self.repository.rising_free_readers(limit).await?;
         let mut seen = HashSet::new();
-        if books.len() > limit || books.iter().any(|book| book.id == 0 || !seen.insert(book.id)) {
+        if books.len() > limit
+            || books
+                .iter()
+                .any(|book| book.id == 0 || !seen.insert(book.id))
+        {
             return Err(SearchError::Unavailable);
         }
         Ok(books)
