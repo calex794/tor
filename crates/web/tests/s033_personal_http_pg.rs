@@ -5,7 +5,10 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::{net::SocketAddr, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
@@ -22,14 +25,30 @@ fn request(method: &str, path: &str, cookies: &str, form: &str) -> Request<Body>
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(form.to_owned()))
         .expect("HTTP request");
-    request.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40255))));
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            40255,
+        ))));
     request
 }
-async fn send(app: &Router, method: &str, path: &str, cookies: &str, form: &str) -> axum::response::Response {
-    app.clone().oneshot(request(method, path, cookies, form)).await.expect("HTTP response")
+async fn send(
+    app: &Router,
+    method: &str,
+    path: &str,
+    cookies: &str,
+    form: &str,
+) -> axum::response::Response {
+    app.clone()
+        .oneshot(request(method, path, cookies, form))
+        .await
+        .expect("HTTP response")
 }
 async fn body(resp: axum::response::Response) -> String {
-    let bytes = to_bytes(resp.into_body(), 2 * 1024 * 1024).await.expect("body");
+    let bytes = to_bytes(resp.into_body(), 2 * 1024 * 1024)
+        .await
+        .expect("body");
     String::from_utf8(bytes.to_vec()).expect("UTF8")
 }
 fn csrf(html: &str) -> String {
@@ -104,10 +123,24 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
 
     let injected = format!("title=%3Cscript%3E&description=private&csrf_token={csrf}");
     let wrong_origin = send(&app, "POST", "/personal-books/new", &owner, &injected).await;
-    assert_eq!(wrong_origin.status(), StatusCode::FORBIDDEN, "no CSRF cookie");
-    let created = send(&app, "POST", "/personal-books/new", &owner_cookies, &injected).await;
+    assert_eq!(
+        wrong_origin.status(),
+        StatusCode::FORBIDDEN,
+        "no CSRF cookie"
+    );
+    let created = send(
+        &app,
+        "POST",
+        "/personal-books/new",
+        &owner_cookies,
+        &injected,
+    )
+    .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    let book_path = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let book_path = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     let own = send(&app, "GET", &book_path, &owner_cookies, "").await;
     assert_eq!(own.headers()[header::CACHE_CONTROL], "no-store");
     let html = body(own).await;
@@ -171,17 +204,46 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     assert!(html.contains("SECRET_S033_&lt;img&gt;"));
     assert!(!html.contains("<img>"));
     for path in [&chapter_path, &format!("{chapter_path}/edit")] {
-        assert_eq!(send(&app, "GET", path, &other, "").await.status(), StatusCode::NOT_FOUND);
-        assert_eq!(send(&app, "GET", path, "", "").await.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            send(&app, "GET", path, &other, "").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            send(&app, "GET", path, "", "").await.status(),
+            StatusCode::SEE_OTHER
+        );
     }
-    assert_eq!(send(&app, "POST", &format!("{chapter_path}/edit"), &owner_cookies,
-                &format!("title=Changed&content_markdown=CHANGED&csrf_token={csrf}")).await.status(),
-               StatusCode::SEE_OTHER);
-    assert!(body(send(&app, "GET", &chapter_path, &owner, "").await).await.contains("CHANGED"));
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{chapter_path}/edit"),
+            &owner_cookies,
+            &format!("title=Changed&content_markdown=CHANGED&csrf_token={csrf}")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(body(send(&app, "GET", &chapter_path, &owner, "").await)
+        .await
+        .contains("CHANGED"));
     let other_list = body(send(&app, "GET", "/personal-books", &other, "").await).await;
     assert!(!other_list.contains("Revised"));
-    assert!(!body(send(&app, "GET", "/catalog", "", "").await).await.contains("Revised"));
-    assert_eq!(send(&app, "POST", &new_chapter_path, &owner_cookies,
-                    &format!("title=Intrusion&content_markdown=x&csrf_token=invalid")).await.status(), StatusCode::FORBIDDEN);
+    assert!(!body(send(&app, "GET", "/catalog", "", "").await)
+        .await
+        .contains("Revised"));
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &new_chapter_path,
+            &owner_cookies,
+            &format!("title=Intrusion&content_markdown=x&csrf_token=invalid")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
     // Personal books are in separate PG tables and never projected into public catalog.
 }
