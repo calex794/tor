@@ -564,6 +564,20 @@
     },
     {
       "method": "GET",
+      "template": "/robots.txt",
+      "source": "crates/web/src/lib.rs",
+      "handler": "seo_http::robots_txt",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/sitemap.xml",
+      "source": "crates/web/src/lib.rs",
+      "handler": "seo_http::sitemap_xml",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/readyz",
       "source": "crates/web/src/lib.rs",
       "handler": "ready",
