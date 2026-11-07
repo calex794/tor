@@ -34,6 +34,8 @@ jobs:
           components: rustfmt
       - name: Feature boundaries
         run: python3 tools/check_feature_layout.py
+      - name: S025 staging verifier offline unit tests (no network)
+        run: python3 -m unittest discover -s tools -p test_s025_cdn_staging_probe.py
       - name: Rust formatting
         run: cargo fmt --all -- --check
   demo:
