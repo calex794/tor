@@ -1,4 +1,5 @@
 pub mod book_members;
+pub mod personal_books;
 pub(crate) mod chapter_number;
 pub mod cover_private_cleanup;
 pub mod cover_publications;
