@@ -43,6 +43,8 @@ use tor_web::{
 };
 use tower::ServiceExt;
 
+#[path = "cover_s3_pg/cdn_html.rs"]
+mod cdn_html;
 #[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
 #[path = "cover_s3_pg/source_cleanup.rs"]
@@ -729,6 +731,8 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(urls.get(&(BOOK_ID as u64)), Some(expected_url));
         assert!(!urls.contains_key(&951));
     }
+    cdn_html::verify(&catalog, &publisher, &public_urls).await;
+
     let card_original = store
         .get_bounded(&card.storage_key, card.size_bytes as usize)
         .await

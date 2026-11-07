@@ -131,12 +131,15 @@ pub(super) async fn catalog(
             },
             &covers,
         );
-        return Ok(if digest.is_some() {
+        let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+        let (html, origin) = cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
+        let response = if digest.is_some() {
             // Personalized 18+/21+ metadata must never be cached for guests.
             auth_cookies::private_response(html, &[])
         } else {
             html.into_response()
-        });
+        };
+        return Ok(cover_http::cdn_image_csp(response, origin.as_deref()));
     }
     if query.q.is_some()
         || query.after.is_some()

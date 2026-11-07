@@ -146,7 +146,7 @@ async fn public_cards(
 }
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
-    if let Some(catalog) = state.postgres {
+    if let Some(catalog) = state.postgres.as_ref() {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
         // Do not label the original ascending demo catalogue as "newest".
         let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
@@ -173,7 +173,7 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::home_recent_with_covers(&cards, &covers));
+        return cover_http::homepage_with_cdn(&state, &cards, &covers).await;
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
@@ -303,11 +303,11 @@ async fn book_detail(
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
-        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        return cover_http::book_html(&state, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -562,12 +562,10 @@ fn make_router_with_paid_checkout(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
-    let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
-        cover_delivery::CoverDelivery::new(
-            tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
-            store,
-        )
-    });
+    let covers = postgres
+        .as_ref()
+        .zip(objects)
+        .map(|(catalog, store)| cover_http::configured_delivery(catalog, store));
     let rec_runtime = follow_control.as_ref().map(|control| {
         let (accounts, cookies) = control.browser_context();
         recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
