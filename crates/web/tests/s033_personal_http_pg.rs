@@ -51,7 +51,7 @@ async fn body(resp: axum::response::Response) -> String {
         .expect("body");
     String::from_utf8(bytes.to_vec()).expect("UTF8")
 }
-fn csrf(html: &str) -> String {
+fn csrf_from_page(html: &str) -> String {
     html.split("name=\"csrf_token\" value=\"")
         .nth(1)
         .expect("CSRF form field")
@@ -76,7 +76,7 @@ fn cookie(reply: &axum::response::Response, prefix: &str) -> String {
 async fn signup(app: &Router, email: &str) -> String {
     let page = send(app, "GET", "/register", "", "").await;
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
-    let value = csrf(&body(page).await);
+    let value = csrf_from_page(&body(page).await);
     let form = format!(
         "email={}&display_name=PrivateOwner&password=LongSecurePassword2026&csrf_token={value}",
         email.replace('@', "%40")
@@ -118,7 +118,7 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
         "noindex, nofollow, noarchive"
     );
     let csrf_cookie = cookie(&new, "tor-dev-csrf=");
-    let csrf = csrf(&body(new).await);
+    let csrf = csrf_from_page(&body(new).await);
     let owner_cookies = format!("{owner}; {csrf_cookie}");
 
     let injected = format!("title=%3Cscript%3E&description=private&csrf_token={csrf}");
@@ -185,7 +185,7 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
     assert_eq!(edited.status(), StatusCode::SEE_OTHER);
     let new_chapter_path = format!("{book_path}/chapters/new");
     let chapter_page = send(&app, "GET", &new_chapter_path, &owner_cookies, "").await;
-    let chapter_csrf = csrf(&body(chapter_page).await);
+    let chapter_csrf = csrf_from_page(&body(chapter_page).await);
     let chapter = send(
         &app,
         "POST",
