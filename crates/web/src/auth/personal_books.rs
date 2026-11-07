@@ -198,11 +198,11 @@ fn chapter_detail(chapter: &PersonalChapter) -> String {
     )
 }
 async fn index(State(s): State<PersonalState>, headers: HeaderMap) -> Response {
-    let id = match actor(&s, &headers).await {
+    let actor = match actor(&s, &headers).await {
         Ok(id) => id,
         Err(e) => return e,
     };
-    match s.books.list_books(id).await {
+    match s.books.list_books(actor).await {
         Ok(books) => display("Личные книги", &book_list(&books), &[]),
         Err(e) => error(e),
     }
