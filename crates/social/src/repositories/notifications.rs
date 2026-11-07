@@ -45,6 +45,7 @@ const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
     ("book_pending_deletion", "Удаление книг", "Книги, поставленные на удаление."),
     ("book_moderation_passed", "Модерация: одобрено", "Книга прошла модерацию."),
     ("book_moderation_problem", "Модерация: проблемы", "Книга скрыта или ограничена модерацией."),
+    ("moderation_overdue", "Просроченные заявки модерации", "Служебные сигналы ожидания для администратора сайта."),
     ("refund", "Возвраты читателя", "Решения по вашим возвратам."),
     ("refund_author", "Возвраты автора", "Возвраты по вашим книгам."),
     ("payout", "Выплаты", "Финансовые события по выводу средств."),
@@ -63,6 +64,16 @@ pub struct PgNotifications {
 impl PgNotifications {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Delivers to existing in-app bells only when explicitly invoked by an
+    /// internal caller. Nothing schedules or automatically enables this method.
+    /// Unapproved recipient/SLA policies must not be enabled on production.
+    pub async fn project_moderation_overdue_to_admin_bell(
+        &self,
+        limit: u16,
+    ) -> Result<usize, MailError> {
+        super::moderation_overdue_bell::project(&self.pool, limit).await
     }
 
     /// Fan out S058's canonical release fact into recipient-scoped events.
