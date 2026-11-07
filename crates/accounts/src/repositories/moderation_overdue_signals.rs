@@ -14,10 +14,8 @@ impl PgAccounts {
     /// Fail startup rather than silently operating without the additive ledger.
     /// The restricted tor_app role needs read access, not schema-owner DDL.
     pub async fn probe_moderation_overdue_observations(&self) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "SELECT id,signal_state FROM moderation_overdue_signals LIMIT 0",
-        )
-        .execute(self.pool())
+        sqlx::query("SELECT id,signal_state FROM moderation_overdue_signals LIMIT 0")
+            .execute(self.pool())
         .await?;
         Ok(())
     }
