@@ -9,4 +9,3 @@ tor-contracts = { path = "../contracts" }
 
 [dev-dependencies]
 tokio.workspace = true
-tor-accounts = { path = "../accounts" }
