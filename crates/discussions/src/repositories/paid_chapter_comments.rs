@@ -5,8 +5,8 @@ use sqlx::PgPool;
 use tor_contracts::reader_manifest::reader_blocks;
 
 use super::public_chapter_comments::{
-    ChapterComment, ChapterCommentAnchor, ChapterCommentPage, CreateResult, ListError,
-    NewAnchor, NewChapterComment,
+    ChapterComment, ChapterCommentAnchor, ChapterCommentPage, CreateResult, ListError, NewAnchor,
+    NewChapterComment,
 };
 
 #[derive(Clone)]
@@ -25,13 +25,20 @@ fn valid_comment(actor: i64, purchase: i64, c: &NewChapterComment<'_>) -> bool {
         && c.body.chars().count() <= 2000
         && !c.body.contains('\0')
         && c.command_key.len() == 43
-        && c.command_key.bytes().all(|x| x.is_ascii_alphanumeric() || x == b'_' || x == b'-')
+        && c.command_key
+            .bytes()
+            .all(|x| x.is_ascii_alphanumeric() || x == b'_' || x == b'-')
         && c.payload_hash.len() == 32
 }
 
 fn exact_anchor(source: &str, a: NewAnchor<'_>) -> bool {
-    if a.block_index < 1 || a.start_utf16 < 0 || a.end_utf16 <= a.start_utf16
-        || a.end_utf16 > 100_000 || a.quote.is_empty() || a.quote.chars().count() > 500 {
+    if a.block_index < 1
+        || a.start_utf16 < 0
+        || a.end_utf16 <= a.start_utf16
+        || a.end_utf16 > 100_000
+        || a.quote.is_empty()
+        || a.quote.chars().count() > 500
+    {
         return false;
     }
     let Some(block) = usize::try_from(a.block_index - 1)
@@ -41,7 +48,8 @@ fn exact_anchor(source: &str, a: NewAnchor<'_>) -> bool {
         return false;
     };
     let units: Vec<_> = block.encode_utf16().collect();
-    usize::try_from(a.start_utf16).ok()
+    usize::try_from(a.start_utf16)
+        .ok()
         .zip(usize::try_from(a.end_utf16).ok())
         .and_then(|(start, end)| units.get(start..end))
         .and_then(|slice| String::from_utf16(slice).ok())
@@ -156,9 +164,10 @@ impl PgPaidChapterComments {
                 CreateResult::Created(id)
             }
             Ok(None) => {
-                let original = sqlx::query_as::<_, (
-                    i64, Option<i64>, Option<i64>, Vec<u8>, Option<i64>, String,
-                )>(
+                let original = sqlx::query_as::<
+                    _,
+                    (i64, Option<i64>, Option<i64>, Vec<u8>, Option<i64>, String),
+                >(
                     "SELECT id,chapter_id,version_id,command_hash,parent_id,body
                      FROM discussion_comments WHERE author_user_id=$1 AND command_key=$2",
                 )
@@ -172,7 +181,10 @@ impl PgPaidChapterComments {
                             && version == Some(c.version_id)
                             && hash == c.payload_hash
                             && parent == c.parent_id
-                            && body == c.body => CreateResult::Replayed(id),
+                            && body == c.body =>
+                    {
+                        CreateResult::Replayed(id)
+                    }
                     Ok(_) => CreateResult::Conflict,
                     Err(_) => CreateResult::Unavailable,
                 }
@@ -199,14 +211,28 @@ impl PgPaidChapterComments {
         after: Option<i64>,
         limit: u16,
     ) -> Result<Option<ChapterCommentPage>, ListError> {
-        if actor <= 0 || purchase <= 0 || chapter <= 0 || version <= 0 ||
-            limit == 0 || limit > 100 || after.is_some_and(|id| id <= 0) {
+        if actor <= 0
+            || purchase <= 0
+            || chapter <= 0
+            || version <= 0
+            || limit == 0
+            || limit > 100
+            || after.is_some_and(|id| id <= 0)
+        {
             return Err(ListError::Invalid);
         }
-        let rows = sqlx::query_as::<_, (
-            bool, Option<i64>, Option<i64>, Option<String>,
-            Option<String>, Option<i32>, Option<i32>,
-        )>(
+        let rows = sqlx::query_as::<
+            _,
+            (
+                bool,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+                Option<i32>,
+                Option<i32>,
+            ),
+        >(
             "WITH allowed AS MATERIALIZED (
                SELECT p.id
                FROM chapter_purchase_facts p
@@ -264,11 +290,13 @@ impl PgPaidChapterComments {
                         .and_then(|key| key.parse::<i32>().ok())
                         .zip(start)
                         .zip(end)
-                        .map(|((block_index, start_utf16), end_utf16)| ChapterCommentAnchor {
-                            block_index,
-                            start_utf16,
-                            end_utf16,
-                        }),
+                        .map(
+                            |((block_index, start_utf16), end_utf16)| ChapterCommentAnchor {
+                                block_index,
+                                start_utf16,
+                                end_utf16,
+                            },
+                        ),
                 })
             })
             .take(usize::from(limit))
@@ -285,9 +313,26 @@ mod tests {
     #[test]
     fn s011_paid_comments_validate_utf16_and_refuse_forged_quote() {
         let source = "А😀Б\n\nВторая часть";
-        let anchor = NewAnchor { block_index: 1, start_utf16: 1, end_utf16: 3, quote: "😀" };
+        let anchor = NewAnchor {
+            block_index: 1,
+            start_utf16: 1,
+            end_utf16: 3,
+            quote: "😀",
+        };
         assert!(exact_anchor(source, anchor));
-        assert!(!exact_anchor(source, NewAnchor { quote: "А", ..anchor }));
-        assert!(!exact_anchor(source, NewAnchor { end_utf16: 2, ..anchor }));
+        assert!(!exact_anchor(
+            source,
+            NewAnchor {
+                quote: "А",
+                ..anchor
+            }
+        ));
+        assert!(!exact_anchor(
+            source,
+            NewAnchor {
+                end_utf16: 2,
+                ..anchor
+            }
+        ));
     }
 }
