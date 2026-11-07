@@ -237,9 +237,8 @@ impl PgSearch {
         }
         let start = i64::from(bucket) * 10_000 + 1;
         let end = start + 10_000;
-        let sql = format!(
-            "SELECT b.id {SEO_PUBLIC_FROM} AND b.id >= $1 AND b.id < $2 ORDER BY b.id"
-        );
+        let sql =
+            format!("SELECT b.id {SEO_PUBLIC_FROM} AND b.id >= $1 AND b.id < $2 ORDER BY b.id");
         let rows: Vec<i64> = sqlx::query_scalar(&sql)
             .bind(start)
             .bind(end)
