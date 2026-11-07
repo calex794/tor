@@ -107,6 +107,155 @@ async fn assert_private_asset_grant(
     }
 }
 
+/// Exact signed-TEXT HTTP regression using a separate, genuinely paying actor.
+/// This actor has its own 12/minute limit and cannot affect BR-060's buyer.
+pub(super) async fn verify_isolated_text_grants(
+    app: &Router,
+    url: &str,
+    accounts: &PgAccounts,
+    chapter_ids: (i64, i64, i64),
+    v1: i64,
+    csrf: &str,
+) {
+    let (book, chapter, second) = chapter_ids;
+    let (buyer, session) =
+        user(accounts, "s020-v1-age-isolated-buyer@tor-ci.example").await;
+    pg(
+        url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
+             VALUES({buyer},600,'RUB')"
+        ),
+    );
+    // Buy the actual published encrypted V1 via the existing user-facing
+    // two-step HTTP checkout, not manually fabricated SQL purchase facts.
+    let (purchase, _) = s035_browser::checkout_and_verify(
+        app,
+        url,
+        (book, chapter, second),
+        (buyer, &session, csrf),
+        MARKDOWN,
+    )
+    .await;
+    let payload = json!({"purchase_id": purchase.to_string()}).to_string();
+
+    // Always make fresh HTTP requests: a previously signed bearer remains
+    // valid until its TTL, but a revoked user cannot get another one.
+    let allowed = post_grant(app, chapter, Some(&session), Some(csrf), ORIGIN, &payload).await;
+    assert_eq!(allowed.status(), StatusCode::OK);
+    assert_eq!(allowed.headers()[header::CACHE_CONTROL], "private, no-store");
+    let signed = decode(allowed).await;
+    assert_eq!(signed["schema"], "tor.paid_delivery.v1");
+    assert_eq!(signed["version_id"], v1.to_string());
+    assert!(
+        signed["content"]["ciphertext_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(ENDPOINT))
+    );
+    assert!(!signed.to_string().contains(MARKDOWN));
+
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_text_grant_denied(app, chapter, &session, csrf, &payload).await;
+
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer}"),
+    );
+    let adult = post_grant(app, chapter, Some(&session), Some(csrf), ORIGIN, &payload).await;
+    assert_eq!(adult.status(), StatusCode::OK);
+    assert_eq!(decode(adult).await["version_id"], v1.to_string());
+
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_text_grant_denied(app, chapter, &session, csrf, &payload).await;
+
+    pg(
+        url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active) \
+             VALUES({buyer},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer}"),
+    );
+    let pro = post_grant(app, chapter, Some(&session), Some(csrf), ORIGIN, &payload).await;
+    assert_eq!(pro.status(), StatusCode::OK);
+    assert_eq!(decode(pro).await["version_id"], v1.to_string());
+
+    pg(
+        url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE \
+             WHERE user_id={buyer} AND level='pro_adult'"
+        ),
+    );
+    assert_text_grant_denied(app, chapter, &session, csrf, &payload).await;
+
+    // Unknown legacy age tier is a hard denial, never an implicit BASIC.
+    pg(
+        url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_text_grant_denied(app, chapter, &session, csrf, &payload).await;
+
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_facts \
+                 WHERE user_id={buyer} AND chapter_id={chapter}"
+            ),
+        ),
+        1,
+        "revoked age must preserve the immutable paid V1 fact"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM library_purchased_chapters \
+                 WHERE user_id={buyer} AND chapter_id={chapter} AND active_version_id={v1}"
+            ),
+        ),
+        1,
+        "age change must preserve purchased V1 identity"
+    );
+    pg(
+        url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+}
+
+async fn assert_text_grant_denied(
+    app: &Router,
+    chapter: i64,
+    session: &str,
+    csrf: &str,
+    payload: &str,
+) {
+    let response = post_grant(app, chapter, Some(session), Some(csrf), ORIGIN, payload).await;
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "revoked age must deny fresh signed paid TEXT; do not treat 429 as age denial"
+    );
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(
+        to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no signed S3 URL or wrapped key on age denial"
+    );
+}
+
 pub(super) async fn verify(
     app: &Router,
     url: &str,
