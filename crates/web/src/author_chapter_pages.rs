@@ -585,7 +585,6 @@ pub fn release_chapter(
         &content,
     )
 }
-
 #[cfg(test)]
 pub fn detail(
     book: &OwnedBook,
@@ -595,6 +594,5 @@ pub fn detail(
 ) -> Html<String> {
     detail_with_covers(book, published, chapters, csrf, false, None)
 }
-
 #[cfg(test)]
 mod tests;
