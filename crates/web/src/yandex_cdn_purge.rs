@@ -137,7 +137,11 @@ impl YandexCdnPurge {
     /// evidence of success. The returned operation ID must be persisted in PG.
     pub async fn submit(&self, path: &str) -> Result<String, CoverError> {
         validated_purge_path(path)?;
-        let url = format!("{}/cdn/v1/cache/{}:purge", self.cdn_endpoint(), self.resource_id);
+        let url = format!(
+            "{}/cdn/v1/cache/{}:purge",
+            self.cdn_endpoint(),
+            self.resource_id
+        );
         let response = self
             .client
             .post(url)
