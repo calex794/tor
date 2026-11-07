@@ -1,11 +1,7 @@
 //! S011: real PostgreSQL D/A authorization for paid immutable-edition threads.
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::{generate_session_token, hash_password, session_token_digest},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tor_discussions::repositories::{
     paid_chapter_comments::PgPaidChapterComments,
     public_chapter_comments::{CreateResult, NewAnchor, NewChapterComment},
@@ -18,21 +14,28 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
     assert!(url.starts_with("postgresql://tor_app:")
         && url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
     let pool = PgPool::connect(&url).await.unwrap();
-    let accounts = PgAccounts::from_pool(pool.clone());
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let buyer_session = generate_session_token();
-    let stranger_session = generate_session_token();
-    let hash = hash_password("S011PaidComments2026!").unwrap();
-    let buyer = accounts.register_with_session(
-        &format!("s011-buyer-{stamp}@example.invalid"), "S011 buyer",
-        &hash, &session_token_digest(&buyer_session), NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    let stranger = accounts.register_with_session(
-        &format!("s011-stranger-{stamp}@example.invalid"), "S011 stranger",
-        &hash, &session_token_digest(&stranger_session), NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    let buyer_digest = session_token_digest(&buyer_session);
-    let other_digest = session_token_digest(&stranger_session);
+    // E's feature boundary intentionally excludes tor-accounts. Seed only A's
+    // canonical persisted facts in isolated tor_ci, never an invented role.
+    let buyer: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S011 buyer','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("s011-buyer-{stamp}@example.invalid"))
+    .fetch_one(&pool).await.unwrap();
+    let stranger: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S011 stranger','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("s011-stranger-{stamp}@example.invalid"))
+    .fetch_one(&pool).await.unwrap();
+    let buyer_digest = [21u8; 32];
+    let other_digest = [22u8; 32];
+    for (actor, digest) in [(buyer, &buyer_digest), (stranger, &other_digest)] {
+        sqlx::query("INSERT INTO sessions(user_id,token_hash,expires_at)
+                     VALUES($1,$2,now()+interval '1 hour')")
+            .bind(actor).bind(digest.as_slice()).execute(&pool).await.unwrap();
+    }
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,owner_user_id,visibility,access_level)
          VALUES($1,'ru','S011 paid comments',$2,'public','basic') RETURNING id",
@@ -54,7 +57,7 @@ async fn s011_paid_comments_d_authorizes_exact_pinned_version_and_session() {
     ).bind(buyer).bind(chapter).bind(v1).bind(format!("s011-paid-{stamp}"))
         .fetch_one(&pool).await.unwrap();
     let repo = PgPaidChapterComments::new(pool.clone());
-    let key = generate_session_token();
+    let key = "A".repeat(43);
     let hash = [13u8; 32];
     let comment = || NewChapterComment {
         chapter_id:chapter, version_id:v1, body:"Комментарий к 😀",
