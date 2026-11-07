@@ -207,10 +207,7 @@ pub(super) async fn verify_retired_shared_source(case: PrivateRetentionCase<'_>)
         PgPrivateCoverSourceRemovals::new(catalog.pool()),
         Arc::new(store.clone()),
     );
-    let (first, second) = tokio::join!(
-        source_cleanup.run_batch(),
-        second_cleanup.run_batch(),
-    );
+    let (first, second) = tokio::join!(source_cleanup.run_batch(), second_cleanup.run_batch(),);
     let first = first.unwrap();
     let second = second.unwrap();
     assert_eq!(first.claimed + second.claimed, 1);
