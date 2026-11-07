@@ -1,8 +1,7 @@
-//! F-04: real C-authoritative readers drive rising shelves, not views or bots.
+//! F-04: validate public selection and revocation with synthetic C-shaped facts.
 //! Disposable tor_ci only: do not run against a retained PostgreSQL instance.
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
-use tor_reading::{repositories::PgReadingSync, services::progress::ReadingPlace};
 use tor_search::{repositories::showcases::PgShowcases, services::showcases::RisingShowcases};
 
 const BOOK: i64 = 99810;
@@ -10,6 +9,35 @@ const CHAPTER: i64 = 99820;
 const SECOND_CHAPTER: i64 = 99821;
 const VERSION: i64 = 99830;
 const SECOND_VERSION: i64 = 99831;
+
+async fn insert_synthetic_completion(pool: &PgPool, user: i64, chapter: i64, version: i64) {
+    sqlx::query(
+        "WITH committed AS (
+             INSERT INTO reader_chapter_completions
+                 (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES ($1,$2,$3,$4,gen_random_uuid())
+             RETURNING user_id,book_id,chapter_id,first_version_id,source_event_id
+         )
+         INSERT INTO outbox_events (
+             id,event_type,schema_version,aggregate_kind,aggregate_id,
+             dedupe_key,payload,required_consumers
+         )
+         SELECT source_event_id,'ChapterCompletedV1',1,'chapter',chapter_id,
+                concat('chapter-completed:',user_id,':',chapter_id),
+                jsonb_build_object('user_id',user_id,'book_id',book_id,
+                    'chapter_id',chapter_id,'version_id',first_version_id,
+                    'authority','C-verified-free-position'),
+                ARRAY['ranking-eligibility-v1','achievements-v1']
+         FROM committed",
+    )
+    .bind(user)
+    .bind(BOOK)
+    .bind(chapter)
+    .bind(version)
+    .execute(pool)
+    .await
+    .unwrap();
+}
 
 async fn is_rising(showcase: &RisingShowcases<'_>) -> bool {
     showcase
@@ -21,7 +49,7 @@ async fn is_rising(showcase: &RisingShowcases<'_>) -> bool {
 }
 
 #[tokio::test]
-#[ignore = "isolated tor_ci with genuine C completion/outbox facts"]
+#[ignore = "isolated tor_ci with synthetic completion/outbox fixture"]
 async fn f_04_rising_rejects_repeat_readers_owner_and_revoked_publication() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
     let pool = PgPool::connect(&url).await.unwrap();
@@ -31,7 +59,8 @@ async fn f_04_rising_rejects_repeat_readers_owner_and_revoked_publication() {
         .unwrap();
     assert_eq!(name, "tor_ci", "never write production database");
 
-    // Only the C repository may create durable verified completion + outbox.
+    // Synthetic fixture emulates C event shape; real C atomic provenance is
+    // independently tested by tor-reading/completion_pg.
     // Fixed identities are reserved for this disposable CI fixture.
     for id in 99800_i64..=99806 {
         sqlx::query(
@@ -82,33 +111,22 @@ async fn f_04_rising_rejects_repeat_readers_owner_and_revoked_publication() {
     .await
     .unwrap();
 
-    let c = PgReadingSync::new(pool.clone());
     let pg = PgShowcases::new(pool.clone());
     let shelf = RisingShowcases::new(&pg);
-    let final_place = ReadingPlace {
-        block_index: 2,
-        char_offset: 7,
-    };
     assert!(!is_rising(&shelf).await);
 
-    // Two genuine completed readers are not a trend. Three distinct readers are.
+    // Two distinct readers are not a trend. Three distinct readers are.
     for user in [99801_i64, 99802] {
-        c.save_free(user, CHAPTER, VERSION, final_place, 0)
-            .await
-            .unwrap();
+        insert_synthetic_completion(&pool, user, CHAPTER, VERSION).await;
     }
     assert!(!is_rising(&shelf).await);
-    c.save_free(99803, CHAPTER, VERSION, final_place, 0)
-        .await
-        .unwrap();
+    insert_synthetic_completion(&pool, 99803, CHAPTER, VERSION).await;
     assert!(is_rising(&shelf).await);
 
-    // Move three completed C facts into the older seven-day window. The
-    // outbox remains immutable and authoritative; do not invent click counts.
+    // Move three synthetic facts into the older seven-day window.
+    // The corresponding outbox remains unchanged; no click counts.
     for user in [99804_i64, 99805, 99806] {
-        c.save_free(user, CHAPTER, VERSION, final_place, 0)
-            .await
-            .unwrap();
+        insert_synthetic_completion(&pool, user, CHAPTER, VERSION).await;
         sqlx::query(
             "UPDATE reader_chapter_completions
              SET completed_at=now()-interval '8 days'
@@ -126,15 +144,11 @@ async fn f_04_rising_rejects_repeat_readers_owner_and_revoked_publication() {
     );
 
     // One account reading another chapter cannot create a fourth reader.
-    c.save_free(99801, SECOND_CHAPTER, SECOND_VERSION, final_place, 1)
-        .await
-        .unwrap();
+    insert_synthetic_completion(&pool, 99801, SECOND_CHAPTER, SECOND_VERSION).await;
     assert!(!is_rising(&shelf).await);
 
     // The author is not a reader for organic growth calculations.
-    c.save_free(99800, CHAPTER, VERSION, final_place, 0)
-        .await
-        .unwrap();
+    insert_synthetic_completion(&pool, 99800, CHAPTER, VERSION).await;
     assert!(!is_rising(&shelf).await);
 
     // A revoked (suspended) former reader no longer counts in last-week
