@@ -205,12 +205,11 @@ impl PgPaidChapterComments {
         &self,
         actor: i64,
         session_digest: &[u8; 32],
-        purchase: i64,
-        chapter: i64,
-        version: i64,
+        edition: (i64, i64, i64),
         after: Option<i64>,
         limit: u16,
     ) -> Result<Option<ChapterCommentPage>, ListError> {
+        let (purchase, chapter, version) = edition;
         if actor <= 0
             || purchase <= 0
             || chapter <= 0
