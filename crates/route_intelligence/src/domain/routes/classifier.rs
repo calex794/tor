@@ -320,6 +320,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "GET") => Some(305),
         (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments"), "POST") => Some(306),
         (Some("/assets/newboo-paid-comments.mjs"), "GET") => Some(307),
+        (Some("/me/teams"), "GET") => Some(308),
+        (Some("/me/teams"), "POST") => Some(309),
+        (Some("/me/teams/{id}"), "GET") => Some(310),
         _ => None,
     };
     index
