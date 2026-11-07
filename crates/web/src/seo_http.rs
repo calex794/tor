@@ -36,7 +36,9 @@ const BOOKS_PER_SITEMAP: u64 = 10_000;
 const MAX_SITEMAP_PARTS: u64 = 10_000;
 
 fn sitemap_parts(max_id: u64) -> Option<u64> {
-    if max_id == 0 { return Some(0); }
+    if max_id == 0 {
+        return Some(0);
+    }
     let parts = 1 + (max_id - 1) / BOOKS_PER_SITEMAP;
     (parts <= MAX_SITEMAP_PARTS).then_some(parts)
 }
