@@ -168,7 +168,8 @@ fn render(
               <a href="/moderation/books/deletions">Удаление ({deletions_count})</a>
               <a href="/moderation/books/control">Контроль</a>
             </nav>
-              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a></p>
+              <p><a href="/moderation/books/reviews">Журнал рассмотренных заявок</a>
+                · <a href="/moderation/books/alerts">Сигналы ожидания</a></p>
             {age_summary}
             <form method="get" action="/moderation/books/registrations">
               <label for="registration-search">Поиск по названию или ID книги</label>
