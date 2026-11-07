@@ -5,7 +5,9 @@
 mod flow;
 mod paths;
 mod rollup;
-pub use flow::{FlowCountRow, FlowHourlyCount, FlowPageview, FlowVisitWindows, FLOW_SOURCES, FLOW_SURFACES};
+pub use flow::{
+    FlowCountRow, FlowHourlyCount, FlowPageview, FlowVisitWindows, FLOW_SOURCES, FLOW_SURFACES,
+};
 pub use paths::{
     Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW,
 };
