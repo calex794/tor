@@ -239,7 +239,6 @@ pub fn detail_with_covers_with_demand_page(
     );
     layout(&book.title, "Управление своей книгой", &body)
 }
-
 fn cover_status(latest_job: Option<&str>) -> &'static str {
     match latest_job {
         Some("pending") => "Обложка ожидает обработки.",
@@ -254,7 +253,6 @@ fn cover_status(latest_job: Option<&str>) -> &'static str {
         _ => "Обложка ещё не загружена.",
     }
 }
-
 /// Mirrors NEwBOO's covers settings template and picker, one real TOR slot.
 pub fn cover_settings(
     book: &OwnedBook,
@@ -300,7 +298,6 @@ pub fn cover_settings(
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
 }
-
 /// H-09: only the author sees a private, unpublished-book import preview.
 pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
     let html = include_str!("../templates/author_import_chapters.html")
