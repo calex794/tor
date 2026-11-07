@@ -438,6 +438,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         [(chapter, v1), (chapter_two, version_two)],
     )
     .await;
+    // S020 isolated buyer avoids the primary buyer's 12/minute signing cap.
+    s020_paid_completion_age::verify_isolated_text_grants(
+        &app,
+        &url,
+        &accounts,
+        (book, chapter, chapter_two),
+        v1,
+        &csrf,
+    )
+    .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
@@ -547,9 +557,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    // Direct purchases stay pinned to encrypted V1. Layer CURRENT access
-    // instead follows V2, which must be independently verified and attached
-    // before B/G may sign it; a bare publication pointer is insufficient.
+    // Direct purchases pin V1; Layer CURRENT follows independently verified V2.
+    // A bare publication pointer cannot authorize B/G signing.
     let pinned_v2 = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v2).unwrap(),
@@ -578,9 +587,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // S065/C-12: real MinIO+Chromium switches current sealed V2 to
     // historical sealed V1 and decrypts its attached PNG, without a purchase.
     s065_admin_browser::verify(&app, &accounts, &url, chapter, v2, v1, &stranger_cookie).await;
-    // Capture the actual Rust HTML before the author hides the book. CI
-    // screenshots exercise the mixed original NEwBOO-style free/paid/locked
-    // design while preserving a separate hidden-book entitlement check.
+    // Capture real Rust HTML and mixed free/paid/locked UI before hiding.
+    // Hidden-book entitlement is verified separately.
     let visible_page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
     assert_eq!(visible_page.status(), StatusCode::OK);
     let visible_html = html_body(visible_page).await;
@@ -703,10 +711,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
-    // A D purchase stays readable even while an author hides the work,
-    // but F's visible private ranking deliberately excludes unpublished
-    // books. Re-publish after exercising D's hidden V1 rights so the next
-    // assertion tests F eligibility instead of violating its visibility rule.
+    // Hidden V1 remains D-readable, but F ranking excludes hidden books.
+    // Re-publish before testing F eligibility.
     pg(
         &url,
         &format!(
@@ -823,8 +829,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     .await;
     assert_eq!(completed_state["completed"], true);
 
-    // Save a real server-rendered page, not a hand-written copy of its HTML.
-    // Buyer owns V1 after V2/creator-hide, but a stranger cannot open the page.
+    // Capture real server HTML: buyer owns historical V1; stranger cannot read.
     let stranger = paid_page(&app, chapter, purchase_id, &stranger_cookie).await;
     assert_eq!(stranger.status(), StatusCode::FORBIDDEN);
     let page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
@@ -843,8 +848,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(reader_html.contains("data-paid-chapter-reader"));
     assert!(reader_html.contains("data-paid-toc"));
     assert!(reader_html.contains("Оглавление книги"));
-    // Main republished the book before the F-05 ranking scenario below.
-    // The reader should therefore show public metadata again.
+    // Republished Book restores public reader metadata.
     assert!(reader_html.contains("data-toc-state=\"free\""));
     assert!(reader_html.contains("data-toc-state=\"locked\""));
     assert!(reader_html.contains(&format!(
