@@ -15,6 +15,7 @@ use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
 
+mod flow;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,
@@ -112,6 +113,7 @@ async fn observe(
         .get::<MatchedPath>()
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
+    let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
     request.extensions_mut().insert(trace_id);
@@ -152,6 +154,14 @@ async fn observe(
         response.extensions_mut().remove::<VerifiedRilSubject>();
         None
     };
+    // FLOW receives only a finite HTML category and coarse source hint.
+    // Anonymous requests can be counted as pageviews, NOT as unique humans.
+    let flow_pageview = flow_request.observed(
+        status,
+        response.headers(),
+        passport.route_known,
+        subject.is_some(),
+    );
     // SQLx events are counted only within this request task; background tasks
     // remain excluded. Zero is genuine only when the subscriber was installed.
     if let Some(measured) = sql_measurement {
@@ -162,13 +172,16 @@ async fn observe(
         });
     }
     // Anonymous counters remain independent from personal behavior paths.
-    let _accepted = recorder.try_record(BehaviorEvent {
-        route: RouteCode::from_family(passport.route_family),
-        status: StatusGroup::from_status(status),
-        latency: LatencyGroup::from_elapsed(elapsed),
-        subject,
-        at_millis: recorder.uptime_millis(),
-    });
+    let _accepted = recorder.try_record_with_flow(
+        BehaviorEvent {
+            route: RouteCode::from_family(passport.route_family),
+            status: StatusGroup::from_status(status),
+            latency: LatencyGroup::from_elapsed(elapsed),
+            subject,
+            at_millis: recorder.uptime_millis(),
+        },
+        flow_pageview,
+    );
     response.extensions_mut().insert(observation);
     response
 }
@@ -369,5 +382,40 @@ mod tests {
         let debug = format!("{obs:?}");
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
+    }
+    #[tokio::test]
+    async fn flow_02_real_html_is_recorded_but_api_and_bots_are_not() {
+        use axum::response::Html;
+        let recorder = TrafficRecorder::start(8, 64);
+        let app = instrument_with_recorder(
+            Router::new()
+                .route("/books/{id}", get(|| async { Html("<p>read</p>") }))
+                .route("/api/v1/books", get(|| async { Html("<p>not a page</p>") })),
+            recorder.clone(),
+        );
+        for (url, bot) in [
+            ("/books/10?private=DO_NOT_STORE", false),
+            ("/api/v1/books", false),
+            ("/books/20", true),
+        ] {
+            let mut builder = Request::builder().uri(url);
+            if bot {
+                builder = builder.header("user-agent", "Googlebot/2.1");
+            }
+            let response = app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let delta = recorder.drain_for_persistence().unwrap();
+        assert_eq!(delta.route_rows().iter().map(|r| r.count).sum::<i64>(), 3);
+        assert_eq!(delta.flow_rows().len(), 1);
+        let row = delta.flow_rows()[0];
+        assert_eq!(row.surface, 2);
+        assert_eq!(row.html_requests, 1);
+        assert_eq!(row.opted_in_html_requests, 0);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
     }
 }

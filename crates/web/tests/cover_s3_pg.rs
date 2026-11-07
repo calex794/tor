@@ -15,6 +15,7 @@ use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
 use std::{io::Cursor, sync::Arc, time::Duration};
 use tor_books::repositories::{
+    cover_publication_ops::PgCoverCdnOps,
     cover_publications::PgPublicCoverPublications,
     cover_review::PgCoverReview,
     cover_slots::{PgCoverSlots, PublicCoverKind},
@@ -887,6 +888,13 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(state, "purged");
     }
     assert_eq!(purge.poll_batch().await.unwrap().claimed, 0);
+    let queue = PgCoverCdnOps::new(catalog.pool())
+        .queue_counts()
+        .await
+        .unwrap();
+    assert_eq!(queue.purged, 2);
+    assert_eq!(queue.origin_deleted, 0);
+    assert_eq!(queue.purge_submitted, 0);
     #[cfg(feature = "test-cdn-loopback")]
     http_mock.await.unwrap();
     assert!(

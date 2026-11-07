@@ -296,6 +296,24 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("sudo apt-get install -y postgresql-client", code)
                 self.assertIn("Using preinstalled PostgreSQL client", code)
 
+    def test_s3_clippy_moves_off_pg_critical_path_without_losing_coverage(self):
+        # With both suites selected, Rust owns this check; PG-only and
+        # standalone PG runs retain it. Standalone Rust does not gain work.
+        required_text = (WORKFLOWS / CI_WORKFLOW).read_text()
+        self.assertIn("name: TOR integration CI", required_text)
+        required = job_sections(required_text)
+        rust_manual = job_sections((WORKFLOWS / "rust-demo.yml").read_text())["demo"]
+        pg_manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+        clippy = "cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings"
+        rust_gate = """${{ github.workflow == 'TOR integration CI' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}"""
+        pg_gate = """${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}"""
+        for job in (required["demo"], rust_manual):
+            self.assertEqual(job.count(clippy), 1)
+            self.assertIn("if: " + rust_gate, job)
+        for job in (required["postgres-runtime"], pg_manual):
+            self.assertEqual(job.count(clippy), 1)
+            self.assertIn("if: " + pg_gate, job)
+
     def test_line_a_account_targets_share_cargo_without_losing_tests(self):
         joined = (
             "cargo test -p tor-accounts "
