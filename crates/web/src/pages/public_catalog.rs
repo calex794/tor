@@ -131,7 +131,7 @@ fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> Stri
     html
 }
 
-fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> Html<String> {
+fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>, updates: &[PublicBookCard]) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
@@ -156,6 +156,7 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
             "<!--PUBLIC_BOOKS-->",
             &book_cards(books, latest, "Недавно добавленные книги", covers),
         )
+        .replace("<!--RECENT_RELEASES-->", &recent_release_section(updates, covers))
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
@@ -171,15 +172,35 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
     )
 }
 
+
+fn recent_release_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+    if books.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<section class=\"section home-release-section\" aria-labelledby=\"home-releases\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-releases\" class=\"ui-section-header__title\">Обновились</h2></header></div>{}</div></section>",
+        book_cards(books, true, "Недавно вышли новые главы", covers)
+    )
+}
+
+/// Explicitly released books only; independent of the existing added-book shelf.
+pub fn home_recent_with_updates(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+) -> Html<String> {
+    home_body(books, true, covers, updates)
+}
+
 /// Demo mode cannot claim recent insertion order; only the PG projection can.
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, false, &HashSet::new())
+    home_body(books, false, &HashSet::new(), &[])
 }
 
 /// F-04 read model supplies descending creation identity, never a false daily top
 /// or a claim about publication time, rating or personal recommendations.
 pub fn home_recent_with_covers(books: &[PublicBookCard], covers: &HashSet<u64>) -> Html<String> {
-    home_body(books, true, covers)
+    home_body(books, true, covers, &[])
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
@@ -305,7 +326,7 @@ pub fn catalog_search_with_covers(
 
 #[cfg(test)]
 pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true, &HashSet::new())
+    home_body(books, true, &HashSet::new(), &[])
 }
 
 #[cfg(test)]
@@ -461,6 +482,22 @@ mod home_tests {
         let html = catalog(&[card]).0;
         assert!(html.contains("&lt;img src=x onerror=evil()&gt;"));
         assert!(!html.contains("<img src=x"));
+    }
+
+
+    #[test]
+    fn releases_render_once_and_escape_untrusted_text() {
+        let mut release = book(91, "<script>bad</script>");
+        release.author_name = Some("<img src=x>".into());
+        let html = home_recent_with_updates(&[book(2, "Новая")], &HashSet::new(), &[release]).0;
+        assert!(html.contains("Обновились"));
+        assert!(html.contains("href=\"/books/91\""));
+        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(html.contains("&lt;img src=x&gt;"));
+        assert!(!html.contains("<script>bad</script>"));
+        assert_eq!(html.matches("home-release-section").count(), 1);
+        let empty = home_recent_with_updates(&[book(2, "Новая")], &HashSet::new(), &[]).0;
+        assert!(!empty.contains("home-release-section"));
     }
 
     #[test]
