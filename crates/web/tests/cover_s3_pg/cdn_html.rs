@@ -86,5 +86,4 @@ pub(super) async fn verify(
             assert!(!html.contains("staging/covers/"));
         }
     }
-
 }
