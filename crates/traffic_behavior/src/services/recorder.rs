@@ -128,11 +128,7 @@ impl TrafficRecorder {
 
     /// Atomic best-effort enqueue: the RIL event and its bounded HTML sample
     /// either enter the same worker queue together or are dropped together.
-    pub fn try_record_with_flow(
-        &self,
-        event: BehaviorEvent,
-        flow: Option<FlowPageview>,
-    ) -> bool {
+    pub fn try_record_with_flow(&self, event: BehaviorEvent, flow: Option<FlowPageview>) -> bool {
         match self.sender.try_send(Message::Event(event, flow)) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
@@ -376,7 +372,11 @@ mod tests {
         assert_eq!(row.html_requests, 3);
         assert_eq!(row.opted_in_html_requests, 2);
         assert_eq!(row.observed_opted_in_visit_starts, 1);
-        assert!(recorder.drain_for_persistence().unwrap().flow_rows().is_empty());
+        assert!(recorder
+            .drain_for_persistence()
+            .unwrap()
+            .flow_rows()
+            .is_empty());
 
         let mut later = first;
         later.at_millis = 1_800_201;
@@ -384,11 +384,13 @@ mod tests {
         let next_batch = recorder.drain_for_persistence().unwrap();
         assert_eq!(next_batch.flow_rows()[0].observed_opted_in_visit_starts, 1);
 
-        assert_eq!(recorder.forget_subject_for_privacy(first.subject.unwrap()), Some(true));
+        assert_eq!(
+            recorder.forget_subject_for_privacy(first.subject.unwrap()),
+            Some(true)
+        );
         assert!(recorder.try_record_with_flow(later, Some(page)));
         let revoked = recorder.drain_for_persistence().unwrap();
         assert_eq!(revoked.flow_rows()[0].opted_in_html_requests, 0);
         assert_eq!(revoked.flow_rows()[0].html_requests, 1);
     }
-
 }
