@@ -42,7 +42,7 @@ SUITE_JOB_IDS = {
 MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml", "chapter-import-s3.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
-PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
+PERFORMANCE_WORKFLOWS = {"tor-http-load.yml", "tor-f04-sandbox.yml"}
 # Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
 ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
