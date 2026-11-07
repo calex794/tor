@@ -321,10 +321,8 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
             .execute(&pool)
             .await
             .unwrap();
-        assert!(
-            service.latest_added(Some("f04-test-genre"), 1).await.unwrap().is_empty(),
-            "{tier} title leaked through anonymous home showcase"
-        );
+        let newest = service.latest_added(Some("f04-test-genre"), 1).await.unwrap();
+        assert!(newest.is_empty(), "{tier} title leaked through anonymous home showcase");
     }
     // Legacy NULL is unknown: never treat it as an implicit public basic tier.
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
@@ -332,13 +330,15 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(service.latest_added(Some("f04-test-genre"), 1).await.unwrap().is_empty());
+    let legacy = service.latest_added(Some("f04-test-genre"), 1).await.unwrap();
+    assert!(legacy.is_empty());
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
         .bind(visible_id)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(service.latest_added(Some("f04-test-genre"), 1).await.unwrap().len(), 1);
+    let restored = service.latest_added(Some("f04-test-genre"), 1).await.unwrap();
+    assert_eq!(restored.len(), 1);
 
     // No cache: each transition must be reflected in the very next request.
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
