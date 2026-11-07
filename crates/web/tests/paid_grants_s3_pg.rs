@@ -766,8 +766,28 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(fake_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    // The separate in-process router has its own grant rate budget. Keep the
+    // original S034 router untouched so later admin-hold/refund checks can
+    // still prove D's denial instead of hitting HTTP rate limits.
+    let age_signer = PgPrivateDelivery::new(
+        pool.clone(),
+        short_store.clone(),
+        kek.clone(),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
+    let age_grant_router = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
+        PgCatalog::connect(&url).await.unwrap(),
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        (Arc::new(age_signer), ENDPOINT.to_owned()),
+        None,
+    )
+    .unwrap();
     s020_paid_completion_age::verify(
-        &app,
+        (&app, &age_grant_router),
         &url,
         (book, buyer),
         (chapter, purchase_id, v1),

@@ -96,7 +96,7 @@ async fn assert_signed_grants_rejected(
 }
 
 pub(super) async fn verify(
-    app: &Router,
+    apps: (&Router, &Router),
     url: &str,
     owner: (i64, i64),
     edition: (i64, i64, i64),
@@ -104,6 +104,7 @@ pub(super) async fn verify(
     csrf: &str,
     command: &Value,
 ) {
+    let (app, grant_app) = apps;
     let (book, buyer) = owner;
     let (chapter, purchase, _) = edition;
     let facts_before = scalar(
@@ -131,7 +132,7 @@ pub(super) async fn verify(
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
     );
     assert_rejected(app, edition, session, csrf, command).await;
-    assert_signed_grants_rejected(app, chapter, purchase, session, csrf).await;
+    assert_signed_grants_rejected(grant_app, chapter, purchase, session, csrf).await;
 
     pg(
         url,
@@ -167,7 +168,7 @@ pub(super) async fn verify(
         ),
     );
     assert_rejected(app, edition, session, csrf, command).await;
-    assert_signed_grants_rejected(app, chapter, purchase, session, csrf).await;
+    assert_signed_grants_rejected(grant_app, chapter, purchase, session, csrf).await;
 
     // Unknown legacy tier must not silently become basic.
     pg(
