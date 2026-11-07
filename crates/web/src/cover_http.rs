@@ -105,8 +105,12 @@ pub(super) async fn homepage_with_cdn(
     rising: &[pages::PublicBookCard],
     covers: &std::collections::HashSet<u64>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    let html = if updates.is_empty() && rising.is_empty() {
-        pages::home_recent_with_covers(cards, covers)
+    let html = if rising.is_empty() {
+        if updates.is_empty() {
+            pages::home_recent_with_covers(cards, covers)
+        } else {
+            pages::home_recent_with_updates(cards, covers, updates)
+        }
     } else {
         pages::home_recent_with_growth(cards, covers, updates, rising)
     };
