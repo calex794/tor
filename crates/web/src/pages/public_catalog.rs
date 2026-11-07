@@ -131,7 +131,12 @@ fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> Stri
     html
 }
 
-fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>, updates: &[PublicBookCard]) -> Html<String> {
+fn home_body(
+    books: &[PublicBookCard],
+    latest: bool,
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
@@ -156,7 +161,10 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>, upda
             "<!--PUBLIC_BOOKS-->",
             &book_cards(books, latest, "Недавно добавленные книги", covers),
         )
-        .replace("<!--RECENT_RELEASES-->", &recent_release_section(updates, covers))
+        .replace(
+            "<!--RECENT_RELEASES-->",
+            &recent_release_section(updates, covers),
+        )
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
@@ -171,7 +179,6 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>, upda
         &content,
     )
 }
-
 
 fn recent_release_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
     if books.is_empty() {
