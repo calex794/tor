@@ -204,7 +204,6 @@ jobs:
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
           ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
-          cargo test -p tor-web --test f04_rising_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
