@@ -321,7 +321,10 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
         ),
     );
     let bell = tor_social::repositories::notifications::PgNotifications::new(pool.clone());
-    assert!(bell.project_moderation_overdue_to_admin_bell(0).await.is_err());
+    assert!(bell
+        .project_moderation_overdue_to_admin_bell(0)
+        .await
+        .is_err());
     let (projection_a, projection_b) = tokio::join!(
         bell.project_moderation_overdue_to_admin_bell(100),
         bell.project_moderation_overdue_to_admin_bell(100),
@@ -342,7 +345,11 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
             ),
         )
     };
-    assert_eq!(own_notices(), "5", "one bell notice per admin and threshold");
+    assert_eq!(
+        own_notices(),
+        "5",
+        "one bell notice per admin and threshold"
+    );
     bell.project_moderation_overdue_to_admin_bell(100)
         .await
         .unwrap();
@@ -463,13 +470,14 @@ async fn overdue_observations_are_deduplicated_and_cancelled_after_review() {
     assert!(!page.contains(&format!("Регистрация книги #{registration}")));
     assert!(!page.contains(&format!("Обложка #{cover_request}")));
     assert!(!page.contains(&format!("Удаление #{deletion_book}")));
-    assert!(bell
-        .list(admin_id, None, 50)
-        .await
-        .unwrap()
-        .iter()
-        .all(|n| n.kind != "moderation_overdue"),
-        "stale source events cannot remain readable after request resolution");
+    assert!(
+        bell.list(admin_id, None, 50)
+            .await
+            .unwrap()
+            .iter()
+            .all(|n| n.kind != "moderation_overdue"),
+        "stale source events cannot remain readable after request resolution"
+    );
     assert!(!bell.mark_read(admin_id, notice_id).await.unwrap());
     pool.close().await;
 }
