@@ -233,13 +233,13 @@ async fn create_book(
     if !form_allowed(&s, &headers, form.csrf_token.as_deref()) {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
-    let id = match actor(&s, &headers).await {
+    let actor = match actor(&s, &headers).await {
         Ok(id) => id,
         Err(e) => return e,
     };
     match s
         .books
-        .create_book(id, &form.title, form.description.as_deref().unwrap_or(""))
+        .create_book(actor, &form.title, form.description.as_deref().unwrap_or(""))
         .await
     {
         Ok(book) => private_response(Redirect::to(&format!("/personal-books/{}", book.id)), &[]),
