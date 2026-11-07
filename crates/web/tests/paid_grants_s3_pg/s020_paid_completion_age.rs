@@ -44,6 +44,57 @@ async fn assert_readable(app: &Router, edition: (i64, i64, i64), session: &str, 
     assert_eq!(state["completed"], false);
 }
 
+/// The same live B age gate must protect G ciphertext chapter and image
+/// signing, not only HTML and completion metadata.
+async fn assert_signed_grants_rejected(
+    app: &Router,
+    chapter: i64,
+    purchase: i64,
+    session: &str,
+    csrf: &str,
+) {
+    let payload = json!({"purchase_id": purchase.to_string()}).to_string();
+    let chapter_reply = post_grant(app, chapter, Some(session), Some(csrf), ORIGIN, &payload).await;
+    assert!(
+        matches!(
+            chapter_reply.status(),
+            StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ),
+        "age-ineligible buyer must not receive a new paid ciphertext grant: {}",
+        chapter_reply.status()
+    );
+    let asset_uri = format!(
+        "/api/v1/reader/chapters/{chapter}/assets/{}/delivery-grants",
+        asset_fixture::ASSET_OBJECT_ID
+    );
+    let asset_reply = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(asset_uri)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, ORIGIN)
+                .header(
+                    header::COOKIE,
+                    format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+                )
+                .header("x-csrf-token", csrf)
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            asset_reply.status(),
+            StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+        ),
+        "age-ineligible buyer must not receive a signed private image grant: {}",
+        asset_reply.status()
+    );
+}
+
 pub(super) async fn verify(
     app: &Router,
     url: &str,
@@ -80,6 +131,7 @@ pub(super) async fn verify(
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
     );
     assert_rejected(app, edition, session, csrf, command).await;
+    assert_signed_grants_rejected(app, chapter, purchase, session, csrf).await;
 
     pg(
         url,
@@ -115,6 +167,7 @@ pub(super) async fn verify(
         ),
     );
     assert_rejected(app, edition, session, csrf, command).await;
+    assert_signed_grants_rejected(app, chapter, purchase, session, csrf).await;
 
     // Unknown legacy tier must not silently become basic.
     pg(
