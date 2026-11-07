@@ -8,6 +8,7 @@ use axum::{
     response::{Html, Response},
 };
 use std::{fmt::Write, time::Duration};
+use tor_books::repositories::cover_publication_ops::{CdnQueueCounts, PgCoverCdnOps};
 use tor_ingest::repositories::cover_jobs::{CoverQueueCounts, PgCoverJobs};
 use tor_observability::services::{
     auth::{LoginOutcome, LoginSnapshot},
@@ -37,6 +38,7 @@ struct Overview {
     trace_delivery: Option<PublisherCounts>,
     ril_queue: Option<RilQueueCounts>,
     cover_queue: Option<CoverQueueCounts>,
+    cdn_queue: Option<CdnQueueCounts>,
     ril_pump: Option<PgPumpSnapshot>,
     cover_runner: Option<CoverRunnerSnapshot>,
 }
@@ -53,6 +55,7 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
         trace_delivery: observability::trace_delivery_counts(),
         ril_queue: None,
         cover_queue: None,
+        cdn_queue: None,
         ril_pump: ril::pump_health_snapshot(),
         cover_runner: cover_worker::cover_runner_snapshot(),
     };
@@ -70,12 +73,15 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
     state.pg = PgHealth::Ready;
     let pool = catalog.pool();
     let ril_repo = PgRilRollups::new(pool.clone());
+    let cdn_repo = PgCoverCdnOps::new(pool.clone());
     let cover_repo = PgCoverJobs::new(pool);
     let ril_future = tokio::time::timeout(timeout, ril_repo.queue_counts());
     let cover_future = tokio::time::timeout(timeout, cover_repo.queue_counts());
-    let (ril, covers) = tokio::join!(ril_future, cover_future);
+    let cdn_future = tokio::time::timeout(timeout, cdn_repo.queue_counts());
+    let (ril, covers, cdn) = tokio::join!(ril_future, cover_future, cdn_future);
     state.ril_queue = ril.ok().and_then(Result::ok);
     state.cover_queue = covers.ok().and_then(Result::ok);
+    state.cdn_queue = cdn.ok().and_then(Result::ok);
     state
 }
 
@@ -119,6 +125,25 @@ fn render(snapshot: &Overview) -> Html<String> {
             "<dl><dt>Ожидают</dt><dd>{}</dd><dt>В работе</dt><dd>{}</dd><dt>Готовы к закреплению</dt><dd>{}</dd><dt>Неисправимые</dt><dd>{}</dd><dt>Ожидают более 5 минут</dt><dd>{}</dd><dt>Истекла аренда</dt><dd>{}</dd><dt>Три и более попытки</dt><dd>{}</dd></dl>",
             rows.pending, rows.running, rows.ready, rows.dead,
             rows.overdue_pending, rows.expired_lease, rows.repeated_attempts
+        ),
+    };
+    let cdn_status = match snapshot.cdn_queue {
+        None => format!("<p>{}</p>", unmeasured()),
+        Some(counts) => format!(
+            "<dl><dt>Зарезервированы</dt><dd>{}</dd>\
+             <dt>Подтверждённые публичные копии</dt><dd>{}</dd>\
+             <dt>Ожидают удаления из S3</dt><dd>{}</dd>\
+             <dt>Ожидают отправки в CDN</dt><dd>{}</dd>\
+             <dt>Ожидают подтверждения Yandex</dt><dd>{}</dd>\
+             <dt>Очистка подтверждена</dt><dd>{}</dd>\
+             <dt>Старые резервации (&gt;15 мин)</dt><dd>{}</dd>\
+             <dt>Задержка удаления (&gt;5 мин)</dt><dd>{}</dd>\
+             <dt>Задержка CDN (&gt;20 мин)</dt><dd>{}</dd>\
+             <dt>Три и более попытки</dt><dd>{}</dd></dl>",
+            counts.reserved, counts.copied, counts.removal_due,
+            counts.origin_deleted, counts.purge_submitted, counts.purged,
+            counts.stale_reserved, counts.overdue_removal, counts.overdue_purge,
+            counts.repeated_attempts,
         ),
     };
     let pump_status = worker_health::ril_pump(snapshot.ril_pump, snapshot.ril_queue);
@@ -209,6 +234,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         <section class=\"card\" aria-labelledby=\"ril\"><h2 id=\"ril\">RIL: маршруты и потери</h2><dl><dt>Известных методов маршрутов</dt><dd>{}</dd><dt>Версия классификации</dt><dd>{}</dd></dl>{ril_telemetry}<p class=\"muted\">RIL классифицирует маршруты, но не выдаёт права доступа. Потери событий не означают потерю HTTP-запросов.</p></section>
         <section class=\"card\" aria-labelledby=\"jobs\"><h2 id=\"jobs\">Очередь аналитики RIL</h2><p role=\"{pump_role}\">{pump_text}</p>{pump_metrics}{ril_queue}<p class=\"muted\">Нет завершённого цикла 90 секунд — возможная остановка. Просрочка очереди: больше 5 минут после поступления и наступления срока запуска. Активность сборщика относится только к этому веб-процессу.</p></section>
         <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{cover_metrics}{covers}<p class=\"muted\">Показатели исполнителя относятся только к процессу TOR. Просроченная аренда не доказывает остановку другого процесса.</p></section>
+        <section class=\"card\" aria-labelledby=\"cdn\"><h2 id=\"cdn\">CDN: публикации и отзыв обложек</h2>{cdn_status}<p class=\"muted\">Только агрегаты PostgreSQL после авторизации оператора. Purged означает подтверждение операции Yandex, но не доказательство очистки браузерного кеша или каждого edge. Отсутствующее измерение не равно нулю.</p></section>
         <section class=\"card\" aria-labelledby=\"trace\"><h2 id=\"trace\">Доставка трасс</h2>{exporters}<p class=\"muted\">Счётчики накоплены с запуска веб-процесса. Отсутствующие измерения не заменяются нулём.</p></section>
         </div>",
         snapshot.http.requests,
@@ -308,6 +334,18 @@ mod tests {
             trace_store_configured: false,
             trace_delivery: None,
             ril_queue: None,
+            cdn_queue: Some(CdnQueueCounts {
+                reserved: 0,
+                copied: 1,
+                removal_due: 2,
+                origin_deleted: 3,
+                purge_submitted: 4,
+                purged: 5,
+                stale_reserved: 0,
+                overdue_removal: 1,
+                overdue_purge: 2,
+                repeated_attempts: 3,
+            }),
             cover_queue: Some(CoverQueueCounts {
                 pending: 1,
                 running: 2,
@@ -323,6 +361,10 @@ mod tests {
         let text = render(&data).0;
         assert!(text.contains("Недоступна или проверка"));
         assert!(text.contains("Очередь обработки обложек"));
+        assert!(text.contains("CDN: публикации и отзыв обложек"));
+        assert!(text.contains("Ожидают подтверждения Yandex</dt><dd>4"));
+        assert!(text.contains("Задержка CDN (&gt;20 мин)</dt><dd>2"));
+        assert!(!text.contains("cdn.example"));
         assert!(text.contains("В работе</dt><dd>2"));
         assert!(text.contains("HTTP с запуска процесса"));
         assert!(text.contains("Вход: причины ответов"));
