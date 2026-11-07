@@ -47,13 +47,18 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
         .map(card)
         .collect::<Vec<_>>();
 
-    let rising = RisingShowcases::new(&repository)
-        .rising_free_readers(12)
-        .await
-        .map_err(status)?
-        .into_iter()
-        .map(card)
-        .collect::<Vec<_>>();
+    // Opt in only after a real-data PostgreSQL timing and abuse review.
+    let rising = if std::env::var("TOR_RISING_SHELF_ENABLED").as_deref() == Ok("1") {
+        RisingShowcases::new(&repository)
+            .rising_free_readers(12)
+            .await
+            .map_err(status)?
+            .into_iter()
+            .map(card)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
     let mut cover_candidates = latest.clone();
     let mut ids = cover_candidates
