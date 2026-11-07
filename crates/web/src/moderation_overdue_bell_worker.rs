@@ -9,6 +9,14 @@ const INTERVAL: Duration = Duration::from_secs(60);
 const INITIAL_DELAY: Duration = Duration::from_secs(15);
 const BATCH_LIMIT: u16 = 100;
 
+pub(crate) fn read_setting(name: &str) -> Result<Option<String>, std::env::VarError> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn worker_opt_in(
     enabled: Option<&str>,
     recipients: Option<&str>,
