@@ -92,6 +92,7 @@ mod paid_completion;
 mod password_change;
 mod password_reset;
 mod personal_books;
+mod teams;
 mod private_reader;
 mod profile_http;
 mod public_profile;
@@ -182,6 +183,7 @@ fn router_inner(
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
+    let team_routes = teams::router(accounts.clone(), cookies.clone());
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -429,7 +431,8 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes)
-        .merge(personal_routes);
+        .merge(personal_routes)
+        .merge(team_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
@@ -583,7 +586,6 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
