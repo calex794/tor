@@ -118,8 +118,7 @@ pub(super) async fn verify_isolated_text_grants(
     csrf: &str,
 ) {
     let (book, chapter, second) = chapter_ids;
-    let (buyer, session) =
-        user(accounts, "s020-v1-age-isolated-buyer@tor-ci.example").await;
+    let (buyer, session) = user(accounts, "s020-v1-age-isolated-buyer@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -143,15 +142,16 @@ pub(super) async fn verify_isolated_text_grants(
     // valid until its TTL, but a revoked user cannot get another one.
     let allowed = post_grant(app, chapter, Some(&session), Some(csrf), ORIGIN, &payload).await;
     assert_eq!(allowed.status(), StatusCode::OK);
-    assert_eq!(allowed.headers()[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(
+        allowed.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
     let signed = decode(allowed).await;
     assert_eq!(signed["schema"], "tor.paid_delivery.v1");
     assert_eq!(signed["version_id"], v1.to_string());
-    assert!(
-        signed["content"]["ciphertext_url"]
-            .as_str()
-            .is_some_and(|url| url.starts_with(ENDPOINT))
-    );
+    assert!(signed["content"]["ciphertext_url"]
+        .as_str()
+        .is_some_and(|url| url.starts_with(ENDPOINT)));
     assert!(!signed.to_string().contains(MARKDOWN));
 
     pg(
