@@ -229,6 +229,36 @@ impl PgRilRollups {
         .bind(elapsed)
         .execute(&mut *tx)
         .await?;
+        // FLOW-02 uses RIL's existing exact-once durable batch identity.
+        // Only finite page categories and counters are staged, never subjects.
+        let flow_rows = delta.flow_rows();
+        let surfaces: Vec<i16> = flow_rows.iter().map(|r| r.surface).collect();
+        let sources: Vec<i16> = flow_rows.iter().map(|r| r.acquisition_hint).collect();
+        let html: Vec<i64> = flow_rows.iter().map(|r| r.html_requests).collect();
+        let consented: Vec<i64> = flow_rows.iter().map(|r| r.opted_in_html_requests).collect();
+        let visits: Vec<i64> = flow_rows
+            .iter()
+            .map(|r| r.observed_opted_in_visit_starts)
+            .collect();
+        sqlx::query(
+            "INSERT INTO ril_flush_flow
+                 (batch_id,surface_code,acquisition_hint,html_requests,
+                  opted_in_html_requests,observed_opted_in_visit_starts)
+             SELECT $1,t.surface_code,t.acquisition_hint,t.html_requests,
+                    t.opted_in_html_requests,t.observed_opted_in_visit_starts
+             FROM unnest($2::smallint[],$3::smallint[],$4::bigint[],
+                         $5::bigint[],$6::bigint[])
+                 AS t(surface_code,acquisition_hint,html_requests,
+                      opted_in_html_requests,observed_opted_in_visit_starts)",
+        )
+        .bind(id)
+        .bind(surfaces)
+        .bind(sources)
+        .bind(html)
+        .bind(consented)
+        .bind(visits)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -344,6 +374,27 @@ impl PgRilRollups {
         .bind(&claim.id)
         .execute(&mut *tx)
         .await?;
+        sqlx::query(
+            "INSERT INTO ril_flow_hourly
+                 (bucket,surface_code,acquisition_hint,html_requests,
+                  opted_in_html_requests,observed_opted_in_visit_starts)
+             SELECT b.bucket,s.surface_code,s.acquisition_hint,s.html_requests,
+                    s.opted_in_html_requests,s.observed_opted_in_visit_starts
+               FROM ril_flush_flow s
+               JOIN ril_flush_batches b ON b.batch_id=s.batch_id
+              WHERE s.batch_id=$1
+             ON CONFLICT(bucket,surface_code,acquisition_hint)
+             DO UPDATE SET
+               html_requests=ril_flow_hourly.html_requests+EXCLUDED.html_requests,
+               opted_in_html_requests=
+                   ril_flow_hourly.opted_in_html_requests+EXCLUDED.opted_in_html_requests,
+               observed_opted_in_visit_starts=
+                   ril_flow_hourly.observed_opted_in_visit_starts
+                   +EXCLUDED.observed_opted_in_visit_starts",
+        )
+        .bind(&claim.id)
+        .execute(&mut *tx)
+        .await?;
         let updated = sqlx::query(
             "UPDATE ril_flush_batches
              SET status='done',finished_at=now(),leased_until=NULL
@@ -399,6 +450,12 @@ impl PgRilRollups {
         .await?;
         sqlx::query(
             "DELETE FROM ril_transition_hourly
+              WHERE bucket < date_trunc('hour',now()-INTERVAL '30 days')",
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "DELETE FROM ril_flow_hourly
               WHERE bucket < date_trunc('hour',now()-INTERVAL '30 days')",
         )
         .execute(&self.pool)
