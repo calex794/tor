@@ -174,6 +174,15 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     assert_eq!(after_flow.0 - before_flow.0, 2);
     assert_eq!(after_flow.1 - before_flow.1, 1);
     assert_eq!(after_flow.2 - before_flow.2, 1);
+    let hourly = reloaded.read_flow_hourly(24).await.unwrap();
+    assert!(hourly.iter().any(|row| {
+        row.surface == 2
+            && row.acquisition_hint == 0
+            && row.html_requests >= 2
+            && row.opted_in_html_requests >= 1
+    }));
+    assert!(reloaded.read_flow_hourly(0).await.is_err());
+    assert!(reloaded.read_flow_hourly(721).await.is_err());
 
     let row = sqlx::query(
         "SELECT requests,http_errors,slow_requests FROM ril_daily_rollup
