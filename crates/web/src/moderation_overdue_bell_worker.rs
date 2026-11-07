@@ -60,7 +60,10 @@ pub(crate) fn start(repo: PgNotifications) -> tokio::task::JoinHandle<()> {
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
-            match repo.project_moderation_overdue_to_admin_bell(BATCH_LIMIT).await {
+            match repo
+                .project_moderation_overdue_to_admin_bell(BATCH_LIMIT)
+                .await
+            {
                 Ok(projected) if projected > 0 => {
                     tracing::info!(
                         projected,
@@ -84,7 +87,10 @@ mod tests {
 
     #[test]
     fn disabled_is_always_the_default() {
-        assert_eq!(worker_opt_in(None, None, None, false, false, false, false), Ok(false));
+        assert_eq!(
+            worker_opt_in(None, None, None, false, false, false, false),
+            Ok(false)
+        );
         assert_eq!(
             worker_opt_in(Some("0"), None, None, true, false, true, true),
             Ok(false)
@@ -138,22 +144,28 @@ mod tests {
     #[test]
     fn rejects_partial_or_unexpected_operator_settings() {
         for invalid in ["", "true", "yes", "2", " 1"] {
-            assert!(worker_opt_in(
-                Some(invalid), None, None, true, false, true, true
-            )
-            .is_err());
+            assert!(worker_opt_in(Some(invalid), None, None, true, false, true, true).is_err());
         }
         assert!(worker_opt_in(
-            None, Some("all-active-site-administrators"), None, true, false, true, true
+            None,
+            Some("all-active-site-administrators"),
+            None,
+            true,
+            false,
+            true,
+            true
         )
         .is_err());
         assert!(worker_opt_in(
-            Some("0"), None, Some("elapsed-hours-24-72"), true, false, true, true
+            Some("0"),
+            None,
+            Some("elapsed-hours-24-72"),
+            true,
+            false,
+            true,
+            true
         )
         .is_err());
-        assert!(worker_opt_in(
-            Some("1"), None, None, true, false, true, true
-        )
-        .is_err());
+        assert!(worker_opt_in(Some("1"), None, None, true, false, true, true).is_err());
     }
 }
