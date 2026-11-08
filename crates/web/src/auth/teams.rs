@@ -13,9 +13,14 @@ use axum::{
 };
 use serde::Deserialize;
 use std::fmt::Write;
-use tor_accounts::{repositories::PgAccounts, services::security::{session_token_digest, generate_session_token}};
+use tor_accounts::{
+    repositories::PgAccounts,
+    services::security::{generate_session_token, session_token_digest},
+};
 use tor_books::{
-    repositories::{translation_teams::PgTranslationTeams, translation_team_invites::PgTeamInvites},
+    repositories::{
+        translation_team_invites::PgTeamInvites, translation_teams::PgTranslationTeams,
+    },
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
 
@@ -169,7 +174,13 @@ async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
     let mut html = list_html(&teams, &csrf);
     let mut fragment = String::from("<h2>Команды, в которых я участвую</h2><ul>");
     for (id, name) in joined {
-        write!(fragment, "<li><a href=\"/me/teams/{}\">{}</a></li>", id, escape_html(&name)).expect("HTML");
+        write!(
+            fragment,
+            "<li><a href=\"/me/teams/{}\">{}</a></li>",
+            id,
+            escape_html(&name)
+        )
+        .expect("HTML");
     }
     fragment.push_str("</ul>");
     if let Some(index) = html.rfind("</div></section>") {
@@ -224,14 +235,18 @@ async fn detail(
         Ok(team) => {
             let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
             page("Команда", &detail_html(&team, &csrf), &cookies)
-        },
+        }
         Err(TeamError::Missing) => match s.invites.member_team(actor, team_id).await {
-            Ok(name) => page("Команда", &format!(
-                "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
+            Ok(name) => page(
+                "Команда",
+                &format!(
+                    "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
                  <p>Вы участник команды. Права на книги назначаются отдельно.</p>\
                  <a href=\"/me/teams\">Все команды</a></div></section>",
-                escape_html(&name)
-            ), &[]),
+                    escape_html(&name)
+                ),
+                &[],
+            ),
             Err(error) => team_error(error),
         },
         Err(error) => team_error(error),
@@ -255,17 +270,26 @@ async fn invite(
         Err(status) => return session_failure(status),
     };
     let token = generate_session_token();
-    if let Err(error) = s.invites.invite(owner, team_id, &form.recipient_email, &token).await {
+    if let Err(error) = s
+        .invites
+        .invite(owner, team_id, &form.recipient_email, &token)
+        .await
+    {
         return team_error(error);
     }
     let link = format!("/me/teams/invites/{token}");
-    page("Приглашение", &format!(
-        "<section class=\"section\"><div class=\"container\"><h1>Приглашение создано</h1>\
+    page(
+        "Приглашение",
+        &format!(
+            "<section class=\"section\"><div class=\"container\"><h1>Приглашение создано</h1>\
          <p>Передайте ссылку адресату. Она действует семь дней и не даёт прав на книги.</p>\
          <p><a href=\"{}\">Ссылка приглашения</a></p>\
          <p><a href=\"/me/teams/{}\">Вернуться к команде</a></p></div></section>",
-        escape_html(&link), team_id
-    ), &[])
+            escape_html(&link),
+            team_id
+        ),
+        &[],
+    )
 }
 
 async fn invite_page(
@@ -290,7 +314,10 @@ async fn invite_page(
              <form method=\"post\" action=\"/me/teams/invites/{}/decline\">\
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
              <button type=\"submit\">Отклонить</button></form>",
-            token, escape_html(&csrf), token, escape_html(&csrf)
+            token,
+            escape_html(&csrf),
+            token,
+            escape_html(&csrf)
         )
     } else {
         format!("<p>Приглашение: {}</p>", escape_html(&invite.state))
