@@ -272,3 +272,6 @@ async fn e_07_rejects_invalid_or_missing_ownership_without_writes() {
         Some(CollectionError::NotFound)
     );
 }
+
+#[path = "book_collections_pg/feedback.rs"]
+mod feedback;

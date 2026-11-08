@@ -58,6 +58,7 @@ SCOPE_CALLS = {
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
+    "save_rating", "add_comment", "delete_comment",
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free", "create_paid",
     "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",

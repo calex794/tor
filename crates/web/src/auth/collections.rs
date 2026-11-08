@@ -16,14 +16,16 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, session_token_digest},
 };
-use tor_social::repositories::book_collections::{
-    CollectionBook, CollectionDetail, CollectionError, PgBookCollections,
+use tor_social::repositories::{
+    book_collections::{CollectionBook, CollectionDetail, CollectionError, PgBookCollections},
+    collection_feedback::{CollectionFeedback, PgCollectionFeedback},
 };
 
 #[derive(Clone)]
 struct CollectionState {
     accounts: PgAccounts,
     collections: PgBookCollections,
+    feedback: PgCollectionFeedback,
     cookies: CookiePolicy,
 }
 #[derive(Deserialize)]
@@ -60,11 +62,32 @@ struct CollectionSearch {
     q: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RatingForm {
+    rating: i16,
+    csrf_token: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommentForm {
+    body: String,
+    request_key: String,
+    csrf_token: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommentDeleteForm {
+    csrf_token: String,
+}
+
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let collections = PgBookCollections::new(accounts.pool().clone());
+    let feedback = PgCollectionFeedback::new(accounts.pool().clone());
     let state = CollectionState {
         accounts,
         collections,
+        feedback,
         cookies,
     };
     Router::new()
@@ -77,7 +100,13 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             post(remove_book),
         )
         .route("/collections/{id}/delete", post(delete))
-        .layer(DefaultBodyLimit::max(8 * 1024))
+        .route("/collections/{id}/rate", post(rate))
+        .route("/collections/{id}/comments", post(comment))
+        .route(
+            "/collections/{id}/comments/{comment_id}/delete",
+            post(remove_comment),
+        )
+        .layer(DefaultBodyLimit::max(32 * 1024))
         .with_state(state)
 }
 async fn viewer(s: &CollectionState, h: &HeaderMap) -> Result<Option<i64>, StatusCode> {
@@ -102,6 +131,7 @@ fn status(error: CollectionError) -> StatusCode {
         CollectionError::Invalid => StatusCode::BAD_REQUEST,
         CollectionError::NotFound => StatusCode::NOT_FOUND,
         CollectionError::Conflict => StatusCode::CONFLICT,
+        CollectionError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         CollectionError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -189,10 +219,18 @@ async fn detail(
     } else {
         Vec::new()
     };
+    let feedback = if detail.collection.visibility == "public" {
+        match s.feedback.read_public(id, viewer).await {
+            Ok(state) => Some(state),
+            Err(e) => return failed(e),
+        }
+    } else {
+        None
+    };
     let (csrf, cookies) = s.cookies.csrf_for_page(&h);
     page(
         "Подборка книг",
-        &detail_html(&detail, &csrf, q, &candidates),
+        &detail_html(&detail, &csrf, q, &candidates, viewer, feedback.as_ref()),
         &cookies,
     )
 }
@@ -201,6 +239,8 @@ fn detail_html(
     csrf: &str,
     q: &str,
     candidates: &[CollectionBook],
+    viewer: Option<i64>,
+    feedback: Option<&CollectionFeedback>,
 ) -> String {
     let c = &data.collection;
     let mut html=format!(
@@ -295,6 +335,79 @@ fn detail_html(
             "<form method=\"post\" action=\"/collections/{}/delete\">             <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">             <button type=\"submit\">Удалить подборку</button></form>",
             c.id,c.revision,escape_html(csrf)
         ).expect("HTML");
+    }
+    if let Some(feedback) = feedback {
+        html.push_str(r#"<section id="collection-feedback"><h2>Оценки и обсуждение</h2>"#);
+        let average = feedback
+            .average_rating
+            .map(|avg| format!("{avg:.1} из 5"))
+            .unwrap_or_else(|| "Нет оценок".to_owned());
+        write!(
+            html,
+            "<p>{} (оценок: {})</p>",
+            escape_html(&average),
+            feedback.rating_count
+        )
+        .expect("HTML");
+        if viewer.is_some() {
+            write!(
+                html,
+                r#"<form method="post" action="/collections/{}/rate">
+                <label>Ваша оценка<select name="rating">"#,
+                c.id
+            )
+            .expect("HTML");
+            for score in 1..=5 {
+                let selected = if feedback.viewer_rating == Some(score) {
+                    "selected"
+                } else {
+                    ""
+                };
+                write!(
+                    html,
+                    r#"<option value="{score}" {selected}>{score}</option>"#
+                )
+                .expect("HTML");
+            }
+            write!(
+                html,
+                r#"</select></label><input type="hidden" name="csrf_token" value="{}">
+                <button type="submit">Оценить подборку</button></form>
+                <form method="post" action="/collections/{}/comments">
+                <label>Комментарий<textarea name="body" maxlength="2000" required></textarea></label>
+                <input type="hidden" name="request_key" value="{}">
+                <input type="hidden" name="csrf_token" value="{}">
+                <button type="submit">Отправить комментарий</button></form>"#,
+                escape_html(csrf),
+                c.id,
+                generate_session_token(),
+                escape_html(csrf)
+            )
+            .expect("HTML");
+        }
+        html.push_str(r#"<ul class="collection-comments">"#);
+        for comment in &feedback.comments {
+            write!(
+                html,
+                "<li><strong>{}</strong>: {}</li>",
+                escape_html(&comment.author_name),
+                escape_html(&comment.body)
+            )
+            .expect("HTML");
+            if viewer == Some(comment.author_user_id) || viewer == Some(c.owner_user_id) {
+                write!(
+                    html,
+                    r#"<form method="post" action="/collections/{}/comments/{}/delete">
+                    <input type="hidden" name="csrf_token" value="{}">
+                    <button type="submit">Удалить комментарий</button></form>"#,
+                    c.id,
+                    comment.id,
+                    escape_html(csrf)
+                )
+                .expect("HTML");
+            }
+        }
+        html.push_str("</ul></section>");
     }
     html.push_str("<a href=\"/collections\">Все подборки</a></div></section>");
     html
@@ -405,6 +518,76 @@ async fn delete(
         .await
     {
         Ok(_) => private_response(Redirect::to("/collections"), &[]),
+        Err(e) => failed(e),
+    }
+}
+
+async fn rate(
+    State(s): State<CollectionState>,
+    Path(id): Path<i64>,
+    h: HeaderMap,
+    Form(f): Form<RatingForm>,
+) -> Response {
+    if !form_allowed(&s, &h, &f.csrf_token) {
+        return denied(StatusCode::FORBIDDEN);
+    }
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
+        Err(e) => return denied(e),
+    };
+    match s.feedback.save_rating(actor, id, f.rating).await {
+        Ok(()) => private_response(
+            Redirect::to(&format!("/collections/{id}#collection-feedback")),
+            &[],
+        ),
+        Err(e) => failed(e),
+    }
+}
+
+async fn comment(
+    State(s): State<CollectionState>,
+    Path(id): Path<i64>,
+    h: HeaderMap,
+    Form(f): Form<CommentForm>,
+) -> Response {
+    if !form_allowed(&s, &h, &f.csrf_token) {
+        return denied(StatusCode::FORBIDDEN);
+    }
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
+        Err(e) => return denied(e),
+    };
+    match s
+        .feedback
+        .add_comment(actor, id, &f.body, &f.request_key)
+        .await
+    {
+        Ok(_) => private_response(
+            Redirect::to(&format!("/collections/{id}#collection-feedback")),
+            &[],
+        ),
+        Err(e) => failed(e),
+    }
+}
+
+async fn remove_comment(
+    State(s): State<CollectionState>,
+    Path((id, comment_id)): Path<(i64, i64)>,
+    h: HeaderMap,
+    Form(f): Form<CommentDeleteForm>,
+) -> Response {
+    if !form_allowed(&s, &h, &f.csrf_token) {
+        return denied(StatusCode::FORBIDDEN);
+    }
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
+        Err(e) => return denied(e),
+    };
+    match s.feedback.delete_comment(actor, id, comment_id).await {
+        Ok(()) => private_response(
+            Redirect::to(&format!("/collections/{id}#collection-feedback")),
+            &[],
+        ),
         Err(e) => failed(e),
     }
 }
