@@ -29,30 +29,18 @@ pub(super) async fn layer_reader(
         return deny(StatusCode::NOT_FOUND);
     };
 
-    match state
-        .layer
-        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
-        .await
-    {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
-        Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
-        Ok(EntitlementDecision::Denied { reason }) => {
-            return deny(match reason {
-                tor_contracts::paid_delivery::DenialReason::Hidden => StatusCode::NOT_FOUND,
-                tor_contracts::paid_delivery::DenialReason::Unknown => {
-                    StatusCode::SERVICE_UNAVAILABLE
-                }
-                _ => StatusCode::FORBIDDEN,
-            });
-        }
+    // The metadata query repeats the concrete D entitlement check and fails
+    // closed for expired subscriptions, age gates and site moderation.
+    let anchor = match state.layer.toc_anchor(actor_id, chapter_id).await {
+        Ok(anchor) => anchor,
         Err(error) => return deny(status(error)),
-    }
+    };
 
     // No chapter text, S3 object path, DEK or signed GET in the HTML document.
     // The browser POST has independent session, Origin, CSRF and rate limits.
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        crate::layer_reader_pages::layer_reader_shell(chapter_id.get(), &csrf, s3_origin),
+        crate::layer_reader_pages::layer_reader_shell(&anchor, &csrf, s3_origin),
         &cookies,
     );
     let csp = format!(

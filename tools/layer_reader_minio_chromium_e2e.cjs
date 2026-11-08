@@ -117,6 +117,38 @@ async function run() {
     assert.equal(await page.locator("[data-purchase-id]").count(), 0);
     assert.equal(await page.locator("[data-paid-completion]").count(), 0);
     assert.equal(grantCalls, 1);
+    const toc = page.locator("[data-layer-toc]");
+    assert.equal(await toc.count(), 1, "Layer navigation must exist");
+    assert.equal(await toc.locator('[data-toc-state="current"]').count(), 1,
+      "current D-granted edition must be identified");
+    assert.equal(await toc.locator("[data-purchase-id]").count(), 0,
+      "Layer navigation must never claim a direct purchase");
+    await toc.locator("summary").click();
+    assert(await toc.evaluate(element => element.open), "Layer TOC did not open");
+    assert(await toc.locator("[data-layer-toc-close]").isVisible(),
+      "Layer modal must have independent close control");
+    const geometry = await toc.locator("[data-layer-toc-modal]").evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        width: document.documentElement.clientWidth,
+        height: window.innerHeight,
+        columns: getComputedStyle(element.querySelector("[data-layer-toc-list]"))
+          .gridTemplateColumns.split(" ").length,
+      };
+    });
+    assert(geometry.left >= 0 && geometry.right <= geometry.width + 1 &&
+      geometry.top >= 0 && geometry.bottom <= geometry.height + 1 &&
+      geometry.columns === 3, "Layer TOC modal must fit the desktop viewport");
+    await toc.locator("[data-layer-toc-close]").click();
+    assert(!(await toc.evaluate(element => element.open)), "Layer modal did not close");
+    assert(await toc.locator("summary").evaluate(
+      element => element === document.activeElement
+    ), "Layer modal did not restore focus");
+    await toc.locator("summary").click();
+    await page.keyboard.press("Escape");
+    assert(!(await toc.evaluate(element => element.open)),
+      "Escape must close Layer navigation");
     await page.close();
 
     // Simulate revocation after the HTML shell was received but before POST.

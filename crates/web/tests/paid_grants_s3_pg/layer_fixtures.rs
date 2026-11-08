@@ -51,6 +51,16 @@ pub(super) async fn assert_layer_s3_grants(
         ),
     );
     let layer_page = format!("/read/layer/{chapter}");
+    let toc_page = format!("/api/v1/reader/layer/{chapter}/toc/window?after=1.{chapter}&limit=36",);
+    assert_eq!(
+        private_get(app, &toc_page, None).await.status(),
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        private_get(app, &toc_page, Some(cookie)).await.status(),
+        StatusCode::FORBIDDEN,
+        "a Layer storefront is not a TOC entitlement",
+    );
     assert_eq!(
         private_get(app, &layer_page, None).await.status(),
         StatusCode::UNAUTHORIZED
@@ -122,6 +132,24 @@ pub(super) async fn assert_layer_s3_grants(
     assert!(!body.contains(MARKDOWN));
     assert!(!body.contains("dek_b64u"));
     assert!(!body.contains("ciphertext_url"));
+    assert!(body.contains("data-layer-toc-modal"));
+    assert!(body.contains("data-layer-toc-close"));
+    assert!(body.contains("Глава 1."));
+    let toc = private_get(app, &toc_page, Some(cookie)).await;
+    assert_eq!(toc.status(), StatusCode::OK);
+    assert_eq!(toc.headers()[header::CACHE_CONTROL], "no-store");
+    let toc_body = decode(toc).await;
+    assert!(toc_body["items"].is_array());
+    assert!(!toc_body.to_string().contains(MARKDOWN));
+    assert!(!toc_body.to_string().contains("purchase_id"));
+    assert!(!toc_body.to_string().contains("dek_b64u"));
+    let invalid_cursor = format!("/api/v1/reader/layer/{chapter}/toc/window?after=2.{chapter}",);
+    assert_eq!(
+        private_get(app, &invalid_cursor, Some(cookie))
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
 
     let mixed = post_grant(
         app,
@@ -203,6 +231,11 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(age_denied.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        private_get(app, &toc_page, Some(cookie)).await.status(),
+        StatusCode::NOT_FOUND,
+        "age changes immediately close Layer navigation"
+    );
     assert_eq!(age_denied.headers()[header::CACHE_CONTROL], "no-store");
     assert!(
         to_bytes(age_denied.into_body(), 8192)
@@ -379,6 +412,11 @@ pub(super) async fn assert_layer_s3_grants(
         private_get(app, &layer_page, Some(cookie)).await.status(),
         StatusCode::FORBIDDEN,
         "revoked Layer must never receive a fresh browser reader shell"
+    );
+    assert_eq!(
+        private_get(app, &toc_page, Some(cookie)).await.status(),
+        StatusCode::FORBIDDEN,
+        "revoked Layer cannot enumerate purchased chapters"
     );
     let revoked_image =
         layer_asset_grant(app, chapter, cookie, csrf, r#"{"source":"layer"}"#).await;
