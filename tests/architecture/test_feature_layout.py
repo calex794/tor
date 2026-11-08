@@ -122,6 +122,22 @@ class FeatureLayoutTests(unittest.TestCase):
         self.put(path, "use tor_books::repositories::postgres::ScheduledChapter;\n")
         self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
 
+    def test_notification_settings_page_requires_service_type(self):
+        self.scaffold()
+        path = "crates/web/src/pages/notification_settings.rs"
+        self.put(path, "use tor_reading::services::notification_preferences::DeliveryMode;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_reading::repositories::DeliveryMode;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_profile_settings_page_uses_service_view(self):
+        self.scaffold()
+        path = "crates/web/src/pages/profile_settings.rs"
+        self.put(path, "use tor_accounts::services::profile::Profile;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_accounts::repositories::profile::Profile;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
     def test_web_router_may_wire_repository(self):
         self.scaffold()
         self.put("crates/web/src/router.rs", "use tor_books::repositories::PgCatalog;\n")

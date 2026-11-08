@@ -1,4 +1,13 @@
 //! A-06: settings validation shared by HTML and JSON adapters.
+/// Public view of the account settings; not a persistence-layer type.
+pub struct Profile {
+    pub user_id: i64,
+    pub display_name: String,
+    pub handle: Option<String>,
+    pub adult_enabled: bool,
+    pub revision: i64,
+}
+
 #[derive(Clone, Debug)]
 pub struct ProfileUpdate {
     pub display_name: Option<String>,

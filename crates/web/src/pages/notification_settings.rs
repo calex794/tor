@@ -1,7 +1,7 @@
 //! Server-rendered controls for future external delivery cadence.
 use super::{escape_html, layout};
 use axum::response::Html;
-use tor_reading::repositories::DeliveryMode;
+use tor_reading::services::notification_preferences::DeliveryMode;
 
 pub fn delivery_preferences_page(mode: DeliveryMode, csrf: &str) -> Html<String> {
     let checked = |choice: DeliveryMode| if choice == mode { " checked" } else { "" };
