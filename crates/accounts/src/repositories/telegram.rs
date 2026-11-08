@@ -1,6 +1,6 @@
 //! A/S004: optional Telegram identity binding and recovery proofs.
 //! Public bot messages never carry TOR identity, password hash or session tokens.
-use super::PgAccounts;
+use super::{telegram_recovery::TelegramPollerFence, PgAccounts};
 use crate::services::security::session_token_digest;
 
 pub struct TelegramLinkState {
@@ -104,32 +104,50 @@ impl PgAccounts {
         Ok(true)
     }
 
-    /// Bot-driven link claim is NOT a binding. The signed-in TOR owner
-    /// must check the candidate and confirm in the initiating browser.
-    pub async fn claim_telegram_link(
+    /// The browser owner must confirm the proposed Telegram candidate.
+    /// Bot-driven link claims are permitted only under the exact live poller
+    /// lease generation, checked in the same row-locked SQL statement.
+    pub async fn claim_telegram_link_fenced(
         &self,
+        fence: TelegramPollerFence<'_>,
         nonce_digest: &[u8; 32],
         telegram_user_id: i64,
         private_chat_id: i64,
-    ) -> Result<bool, sqlx::Error> {
-        if telegram_user_id <= 0 || private_chat_id != telegram_user_id {
-            return Ok(false);
+    ) -> Result<Option<bool>, sqlx::Error> {
+        if fence.bot_id <= 0 || fence.lease_epoch <= 0 {
+            return Ok(None);
         }
-        let updated: Option<i64> = sqlx::query_scalar(
-            "UPDATE account_telegram_link_intents AS i
-             SET candidate_telegram_user_id=$2,candidate_private_chat_id=$3
-             WHERE i.token_hash=$1 AND i.expires_at>now()
-               AND (i.candidate_telegram_user_id IS NULL OR i.candidate_telegram_user_id=$2)
-               AND NOT EXISTS (SELECT 1 FROM account_telegram_bindings b
-                               WHERE b.telegram_user_id=$2 AND b.user_id<>i.user_id)
-             RETURNING i.user_id",
+        let (active, claimed): (bool, bool) = sqlx::query_as(
+            "WITH active_lease AS MATERIALIZED (
+               SELECT bot_id FROM account_telegram_poller_leases
+               WHERE bot_id=$1 AND owner_digest=$2 AND lease_epoch=$3
+                 AND expires_at>clock_timestamp()
+               FOR SHARE
+             ), claimed AS (
+               UPDATE account_telegram_link_intents AS i
+               SET candidate_telegram_user_id=$5,candidate_private_chat_id=$6
+               WHERE i.token_hash=$4 AND i.expires_at>now()
+                 AND $5>0 AND $5=$6
+                 AND EXISTS(SELECT 1 FROM active_lease)
+                 AND (i.candidate_telegram_user_id IS NULL OR i.candidate_telegram_user_id=$5)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM account_telegram_bindings b
+                   WHERE b.telegram_user_id=$5 AND b.user_id<>i.user_id
+                 )
+               RETURNING i.user_id
+             )
+             SELECT EXISTS(SELECT 1 FROM active_lease),
+                    EXISTS(SELECT 1 FROM claimed)",
         )
+        .bind(fence.bot_id)
+        .bind(fence.owner_digest.as_slice())
+        .bind(fence.lease_epoch)
         .bind(nonce_digest.as_slice())
         .bind(telegram_user_id)
         .bind(private_chat_id)
-        .fetch_optional(self.pool())
+        .fetch_one(self.pool())
         .await?;
-        Ok(updated.is_some())
+        Ok(active.then_some(claimed))
     }
 
     /// Confirm the candidate and atomically replace any old Telegram binding
