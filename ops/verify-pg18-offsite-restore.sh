@@ -20,6 +20,7 @@ source "$config"
    ! -L "$RESTIC_PASSWORD_FILE" &&
    "$(stat -c '%U:%G:%a' "$RESTIC_PASSWORD_FILE")" == root:root:600 ]] ||
   fail 'recovery password file unsafe'
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 for executable in restic pg_restore psql python3 flock; do
   command -v "$executable" >/dev/null || fail "missing $executable"
 done
