@@ -407,6 +407,96 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         )),
         "0"
     );
+    // A visible public Book comment is a separate complaint target.
+    let comment_key = "C".repeat(43);
+    let comment: i64 = pg(&format!(
+        "INSERT INTO discussion_comments
+         (author_user_id,book_id,body,visibility,command_key,command_hash)
+         VALUES({reader_id},{book},'Reported comment body','visible',
+                '{comment_key}',decode(repeat('01',32),'hex')) RETURNING id"
+    ))
+    .parse()
+    .unwrap();
+    let comment_path = format!("{report_path}?comment_id={comment}");
+    let comment_page = send(&app, "GET", &comment_path, &reader, "").await;
+    assert_eq!(comment_page.status(), StatusCode::OK);
+    let comment_csrf_cookie = cookie(&comment_page, "tor-dev-csrf=");
+    let comment_form = html(comment_page).await;
+    assert_eq!(field(&comment_form, "comment_id"), comment.to_string());
+    let comment_csrf = field(&comment_form, "csrf_token");
+    let comment_command = field(&comment_form, "command_key");
+    let comment_cookies = format!("{reader}; {comment_csrf_cookie}");
+    let comment_post = format!(
+        "comment_id={comment}&reason=abuse&details=Review+comment&command_key={comment_command}&csrf_token={comment_csrf}"
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &format!("{report_path}?comment_id={}", comment + 1000000),
+            &reader,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    // A stale form for a hidden comment cannot register a complaint.
+    pg(&format!(
+        "UPDATE discussion_comments SET visibility='hidden' WHERE id={comment}"
+    ));
+    assert_eq!(
+        send(&app, "POST", &report_path, &comment_cookies, &comment_post)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(&format!(
+        "UPDATE discussion_comments SET visibility='visible' WHERE id={comment}"
+    ));
+    assert_eq!(
+        send(&app, "POST", &report_path, &comment_cookies, &comment_post)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        send(&app, "POST", &report_path, &comment_cookies, &comment_post)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let comment_report: i64 = pg(&format!(
+        "SELECT id FROM social_book_content_reports WHERE book_id={book}
+         AND comment_id={comment} AND reporter_user_id={reader_id}"
+    ))
+    .parse()
+    .unwrap();
+    assert_ne!(comment_report, report);
+    let comments_queue = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
+    assert!(comments_queue.contains(&format!("Комментарий #{comment}")));
+    assert!(!comments_queue.contains("Reported comment body"));
+    let comment_decision = format!("/admin/book-reports/{comment_report}/decision");
+    assert_eq!(
+        send(&app, "POST", &comment_decision, &admin_cookies, &decision)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT count(*) FROM social_book_content_review_events
+             WHERE report_id={comment_report} AND decision='reviewed'"
+        )),
+        "1"
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT visibility FROM discussion_comments WHERE id={comment}"
+        )),
+        "visible",
+        "reviewing a report cannot silently moderate the comment"
+    );
     // Prevent a test-only active administrator from contaminating the later
     // A-04/A-05 last-admin invariant on the same disposable PostgreSQL.
     pg(&format!(

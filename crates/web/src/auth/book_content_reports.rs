@@ -14,12 +14,14 @@ use tor_social::repositories::book_content_reports::PgBookContentReports;
 #[serde(deny_unknown_fields)]
 pub(super) struct Submitted {
     sent: Option<String>,
+    comment_id: Option<i64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReportForm {
     csrf_token: String,
     command_key: String,
+    comment_id: Option<i64>,
     reason: String,
     details: String,
 }
@@ -63,6 +65,13 @@ pub(super) async fn form(
         Ok(title) => title,
         Err(error) => return deny(status(error)),
     };
+    if let Some(comment_id) = query.comment_id {
+        match store(&s).reportable_comment(id, comment_id).await {
+            Ok(true) => {}
+            Ok(false) => return deny(StatusCode::NOT_FOUND),
+            Err(error) => return deny(status(error)),
+        }
+    }
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
     let sent = if query.sent.as_deref() == Some("1") {
         "<p role=\"status\">Жалоба зарегистрирована.</p>"
@@ -71,7 +80,7 @@ pub(super) async fn form(
     };
     let body = format!(
         r#"<section class="section"><div class="container">
-        <h1>Пожаловаться на книгу</h1><p>{}</p>
+        <h1>Пожаловаться на книгу или комментарий</h1><p>{}</p>
         <p>Обращение рассматривает администратор. Отправка не скрывает книгу автоматически.</p>
         {sent}
         <form method="post" action="/books/{id}/report">
@@ -82,12 +91,18 @@ pub(super) async fn form(
         <option value="other">Другое</option>
         </select></label>
         <label>Подробности <textarea name="details" maxlength="500"></textarea></label>
+        {}
         <input type="hidden" name="command_key" value="{}">
         <input type="hidden" name="csrf_token" value="{}">
         <button type="submit">Отправить жалобу</button></form>
         <p><a href="/books/{id}">Вернуться к книге</a></p>
         </div></section>"#,
         super::escape_html(&title),
+        query
+            .comment_id
+            .map_or_else(String::new, |comment_id| format!(
+                r#"<input type="hidden" name="comment_id" value="{comment_id}">"#
+            )),
         generate_session_token(),
         super::escape_html(&csrf),
     );
@@ -107,10 +122,23 @@ pub(super) async fn submit(
         Ok(digest) => digest,
         Err(error) => return deny(error),
     };
-    match store(&s)
-        .submit(&digest, id, &form.reason, &form.details, &form.command_key)
-        .await
-    {
+    let result = if let Some(comment_id) = form.comment_id {
+        store(&s)
+            .submit_comment(
+                &digest,
+                id,
+                comment_id,
+                &form.reason,
+                &form.details,
+                &form.command_key,
+            )
+            .await
+    } else {
+        store(&s)
+            .submit(&digest, id, &form.reason, &form.details, &form.command_key)
+            .await
+    };
+    match result {
         Ok(_) => super::private_response(Redirect::to(&format!("/books/{id}/report?sent=1")), &[]),
         Err(error) => deny(status(error)),
     }
@@ -140,7 +168,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             body,
             r#"<article class="me-now-card">
             <h2>Жалоба #{}</h2>
-            <p>Книга #{} · заявитель #{}</p><p>Причина: {}</p><p>Комментарий: {}</p>
+            <p>Книга #{} · {} · заявитель #{}</p><p>Причина: {}</p><p>Комментарий: {}</p>
             <form method="post" action="/admin/book-reports/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
             <label>Комментарий решения
@@ -150,6 +178,10 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             </form></article>"#,
             item.id,
             item.book_id,
+            item.comment_id.map_or_else(
+                || "Жалоба на книгу".to_owned(),
+                |id| format!("Комментарий #{id}")
+            ),
             item.reporter_id,
             super::escape_html(&item.reason),
             super::escape_html(&item.details),

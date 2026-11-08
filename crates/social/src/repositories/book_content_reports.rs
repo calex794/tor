@@ -13,6 +13,7 @@ pub struct PgBookContentReports {
 pub struct PendingBookContentReport {
     pub id: i64,
     pub book_id: i64,
+    pub comment_id: Option<i64>,
     pub reporter_id: i64,
     pub reason: String,
     pub details: String,
@@ -58,6 +59,28 @@ impl PgBookContentReports {
         Self { pool }
     }
 
+    /// A Book comment is reportable only if it is visible in this public
+    /// discussion. No chapter-edition or paid content is exposed by ID.
+    pub async fn reportable_comment(
+        &self,
+        book_id: i64,
+        comment_id: i64,
+    ) -> Result<bool, BookShareError> {
+        if book_id <= 0 || comment_id <= 0 {
+            return Err(BookShareError::NotFound);
+        }
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM discussion_comments
+             WHERE id=$1 AND book_id=$2 AND chapter_id IS NULL
+               AND version_id IS NULL AND visibility='visible')",
+        )
+        .bind(comment_id)
+        .bind(book_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(BookShareError::from)
+    }
+
     /// Show only Books that the *live session* can already see on the public
     /// reader. No private, hidden, suspended or age-ineligible Book title leaks.
     pub async fn reportable_title(
@@ -100,8 +123,42 @@ impl PgBookContentReports {
         details: &str,
         command_key: &str,
     ) -> Result<i64, BookShareError> {
+        self.submit_target(session_digest, book_id, None, reason, details, command_key)
+            .await
+    }
+
+    pub async fn submit_comment(
+        &self,
+        session_digest: &[u8; 32],
+        book_id: i64,
+        comment_id: i64,
+        reason: &str,
+        details: &str,
+        command_key: &str,
+    ) -> Result<i64, BookShareError> {
+        self.submit_target(
+            session_digest,
+            book_id,
+            Some(comment_id),
+            reason,
+            details,
+            command_key,
+        )
+        .await
+    }
+
+    async fn submit_target(
+        &self,
+        session_digest: &[u8; 32],
+        book_id: i64,
+        comment_id: Option<i64>,
+        reason: &str,
+        details: &str,
+        command_key: &str,
+    ) -> Result<i64, BookShareError> {
         let details = details.trim();
         if book_id <= 0
+            || comment_id.is_some_and(|id| id <= 0)
             || !matches!(reason, "spam" | "abuse" | "misleading" | "other")
             || details.chars().count() > 500
             || details.contains('\0')
@@ -144,16 +201,36 @@ impl PgBookContentReports {
         if !allowed(&book_level, adult, pro_adult_grant.is_some()) {
             return Err(BookShareError::NotFound);
         }
-        let old: Option<(i64, i64, String, String)> = sqlx::query_as(
-            "SELECT id,book_id,reason,details FROM social_book_content_reports
+        if let Some(comment_id) = comment_id {
+            // Hold the visible comment until the complaint is committed.
+            // Hidden, deleted and chapter-edition comments cannot be reported.
+            let found: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM discussion_comments
+                 WHERE id=$1 AND book_id=$2 AND chapter_id IS NULL
+                   AND version_id IS NULL AND visibility='visible' FOR SHARE",
+            )
+            .bind(comment_id)
+            .bind(book_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if found.is_none() {
+                return Err(BookShareError::NotFound);
+            }
+        }
+        let old: Option<(i64, i64, Option<i64>, String, String)> = sqlx::query_as(
+            "SELECT id,book_id,comment_id,reason,details FROM social_book_content_reports
              WHERE reporter_user_id=$1 AND command_key=$2",
         )
         .bind(reporter)
         .bind(command_key)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some((id, previous_book, previous_reason, previous_details)) = old {
-            if previous_book != book_id || previous_reason != reason || previous_details != details
+        if let Some((id, previous_book, previous_comment, previous_reason, previous_details)) = old
+        {
+            if previous_book != book_id
+                || previous_comment != comment_id
+                || previous_reason != reason
+                || previous_details != details
             {
                 return Err(BookShareError::Conflict);
             }
@@ -162,10 +239,12 @@ impl PgBookContentReports {
         }
         let pending: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM social_book_content_reports
-             WHERE reporter_user_id=$1 AND book_id=$2 AND state='pending')",
+             WHERE reporter_user_id=$1 AND book_id=$2
+               AND comment_id IS NOT DISTINCT FROM $3 AND state='pending')",
         )
         .bind(reporter)
         .bind(book_id)
+        .bind(comment_id)
         .fetch_one(&mut *tx)
         .await?;
         if pending {
@@ -184,10 +263,11 @@ impl PgBookContentReports {
         }
         let report: i64 = sqlx::query_scalar(
             "INSERT INTO social_book_content_reports(
-               book_id,reporter_user_id,reason,details,command_key)
-             VALUES($1,$2,$3,$4,$5) RETURNING id",
+               book_id,comment_id,reporter_user_id,reason,details,command_key)
+             VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
         )
         .bind(book_id)
+        .bind(comment_id)
         .bind(reporter)
         .bind(reason)
         .bind(details)
@@ -209,8 +289,8 @@ impl PgBookContentReports {
         }
         let mut tx = self.pool.begin().await?;
         administrator(&mut tx, session_digest).await?;
-        let rows: Vec<(i64, i64, i64, String, String)> = sqlx::query_as(
-            "SELECT id,book_id,reporter_user_id,reason,details
+        let rows: Vec<(i64, i64, Option<i64>, i64, String, String)> = sqlx::query_as(
+            "SELECT id,book_id,comment_id,reporter_user_id,reason,details
              FROM social_book_content_reports WHERE state='pending'
              ORDER BY reported_at,id LIMIT $1",
         )
@@ -220,15 +300,16 @@ impl PgBookContentReports {
         tx.commit().await?;
         Ok(rows
             .into_iter()
-            .map(
-                |(id, book_id, reporter_id, reason, details)| PendingBookContentReport {
+            .map(|(id, book_id, comment_id, reporter_id, reason, details)| {
+                PendingBookContentReport {
                     id,
                     book_id,
+                    comment_id,
                     reporter_id,
                     reason,
                     details,
-                },
-            )
+                }
+            })
             .collect())
     }
 
