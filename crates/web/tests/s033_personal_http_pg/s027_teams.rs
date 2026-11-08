@@ -145,7 +145,12 @@ async fn s027_recipient_only_invites_idempotence_and_no_book_permissions() {
     assert_eq!(joined.len(), 1);
     assert_eq!(
         joined[0].0,
-        team_path.rsplit('/').next().unwrap().parse::<i64>().unwrap()
+        team_path
+            .rsplit('/')
+            .next()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
     );
     assert_eq!(
         send(&app, "GET", &team_path, &stranger, "").await.status(),
