@@ -315,4 +315,12 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
             .status(),
         StatusCode::CONFLICT
     );
+    // The PG workflow runs later A-04/A-05 suites in the same disposable DB.
+    // A still-live test administrator would invalidate their last-admin
+    // invariant. Leave immutable S049 evidence intact, but deactivate our
+    // fixture's administrative role before the next suite.
+    pg(&format!(
+        "UPDATE account_roles SET is_active=false
+         WHERE user_id={admin_id} AND role='administrator'"
+    ));
 }
