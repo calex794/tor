@@ -5,6 +5,7 @@
 //! D checkout holds FOR SHARE on the Book through settlement.
 use crate::domain::shares::{validate_schedule, RevenueShareError, ShareAssignment};
 use sqlx::PgPool;
+use tor_accounts::services::security::VerifiedPassword;
 
 #[derive(Clone)]
 pub struct PgRevenueShares {
@@ -16,6 +17,24 @@ impl PgRevenueShares {
         Self { pool }
     }
 
+    /// Browser financial edits require a fresh A password proof, validated
+    /// again against the live credential + session under this same transaction.
+    pub async fn replace_schedule_verified(
+        &self,
+        actor_id: i64,
+        book_id: i64,
+        expected_revision: i64,
+        assignments: &[ShareAssignment],
+        reason: &str,
+        session_digest: &[u8; 32],
+        proof: &VerifiedPassword,
+    ) -> Result<i64, RevenueShareError> {
+        self.replace_schedule_inner(
+            actor_id, book_id, expected_revision, assignments, reason,
+            Some((session_digest, proof)),
+        ).await
+    }
+
     pub async fn replace_schedule(
         &self,
         actor_id: i64,
@@ -23,6 +42,20 @@ impl PgRevenueShares {
         expected_revision: i64,
         assignments: &[ShareAssignment],
         reason: &str,
+    ) -> Result<i64, RevenueShareError> {
+        self.replace_schedule_inner(
+            actor_id, book_id, expected_revision, assignments, reason, None,
+        ).await
+    }
+
+    async fn replace_schedule_inner(
+        &self,
+        actor_id: i64,
+        book_id: i64,
+        expected_revision: i64,
+        assignments: &[ShareAssignment],
+        reason: &str,
+        proof: Option<(&[u8; 32], &VerifiedPassword)>,
     ) -> Result<i64, RevenueShareError> {
         let shares = validate_schedule(assignments)?;
         if actor_id <= 0
@@ -39,6 +72,38 @@ impl PgRevenueShares {
             .begin()
             .await
             .map_err(|_| RevenueShareError::Unavailable)?;
+
+        if let Some((session_digest, verified_password)) = proof {
+            if !verified_password.is_fresh() {
+                return Err(RevenueShareError::Forbidden);
+            }
+            // A's rotation also locks users before sessions. Recheck the
+            // account and cookie while locks are held until the share commit.
+            let hash: Option<String> = sqlx::query_scalar(
+                "SELECT password_hash FROM users
+                 WHERE id=$1 AND account_state='active' FOR SHARE",
+            )
+            .bind(actor_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| RevenueShareError::Unavailable)?;
+            if !hash.as_deref().is_some_and(|v| verified_password.matches_hash(v)) {
+                return Err(RevenueShareError::Forbidden);
+            }
+            let live: Option<i64> = sqlx::query_scalar(
+                "SELECT user_id FROM sessions
+                 WHERE user_id=$1 AND token_hash=$2
+                   AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE",
+            )
+            .bind(actor_id)
+            .bind(session_digest.as_slice())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| RevenueShareError::Unavailable)?;
+            if live != Some(actor_id) || !verified_password.is_fresh() {
+                return Err(RevenueShareError::Forbidden);
+            }
+        }
 
         let owned: Option<i64> = sqlx::query_scalar(
             "SELECT b.id FROM books b

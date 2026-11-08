@@ -164,6 +164,7 @@ fn render_index(id: i64, title: &str, age_editor_enabled: bool) -> Html<String> 
         <li><a href="/me/books/{id}/settings/project-status">Состояние работы</a></li>
         <li><a href="/me/books/{id}/settings/related">Связанные книги</a></li>
         <li><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл</a></li>
+        <li><a href="/me/books/{id}/settings/ownership">Владелец и доли доходов</a></li>
         {age_link}
         </ul></div></div></section>"#,
         pages::escape_html(title)
