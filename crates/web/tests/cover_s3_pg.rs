@@ -989,7 +989,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         &card,
         &session_digest,
         &app,
-        job,
     )
     .await;
     catalog.pool().close().await;
