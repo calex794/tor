@@ -22,6 +22,9 @@ impl PgAccounts {
         sqlx::query("SELECT id FROM account_telegram_recovery_requests LIMIT 0")
             .fetch_all(self.pool())
             .await?;
+        sqlx::query("SELECT bot_id FROM account_telegram_poller_leases LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
         Ok(())
     }
 
