@@ -1,12 +1,6 @@
 //! A-03: bounded, owner-only active sessions. Never expose token hashes.
 use super::PgAccounts;
-
-pub struct ActiveSession {
-    pub id: String,
-    pub opened_utc: String,
-    pub browser_family: String,
-    pub current: bool,
-}
+pub use crate::services::active_sessions::ActiveSession;
 
 impl PgAccounts {
     /// The caller is the authenticated owner, not an ID supplied by the browser.

@@ -2,7 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_reading::repositories::demand::DemandState;
+use tor_reading::services::continuation_demand::DemandState;
 use tor_reading::services::progress::{
     reader_blocks, valid_text_place, ReadingPlace, SavedPlaceState,
 };

@@ -130,6 +130,22 @@ class FeatureLayoutTests(unittest.TestCase):
         self.put(path, "use tor_reading::repositories::DeliveryMode;\n")
         self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
 
+    def test_active_sessions_page_requires_service_type(self):
+        self.scaffold()
+        path = "crates/web/src/pages/session_security.rs"
+        self.put(path, "use tor_accounts::services::active_sessions::ActiveSession;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_accounts::repositories::sessions::ActiveSession;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_private_reader_demand_uses_service_state(self):
+        self.scaffold()
+        path = "crates/web/src/pages/reader_private.rs"
+        self.put(path, "use tor_reading::services::continuation_demand::DemandState;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_reading::repositories::demand::DemandState;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
     def test_web_router_may_wire_repository(self):
         self.scaffold()
         self.put("crates/web/src/router.rs", "use tor_books::repositories::PgCatalog;\n")
