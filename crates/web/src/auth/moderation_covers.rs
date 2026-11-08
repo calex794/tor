@@ -48,7 +48,10 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/covers/{id}/preview", get(preview))
         .route("/moderation/covers/{id}/decision", post(decide))
         .route("/moderation/books/{id}/cover-history", get(history))
-        .route("/moderation/books/{id}/cover-withdraw", post(submit_withdrawal))
+        .route(
+            "/moderation/books/{id}/cover-withdraw",
+            post(submit_withdrawal),
+        )
 }
 
 fn error_code(err: CoverReviewError) -> StatusCode {
@@ -406,7 +409,8 @@ pub(super) async fn submit_withdrawal(
     headers: HeaderMap,
     Form(form): Form<WithdrawForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token) {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let Some(digest) = session(&state, &headers) else {
@@ -418,13 +422,16 @@ pub(super) async fn submit_withdrawal(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    if form.action.as_deref().is_some_and(|action| action != "withdraw") {
+    if form
+        .action
+        .as_deref()
+        .is_some_and(|action| action != "withdraw")
+    {
         return deny(StatusCode::BAD_REQUEST);
     }
     let reason = form.reason.trim();
     let back = format!("/moderation/books/{book_id}/cover-history");
-    if book_id <= 0 || form.expected_slot_revision <= 0
-        || reason.is_empty() || reason.len() > 2000
+    if book_id <= 0 || form.expected_slot_revision <= 0 || reason.is_empty() || reason.len() > 2000
     {
         return super::moderation_books::decision_error(StatusCode::BAD_REQUEST, &back);
     }
