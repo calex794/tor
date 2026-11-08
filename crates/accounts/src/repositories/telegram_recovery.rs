@@ -16,6 +16,14 @@ pub struct TelegramRecoveryDispatch {
     pub match_code: String,
 }
 
+/// The poller generation that must still be owned when a Telegram decision is stored.
+#[derive(Clone, Copy, Debug)]
+pub struct TelegramPollerFence<'a> {
+    pub bot_id: i64,
+    pub owner_digest: &'a [u8; 32],
+    pub lease_epoch: i64,
+}
+
 impl PgAccounts {
     /// Same persisted HTTP path for valid and unknown emails. A request is
     /// readable only by the browser that holds its random HttpOnly cookie.
@@ -139,58 +147,18 @@ impl PgAccounts {
         Ok(())
     }
 
-    /// Callback approval requires Telegram's authenticated from.id, an actual
-    /// linked private chat, active account, and a still-pending exact request.
-    pub async fn decide_telegram_recovery(
-        &self,
-        request_id: i64,
-        telegram_user_id: i64,
-        private_chat_id: i64,
-        approve: bool,
-    ) -> Result<bool, sqlx::Error> {
-        if request_id <= 0 || telegram_user_id <= 0 || telegram_user_id != private_chat_id {
-            return Ok(false);
-        }
-        let next = if approve { "approved" } else { "denied" };
-        let changed: Option<i64> = sqlx::query_scalar(
-            "UPDATE account_telegram_recovery_requests r SET status=$4
-             WHERE r.id=$1 AND r.telegram_user_id=$2 AND r.private_chat_id=$3
-               AND r.status='pending' AND r.expires_at>now()
-               AND EXISTS (
-                 SELECT 1 FROM account_telegram_bindings b JOIN users u ON u.id=b.user_id
-                 WHERE b.user_id=r.user_id AND b.telegram_user_id=$2
-                   AND b.private_chat_id=$3 AND u.account_state='active'
-               )
-               AND NOT EXISTS (SELECT 1 FROM account_roles roles
-                               WHERE roles.user_id=r.user_id AND roles.is_active)
-               AND NOT EXISTS (SELECT 1 FROM books bk WHERE bk.owner_user_id=r.user_id)
-               AND NOT EXISTS (SELECT 1 FROM book_members bm
-                               WHERE bm.user_id=r.user_id AND bm.is_active)
-             RETURNING r.id",
-        )
-        .bind(request_id)
-        .bind(telegram_user_id)
-        .bind(private_chat_id)
-        .bind(next)
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(changed.is_some())
-    }
-
     /// A stale owner cannot approve a callback after takeover: the active
     /// lease is row-locked inside the same SQL statement as the update.
     /// None means lost lease; Some(false) means no eligible pending request.
     pub async fn decide_telegram_recovery_fenced(
         &self,
-        bot_id: i64,
-        owner: &[u8; 32],
-        epoch: i64,
+        fence: TelegramPollerFence<'_>,
         request_id: i64,
         telegram_user_id: i64,
         private_chat_id: i64,
         approve: bool,
     ) -> Result<Option<bool>, sqlx::Error> {
-        if bot_id <= 0 || epoch <= 0 {
+        if fence.bot_id <= 0 || fence.lease_epoch <= 0 {
             return Ok(None);
         }
         let action = if approve { "approved" } else { "denied" };
@@ -221,9 +189,9 @@ impl PgAccounts {
              SELECT EXISTS(SELECT 1 FROM active_lease),
                     EXISTS(SELECT 1 FROM changed)",
         )
-        .bind(bot_id)
-        .bind(owner.as_slice())
-        .bind(epoch)
+        .bind(fence.bot_id)
+        .bind(fence.owner_digest.as_slice())
+        .bind(fence.lease_epoch)
         .bind(request_id)
         .bind(telegram_user_id)
         .bind(private_chat_id)

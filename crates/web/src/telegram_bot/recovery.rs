@@ -2,7 +2,7 @@
 use super::{BotCallback, BotConfig, PollLease};
 use reqwest::Client;
 use serde_json::json;
-use tor_accounts::repositories::PgAccounts;
+use tor_accounts::repositories::{telegram_recovery::TelegramPollerFence, PgAccounts};
 
 fn decode_callback(data: &str) -> Option<(i64, bool)> {
     let (action, id) = data.rsplit_once(':')?;
@@ -98,9 +98,11 @@ pub(super) async fn callback(
     let changed = if let Some((id, approve)) = action {
         accounts
             .decide_telegram_recovery_fenced(
-                lease.bot_id,
-                &lease.owner,
-                lease.epoch,
+                TelegramPollerFence {
+                    bot_id: lease.bot_id,
+                    owner_digest: &lease.owner,
+                    lease_epoch: lease.epoch,
+                },
                 id,
                 cb.from.id,
                 message.chat.id,

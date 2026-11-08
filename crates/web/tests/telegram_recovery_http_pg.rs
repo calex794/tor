@@ -13,7 +13,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
-    repositories::PgAccounts,
+    repositories::{telegram_recovery::TelegramPollerFence, PgAccounts},
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tower::ServiceExt;
@@ -338,14 +338,32 @@ async fn a_07_browser_receives_reset_only_after_linked_telegram_approval() {
         .find(|item| item.private_chat_id == tg_id)
         .unwrap();
     assert_eq!(item.match_code, match_code);
-    assert!(!accounts
-        .decide_telegram_recovery(item.id, tg_id + 1, tg_id, true)
+    let bot_id = 5_000_000_000 + user;
+    let lease_owner = session_token_digest(&format!("tg-http-poll-owner-{user}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &lease_owner)
         .await
-        .unwrap());
-    assert!(accounts
-        .decide_telegram_recovery(item.id, tg_id, tg_id, true)
-        .await
-        .unwrap());
+        .unwrap()
+        .unwrap();
+    let fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &lease_owner,
+        lease_epoch: epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, item.id, tg_id + 1, tg_id, true)
+            .await
+            .unwrap(),
+        Some(false),
+    );
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, item.id, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        Some(true),
+    );
     let foreign = request(
         &app,
         "POST",

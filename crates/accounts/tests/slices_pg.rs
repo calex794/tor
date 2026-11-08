@@ -5,6 +5,7 @@ use tor_accounts::{
     repositories::{authority::AuthorityError, profile::ProfileError, PgAccounts},
     services::{profile::ProfileUpdate, security::session_token_digest},
 };
+use tor_accounts::repositories::telegram_recovery::TelegramPollerFence;
 use tor_contracts::auth::{AccountRole, UserId};
 
 async fn fixture(label: &str) -> (PgAccounts, i64, [u8; 32]) {
@@ -620,61 +621,47 @@ async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
         .await
         .unwrap()
         .unwrap();
+    let fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &owner,
+        lease_epoch: epoch,
+    };
+    let foreign_fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &wrong_owner,
+        lease_epoch: epoch,
+    };
     assert_eq!(
         accounts
-            .decide_telegram_recovery_fenced(
-                bot_id,
-                &wrong_owner,
-                epoch,
-                request_id,
-                tg_id,
-                tg_id,
-                true
-            )
+            .decide_telegram_recovery_fenced(foreign_fence, request_id, tg_id, tg_id, true)
             .await
             .unwrap(),
         None
     );
     assert_eq!(
         accounts
-            .decide_telegram_recovery_fenced(
-                bot_id,
-                &owner,
-                epoch,
-                request_id,
-                tg_id + 1,
-                tg_id,
-                true
-            )
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id + 1, tg_id, true)
             .await
             .unwrap(),
         Some(false)
     );
     assert_eq!(
         accounts
-            .decide_telegram_recovery_fenced(
-                bot_id,
-                &owner,
-                epoch,
-                request_id,
-                tg_id,
-                tg_id + 1,
-                true
-            )
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id + 1, true)
             .await
             .unwrap(),
         Some(false)
     );
     assert_eq!(
         accounts
-            .decide_telegram_recovery_fenced(bot_id, &owner, epoch, request_id, tg_id, tg_id, true)
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id, true)
             .await
             .unwrap(),
         Some(true)
     );
     assert_eq!(
         accounts
-            .decide_telegram_recovery_fenced(bot_id, &owner, epoch, request_id, tg_id, tg_id, true)
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id, true)
             .await
             .unwrap(),
         Some(false)
@@ -692,6 +679,50 @@ async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
         .exchange_browser_telegram_approval(&browser, &[1_u8; 32])
         .await
         .unwrap());
+    // A new, still-pending request is a real authorization target: the old
+    // worker must fail the lease check even before any idempotency guard.
+    let takeover_browser = session_token_digest(&format!("tg-takeover-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &takeover_browser, "New_12")
+        .await
+        .unwrap();
+    let takeover_request = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|item| item.private_chat_id == tg_id && item.match_code == "New_12")
+        .unwrap()
+        .id;
+    assert!(accounts
+        .release_telegram_poller(bot_id, &owner, epoch)
+        .await
+        .unwrap());
+    let next_epoch = accounts
+        .claim_telegram_poller(bot_id, &wrong_owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(next_epoch > epoch);
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, takeover_request, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        None,
+    );
+    let successor_fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &wrong_owner,
+        lease_epoch: next_epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(successor_fence, takeover_request, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        Some(true),
+    );
     assert_eq!(
         accounts
             .live_reset_password_hash_allowed(&proof, false, false)
@@ -799,10 +830,25 @@ async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_
         .find(|x| x.private_chat_id == telegram_id)
         .unwrap()
         .id;
-    assert!(accounts
-        .decide_telegram_recovery(request_id, telegram_id, telegram_id, true)
+    let bot_id = 4_000_000_000 + user;
+    let lease_owner = session_token_digest(&format!("tg-unlink-poll-owner-{user}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &lease_owner)
         .await
-        .unwrap());
+        .unwrap()
+        .unwrap();
+    let fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &lease_owner,
+        lease_epoch: epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, telegram_id, telegram_id, true)
+            .await
+            .unwrap(),
+        Some(true),
+    );
     assert!(accounts
         .exchange_browser_telegram_approval(&browser, &proof)
         .await
