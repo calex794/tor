@@ -16,6 +16,24 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+fn fixture_sql(url: &str, statement: &str) -> String {
+    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let output = std::process::Command::new("psql")
+        .args([
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", url, "--command", statement,
+        ])
+        .output()
+        .expect("FLOW public fixture");
+    assert!(
+        output.status.success(),
+        "FLOW fixture: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+
 async fn send(
     app: &Router,
     method: &str,
@@ -56,6 +74,45 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         )
         .await
         .unwrap();
+    // Real published pages, not just accepted route templates.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book: i64 = fixture_sql(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) \
+             VALUES('ci:flow:public:{stamp}','ru','FLOW public {stamp}','public',{user},'basic') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let chapter: i64 = fixture_sql(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
+             VALUES({book},1,'FLOW public chapter','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = fixture_sql(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({chapter},1,'A published public FLOW chapter.') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    fixture_sql(
+        &url,
+        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+    );
+    let book_path = format!("/books/{book}");
+    let reader_path = format!("/reader/{chapter}");
+
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
         (false, 0)
@@ -106,7 +163,16 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     assert_eq!(
         send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(),
         StatusCode::OK
-    );
+    );    for surface in [book_path.as_str(), reader_path.as_str()] {
+        assert_eq!(
+            send(&app, "GET", surface, "", &cookies, ORIGIN)
+                .await
+                .status(),
+            StatusCode::OK,
+            "{surface}"
+        );
+    }
+
     assert_eq!(
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
@@ -163,7 +229,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     assert_eq!(report.active_subjects, 1);
     // Explicitly opted-in live account sessions now carry the same verified
     // HMAC across public home/catalog, with no additional tracking cookie.
-    for surface in ["/", "/catalog"] {
+    for surface in ["/", "/catalog", book_path.as_str(), reader_path.as_str()] {
         let response = send(&app, "GET", surface, "", &cookies, ORIGIN).await;
         assert_eq!(response.status(), StatusCode::OK, "{surface}");
         assert!(response.headers()[header::CONTENT_TYPE]
@@ -175,8 +241,19 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        5
+        7
     );
+
+    // Guests can read the same pages without becoming identified visitors.
+    for surface in [book_path.as_str(), reader_path.as_str()] {
+        assert_eq!(
+            send(&app, "GET", surface, "", "", ORIGIN)
+                .await
+                .status(),
+            StatusCode::OK,
+            "{surface}"
+        );
+    }
 
     let disable = format!("choice=disable&csrf_token={csrf}");
     assert_eq!(
@@ -201,8 +278,26 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
             .status(),
         StatusCode::OK
     );
+    for surface in ["/catalog", book_path.as_str(), reader_path.as_str()] {
+        assert_eq!(
+            send(&app, "GET", surface, "", &cookies, ORIGIN)
+                .await
+                .status(),
+            StatusCode::OK,
+            "{surface}"
+        );
+    }
     assert_eq!(
-        send(&app, "GET", "/catalog", "", &cookies, ORIGIN)
+        tor_web::ril_path_report_for_diagnostics()
+            .unwrap()
+            .assessed_events,
+        7
+    );
+
+    accounts.revoke_session(&digest).await.unwrap();
+    // A revoked login cookie must not restore identified public navigation.
+    assert_eq!(
+        send(&app, "GET", &reader_path, "", &cookies, ORIGIN)
             .await
             .status(),
         StatusCode::OK
@@ -211,10 +306,8 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        5
+        7
     );
-
-    accounts.revoke_session(&digest).await.unwrap();
     assert_eq!(
         send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN)
             .await
