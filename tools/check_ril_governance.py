@@ -613,7 +613,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
               }):
             # F-05: an actor-bound service delegates to the same live PG checks.
             # Validate the concrete service implementation, not its name alone.
-            required = {"page": "page", "submit": "save"}
+            required = {"book_stars::page": "page", "book_stars::submit": "save"}
             operation = required.get(entry["handler"])
             service = _production((ROOT / "crates/recommendations/src/services/book_ratings.rs")
                                   .read_text(encoding="utf-8"))
