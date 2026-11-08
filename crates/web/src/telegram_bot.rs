@@ -128,9 +128,7 @@ fn config(origin: &str) -> Result<Option<BotConfig>, &'static str> {
 /// Telegram is optional infrastructure. Missing credentials, a missing
 /// migration, or an unavailable Bot API must not prevent TOR from serving
 /// its existing login, reading, and account routes.
-pub async fn start_from_pending(
-    pending: Option<(PgAccounts, String)>,
-) -> Option<JoinHandle<()>> {
+pub async fn start_from_pending(pending: Option<(PgAccounts, String)>) -> Option<JoinHandle<()>> {
     if let Some((accounts, origin)) = pending {
         match start(accounts, origin).await {
             Ok(handle) => handle,
