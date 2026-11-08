@@ -190,9 +190,18 @@ async fn detail(
         Vec::new()
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&h);
-    page("Подборка книг", &detail_html(&detail, &csrf, q, &candidates), &cookies)
+    page(
+        "Подборка книг",
+        &detail_html(&detail, &csrf, q, &candidates),
+        &cookies,
+    )
 }
-fn detail_html(data: &CollectionDetail, csrf: &str, q: &str, candidates: &[CollectionBook]) -> String {
+fn detail_html(
+    data: &CollectionDetail,
+    csrf: &str,
+    q: &str,
+    candidates: &[CollectionBook],
+) -> String {
     let c = &data.collection;
     let mut html=format!(
         "<section class=\"section\"><div class=\"container\"><h1>{}</h1>         <p>{}</p><p>{}</p><ul>",
@@ -231,9 +240,14 @@ fn detail_html(data: &CollectionDetail, csrf: &str, q: &str, candidates: &[Colle
             <input type="hidden" name="expected_revision" value="{}">
             <input type="hidden" name="csrf_token" value="{}">
             <button type="submit">Сохранить</button></form>"#,
-            c.id, escape_html(&c.title), private_selected, public_selected,
-            c.revision, escape_html(csrf)
-        ).expect("HTML");
+            c.id,
+            escape_html(&c.title),
+            private_selected,
+            public_selected,
+            c.revision,
+            escape_html(csrf)
+        )
+        .expect("HTML");
         write!(
             html,
             r#"<h2>Найти книгу</h2><form method="get" action="/collections/{}">
@@ -242,18 +256,32 @@ fn detail_html(data: &CollectionDetail, csrf: &str, q: &str, candidates: &[Colle
             c.id, escape_html(q)
         ).expect("HTML");
         if !candidates.is_empty() {
-            write!(html, r#"<form method="post" action="/collections/{}/books">
-                <label>Книга<select name="book_id" required>"#, c.id).expect("HTML");
+            write!(
+                html,
+                r#"<form method="post" action="/collections/{}/books">
+                <label>Книга<select name="book_id" required>"#,
+                c.id
+            )
+            .expect("HTML");
             for book in candidates {
-                write!(html, r#"<option value="{}">{}</option>"#, book.id, escape_html(&book.title))
-                    .expect("HTML");
+                write!(
+                    html,
+                    r#"<option value="{}">{}</option>"#,
+                    book.id,
+                    escape_html(&book.title)
+                )
+                .expect("HTML");
             }
-            write!(html, r#"</select></label>
+            write!(
+                html,
+                r#"</select></label>
                 <input type="hidden" name="expected_revision" value="{}">
                 <input type="hidden" name="csrf_token" value="{}">
                 <button type="submit">Добавить</button></form>"#,
-                c.revision, escape_html(csrf)
-            ).expect("HTML");
+                c.revision,
+                escape_html(csrf)
+            )
+            .expect("HTML");
         } else if !q.is_empty() {
             html.push_str("<p>По запросу не найдено доступных книг.</p>");
         }
