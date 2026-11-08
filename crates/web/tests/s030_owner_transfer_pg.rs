@@ -23,7 +23,9 @@ use tor_accounts::{
 use tor_books::{
     domain::shares::ShareAssignment,
     repositories::{
-        owner_transfer::{owner_transfer_payload_digest, PgOwnerTransfer},
+        owner_transfer::{
+            owner_transfer_payload_digest, OwnerTransferPrecondition, PgOwnerTransfer,
+        },
         revenue_shares::{revenue_share_payload_digest, PgRevenueShares},
         translation_team_books::PgTeamBooks,
         PgCatalog,
@@ -89,6 +91,24 @@ async fn user(accounts: &PgAccounts, email: &str, display: &str, hash: &str) -> 
     (id, token)
 }
 
+fn ownership_revision(book: i64) -> i64 {
+    pg(
+        &database(),
+        &format!(
+            "SELECT COALESCE(MAX(id)+1,1) FROM book_owner_transfer_events WHERE book_id={book}"
+        ),
+    )
+    .parse()
+    .unwrap()
+}
+
+fn expected_owner(owner_id: i64, book: i64) -> OwnerTransferPrecondition {
+    OwnerTransferPrecondition {
+        owner_id,
+        revision: ownership_revision(book),
+    }
+}
+
 async fn transfer_token(
     accounts: &PgAccounts,
     actor: i64,
@@ -105,7 +125,7 @@ async fn transfer_token(
             &session_token_digest(session),
             &verified,
             book,
-            actor,
+            ownership_revision(book),
             BookStepUpScope {
                 name: BOOK_TRANSFER_SCOPE,
                 payload_digest: &payload,
@@ -188,7 +208,7 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
         .transfer(
             from,
             book,
-            from,
+            expected_owner(from, book),
             &recipient_name,
             &session_token_digest(&from_session),
             &token,
@@ -233,7 +253,7 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
             .transfer(
                 from,
                 book,
-                from,
+                expected_owner(from, book),
                 &recipient_name,
                 &session_token_digest(&from_session),
                 &token,
@@ -357,7 +377,7 @@ async fn s030_pg_rejects_completed_ordinary_deletion() {
             .transfer(
                 owner,
                 book,
-                owner,
+                expected_owner(owner, book),
                 &target,
                 &session_token_digest(&session),
                 &token,
@@ -472,7 +492,7 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let age_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
         owner_service
-            .transfer(from, book, from, &target, &digest, &age_token,)
+            .transfer(from, book, expected_owner(from, book), &target, &digest, &age_token,)
             .await,
         Err(AuthorError::Forbidden),
     );
@@ -512,7 +532,7 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let layer_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
         owner_service
-            .transfer(from, book, from, &target, &digest, &layer_token,)
+            .transfer(from, book, expected_owner(from, book), &target, &digest, &layer_token,)
             .await,
         Err(AuthorError::Conflict),
     );
@@ -527,7 +547,7 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     );
     assert_eq!(
         owner_service
-            .transfer(from, book, from, &target, &digest, &revoked_token,)
+            .transfer(from, book, expected_owner(from, book), &target, &digest, &revoked_token,)
             .await,
         Err(AuthorError::Forbidden),
     );
@@ -651,6 +671,7 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
     let initial_html = text(initial).await;
     let csrf = csrf_from(&initial_html);
     assert!(initial_html.contains("share_"));
+    assert!(initial_html.contains("expected_ownership_revision\" value=\"1\""));
     let owner_auth = format!("{owner_cookie}; {csrf_pair}");
     assert_eq!(
         send(&app, "GET", &path, &foreign_cookie, ORIGIN, "")
@@ -660,7 +681,7 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
     );
     let transfer_path = format!("{path}/transfer");
     let form = format!(
-        "csrf_token={csrf}&expected_owner_id={from}&target_display_name={recipient_name}&account_password={PASSWORD}"
+        "csrf_token={csrf}&expected_owner_id={from}&expected_ownership_revision=1&target_display_name={recipient_name}&account_password={PASSWORD}"
     );
     assert_eq!(
         send(&app, "POST", &transfer_path, &owner_cookie, ORIGIN, &form)
@@ -801,8 +822,8 @@ async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
     let digest = session_token_digest(&session);
     let service = PgOwnerTransfer::new(pool);
     let (first, second) = tokio::join!(
-        service.transfer(owner, book, owner, &recipient_name, &digest, &token),
-        service.transfer(owner, book, owner, &recipient_name, &digest, &token),
+        service.transfer(owner, book, expected_owner(owner, book), &recipient_name, &digest, &token),
+        service.transfer(owner, book, expected_owner(owner, book), &recipient_name, &digest, &token),
     );
     assert_eq!(
         [first, second]
@@ -852,5 +873,140 @@ async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
         ),
         "1",
         "ownership transfer must not implicitly change the revenue split",
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s030_pg_stale_step_up_cannot_survive_owner_aba_cycle() {
+    let url = database();
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool());
+    let hash = hash_password(PASSWORD).unwrap();
+    let unique = stamp();
+    let first_name = format!("S030ABAFirst{unique}");
+    let second_name = format!("S030ABASecond{unique}");
+    let (first, first_session) = user(
+        &accounts,
+        &format!("s030-aba-first-{unique}@example.invalid"),
+        &first_name,
+        &hash,
+    )
+    .await;
+    let second_session_of_first = generate_session_token();
+    accounts
+        .insert_session(
+            first,
+            &session_token_digest(&second_session_of_first),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let (second, second_session) = user(
+        &accounts,
+        &format!("s030-aba-second-{unique}@example.invalid"),
+        &second_name,
+        &hash,
+    )
+    .await;
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s030:{unique}:aba','ru','S030 ownership ABA','draft',{first},'basic')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let first_epoch = ownership_revision(book);
+    let stale_token = transfer_token(
+        &accounts,
+        first,
+        book,
+        &second_name,
+        &first_session,
+        &hash,
+    )
+    .await;
+    let fresh_token = transfer_token(
+        &accounts,
+        first,
+        book,
+        &second_name,
+        &second_session_of_first,
+        &hash,
+    )
+    .await;
+    let service = PgOwnerTransfer::new(catalog.pool());
+    service
+        .transfer(
+            first,
+            book,
+            expected_owner(first, book),
+            &second_name,
+            &session_token_digest(&second_session_of_first),
+            &fresh_token,
+        )
+        .await
+        .unwrap();
+    let second_token = transfer_token(
+        &accounts,
+        second,
+        book,
+        &first_name,
+        &second_session,
+        &hash,
+    )
+    .await;
+    service
+        .transfer(
+            second,
+            book,
+            expected_owner(second, book),
+            &first_name,
+            &session_token_digest(&second_session),
+            &second_token,
+        )
+        .await
+        .unwrap();
+    assert!(ownership_revision(book) > first_epoch);
+    assert_eq!(
+        service
+            .transfer(
+                first,
+                book,
+                OwnerTransferPrecondition {
+                    owner_id: first,
+                    revision: first_epoch,
+                },
+                &second_name,
+                &session_token_digest(&first_session),
+                &stale_token,
+            )
+            .await,
+        Err(AuthorError::Conflict),
+        "an unconsumed old password proof must not survive A-B-A ownership changes",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
+        first.to_string(),
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id={book}")
+        ),
+        "2",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT current_revision FROM revenue_share_states WHERE book_id={book}")
+        ),
+        "1",
     );
 }

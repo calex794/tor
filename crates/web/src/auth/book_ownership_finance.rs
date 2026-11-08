@@ -21,7 +21,10 @@ use tor_accounts::{
 use tor_books::{
     domain::shares::{RevenueShareError, ShareAssignment},
     repositories::{
-        owner_transfer::{owner_transfer_payload_digest, BookOwnershipSettings, PgOwnerTransfer},
+        owner_transfer::{
+            owner_transfer_payload_digest, BookOwnershipSettings, OwnerTransferPrecondition,
+            PgOwnerTransfer,
+        },
         revenue_shares::{revenue_share_payload_digest, PgRevenueShares},
     },
     services::authoring::AuthorError,
@@ -32,6 +35,7 @@ use tor_books::{
 struct TransferForm {
     csrf_token: Option<String>,
     expected_owner_id: i64,
+    expected_ownership_revision: i64,
     target_display_name: String,
     account_password: String,
 }
@@ -50,6 +54,7 @@ pub(super) fn router() -> Router<AuthState> {
 fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
     let title = pages::escape_html(&view.title);
     let csrf = pages::escape_html(csrf);
+    let ownership_revision = view.ownership_revision;
     let tier = match view.access_level.as_deref() {
         Some("basic") => "Без ограничений",
         Some("adult") => "18+",
@@ -109,6 +114,7 @@ fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
               action="/me/books/{id}/settings/ownership/transfer">
           <input type="hidden" name="csrf_token" value="{csrf}">
           <input type="hidden" name="expected_owner_id" value="{owner}">
+          <input type="hidden" name="expected_ownership_revision" value="{ownership_revision}">
           <label for="target-display-name">Точный ник нового владельца</label>
           <input id="target-display-name" name="target_display_name" maxlength="80"
                  autocomplete="off" required>
@@ -226,7 +232,7 @@ async fn transfer(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if id <= 0 || form.expected_owner_id != actor {
+    if id <= 0 || form.expected_owner_id != actor || form.expected_ownership_revision <= 0 {
         return deny(StatusCode::BAD_REQUEST);
     }
     let Some(session) = state.cookies.session_token(&headers) else {
@@ -246,7 +252,7 @@ async fn transfer(
             &digest,
             &proof,
             id,
-            form.expected_owner_id,
+            form.expected_ownership_revision,
             BookStepUpScope {
                 name: BOOK_TRANSFER_SCOPE,
                 payload_digest: &payload,
@@ -261,7 +267,10 @@ async fn transfer(
         .transfer(
             actor,
             id,
-            form.expected_owner_id,
+            OwnerTransferPrecondition {
+                owner_id: form.expected_owner_id,
+                revision: form.expected_ownership_revision,
+            },
             &form.target_display_name,
             &digest,
             &token,
@@ -399,6 +408,7 @@ mod tests {
             title: "<script>attack</script>".into(),
             access_level: Some("adult".into()),
             owner_id: 5,
+            ownership_revision: 2,
             share_revision: Some(3),
             contributors: vec![
                 tor_books::repositories::owner_transfer::BookContributor {
@@ -423,6 +433,7 @@ mod tests {
         assert!(html.contains("value=\"70\""));
         assert!(html.contains("expected_revision\" value=\"3\""));
         assert!(html.contains("expected_owner_id\" value=\"5\""));
+        assert!(html.contains("expected_ownership_revision\" value=\"2\""));
         assert!(html.contains("/settings/ownership/transfer"));
         assert!(html.contains("/settings/ownership/shares"));
         assert!(!html.contains("name=\"price\""));

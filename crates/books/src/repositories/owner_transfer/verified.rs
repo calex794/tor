@@ -39,10 +39,17 @@ pub struct PgOwnerTransfer {
     pool: PgPool,
 }
 
+#[derive(Clone, Copy)]
+pub struct OwnerTransferPrecondition {
+    pub owner_id: i64,
+    pub revision: i64,
+}
+
 pub struct BookOwnershipSettings {
     pub title: String,
     pub access_level: Option<String>,
     pub owner_id: i64,
+    pub ownership_revision: i64,
     pub share_revision: Option<i64>,
     pub contributors: Vec<BookContributor>,
 }
@@ -75,7 +82,9 @@ impl PgOwnerTransfer {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         let book = sqlx::query(
-            "SELECT b.title,b.access_level,b.owner_user_id,s.current_revision
+            "SELECT b.title,b.access_level,b.owner_user_id,s.current_revision,
+                    COALESCE((SELECT MAX(e.id)+1 FROM book_owner_transfer_events e
+                              WHERE e.book_id=b.id),1) AS ownership_revision
              FROM books b
              LEFT JOIN revenue_share_states s ON s.book_id=b.id
              WHERE b.id=$1 AND b.owner_user_id=$2
@@ -143,6 +152,9 @@ impl PgOwnerTransfer {
             owner_id: book
                 .try_get("owner_user_id")
                 .map_err(|_| AuthorError::Unavailable)?,
+            ownership_revision: book
+                .try_get("ownership_revision")
+                .map_err(|_| AuthorError::Unavailable)?,
             share_revision: revision,
             contributors,
         }))
@@ -158,14 +170,17 @@ impl PgOwnerTransfer {
         &self,
         actor: i64,
         book_id: i64,
-        expected_owner: i64,
+        expected: OwnerTransferPrecondition,
         target_display_name: &str,
         session_digest: &[u8; 32],
         step_up_token: &str,
     ) -> Result<(), AuthorError> {
+        let expected_owner = expected.owner_id;
+        let expected_ownership_revision = expected.revision;
         if actor <= 0
             || book_id <= 0
             || expected_owner != actor
+            || expected_ownership_revision <= 0
             || target_display_name.is_empty()
             || target_display_name.trim() != target_display_name
             || target_display_name.chars().count() > 80
@@ -188,7 +203,7 @@ impl PgOwnerTransfer {
             session_digest,
             step_up_token,
             book_id,
-            expected_owner,
+            expected_ownership_revision,
             BookStepUpScope {
                 name: OWNER_TRANSFER_SCOPE,
                 payload_digest: &payload,
@@ -247,6 +262,19 @@ impl PgOwnerTransfer {
         let available: bool = row
             .try_get("available")
             .map_err(|_| AuthorError::Unavailable)?;
+        // An unconsumed confirmation must not survive an A -> B -> A cycle.
+        // The append-only transfer event ID provides a monotonic Book epoch.
+        let live_ownership_revision: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(id)+1,1) FROM book_owner_transfer_events
+             WHERE book_id=$1",
+        )
+        .bind(book_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        if live_ownership_revision != expected_ownership_revision {
+            return Err(AuthorError::Conflict);
+        }
         let current_teams: Vec<i64> = sqlx::query_scalar(
             "SELECT team_id FROM translation_team_books
              WHERE book_id=$1 AND is_active ORDER BY team_id",
