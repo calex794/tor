@@ -64,14 +64,13 @@ pub(super) async fn dispatch(
             }
             _ => false,
         };
-        if delivered {
-            if accounts
+        if delivered
+            && accounts
                 .mark_telegram_recovery_notified(request.id)
                 .await
                 .is_err()
-            {
-                return false;
-            }
+        {
+            return false;
         }
     }
     true
