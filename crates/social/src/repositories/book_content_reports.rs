@@ -324,7 +324,7 @@ impl PgBookContentReports {
     ) -> Result<(), BookShareError> {
         let note = note.trim();
         if report_id <= 0
-            || !matches!(decision, "reviewed" | "dismissed")
+            || !matches!(decision, "reviewed" | "dismissed" | "hide_comment")
             || note.is_empty()
             || note.chars().count() > 500
             || note.contains('\0')
@@ -333,26 +333,67 @@ impl PgBookContentReports {
         }
         let mut tx = self.pool.begin().await?;
         let reviewer = administrator(&mut tx, session_digest).await?;
-        let state: Option<String> = sqlx::query_scalar(
-            "SELECT state FROM social_book_content_reports
+        let report: Option<(String, i64, Option<i64>)> = sqlx::query_as(
+            "SELECT state,book_id,comment_id FROM social_book_content_reports
              WHERE id=$1 FOR UPDATE",
         )
         .bind(report_id)
         .fetch_optional(&mut *tx)
         .await?;
-        match state.as_deref() {
-            None => return Err(BookShareError::NotFound),
-            Some("pending") => {}
-            _ => return Err(BookShareError::Conflict),
+        let (state, book_id, comment_id) = report.ok_or(BookShareError::NotFound)?;
+        if state != "pending" {
+            return Err(BookShareError::Conflict);
         }
+        let hide_comment = decision == "hide_comment";
+        if hide_comment {
+            let comment_id = comment_id.ok_or(BookShareError::Invalid)?;
+            // Explicit administrator action, not an automatic response to a report.
+            // Lock the exact visible public-Book comment to prevent stale sanctions.
+            let found: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM discussion_comments WHERE id=$1 AND book_id=$2
+                   AND chapter_id IS NULL AND version_id IS NULL
+                   AND visibility='visible' FOR UPDATE",
+            )
+            .bind(comment_id)
+            .bind(book_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if found.is_none() {
+                return Err(BookShareError::Conflict);
+            }
+            let changed = sqlx::query(
+                "UPDATE discussion_comments SET visibility='hidden'
+                 WHERE id=$1 AND book_id=$2 AND chapter_id IS NULL
+                   AND version_id IS NULL AND visibility='visible'",
+            )
+            .bind(comment_id)
+            .bind(book_id)
+            .execute(&mut *tx)
+            .await?;
+            if changed.rows_affected() != 1 {
+                return Err(BookShareError::Conflict);
+            }
+        }
+        let state = if decision == "dismissed" {
+            "dismissed"
+        } else {
+            "reviewed"
+        };
+        let action = if hide_comment {
+            "hide_book_comment"
+        } else {
+            "none"
+        };
         sqlx::query(
             "INSERT INTO social_book_content_review_events
-             (report_id,reviewer_user_id,decision,note) VALUES($1,$2,$3,$4)",
+             (report_id,reviewer_user_id,decision,note,moderation_action)
+             VALUES($1,$2,$3,$4,$5)",
         )
         .bind(report_id)
         .bind(reviewer)
-        .bind(decision)
+        .bind(state)
         .bind(note)
+        .bind(action)
         .execute(&mut *tx)
         .await?;
         let changed = sqlx::query(
@@ -360,7 +401,7 @@ impl PgBookContentReports {
              WHERE id=$1 AND state='pending'",
         )
         .bind(report_id)
-        .bind(decision)
+        .bind(state)
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {

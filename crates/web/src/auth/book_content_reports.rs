@@ -164,6 +164,11 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
         body.push_str("<p>Ожидающих жалоб нет.</p>");
     }
     for item in reports {
+        let hide_button = if item.comment_id.is_some() {
+            r#"<button type="submit" name="decision" value="hide_comment">Скрыть комментарий</button>"#
+        } else {
+            ""
+        };
         write!(
             body,
             r#"<article class="me-now-card">
@@ -175,6 +180,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             <input name="note" maxlength="500" required></label>
             <button type="submit" name="decision" value="reviewed">Признать обоснованной</button>
             <button type="submit" name="decision" value="dismissed">Отклонить</button>
+            {hide_button}
             </form></article>"#,
             item.id,
             item.book_id,
