@@ -527,7 +527,9 @@ async fn s016_http_age_tiers_require_live_rights_and_hide_revoked_shares() {
                ({recipient_id},'pro_adult','moderation',TRUE)"
     ));
     assert_eq!(
-        send(&app, "GET", &pro_path, &sender_cookies, "").await.status(),
+        send(&app, "GET", &pro_path, &sender_cookies, "")
+            .await
+            .status(),
         StatusCode::OK
     );
     let pro_form = format!(
