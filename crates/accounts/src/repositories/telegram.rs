@@ -212,6 +212,9 @@ impl PgAccounts {
                AND NOT EXISTS (
                  SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.is_active
                )
+               AND NOT EXISTS (SELECT 1 FROM books b WHERE b.owner_user_id=u.id)
+               AND NOT EXISTS (SELECT 1 FROM book_members bm
+                               WHERE bm.user_id=u.id AND bm.is_active)
              FOR UPDATE OF u",
         )
         .bind(telegram_user_id)
@@ -254,6 +257,9 @@ impl PgAccounts {
              AND u.account_state='active'
              AND NOT EXISTS (SELECT 1 FROM account_roles r
                              WHERE r.user_id=u.id AND r.is_active)
+               AND NOT EXISTS (SELECT 1 FROM books b WHERE b.owner_user_id=u.id)
+               AND NOT EXISTS (SELECT 1 FROM book_members bm
+                               WHERE bm.user_id=u.id AND bm.is_active)
              FOR UPDATE OF u",
         )
         .bind(normalized_email)

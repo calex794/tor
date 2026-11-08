@@ -9,12 +9,24 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Option<String>, sqlx::Error> {
+        self.live_reset_password_hash_allowed(digest, true, true).await
+    }
+
+    pub async fn live_reset_password_hash_allowed(
+        &self,
+        digest: &[u8; 32],
+        email_enabled: bool,
+        telegram_enabled: bool,
+    ) -> Result<Option<String>, sqlx::Error> {
         let row: Option<(String, Vec<u8>)> = sqlx::query_as(
             "SELECT u.password_hash,t.credential_fingerprint FROM password_reset_tokens t
              JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1
-             AND t.consumed_at IS NULL AND t.expires_at>now() AND u.account_state='active'",
+             AND t.consumed_at IS NULL AND t.expires_at>now() AND u.account_state='active'
+             AND ((t.source='email' AND $2) OR (t.source IN ('telegram','backup') AND $3))",
         )
         .bind(digest.as_slice())
+        .bind(email_enabled)
+        .bind(telegram_enabled)
         .fetch_optional(self.pool())
         .await?;
         Ok(row.and_then(|(hash, fingerprint)| {
@@ -54,6 +66,16 @@ impl PgAccounts {
         token_hash: &[u8; 32],
         new_hash: &str,
     ) -> Result<bool, sqlx::Error> {
+        self.consume_password_reset_allowed(token_hash, new_hash, true, true).await
+    }
+
+    pub async fn consume_password_reset_allowed(
+        &self,
+        token_hash: &[u8; 32],
+        new_hash: &str,
+        email_enabled: bool,
+        telegram_enabled: bool,
+    ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
         let user_id: Option<i64> =
             sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE token_hash=$1")
@@ -74,9 +96,13 @@ impl PgAccounts {
         };
         let proof: Option<Vec<u8>> = sqlx::query_scalar(
             "SELECT credential_fingerprint FROM password_reset_tokens
-             WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
+             WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
+             AND ((source='email' AND $2) OR (source IN ('telegram','backup') AND $3))
+             FOR UPDATE",
         )
         .bind(token_hash.as_slice())
+        .bind(email_enabled)
+        .bind(telegram_enabled)
         .fetch_optional(&mut *tx)
         .await?;
         if proof.as_deref() != Some(session_token_digest(&current).as_slice()) {
