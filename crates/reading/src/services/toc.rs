@@ -40,6 +40,23 @@ impl TocCursor {
     }
 }
 
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TocWindowPosition {
+    Around(u64),
+    Before(TocCursor),
+    After(TocCursor),
+}
+
+/// Public chapter metadata only; cursors are positions, not access grants.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TocWindowPage {
+    pub chapters: Vec<super::PublicChapterLink>,
+    pub before_cursor: Option<String>,
+    pub after_cursor: Option<String>,
+    pub total_chapters: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
