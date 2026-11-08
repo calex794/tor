@@ -62,6 +62,7 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     let foreign = signup(&app, &format!("s029-foreign-{stamp}@example.invalid")).await;
     let member_email = format!("s029-member-{stamp}@example.invalid");
     let member = signup(&app, &member_email).await;
+    let site_moderator = signup(&app, &format!("s029-site-moderator-{stamp}@example.invalid")).await;
     let owner_id = lookup
         .active_session_user(&session_token_digest(owner.split_once('=').unwrap().1))
         .await
@@ -77,6 +78,23 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         .await
         .unwrap()
         .unwrap();
+    // Synthetic role bootstrap is confined to disposable tor_ci; the approval
+    // itself goes through the real reviewed moderation HTTP endpoint.
+    let moderator_id = lookup
+        .active_session_user(&session_token_digest(site_moderator.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) VALUES({moderator_id},'moderator',TRUE)"
+        ),
+    );
+    let reviewer_page = send(&app, "GET", "/me/teams", &site_moderator, "").await;
+    let reviewer_cookie = cookie(&reviewer_page, "tor-dev-csrf=");
+    let reviewer_csrf = csrf_from_page(&body(reviewer_page).await);
+    let reviewer_cookies = format!("{site_moderator}; {reviewer_cookie}");
     let team_page = send(&app, "GET", "/me/teams", &owner, "").await;
     let cookie_csrf = cookie(&team_page, "tor-dev-csrf=");
     let token = csrf_from_page(&body(team_page).await);
@@ -134,12 +152,6 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
 
     // Seed a genuinely published public free chapter and record actual views.
     // This proves the analytics model reads nonzero counters rather than defaults.
-    pg(
-        &url,
-        &format!(
-            "UPDATE books SET visibility='public',visibility_status='active' WHERE id={own_book_id}"
-        ),
-    );
     let chapter: i64 = pg(
         &url,
         &format!(
@@ -163,6 +175,22 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         &format!(
             "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
         ),
+    );
+    authoring.release_book(owner_id, own_book_id).await.unwrap();
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("/moderation/books/{own_book_id}/registration"),
+            &reviewer_cookies,
+            &format!(
+                "csrf_token={reviewer_csrf}&expected_revision=1&action=approve&confirmed=yes"
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER,
+        "registration moderation is required before a fresh Book can go public"
     );
     let stats = PgBookStats::new(pool.clone());
     stats.record_open(chapter, Some(foreign_id)).await.unwrap();
