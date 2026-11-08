@@ -77,6 +77,31 @@ async fn page(app: &Router, path: &str, cookie: &str) -> (StatusCode, String) {
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 
+async fn save_to_library(app: &Router, book: i64, cookie: &str, csrf: &str) -> StatusCode {
+    let reply = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/me/library/{book}/save"))
+                .header(header::COOKIE, cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("csrf_token={csrf}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    reply.status()
+}
+
+async fn library_has_book(app: &Router, cookie: &str, book: i64) -> bool {
+    let (status, body) = page(app, "/api/v1/me/library", cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    json["items"].as_array().unwrap().iter().any(|item| item["book_id"] == book.to_string())
+}
+
 async fn submit(
     app: &Router,
     path: &str,
@@ -195,6 +220,9 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     let paid_path = format!("/reader/{paid}");
     let toc_path = format!("/api/v1/books/{book}/toc");
     let path = format!("/me/books/{book}/settings/access-level");
+    let library_prompt = format!("/me/library/add/{book}");
+    let discussion = format!("/books/{book}/comments");
+    let room = format!("/books/{book}/room");
     let public = format!("/books/{book}");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let stranger_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
@@ -252,6 +280,20 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     );
     assert_eq!(get(&app, &public, "").await, StatusCode::OK);
     assert_eq!(get(&app, &toc_path, "").await, StatusCode::OK);
+    // An authorized reader must be able to follow the Book page's
+    // "Add to library" link; this personal prompt is never anonymous data.
+    assert_eq!(
+        get(&app, &library_prompt, "").await,
+        StatusCode::SEE_OTHER
+    );
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
+    }
+    assert_eq!(
+        save_to_library(&app, book, &stranger_cookie, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(library_has_book(&app, &stranger_cookie, book).await);
     let (free_status, free_html) = page(&app, &free_path, "").await;
     assert_eq!(free_status, StatusCode::OK);
     assert!(free_html.contains(&free_marker));
@@ -324,6 +366,12 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
             StatusCode::NOT_FOUND
         );
     }
+    // Revocation is live across private bookmarks and social metadata,
+    // not just the public reader or the paid preview.
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+    }
+    assert!(!library_has_book(&app, &stranger_cookie, book).await);
     let (denied, denied_html) = page(&app, &free_path, "").await;
     assert_eq!(denied, StatusCode::NOT_FOUND);
     assert!(!denied_html.contains(&free_marker));
@@ -342,6 +390,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         .await
         .1
         .contains(&paid_marker));
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
+    }
+    assert!(library_has_book(&app, &stranger_cookie, book).await);
     assert_eq!(
         submit(
             &app,
@@ -400,7 +452,11 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         "pro_adult",
     );
     // An 18+ account is not automatically entitled to 21+ chapter text,
-    // public metadata, paid previews or TOC after the same Book is upgraded.
+    // public metadata, paid previews, TOC or its old saved bookmark.
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+    }
+    assert!(!library_has_book(&app, &stranger_cookie, book).await);
     for candidate in [&public, &toc_path, &free_path, &paid_path] {
         assert_eq!(
             get(&app, candidate, &stranger_cookie).await,
@@ -425,6 +481,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         .await
         .1
         .contains(&paid_marker));
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
+    }
+    assert!(library_has_book(&app, &stranger_cookie, book).await);
     pg(
         &url,
         &format!(
@@ -442,6 +502,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         .await
         .1
         .contains(&free_marker));
+    for candidate in [&library_prompt, &discussion, &room] {
+        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+    }
+    assert!(!library_has_book(&app, &stranger_cookie, book).await);
     // Revocation closes reader access; the signed-in Book settings permission
     // is independent of reader age eligibility.
     pg(
