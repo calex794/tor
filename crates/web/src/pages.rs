@@ -482,7 +482,15 @@ pub async fn paid_reader_script() -> impl IntoResponse {
             ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../assets/newboo-paid-reader.mjs"),
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../assets/newboo-paid-reader.mjs"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-paid-toc.js"));
+                js
+            });
+            JS.as_str()
+        },
     )
 }
 
