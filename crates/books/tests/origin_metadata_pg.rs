@@ -316,15 +316,16 @@ async fn s020_book_member_origin_metadata_preserves_access_and_publication() {
             .await,
         Err(AuthorError::Missing),
     );
-    let (visibility, access, author): (String, String, String) = sqlx::query_as(
-        "SELECT visibility,access_level,author_name FROM books WHERE id=$1",
-    )
-    .bind(discovery_book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!((visibility.as_str(), access.as_str(), author.as_str()),
-               ("draft", "basic", "Новый автор"));
+    let (visibility, access, author): (String, String, String) =
+        sqlx::query_as("SELECT visibility,access_level,author_name FROM books WHERE id=$1")
+            .bind(discovery_book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (visibility.as_str(), access.as_str(), author.as_str()),
+        ("draft", "basic", "Новый автор")
+    );
 
     pool.close().await;
 }
