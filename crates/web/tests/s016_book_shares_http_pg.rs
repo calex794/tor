@@ -165,6 +165,8 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
          VALUES('ci:shared:{stamp}','ru','SharedBook{stamp}','public','basic',{sender_id}) RETURNING id"
     )).parse().unwrap();
     let share_path = format!("/books/{book}/share");
+    let library_html = html(send(&app, "GET", "/me/library", &receiver, "").await).await;
+    assert!(library_html.contains("href=\"/library/shared\""));
     let first = send(&app, "GET", &share_path, &sender, "").await;
     assert_eq!(first.status(), StatusCode::OK);
     let csrf_cookie = cookie(&first, "tor-dev-csrf=");

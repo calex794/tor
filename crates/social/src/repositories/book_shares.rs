@@ -1,6 +1,6 @@
 //! S016/S017. Direct book recommendations never grant ownership or chapter access.
 use super::mail::{blocked, pair_lock};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
 pub struct PgBookShares {
