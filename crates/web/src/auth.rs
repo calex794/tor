@@ -66,6 +66,7 @@ mod checkout;
 mod checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
+mod collections;
 mod creator_follows;
 mod direct_swap_browser;
 mod follow_read_state;
@@ -184,6 +185,7 @@ fn router_inner(
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
     let team_routes = teams::router(accounts.clone(), cookies.clone());
+    let collection_routes = collections::router(accounts.clone(), cookies.clone());
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -433,7 +435,8 @@ fn router_inner(
         ))
         .merge(chapter_routes)
         .merge(personal_routes)
-        .merge(team_routes);
+        .merge(team_routes)
+        .merge(collection_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
