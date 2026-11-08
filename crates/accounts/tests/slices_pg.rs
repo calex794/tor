@@ -612,22 +612,26 @@ async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
         .find(|x| x.private_chat_id == tg_id)
         .unwrap()
         .id;
-    assert!(!accounts
-        .decide_telegram_recovery(request_id, tg_id + 1, tg_id, true)
-        .await
-        .unwrap());
-    assert!(!accounts
-        .decide_telegram_recovery(request_id, tg_id, tg_id + 1, true)
-        .await
-        .unwrap());
-    assert!(accounts
-        .decide_telegram_recovery(request_id, tg_id, tg_id, true)
-        .await
-        .unwrap());
-    assert!(!accounts
-        .decide_telegram_recovery(request_id, tg_id, tg_id, true)
-        .await
-        .unwrap());
+    let bot_id = 2_000_000_000 + user;
+    let owner = session_token_digest(&format!("tg-callback-lease-{user}"));
+    let wrong_owner = session_token_digest(&format!("tg-callback-foreign-{user}"));
+    let epoch = accounts.claim_telegram_poller(bot_id, &owner)
+        .await.unwrap().unwrap();
+    assert_eq!(accounts.decide_telegram_recovery_fenced(
+        bot_id, &wrong_owner, epoch, request_id, tg_id, tg_id, true
+    ).await.unwrap(), None);
+    assert_eq!(accounts.decide_telegram_recovery_fenced(
+        bot_id, &owner, epoch, request_id, tg_id + 1, tg_id, true
+    ).await.unwrap(), Some(false));
+    assert_eq!(accounts.decide_telegram_recovery_fenced(
+        bot_id, &owner, epoch, request_id, tg_id, tg_id + 1, true
+    ).await.unwrap(), Some(false));
+    assert_eq!(accounts.decide_telegram_recovery_fenced(
+        bot_id, &owner, epoch, request_id, tg_id, tg_id, true
+    ).await.unwrap(), Some(true));
+    assert_eq!(accounts.decide_telegram_recovery_fenced(
+        bot_id, &owner, epoch, request_id, tg_id, tg_id, true
+    ).await.unwrap(), Some(false));
     let proof = session_token_digest(&format!("tg-reset-proof-{user}"));
     assert!(!accounts
         .exchange_browser_telegram_approval(&[0_u8; 32], &proof)
@@ -843,6 +847,16 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
         .renew_telegram_poller(bot_id, winner, epoch)
         .await
         .unwrap());
+    let update_id = 3_000_000_000 + user;
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, loser, epoch, update_id
+    ).await.unwrap(), None);
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, winner, epoch, update_id
+    ).await.unwrap(), Some(true));
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, winner, epoch, update_id
+    ).await.unwrap(), Some(false));
     assert!(!accounts
         .release_telegram_poller(bot_id, loser, epoch)
         .await
@@ -851,6 +865,9 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
         .release_telegram_poller(bot_id, winner, epoch)
         .await
         .unwrap());
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, winner, epoch, update_id + 1
+    ).await.unwrap(), None);
 
     let next = accounts
         .claim_telegram_poller(bot_id, loser)
@@ -866,6 +883,12 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
         .release_telegram_poller(bot_id, winner, epoch)
         .await
         .unwrap());
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, winner, epoch, update_id + 1
+    ).await.unwrap(), None);
+    assert_eq!(accounts.acknowledge_telegram_update_fenced(
+        bot_id, loser, next, update_id + 1
+    ).await.unwrap(), Some(true));
     assert!(accounts
         .renew_telegram_poller(bot_id, loser, next)
         .await
