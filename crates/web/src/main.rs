@@ -271,9 +271,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut pending_scheduled_release_worker = None;
     let mut pending_telegram_bot: Option<(PgAccounts, String)> = None;
     if env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1")
-        && (demo || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
-            || env::var_os("DATABASE_URL").is_none())
-    {
+        && (demo || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1") || env::var_os("DATABASE_URL").is_none()) {
         return Err("Telegram recovery requires authenticated PostgreSQL, not demo".into());
     }
     let app = match env::var("DATABASE_URL") {
@@ -514,12 +512,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app
     };
     let listener = tokio::net::TcpListener::bind(address).await?;
-    let telegram_bot_worker = if let Some((accounts, origin)) = pending_telegram_bot {
-        tor_web::telegram_bot::start(accounts, origin)
-            .await
-            .map_err(|reason| -> Box<dyn Error> { reason.into() })?
-    } else {
-        None
+    let telegram_bot_worker = match pending_telegram_bot {
+        Some((accounts, origin)) => tor_web::telegram_bot::start(accounts, origin).await
+            .map_err(|reason| -> Box<dyn Error> { reason.into() })?,
+        None => None,
     };
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
