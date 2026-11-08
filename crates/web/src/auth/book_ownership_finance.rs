@@ -366,8 +366,7 @@ async fn save_shares(
             expected_revision,
             &assignments,
             reason,
-            &digest,
-            &token,
+            (&digest, &token),
         )
         .await
     {

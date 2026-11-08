@@ -294,8 +294,7 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
             2,
             &assignments,
             reason,
-            &session_token_digest(&to_session),
-            &share_token,
+            (&session_token_digest(&to_session), &share_token),
         )
         .await
         .is_err());
