@@ -224,6 +224,7 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/web/tests/password_change_http_pg.rs",
     "crates/social/tests/chapter_release_notifications_pg.rs",
     "crates/social/tests/book_collections_pg.rs",
+    "crates/web/tests/s009_collections_http_pg.rs",
     "crates/web/tests/mail_http_pg.rs",
     "crates/accounts/tests/access_audit_pg.rs",
     "crates/accounts/tests/auth_observation_pg.rs",
