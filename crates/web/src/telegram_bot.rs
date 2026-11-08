@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tor_accounts::{
     repositories::PgAccounts,
-    services::security::{generate_session_token, session_token_digest},
+    services::security::session_token_digest,
 };
 
 #[derive(Clone)]
@@ -296,6 +296,7 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tor_accounts::services::security::generate_session_token;
 
     #[test]
     fn a_07_bot_ignores_forged_commands() {
