@@ -517,11 +517,10 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     // S020: Layer is a publicly discoverable paid product. Its Book titles
     // must follow live age rights, not merely visibility='public'.
     let book_title = "&lt;script&gt;alert(1)&lt;/script&gt;";
-    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book} RETURNING id"),
+    );
     assert!(!html(get(&app, &path, None).await)
         .await
         .contains(book_title));
@@ -534,11 +533,10 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(active_terms
         .iter()
         .all(|term| term.first_readable_chapter.is_none()));
-    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
-        .bind(buyer)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={buyer} RETURNING id"),
+    );
     assert!(html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
@@ -550,30 +548,27 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
             .any(|term| term.first_readable_chapter == Some(chapter))
     );
 
-    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book} RETURNING id"),
+    );
     assert!(!html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
     assert!(!html(get(&app, &path, None).await)
         .await
         .contains(book_title));
-    sqlx::query(
-        "INSERT INTO user_level_grants(user_id,level,source,is_active)
-         VALUES($1,'pro_adult','moderation',TRUE)",
-    )
-    .bind(buyer)
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
-        .bind(buyer)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({buyer},'pro_adult','moderation',TRUE) RETURNING user_id"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={buyer} RETURNING id"),
+    );
     assert!(html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
@@ -585,11 +580,10 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
             .any(|term| term.first_readable_chapter == Some(chapter))
     );
 
-    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
-        .bind(buyer)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={buyer} RETURNING user_id"),
+    );
     assert!(!html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
@@ -605,22 +599,20 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         "revoking age must retain paid terms"
     );
 
-    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book} RETURNING id"),
+    );
     assert!(!html(get(&app, &path, None).await)
         .await
         .contains(book_title));
     assert!(!html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
-    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book} RETURNING id"),
+    );
     assert!(html(get(&app, &path, None).await)
         .await
         .contains(book_title));
