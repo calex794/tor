@@ -19,7 +19,9 @@ use tor_accounts::{
 };
 use tor_books::{
     repositories::{
-        translation_team_invites::PgTeamInvites, translation_teams::PgTranslationTeams,
+        translation_team_books::{PgTeamBooks, TeamMemberRow},
+        translation_team_invites::PgTeamInvites,
+        translation_teams::PgTranslationTeams,
     },
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
@@ -29,6 +31,7 @@ struct TeamState {
     accounts: PgAccounts,
     teams: TeamService,
     invites: PgTeamInvites,
+    books: PgTeamBooks,
     cookies: CookiePolicy,
 }
 
@@ -52,16 +55,30 @@ struct DecisionForm {
     csrf_token: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TeamBookForm {
+    book_id: i64,
+    csrf_token: Option<String>,
+}
+
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let state = TeamState {
         teams: TeamService::new(PgTranslationTeams::new(accounts.pool().clone())),
         invites: PgTeamInvites::new(accounts.pool().clone()),
+        books: PgTeamBooks::new(accounts.pool().clone()),
         accounts,
         cookies,
     };
     Router::new()
         .route("/me/teams", get(index).post(create))
         .route("/me/teams/{id}", get(detail))
+        .route("/me/teams/{id}/books", get(books_page).post(add_book))
+        .route("/me/teams/{id}/books/{book_id}/remove", post(remove_book))
+        .route(
+            "/me/teams/{id}/members/{member_id}/remove",
+            post(remove_member),
+        )
         .route("/me/teams/{id}/invites", post(invite))
         .route("/me/teams/invites/{token}", get(invite_page))
         .route("/me/teams/invites/{token}/accept", post(accept))
@@ -145,12 +162,36 @@ fn detail_html(team: &TranslationTeam, csrf: &str) -> String {
          <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
          <button class=\"button\" type=\"submit\">Создать приглашение</button></form>\
          <p>Ссылка появляется один раз. Передайте её приглашённому самостоятельно.</p>\
+         <p><a href=\"/me/teams/{}/books\">Книги команды</a></p>\
          <p><a href=\"/me/teams\">Все команды</a></p></div></section>",
         escape_html(&team.name),
         escape_html(&team.description),
         team.id,
-        escape_html(csrf)
+        escape_html(csrf),
+        team.id
     )
+}
+
+fn roster_html(team_id: i64, csrf: &str, members: &[TeamMemberRow]) -> String {
+    let mut html = String::from("<h2>Участники команды</h2><ul>");
+    for member in members {
+        write!(
+            html,
+            "<li>{} (#{}) <form method=\"post\" action=\"/me/teams/{}/members/{}/remove\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <button type=\"submit\">Удалить из команды</button></form></li>",
+            escape_html(&member.display_name),
+            member.user_id,
+            team_id,
+            member.user_id,
+            escape_html(csrf)
+        )
+        .expect("HTML");
+    }
+    html.push_str(
+        "</ul><p>Удаление участника из команды не изменяет книжные роли и покупки читателей.</p>",
+    );
+    html
 }
 
 async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
@@ -233,8 +274,17 @@ async fn detail(
     };
     match owner.get(team_id).await {
         Ok(team) => {
+            let members = match s.books.members(actor, team_id).await {
+                Ok(members) => members,
+                Err(error) => return team_error(error),
+            };
             let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
-            page("Команда", &detail_html(&team, &csrf), &cookies)
+            let mut html = detail_html(&team, &csrf);
+            let roster = roster_html(team_id, &csrf, &members);
+            if let Some(index) = html.rfind("</div></section>") {
+                html.insert_str(index, &roster);
+            }
+            page("Команда", &html, &cookies)
         }
         Err(TeamError::Missing) => match s.invites.member_team(actor, team_id).await {
             Ok(name) => page(
@@ -242,8 +292,10 @@ async fn detail(
                 &format!(
                     "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
                  <p>Вы участник команды. Права на книги назначаются отдельно.</p>\
+                 <a href=\"/me/teams/{}/books\">Книги команды</a>\
                  <a href=\"/me/teams\">Все команды</a></div></section>",
-                    escape_html(&name)
+                    escape_html(&name),
+                    team_id
                 ),
                 &[],
             ),
@@ -378,6 +430,145 @@ async fn decline(
     };
     match s.invites.decide(recipient, &token, false).await {
         Ok(_) => private_response(Redirect::to("/me/teams"), &[]),
+        Err(error) => team_error(error),
+    }
+}
+
+/// S028: independent Team + Book gate; a linked book grants no reading rights.
+async fn books_page(
+    State(s): State<TeamState>,
+    Path(team_id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    let view = match s.books.view(actor, team_id).await {
+        Ok(view) => view,
+        Err(error) => return team_error(error),
+    };
+    let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
+    let mut html = String::from(
+        "<section class=\"section\"><div class=\"container\"><h1>Книги команды</h1>\
+         <p>Это список проектов. Он не открывает главы и не меняет владельца книги.</p><ul>",
+    );
+    for book in &view.linked {
+        write!(html, "<li>{} (#{})", escape_html(&book.title), book.id).expect("HTML");
+        if view.is_owner {
+            write!(
+                html,
+                "<form method=\"post\" action=\"/me/teams/{}/books/{}/remove\">\
+                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+                 <button type=\"submit\">Убрать из команды</button></form>",
+                team_id,
+                book.id,
+                escape_html(&csrf)
+            )
+            .expect("HTML");
+        }
+        html.push_str("</li>");
+    }
+    html.push_str("</ul><h2>Добавить собственную книгу</h2>");
+    if view.candidates.is_empty() {
+        html.push_str("<p>Нет доступных книг с подтверждённой ролью владельца.</p>");
+    } else {
+        write!(
+            html,
+            "<form method=\"post\" action=\"/me/teams/{team_id}/books\">\
+             <select name=\"book_id\" required>"
+        )
+        .expect("HTML");
+        for book in &view.candidates {
+            write!(
+                html,
+                "<option value=\"{}\">{}</option>",
+                book.id,
+                escape_html(&book.title)
+            )
+            .expect("HTML");
+        }
+        write!(
+            html,
+            "</select><input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <button type=\"submit\">Привязать книгу</button></form>",
+            escape_html(&csrf)
+        )
+        .expect("HTML");
+    }
+    write!(
+        html,
+        "<p><a href=\"/me/teams/{team_id}\">Вернуться к команде</a></p></div></section>"
+    )
+    .expect("HTML");
+    page("Книги команды", &html, &cookies)
+}
+
+async fn add_book(
+    State(s): State<TeamState>,
+    Path(team_id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<TeamBookForm>,
+) -> Response {
+    if !s.cookies.same_origin(&headers)
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let actor = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    match s.books.attach(actor, team_id, form.book_id).await {
+        Ok(()) => private_response(Redirect::to(&format!("/me/teams/{team_id}/books")), &[]),
+        Err(error) => team_error(error),
+    }
+}
+
+async fn remove_book(
+    State(s): State<TeamState>,
+    Path((team_id, book_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    Form(form): Form<DecisionForm>,
+) -> Response {
+    if !s.cookies.same_origin(&headers)
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let actor = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    match s.books.detach(actor, team_id, book_id).await {
+        Ok(()) => private_response(Redirect::to(&format!("/me/teams/{team_id}/books")), &[]),
+        Err(error) => team_error(error),
+    }
+}
+
+async fn remove_member(
+    State(s): State<TeamState>,
+    Path((team_id, member_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    Form(form): Form<DecisionForm>,
+) -> Response {
+    if !s.cookies.same_origin(&headers)
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let actor = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    match s.books.remove_member(actor, team_id, member_id).await {
+        Ok(()) => private_response(Redirect::to(&format!("/me/teams/{team_id}")), &[]),
         Err(error) => team_error(error),
     }
 }
