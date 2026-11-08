@@ -300,15 +300,27 @@ async fn s016_adult_and_pro_adult_shares_follow_live_recipient_access() {
         .await
         .unwrap();
     assert!(shares.public_book_title(adult, sender).await.is_ok());
-    let adult_id = shares.send(sender, receiver, adult, "Adult", &key(302))
-        .await.unwrap();
-    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == adult_id));
+    let adult_id = shares
+        .send(sender, receiver, adult, "Adult", &key(302))
+        .await
+        .unwrap();
+    assert!(shares
+        .inbox(receiver)
+        .await
+        .unwrap()
+        .iter()
+        .any(|s| s.id == adult_id));
     sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
         .bind(receiver)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == adult_id));
+    assert!(!shares
+        .inbox(receiver)
+        .await
+        .unwrap()
+        .iter()
+        .any(|s| s.id == adult_id));
     assert_eq!(
         shares.send(sender, receiver, adult, "", &key(303)).await,
         Err(BookShareError::NotFound)
@@ -329,9 +341,16 @@ async fn s016_adult_and_pro_adult_shares_follow_live_recipient_access() {
         shares.send(sender, receiver, adult, "", &key(304)).await,
         Err(BookShareError::NotFound)
     );
-    let pro_id = shares.send(sender, receiver, pro, "Pro", &key(305))
-        .await.unwrap();
-    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == pro_id));
+    let pro_id = shares
+        .send(sender, receiver, pro, "Pro", &key(305))
+        .await
+        .unwrap();
+    assert!(shares
+        .inbox(receiver)
+        .await
+        .unwrap()
+        .iter()
+        .any(|s| s.id == pro_id));
     sqlx::query(
         "UPDATE user_level_grants SET is_active=FALSE
          WHERE user_id=$1 AND level='pro_adult'",
@@ -340,19 +359,34 @@ async fn s016_adult_and_pro_adult_shares_follow_live_recipient_access() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(!shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == pro_id));
+    assert!(!shares
+        .inbox(receiver)
+        .await
+        .unwrap()
+        .iter()
+        .any(|s| s.id == pro_id));
     assert_eq!(
         shares.send(sender, receiver, pro, "", &key(306)).await,
         Err(BookShareError::NotFound)
     );
     // Basic shares remain unaffected by age downgrades.
-    let basic_id = shares.send(sender, receiver, basic, "", &key(307))
-        .await.unwrap();
-    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == basic_id));
+    let basic_id = shares
+        .send(sender, receiver, basic, "", &key(307))
+        .await
+        .unwrap();
+    assert!(shares
+        .inbox(receiver)
+        .await
+        .unwrap()
+        .iter()
+        .any(|s| s.id == basic_id));
     // Delivery is a link, never an entitlement.
     let purchased: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::BIGINT FROM library_purchased_chapters WHERE user_id=$1",
     )
-    .bind(receiver).fetch_one(&pool).await.unwrap();
+    .bind(receiver)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(purchased, 0);
 }
