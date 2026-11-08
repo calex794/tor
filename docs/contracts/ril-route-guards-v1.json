@@ -2283,6 +2283,55 @@
       "source": "crates/web/src/auth/book_ownership_finance.rs",
       "handler": "save_shares",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/collections",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "index",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/collections",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "create",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/collections/{id}",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "detail",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/edit",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/books",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "add_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/books/{book_id}/remove",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "remove_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/delete",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "delete",
+      "policy": "owner"
     }
   ]
 }
