@@ -15,6 +15,7 @@ pub mod moderation_queue_age;
 pub mod moderation_registration;
 pub mod moderation_reviewed;
 pub use credentials::{PasswordRotation, SessionLoginAudit};
+pub mod book_step_up;
 mod password_reset;
 pub mod profile;
 mod security_retention;

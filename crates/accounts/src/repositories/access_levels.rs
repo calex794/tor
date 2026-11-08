@@ -13,11 +13,12 @@ pub async fn verified_effective_user_tier(
     if user_id <= 0 {
         return Ok(None);
     }
-    let adult: Option<bool> =
-        sqlx::query_scalar("SELECT adult_enabled FROM users WHERE id=$1 FOR SHARE")
-            .bind(user_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let adult: Option<bool> = sqlx::query_scalar(
+        "SELECT adult_enabled FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
+    .await?;
     let Some(adult) = adult else {
         return Ok(None);
     };

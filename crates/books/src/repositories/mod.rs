@@ -12,11 +12,12 @@ pub mod translation_team_analytics;
 pub mod translation_team_books;
 pub mod translation_team_invites;
 pub mod translation_teams;
-// B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
-pub(crate) mod owner_transfer;
+// S030: only PgOwnerTransfer is public; sealed permit remains crate-private.
+pub mod owner_transfer;
 // B-09d canonical Book tier, locked under caller-owned transfer transaction.
 pub mod admin_paid_assets;
 pub mod admin_unsealed_text;
+pub(crate) mod book_step_up;
 pub(crate) mod owner_transfer_tier;
 pub mod paid_assets;
 pub mod paid_storage;
