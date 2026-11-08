@@ -158,8 +158,8 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     );
     let book = pg(
         &url,
-        &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-                 VALUES('ci:d05:storefront:{author}','ru','Книга <script>alert(1)</script>','public',{author})
+        &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+                 VALUES('ci:d05:storefront:{author}','ru','Книга <script>alert(1)</script>','public',{author},'basic')
                  RETURNING id"),
     );
     let chapter = pg(
