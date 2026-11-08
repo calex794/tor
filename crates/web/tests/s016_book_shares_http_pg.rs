@@ -173,7 +173,7 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
     );
     assert!(!html(send(&app,"GET","/library/shared",&receiver_cookies,"").await)
         .await.contains("SharedBook"));
-    let new_key=key.replace('0',"A");
+    let new_key = "2".repeat(43);
     let second=format!(
         "recipient_user_id={recipient_id}&message=Again&command_key={new_key}&csrf_token={csrf}"
     );
@@ -198,7 +198,7 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
          AND reason='spam' AND reporter_user_id={recipient_id}"
     )).parse().unwrap();
     assert_eq!(reported,1);
-    let third_key=key.replace('0',"B");
+    let third_key = "3".repeat(43);
     let third=format!(
         "recipient_user_id={recipient_id}&message=Third&command_key={third_key}&csrf_token={csrf}"
     );
@@ -216,7 +216,7 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
             &receiver_cookies,&mute).await.status(),
         StatusCode::SEE_OTHER
     );
-    let fourth_key=key.replace('0',"C");
+    let fourth_key = "4".repeat(43);
     let fourth=format!(
         "recipient_user_id={recipient_id}&message=Fourth&command_key={fourth_key}&csrf_token={csrf}"
     );
