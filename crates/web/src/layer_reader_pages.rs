@@ -4,11 +4,7 @@ use crate::pages::escape_html;
 use axum::response::Html;
 use tor_commerce::services::reader_views::LayerTocAnchor;
 
-pub fn layer_reader_shell(
-    anchor: &LayerTocAnchor,
-    csrf: &str,
-    s3_origin: &str,
-) -> Html<String> {
+pub fn layer_reader_shell(anchor: &LayerTocAnchor, csrf: &str, s3_origin: &str) -> Html<String> {
     let chapter_id = anchor.chapter_id;
     let chapter_no = anchor.chapter_no;
     let title = escape_html(&anchor.chapter_title);
