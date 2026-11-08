@@ -345,8 +345,8 @@ fn book_detail_body(
         .replace(
             "<!--BOOK_SHARE_ACTION-->",
             &format!(
-                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a>",
-                book.id
+                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a><a class=\"ui-button ui-button--ghost\" href=\"/books/{}/report\">Пожаловаться</a>",
+                book.id, book.id
             ),
         )
         .replace(
