@@ -191,7 +191,7 @@ async fn fresh_password(
         .ok_or(StatusCode::UNAUTHORIZED)
 }
 
-pub(super) async fn page(
+async fn page(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
@@ -213,7 +213,7 @@ pub(super) async fn page(
     private_response(render(id, &settings, &csrf), &cookies)
 }
 
-pub(super) async fn transfer(
+async fn transfer(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
@@ -279,7 +279,7 @@ pub(super) async fn transfer(
     }
 }
 
-pub(super) async fn save_shares(
+async fn save_shares(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
     headers: HeaderMap,

@@ -31,8 +31,8 @@ pub fn owner_transfer_payload_digest(
     digest.finalize().into()
 }
 /// S030: a Book owner operation with A/B/D/B-10 proofs in one PostgreSQL
-/// transaction. An HTTP handler can supply only a freshly verified A password
-/// capability; it cannot forge the sealed Book mutation permit.
+/// transaction. The handler supplies an A-issued one-time step-up token,
+/// never an HTTP-forgeable Book permit.
 #[derive(Clone)]
 pub struct PgOwnerTransfer {
     pool: PgPool,
@@ -228,7 +228,8 @@ impl PgOwnerTransfer {
         .map_err(|_| AuthorError::Unavailable)?;
 
         let row = sqlx::query(
-            "SELECT owner_user_id, NOT admin_hold AND NOT is_deleted AS available
+            "SELECT owner_user_id, NOT admin_hold AND NOT is_deleted
+               AND lifecycle_status <> 'pending_deletion' AS available
              FROM books WHERE id=$1 FOR UPDATE",
         )
         .bind(book_id)
