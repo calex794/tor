@@ -61,6 +61,7 @@ pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+mod toc_window_http;
 pub mod yandex_cdn_purge;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_assets::PgPaidAuthorAssets;
@@ -507,6 +508,10 @@ fn make_router_with_paid_checkout(
             get(cover_http::cover_direct_grant),
         )
         .route("/api/v1/books/{id}/toc", get(book_toc))
+        .route(
+            "/api/v1/books/{id}/toc/window",
+            get(toc_window_http::book_toc_window),
+        )
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/newboo-text-issues.js", get(text_issue_script))
         .route(

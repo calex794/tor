@@ -350,6 +350,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/books/{id}/share"), "POST") => Some(335),
         (Some("/library/shared"), "GET") => Some(336),
         (Some("/library/shared/{share_id}/action"), "POST") => Some(337),
+        (Some("/api/v1/books/{id}/toc/window"), "GET") => Some(338),
         _ => None,
     };
     index

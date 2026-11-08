@@ -12,11 +12,16 @@
       <div class="reader-topbar__actions free-reader-actions">
         <details class="reader-topbar__toc reader-free-toc" data-free-toc data-free-toc-book="<!--BOOK_ID-->" data-free-toc-chapter="<!--CHAPTER_ID-->">
           <summary class="reader-free-toc__trigger" aria-label="Открыть оглавление">Оглавление</summary>
-          <div class="reader-free-toc__menu">
-            <p class="reader-free-toc__status" role="status" data-free-toc-status>Откройте оглавление, чтобы загрузить главы.</p>
-            <ol class="reader-free-toc__list" data-free-toc-list aria-label="Главы книги"></ol>
-            <button type="button" data-free-toc-more hidden>Показать ещё</button>
-            <a class="text-link" href="/books/<!--BOOK_ID-->#chapters">Полное оглавление на странице книги</a>
+          <button type="button" class="reader-free-toc__backdrop" data-free-toc-backdrop tabindex="-1" aria-label="Закрыть оглавление"></button>
+          <div class="reader-free-toc__menu" data-free-toc-modal role="dialog" aria-modal="true" aria-label="Оглавление книги">
+            <header class="reader-free-toc__head">
+              <div><strong>Оглавление</strong><small data-free-toc-total>Главы книги</small></div>
+              <button type="button" class="reader-free-toc__close" data-free-toc-close aria-label="Закрыть оглавление">×</button>
+            </header>
+            <div class="reader-free-toc__scroll" data-free-toc-scroll tabindex="0" aria-label="Прокрутка оглавления">
+              <ol class="reader-free-toc__list" data-free-toc-list aria-label="Главы книги"></ol>
+            </div>
+            <p class="reader-free-toc__status" role="status" data-free-toc-status>Оглавление загружается при открытии.</p>
           </div>
         </details>
         <button class="reader-topbar__settings" type="button" data-free-settings-open aria-controls="free-reader-settings" aria-expanded="false" aria-label="Настройки чтения">Aa</button>

@@ -118,7 +118,13 @@ async function inspect(page, name, where) {
         name + ': free reader TOC missing paid access warning');
       assert(!(await page.locator('[data-free-toc-list]').innerText()).includes('PRIVATE-PAID-MARKER'),
         name + ': paid content leaked into public TOC');
-      await page.locator('[data-free-toc] > summary').click();
+      assert(await page.locator('[data-free-toc-modal][role="dialog"]').isVisible(),
+        name + ': centered TOC modal was not shown');
+      await page.locator('[data-free-toc-close]').click();
+      assert(!(await page.locator('[data-free-toc-modal]').isVisible()),
+        name + ': TOC close button must hide the modal');
+      assert(await page.locator('[data-free-toc] > summary').evaluate(el => el === document.activeElement),
+        name + ': TOC must restore focus to its trigger');
       assert(await page.locator('[data-free-issue-form]').count() === 0,
         name + ': guest must not receive issue submission form');
       assert(await page.locator('[data-chapter-comments]').count() === 1,
