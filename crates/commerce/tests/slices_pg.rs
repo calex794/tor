@@ -761,3 +761,155 @@ mod d06_swap;
 mod d06_swap_safety;
 #[path = "slices_pg/d08_revenue_allocation.rs"]
 mod d08_revenue_allocation;
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_03_mixed_toc_window_keeps_purchased_rights_and_paginates_205_chapters() {
+    use tor_commerce::services::reader_views::{
+        MixedTocAccess, MixedTocCursor, MixedTocSide,
+    };
+
+    let (pool, actor, book, anchor, version) =
+        fixture("d03_toc_window_205", 500, 100).await;
+    let purchase = PgCheckout::new(pool.clone())
+        .checkout_once(&command(actor, anchor, version, 100, 'T'))
+        .await
+        .unwrap()
+        .purchase_id;
+    // The original anchor has a pinned paid V1; neighbours may be public
+    // free, paid metadata or hidden and must not convey another entitlement.
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         SELECT $1,n,'Chapter '||n,'public',
+                CASE WHEN n=100 THEN 'paid' ELSE 'free' END,
+                CASE WHEN n=100 THEN 150 ELSE 0 END
+         FROM generate_series(2,205) AS n",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         SELECT id,1,'NO-PAID-BODY-ON-TOC'
+         FROM chapters WHERE book_id=$1 AND chapter_no BETWEEN 2 AND 205",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id)
+         SELECT c.id,v.id FROM chapters c
+         JOIN chapter_versions v ON v.chapter_id=c.id
+         WHERE c.book_id=$1 AND c.chapter_no BETWEEN 2 AND 205",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let hidden: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,206,'HIDDEN-TOC-SENTINEL','draft','free',0) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let hidden_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'SECRET-HIDDEN-BODY') RETURNING id",
+    )
+    .bind(hidden)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
+    )
+    .bind(hidden)
+    .bind(hidden_version)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rights = PgDirectEntitlements::new(pool.clone());
+    let anchor_id = PositiveId::new(anchor).unwrap();
+    let cursor = MixedTocCursor { chapter_no: 1, chapter_id: anchor };
+    let owned = rights
+        .mixed_book_toc_window(
+            PositiveId::new(actor).unwrap(), anchor_id, purchase,
+            MixedTocCursor { chapter_no: 2,
+                chapter_id: sqlx::query_scalar(
+                    "SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=2"
+                ).bind(book).fetch_one(&pool).await.unwrap() },
+            MixedTocSide::Before, 10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(owned.chapters.len(), 1);
+    assert_eq!(owned.chapters[0].chapter_id, anchor);
+    assert!(matches!(owned.chapters[0].access,
+        MixedTocAccess::Purchased {purchase_id, version_id, ..}
+        if purchase_id == purchase.get() && version_id == version));
+
+    let mut found = Vec::new();
+    let mut cursor = cursor;
+    for _ in 0..6 {
+        let page = rights
+            .mixed_book_toc_window(
+                PositiveId::new(actor).unwrap(), anchor_id, purchase,
+                cursor, MixedTocSide::After, 60,
+            )
+            .await
+            .unwrap();
+        assert!(page.chapters.len() <= 60);
+        found.extend(page.chapters.iter().map(|c| c.chapter_no));
+        assert!(page.chapters.iter().all(|c| c.title != "HIDDEN-TOC-SENTINEL"));
+        if let Some(next) = page.next_cursor {
+            cursor = MixedTocCursor::parse(&next).unwrap();
+        } else {
+            break;
+        }
+    }
+    assert_eq!(found, (2..=205).collect::<Vec<i32>>());
+    // A public paid neighbour must stay a locked metadata entry.
+    let locked_chapter: i64 = sqlx::query_scalar(
+        "SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=100",
+    ).bind(book).fetch_one(&pool).await.unwrap();
+    let paid_neighbour = rights.mixed_book_toc_window(
+        PositiveId::new(actor).unwrap(), anchor_id, purchase,
+        MixedTocCursor {chapter_no:99, chapter_id:
+            sqlx::query_scalar("SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=99")
+                .bind(book).fetch_one(&pool).await.unwrap()},
+        MixedTocSide::After, 1,
+    ).await.unwrap();
+    assert_eq!(paid_neighbour.chapters[0].chapter_id, locked_chapter);
+    assert!(matches!(paid_neighbour.chapters[0].access, MixedTocAccess::Locked { .. }));
+
+    let stranger: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('d03_toc_window_205_other@example.test','Other buyer','$argon2id$ci')
+         RETURNING id",
+    ).fetch_one(&pool).await.unwrap();
+    assert!(rights.mixed_book_toc_window(
+        PositiveId::new(stranger).unwrap(), anchor_id, purchase,
+        MixedTocCursor {chapter_no:1, chapter_id:anchor},
+        MixedTocSide::After, 60,
+    ).await.is_err(), "other buyer cannot page owned chapters");
+    assert!(rights.mixed_book_toc_window(
+        PositiveId::new(actor).unwrap(), anchor_id, purchase,
+        MixedTocCursor {chapter_no:2, chapter_id:anchor},
+        MixedTocSide::After, 60,
+    ).await.is_err(), "cursor cannot forge a different chapter position");
+
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,'d03_toc_window_revoke','refund')",
+    ).bind(purchase.get()).execute(&pool).await.unwrap();
+    assert!(rights.mixed_book_toc_window(
+        PositiveId::new(actor).unwrap(), anchor_id, purchase,
+        MixedTocCursor {chapter_no:1, chapter_id:anchor},
+        MixedTocSide::After, 60,
+    ).await.is_err(), "revocation also revokes TOC anchor");
+}
