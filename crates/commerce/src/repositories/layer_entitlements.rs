@@ -47,7 +47,7 @@ impl EntitlementPort for PgLayerChapterEntitlements {
                     (b.visibility='public' AND c.visibility='public'
                      AND c.access_level='paid' AND c.price_amount>0
                      AND viewer.account_state='active'
-                     AND b.visibility_status<>'blocked'
+                     AND b.visibility_status='active'
                      AND COALESCE((
                          b.access_level='basic'
                          OR (b.access_level='adult' AND viewer.adult_enabled)
