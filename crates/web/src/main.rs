@@ -573,7 +573,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     // The authenticated server starts this worker once, after binding HTTP.
-    let account_retention = pending_security_retention.map(tor_web::start_account_security_retention);
+    let account_retention =
+        pending_security_retention.map(tor_web::start_account_security_retention);
     let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

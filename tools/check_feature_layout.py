@@ -165,11 +165,8 @@ def check(root: Path = ROOT) -> list[str]:
                 errors.append(f"source too large: {relative} ({len(lines)} > {max_lines})")
             elif len(lines) > warn_lines:
                 print(f"WARN: {relative}: {len(lines)} lines", file=sys.stderr)
-            if len(parts) < 3 or parts[0] != "src":
-                continue
-            layer = parts[1]
             source_text = "\n".join(lines)
-            if name == "web":
+            if name == "web" and len(parts) >= 2 and parts[0] == "src":
                 page_path = source.relative_to(src).as_posix()
                 if page_path == "auth.rs" and "security_retention::start(" in source_text:
                     errors.append(f"account retention must not start from Router construction: {relative}")
@@ -183,6 +180,9 @@ def check(root: Path = ROOT) -> list[str]:
                         )
                     elif references:
                         print(f"WARN: {relative}: {references} existing repository references", file=sys.stderr)
+            if len(parts) < 3 or parts[0] != "src":
+                continue
+            layer = parts[1]
             if layer in {"api", "services", "schemas", "domain"} and re.search(r"\bsqlx\s*::", source_text):
                 errors.append(f"SQLx outside repositories: {relative}")
             if layer == "domain" and re.search(r"\baxum\s*::", source_text):
