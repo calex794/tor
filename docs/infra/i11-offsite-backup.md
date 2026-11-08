@@ -55,7 +55,7 @@ limit** and cannot be used for a real database. This new operator path uses
 4. On a **separate sandbox PG18 on port 15432–15999**, pre-create an empty
    database whose name starts with `tor_dr_`, with a restore-capable role.
    Never use production role/endpoint. Prepare an operator-only environment
-   variable `TOR_DR_RESTORE_URL` pointing to the sandbox, *not* into Git.
+   variable `TOR_DR_RESTORE_URL` in the form\n   `postgresql://tor_restore@127.0.0.1:15432/tor_dr_test` (no password or\n   URL query parameters), plus a separate root-only 0600 `PGPASSFILE`\n   configured for the test role. Never pass a password in the URL or Git.
    Install `verify-pg18-offsite-restore.sh` as
    `/usr/local/sbin/tor-offsite-restore-verify`, review/execute it.
    It reads the latest tagged snapshot and restores into the already empty
