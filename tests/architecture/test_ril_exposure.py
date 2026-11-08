@@ -132,6 +132,18 @@ class RilExposureTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
+    def test_s049_admin_report_exception_cannot_extend_or_downgrade(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["routes"].append({
+            "method": "GET", "template": "/admin/recommendation-reports/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "admin_reports::queue", "policy": "admin_share_reports",
+        })
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
     def test_expected_https_nginx_server_is_safe(self):
         self.assertEqual(check_nginx(GOOD_NGINX), [])
         audit, issues = run(self.root, GOOD_NGINX)

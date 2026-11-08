@@ -273,7 +273,10 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
     results.sort();
     assert_eq!(
         results,
-        [StatusCode::SEE_OTHER.as_u16(), StatusCode::CONFLICT.as_u16()]
+        [
+            StatusCode::SEE_OTHER.as_u16(),
+            StatusCode::CONFLICT.as_u16()
+        ]
     );
     assert_eq!(
         pg(&format!(
