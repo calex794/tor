@@ -41,6 +41,7 @@ const PASSWORD: &str = "S030SecureTransferPassword2026";
 fn pg(url: &str, query: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
+        .env("PGOPTIONS", "-c lock_timeout=15000 -c statement_timeout=60000")
         .args([
             "-X",
             "-A",
@@ -453,7 +454,9 @@ async fn s030_pg_rejects_completed_ordinary_deletion() {
     );
 }
 
-#[tokio::test]
+// Test fixtures invoke synchronous psql after intentionally rejected SQLx
+// transactions. Other workers must be able to finish the async rollback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let url = database();
