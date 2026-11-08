@@ -1096,6 +1096,13 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
 }
 
 
+/* A backdrop-filter creates a containing block for fixed descendants.
+   Disable it only while the TOC overlay is open so the modal centers in the viewport. */
+.reader-public .reader-topbar:has(.reader-free-toc[open]) {
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+
 /* C-03 / H: reader-centered TOC. Keep metadata visible without granting paid access. */
 .reader-public .reader-free-toc__backdrop {
   position:fixed;inset:0;z-index:1700;border:0;
