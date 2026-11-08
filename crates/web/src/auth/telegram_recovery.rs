@@ -36,11 +36,6 @@ pub(super) struct BackupForm {
     csrf_token: Option<String>,
 }
 
-fn valid_post(state: &AuthState, headers: &HeaderMap, csrf: Option<&str>) -> bool {
-    state.cookies.same_origin(headers)
-        && state.cookies.valid_csrf(headers, csrf.unwrap_or(""))
-}
-
 pub(super) async fn link_page(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -85,7 +80,9 @@ pub(super) async fn begin_link(
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
-    if !valid_post(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
     if form.current_password.is_empty() || form.current_password.len() > 512 {
@@ -154,7 +151,9 @@ pub(super) async fn confirm_link(
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
-    if !valid_post(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
     let user = match session_user(&state, &headers).await {
@@ -200,7 +199,9 @@ pub(super) async fn backup_submit(
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
-    if !valid_post(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
     let normalized = normalize_email(&form.email).ok();
