@@ -1,6 +1,8 @@
 //! MOD-COVER-01: the site moderator's private cover candidate queue.
 //! Processed variants are not attached until an audited moderator decision.
 use super::{deny, AuthState};
+#[path = "moderation_cover_withdraw.rs"]
+mod withdraw;
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
@@ -48,6 +50,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/covers/{id}/preview", get(preview))
         .route("/moderation/covers/{id}/decision", post(decide))
         .route("/moderation/books/{id}/cover-history", get(history))
+        .route("/moderation/books/{id}/cover-withdraw", post(withdraw::submit))
 }
 
 fn error_code(err: CoverReviewError) -> StatusCode {
@@ -408,6 +411,26 @@ pub(super) async fn history(
         Ok(rows) => rows,
         Err(error) => return deny(error_code(error)),
     };
+    let active_revision = match repo.current_active(&digest, book_id).await {
+        Ok(value) => value,
+        Err(err) => return deny(error_code(err)),
+    };
+    let (csrf, csrf_cookies) = state.cookies.csrf_for_page(&headers);
+    let withdrawal_form = active_revision.map_or_else(
+        || "<p>Действующая обложка отсутствует.</p>".to_owned(),
+        |revision| format!(
+            r#"<section><h2>Снять действующую обложку</h2>
+             <p>Книга останется опубликованной, на сайте появится заглушка.
+             Старые публичные копии передаются отдельной системе очистки.</p>
+             <form method="post" action="/moderation/books/{book_id}/cover-withdraw">
+             <input type="hidden" name="csrf_token" value="{}">
+             <input type="hidden" name="expected_slot_revision" value="{revision}">
+             <label for="cover-withdraw-reason">Причина снятия (обязательна)</label>
+             <textarea id="cover-withdraw-reason" name="reason" maxlength="2000" required></textarea>
+             <button type="submit">Продолжить снятие обложки</button></form></section>"#,
+            pages::escape_html(&csrf)
+        ),
+    );
     let mut entries = String::new();
     for row in rows {
         let reason = pages::escape_html(row.reason.as_deref().unwrap_or("—"));
@@ -427,11 +450,11 @@ pub(super) async fn history(
         &format!(
             "<section class=\"me-page\"><div class=\"container\">
             <h1>История обложек книги #{book_id}</h1>
-            <ol>{entries}</ol><a href=\"/moderation/covers\">Очередь обложек</a>
+            {withdrawal_form}<ol>{entries}</ol><a href=\"/moderation/covers\">Очередь обложек</a>
             </div></section>"
         ),
     );
-    private_response(html, &[])
+    private_response(Html(html), &csrf_cookies)
 }
 
 #[cfg(test)]
