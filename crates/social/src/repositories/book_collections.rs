@@ -340,7 +340,12 @@ impl PgBookCollections {
         Ok(revision)
     }
 
-    pub async fn delete_owned_collection(&self, actor: i64, id: i64, expected: i64) -> Result<(), CollectionError> {
+    pub async fn delete_owned_collection(
+        &self,
+        actor: i64,
+        id: i64,
+        expected: i64,
+    ) -> Result<(), CollectionError> {
         let mut tx = self.pool.begin().await?;
         Self::lock_owned(&mut tx, actor, id, expected).await?;
         sqlx::query(
