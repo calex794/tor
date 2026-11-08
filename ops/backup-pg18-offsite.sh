@@ -25,6 +25,7 @@ source "$config"
 [[ "$(stat -c '%U:%G:%a' "$RESTIC_PASSWORD_FILE")" == root:root:600 ]] ||
   fail 'recovery password file must be root:root mode 600'
 [[ -s "$RESTIC_PASSWORD_FILE" ]] || fail 'empty recovery password'
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
 
 for executable in restic pg_isready runuser flock stat; do
   command -v "$executable" >/dev/null || fail "missing dependency: $executable"
