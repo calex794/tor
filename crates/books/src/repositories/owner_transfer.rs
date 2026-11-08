@@ -324,7 +324,7 @@ mod tests {
     }
 }
 
-
-
 mod verified;
-pub use verified::{BookContributor, BookOwnershipSettings, PgOwnerTransfer, owner_transfer_payload_digest};
+pub use verified::{
+    owner_transfer_payload_digest, BookContributor, BookOwnershipSettings, PgOwnerTransfer,
+};

@@ -3,10 +3,10 @@
 //! Shares are distinct from Book role/ACL and from D's actual earnings.
 //! The Book FOR UPDATE lock is the same lock held by S030 owner transfer;
 //! D checkout holds FOR SHARE on the Book through settlement.
-use crate::domain::shares::{validate_schedule, RevenueShareError, ShareAssignment};
-use sqlx::PgPool;
-use sha2::{Digest, Sha256};
 use super::book_step_up::consume_book_step_up;
+use crate::domain::shares::{validate_schedule, RevenueShareError, ShareAssignment};
+use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
 const SHARES_SCOPE: &str = "book.revenue.shares.v1";
 
@@ -58,9 +58,14 @@ impl PgRevenueShares {
         step_up_token: &str,
     ) -> Result<i64, RevenueShareError> {
         self.replace_schedule_inner(
-            actor_id, book_id, expected_revision, assignments, reason,
+            actor_id,
+            book_id,
+            expected_revision,
+            assignments,
+            reason,
             Some((session_digest, step_up_token)),
-        ).await
+        )
+        .await
     }
 
     pub async fn replace_schedule(
@@ -72,8 +77,14 @@ impl PgRevenueShares {
         reason: &str,
     ) -> Result<i64, RevenueShareError> {
         self.replace_schedule_inner(
-            actor_id, book_id, expected_revision, assignments, reason, None,
-        ).await
+            actor_id,
+            book_id,
+            expected_revision,
+            assignments,
+            reason,
+            None,
+        )
+        .await
     }
 
     async fn replace_schedule_inner(
@@ -103,11 +114,21 @@ impl PgRevenueShares {
 
         if let Some((session_digest, step_up_token)) = proof {
             let payload = revenue_share_payload_digest(
-                actor_id, book_id, expected_revision, &shares, reason,
+                actor_id,
+                book_id,
+                expected_revision,
+                &shares,
+                reason,
             )?;
             if !consume_book_step_up(
-                &mut tx, actor_id, session_digest, step_up_token,
-                book_id, expected_revision, SHARES_SCOPE, &payload,
+                &mut tx,
+                actor_id,
+                session_digest,
+                step_up_token,
+                book_id,
+                expected_revision,
+                SHARES_SCOPE,
+                &payload,
             )
             .await
             .map_err(|_| RevenueShareError::Unavailable)?

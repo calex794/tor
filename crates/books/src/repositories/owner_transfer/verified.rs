@@ -68,7 +68,11 @@ impl PgOwnerTransfer {
         if actor <= 0 || book_id <= 0 {
             return Ok(None);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let book = sqlx::query(
             "SELECT b.title,b.access_level,b.owner_user_id,s.current_revision
              FROM books b
@@ -88,7 +92,9 @@ impl PgOwnerTransfer {
         let Some(book) = book else {
             return Ok(None);
         };
-        let revision: Option<i64> = book.try_get("current_revision").map_err(|_| AuthorError::Unavailable)?;
+        let revision: Option<i64> = book
+            .try_get("current_revision")
+            .map_err(|_| AuthorError::Unavailable)?;
         let rows = sqlx::query(
             "SELECT m.user_id,u.display_name,m.role,
                     COALESCE(a.share_percent,0)::SMALLINT AS current_share
@@ -111,18 +117,30 @@ impl PgOwnerTransfer {
             .into_iter()
             .map(|row| {
                 Ok(BookContributor {
-                    user_id: row.try_get("user_id").map_err(|_| AuthorError::Unavailable)?,
-                    display_name: row.try_get("display_name").map_err(|_| AuthorError::Unavailable)?,
+                    user_id: row
+                        .try_get("user_id")
+                        .map_err(|_| AuthorError::Unavailable)?,
+                    display_name: row
+                        .try_get("display_name")
+                        .map_err(|_| AuthorError::Unavailable)?,
                     role: row.try_get("role").map_err(|_| AuthorError::Unavailable)?,
-                    share_percent: row.try_get("current_share").map_err(|_| AuthorError::Unavailable)?,
+                    share_percent: row
+                        .try_get("current_share")
+                        .map_err(|_| AuthorError::Unavailable)?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(Some(BookOwnershipSettings {
-            title: book.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-            access_level: book.try_get("access_level").map_err(|_| AuthorError::Unavailable)?,
-            owner_id: book.try_get("owner_user_id").map_err(|_| AuthorError::Unavailable)?,
+            title: book
+                .try_get("title")
+                .map_err(|_| AuthorError::Unavailable)?,
+            access_level: book
+                .try_get("access_level")
+                .map_err(|_| AuthorError::Unavailable)?,
+            owner_id: book
+                .try_get("owner_user_id")
+                .map_err(|_| AuthorError::Unavailable)?,
             share_revision: revision,
             contributors,
         }))
@@ -143,7 +161,9 @@ impl PgOwnerTransfer {
         session_digest: &[u8; 32],
         step_up_token: &str,
     ) -> Result<(), AuthorError> {
-        if actor <= 0 || book_id <= 0 || expected_owner != actor
+        if actor <= 0
+            || book_id <= 0
+            || expected_owner != actor
             || target_display_name.is_empty()
             || target_display_name.trim() != target_display_name
             || target_display_name.chars().count() > 80
@@ -151,15 +171,24 @@ impl PgOwnerTransfer {
         {
             return Err(AuthorError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         // Consume exactly one A-issued, session-bound confirmation for this
         // Book, current owner and precise target nickname, with row locks.
-        let payload = owner_transfer_payload_digest(
-            actor, book_id, expected_owner, target_display_name,
-        );
+        let payload =
+            owner_transfer_payload_digest(actor, book_id, expected_owner, target_display_name);
         if !consume_book_step_up(
-            &mut tx, actor, session_digest, step_up_token,
-            book_id, expected_owner, OWNER_TRANSFER_SCOPE, &payload,
+            &mut tx,
+            actor,
+            session_digest,
+            step_up_token,
+            book_id,
+            expected_owner,
+            OWNER_TRANSFER_SCOPE,
+            &payload,
         )
         .await
         .map_err(|_| AuthorError::Unavailable)?
@@ -176,7 +205,11 @@ impl PgOwnerTransfer {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         if recipients.len() != 1 {
-            return Err(if recipients.is_empty() { AuthorError::Missing } else { AuthorError::Conflict });
+            return Err(if recipients.is_empty() {
+                AuthorError::Missing
+            } else {
+                AuthorError::Conflict
+            });
         }
         let recipient = recipients[0];
 
@@ -203,8 +236,12 @@ impl PgOwnerTransfer {
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Missing)?;
-        let actual_owner: Option<i64> = row.try_get("owner_user_id").map_err(|_| AuthorError::Unavailable)?;
-        let available: bool = row.try_get("available").map_err(|_| AuthorError::Unavailable)?;
+        let actual_owner: Option<i64> = row
+            .try_get("owner_user_id")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let available: bool = row
+            .try_get("available")
+            .map_err(|_| AuthorError::Unavailable)?;
         let current_teams: Vec<i64> = sqlx::query_scalar(
             "SELECT team_id FROM translation_team_books
              WHERE book_id=$1 AND is_active ORDER BY team_id",
@@ -318,12 +355,18 @@ impl PgOwnerTransfer {
             actual_owner_id: actual_owner.unwrap_or(0),
             recipient_id: recipient,
             active_owner_member_id,
-            book_state: if available { BookTransferState::Available }
-                else { BookTransferState::HeldOrDeleted },
+            book_state: if available {
+                BookTransferState::Available
+            } else {
+                BookTransferState::HeldOrDeleted
+            },
             book_tier,
             recipient_effective_tier: recipient_tier,
-            layer_state: if ever_in_layer { LayerTransferState::Unverified }
-                else { LayerTransferState::VerifiedClearIncludingHistorical },
+            layer_state: if ever_in_layer {
+                LayerTransferState::Unverified
+            } else {
+                LayerTransferState::VerifiedClearIncludingHistorical
+            },
             revenue_state: if revenue_revision.is_some() && !missing_purchase_snapshot {
                 RevenueTransferState::HistoricalPurchasesPreserved
             } else {
@@ -341,7 +384,11 @@ impl PgOwnerTransfer {
         // The permit can only be instantiated here after server-owned facts
         // have been checked under the same Book + A + Team row locks.
         swap_owner_in_verified_transaction(
-            &mut tx, actor, book_id, expected_owner, recipient,
+            &mut tx,
+            actor,
+            book_id,
+            expected_owner,
+            recipient,
             TrustedTransferPermit { _issuer: () },
         )
         .await?;
@@ -360,5 +407,3 @@ impl PgOwnerTransfer {
         tx.commit().await.map_err(|_| AuthorError::Unavailable)
     }
 }
-
-

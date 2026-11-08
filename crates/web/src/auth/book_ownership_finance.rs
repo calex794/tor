@@ -16,15 +16,13 @@ use tor_accounts::{
         book_step_up::{BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
         step_up::StepUpIssueError,
     },
-    services::security::{
-        session_token_digest, verify_password_for_step_up, VerifiedPassword,
-    },
+    services::security::{session_token_digest, verify_password_for_step_up, VerifiedPassword},
 };
 use tor_books::{
     domain::shares::{RevenueShareError, ShareAssignment},
     repositories::{
-        owner_transfer::{BookOwnershipSettings, PgOwnerTransfer, owner_transfer_payload_digest},
-        revenue_shares::{PgRevenueShares, revenue_share_payload_digest},
+        owner_transfer::{owner_transfer_payload_digest, BookOwnershipSettings, PgOwnerTransfer},
+        revenue_shares::{revenue_share_payload_digest, PgRevenueShares},
     },
     services::authoring::AuthorError,
 };
@@ -42,7 +40,10 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/me/books/{id}/settings/ownership", get(page))
         .route("/me/books/{id}/settings/ownership/transfer", post(transfer))
-        .route("/me/books/{id}/settings/ownership/shares", post(save_shares))
+        .route(
+            "/me/books/{id}/settings/ownership/shares",
+            post(save_shares),
+        )
         .layer(DefaultBodyLimit::max(8192))
 }
 
@@ -69,7 +70,8 @@ fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
             member.user_id,
             member.user_id,
             member.share_percent,
-        ).expect("write HTML");
+        )
+        .expect("write HTML");
     }
     let shares = if let Some(revision) = view.share_revision {
         format!(
@@ -91,9 +93,7 @@ fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
             </form>"#
         )
     } else {
-        String::from(
-            "<p>Историческое распределение не подтверждено. Изменение долей закрыто.</p>",
-        )
+        String::from("<p>Историческое распределение не подтверждено. Изменение долей закрыто.</p>")
     };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
@@ -122,7 +122,11 @@ fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
         </div></div></section>"#,
         owner = view.owner_id,
     );
-    pages::layout("Владелец и доли доходов", "Приватные настройки книги.", &content)
+    pages::layout(
+        "Владелец и доли доходов",
+        "Приватные настройки книги.",
+        &content,
+    )
 }
 
 async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
@@ -144,7 +148,8 @@ fn share_error(error: RevenueShareError) -> StatusCode {
     match error {
         RevenueShareError::Invalid => StatusCode::BAD_REQUEST,
         RevenueShareError::Conflict => StatusCode::CONFLICT,
-        RevenueShareError::Forbidden | RevenueShareError::Missing
+        RevenueShareError::Forbidden
+        | RevenueShareError::Missing
         | RevenueShareError::InactiveRecipient => StatusCode::NOT_FOUND,
         RevenueShareError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
@@ -215,9 +220,9 @@ pub(super) async fn transfer(
     Form(form): Form<TransferForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(
-            &headers, form.csrf_token.as_deref().unwrap_or(""),
-        )
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -236,21 +241,34 @@ pub(super) async fn transfer(
         Ok(proof) => proof,
         Err(status) => return deny(status),
     };
-    let payload = owner_transfer_payload_digest(
-        actor, id, form.expected_owner_id, &form.target_display_name,
-    );
-    let token = match state.accounts.issue_book_mutation_step_up(
-        actor, &digest, &proof, id, form.expected_owner_id,
-        BOOK_TRANSFER_SCOPE, &payload,
-    ).await {
+    let payload =
+        owner_transfer_payload_digest(actor, id, form.expected_owner_id, &form.target_display_name);
+    let token = match state
+        .accounts
+        .issue_book_mutation_step_up(
+            actor,
+            &digest,
+            &proof,
+            id,
+            form.expected_owner_id,
+            BOOK_TRANSFER_SCOPE,
+            &payload,
+        )
+        .await
+    {
         Ok(token) => token,
         Err(error) => return deny(issue_error(error)),
     };
     match PgOwnerTransfer::new(state.accounts.pool().clone())
         .transfer(
-            actor, id, form.expected_owner_id, &form.target_display_name,
-            &digest, &token,
-        ).await
+            actor,
+            id,
+            form.expected_owner_id,
+            &form.target_display_name,
+            &digest,
+            &token,
+        )
+        .await
     {
         Ok(()) => {
             let key = session_token_digest(&format!("auth:s030-sensitive:{actor}"));
@@ -269,7 +287,8 @@ pub(super) async fn save_shares(
 ) -> Response {
     if !state.cookies.same_origin(&headers)
         || !state.cookies.valid_csrf(
-            &headers, form.get("csrf_token").map(String::as_str).unwrap_or(""),
+            &headers,
+            form.get("csrf_token").map(String::as_str).unwrap_or(""),
         )
     {
         return deny(StatusCode::FORBIDDEN);
@@ -284,7 +303,10 @@ pub(super) async fn save_shares(
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
-    let expected_revision = match form.get("expected_revision").and_then(|v| v.parse::<i64>().ok()) {
+    let expected_revision = match form
+        .get("expected_revision")
+        .and_then(|v| v.parse::<i64>().ok())
+    {
         Some(revision) if revision > 0 => revision,
         _ => return deny(StatusCode::BAD_REQUEST),
     };
@@ -294,7 +316,10 @@ pub(super) async fn save_shares(
     let mut assignments = Vec::new();
     for (key, value) in &form {
         let Some(user) = key.strip_prefix("share_") else {
-            if matches!(key.as_str(), "csrf_token" | "expected_revision" | "reason" | "account_password") {
+            if matches!(
+                key.as_str(),
+                "csrf_token" | "expected_revision" | "reason" | "account_password"
+            ) {
                 continue;
             }
             return deny(StatusCode::BAD_REQUEST);
@@ -306,7 +331,10 @@ pub(super) async fn save_shares(
             return deny(StatusCode::BAD_REQUEST);
         }
         if percent > 0 {
-            assignments.push(ShareAssignment { user_id, share_percent: percent });
+            assignments.push(ShareAssignment {
+                user_id,
+                share_percent: percent,
+            });
         }
     }
     let Some(password) = form.get("account_password") else {
@@ -317,29 +345,45 @@ pub(super) async fn save_shares(
         Ok(proof) => proof,
         Err(status) => return deny(status),
     };
-    let payload = match revenue_share_payload_digest(
-        actor, id, expected_revision, &assignments, reason,
-    ) {
-        Ok(payload) => payload,
-        Err(error) => return deny(share_error(error)),
-    };
-    let token = match state.accounts.issue_book_mutation_step_up(
-        actor, &digest, &proof, id, expected_revision,
-        BOOK_SHARES_SCOPE, &payload,
-    ).await {
+    let payload =
+        match revenue_share_payload_digest(actor, id, expected_revision, &assignments, reason) {
+            Ok(payload) => payload,
+            Err(error) => return deny(share_error(error)),
+        };
+    let token = match state
+        .accounts
+        .issue_book_mutation_step_up(
+            actor,
+            &digest,
+            &proof,
+            id,
+            expected_revision,
+            BOOK_SHARES_SCOPE,
+            &payload,
+        )
+        .await
+    {
         Ok(token) => token,
         Err(error) => return deny(issue_error(error)),
     };
     match PgRevenueShares::new(state.accounts.pool().clone())
         .replace_schedule_verified(
-            actor, id, expected_revision, &assignments, reason, &digest, &token,
-        ).await
+            actor,
+            id,
+            expected_revision,
+            &assignments,
+            reason,
+            &digest,
+            &token,
+        )
+        .await
     {
         Ok(_) => {
             let key = session_token_digest(&format!("auth:s030-sensitive:{actor}"));
             let _ = state.accounts.clear_auth_attempt(&key).await;
             private_response(
-                Redirect::to(&format!("/me/books/{id}/settings/ownership")), &[],
+                Redirect::to(&format!("/me/books/{id}/settings/ownership")),
+                &[],
             )
         }
         Err(error) => deny(share_error(error)),
@@ -359,12 +403,16 @@ mod tests {
             share_revision: Some(3),
             contributors: vec![
                 tor_books::repositories::owner_transfer::BookContributor {
-                    user_id: 5, display_name: "<img src=x>".into(),
-                    role: "owner".into(), share_percent: 70,
+                    user_id: 5,
+                    display_name: "<img src=x>".into(),
+                    role: "owner".into(),
+                    share_percent: 70,
                 },
                 tor_books::repositories::owner_transfer::BookContributor {
-                    user_id: 6, display_name: "Translator".into(),
-                    role: "translator".into(), share_percent: 30,
+                    user_id: 6,
+                    display_name: "Translator".into(),
+                    role: "translator".into(),
+                    share_percent: 30,
                 },
             ],
         };

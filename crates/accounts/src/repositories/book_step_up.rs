@@ -3,9 +3,7 @@
 //! imports A or observes the plaintext password.
 use super::postgres::PgAccounts;
 use super::step_up::StepUpIssueError;
-use crate::services::security::{
-    generate_session_token, session_token_digest, VerifiedPassword,
-};
+use crate::services::security::{generate_session_token, session_token_digest, VerifiedPassword};
 
 pub const BOOK_TRANSFER_SCOPE: &str = "book.owner.transfer.v1";
 pub const BOOK_SHARES_SCOPE: &str = "book.revenue.shares.v1";
@@ -21,7 +19,9 @@ impl PgAccounts {
         scope: &str,
         payload_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
-        if actor <= 0 || book_id <= 0 || revision <= 0
+        if actor <= 0
+            || book_id <= 0
+            || revision <= 0
             || !matches!(scope, BOOK_TRANSFER_SCOPE | BOOK_SHARES_SCOPE)
         {
             return Err(StepUpIssueError::InvalidIntent);
@@ -29,7 +29,11 @@ impl PgAccounts {
         if !verified_password.is_fresh() {
             return Err(StepUpIssueError::StepUpRequired);
         }
-        let mut tx = self.pool().begin().await.map_err(|_| StepUpIssueError::Unavailable)?;
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|_| StepUpIssueError::Unavailable)?;
         // Credential rotation uses users -> sessions; use the same order.
         let hash: Option<String> = sqlx::query_scalar(
             "SELECT password_hash FROM users
@@ -39,7 +43,10 @@ impl PgAccounts {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| StepUpIssueError::Unavailable)?;
-        if !hash.as_deref().is_some_and(|v| verified_password.matches_hash(v)) {
+        if !hash
+            .as_deref()
+            .is_some_and(|v| verified_password.matches_hash(v))
+        {
             return Err(StepUpIssueError::StepUpRequired);
         }
         let live: Option<i64> = sqlx::query_scalar(
@@ -78,7 +85,9 @@ impl PgAccounts {
         if changed.rows_affected() != 1 {
             return Err(StepUpIssueError::StepUpRequired);
         }
-        tx.commit().await.map_err(|_| StepUpIssueError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| StepUpIssueError::Unavailable)?;
         Ok(token)
     }
 }

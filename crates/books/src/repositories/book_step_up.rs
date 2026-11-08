@@ -13,20 +13,23 @@ pub(crate) async fn consume_book_step_up(
     scope: &str,
     payload_digest: &[u8; 32],
 ) -> Result<bool, sqlx::Error> {
-    if actor <= 0 || book <= 0 || revision <= 0
+    if actor <= 0
+        || book <= 0
+        || revision <= 0
         || !matches!(scope, "book.owner.transfer.v1" | "book.revenue.shares.v1")
         || token.len() != 43
-        || !token.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_')
+        || !token
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_')
     {
         return Ok(false);
     }
     // A password rotation locks users before sessions. Keep that order here.
-    let active: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
-    )
-    .bind(actor)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let active: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE")
+            .bind(actor)
+            .fetch_optional(&mut **tx)
+            .await?;
     if active != Some(actor) {
         return Ok(false);
     }

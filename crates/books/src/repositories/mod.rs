@@ -17,12 +17,12 @@ pub mod owner_transfer;
 // B-09d canonical Book tier, locked under caller-owned transfer transaction.
 pub mod admin_paid_assets;
 pub mod admin_unsealed_text;
+pub(crate) mod book_step_up;
 pub(crate) mod owner_transfer_tier;
 pub mod paid_assets;
 pub mod paid_storage;
 pub mod postgres;
 pub mod revenue_shares;
-pub(crate) mod book_step_up;
 pub mod shadow;
 pub use postgres::PgCatalog;
 pub use shadow::PgShadowCatalog;

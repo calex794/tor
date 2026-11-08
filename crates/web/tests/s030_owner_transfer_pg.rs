@@ -7,16 +7,12 @@ use tor_accounts::{
         book_step_up::{BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
         PgAccounts,
     },
-    services::security::{
-        hash_password, session_token_digest, verify_password_for_step_up,
-    },
+    services::security::{hash_password, session_token_digest, verify_password_for_step_up},
 };
 use tor_books::{
     domain::shares::ShareAssignment,
     repositories::{
-        owner_transfer::{
-            owner_transfer_payload_digest, PgOwnerTransfer,
-        },
+        owner_transfer::{owner_transfer_payload_digest, PgOwnerTransfer},
         revenue_shares::{revenue_share_payload_digest, PgRevenueShares},
         translation_team_books::PgTeamBooks,
     },
@@ -156,20 +152,23 @@ async fn s030_pg_one_owner_team_continuity_immutable_revenue_and_replay() {
     assert!(repo.settings(from, book_id).await.unwrap().is_some());
     assert!(repo.settings(to, book_id).await.unwrap().is_none());
     let token = transfer_token(
-        &accounts, from, book_id, "S030 Team Recipient", &digest, &hash,
+        &accounts,
+        from,
+        book_id,
+        "S030 Team Recipient",
+        &digest,
+        &hash,
     )
     .await;
     repo.transfer(from, book_id, from, "S030 Team Recipient", &digest, &token)
         .await
         .unwrap();
 
-    let owner: i64 = sqlx::query_scalar(
-        "SELECT owner_user_id FROM books WHERE id=$1",
-    )
-    .bind(book_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(owner, to);
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM book_members
@@ -197,20 +196,25 @@ async fn s030_pg_one_owner_team_continuity_immutable_revenue_and_replay() {
     let linked = PgTeamBooks::new(pool.clone()).view(to, team).await.unwrap();
     assert!(linked.linked.iter().any(|row| row.id == book_id));
     assert_eq!(
-        repo.transfer(from, book_id, from, "S030 Team Recipient", &digest, &token).await,
+        repo.transfer(from, book_id, from, "S030 Team Recipient", &digest, &token)
+            .await,
         Err(AuthorError::Forbidden),
         "consumed proof must never be replayed",
     );
 
     let assignments = [
-        ShareAssignment { user_id: from, share_percent: 65 },
-        ShareAssignment { user_id: to, share_percent: 35 },
+        ShareAssignment {
+            user_id: from,
+            share_percent: 65,
+        },
+        ShareAssignment {
+            user_id: to,
+            share_percent: 35,
+        },
     ];
     let reason = "new owner distributes creator pool";
-    let schedule_digest = revenue_share_payload_digest(
-        to, book_id, 1, &assignments, reason,
-    )
-    .unwrap();
+    let schedule_digest =
+        revenue_share_payload_digest(to, book_id, 1, &assignments, reason).unwrap();
     let verified = verify_password_for_step_up(password(), &hash).unwrap();
     let share_token = accounts
         .issue_book_mutation_step_up(
@@ -226,10 +230,18 @@ async fn s030_pg_one_owner_team_continuity_immutable_revenue_and_replay() {
         .unwrap();
     let revenue = PgRevenueShares::new(pool.clone());
     assert_eq!(
-        revenue.replace_schedule_verified(
-            to, book_id, 1, &assignments, reason,
-            &recipient_digest, &share_token,
-        ).await.unwrap(),
+        revenue
+            .replace_schedule_verified(
+                to,
+                book_id,
+                1,
+                &assignments,
+                reason,
+                &recipient_digest,
+                &share_token,
+            )
+            .await
+            .unwrap(),
         2,
     );
     let old: i16 = sqlx::query_scalar(
@@ -242,10 +254,21 @@ async fn s030_pg_one_owner_team_continuity_immutable_revenue_and_replay() {
     .await
     .unwrap();
     assert_eq!(old, 100, "old purchase revision must remain unchanged");
-    assert!(revenue.replace_schedule_verified(
-        to, book_id, 2, &assignments, reason,
-        &recipient_digest, &share_token,
-    ).await.is_err(), "one-time proof must be consumed");
+    assert!(
+        revenue
+            .replace_schedule_verified(
+                to,
+                book_id,
+                2,
+                &assignments,
+                reason,
+                &recipient_digest,
+                &share_token,
+            )
+            .await
+            .is_err(),
+        "one-time proof must be consumed"
+    );
     pool.close().await;
 }
 
@@ -261,10 +284,24 @@ async fn s030_pg_denies_age_layer_history_revoked_session_and_forger() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let repo = PgOwnerTransfer::new(pool.clone());
     let age_token = transfer_token(
-        &accounts, from, book_id, "S030 Denied Recipient", &digest, &hash,
-    ).await;
+        &accounts,
+        from,
+        book_id,
+        "S030 Denied Recipient",
+        &digest,
+        &hash,
+    )
+    .await;
     assert_eq!(
-        repo.transfer(from, book_id, from, "S030 Denied Recipient", &digest, &age_token).await,
+        repo.transfer(
+            from,
+            book_id,
+            from,
+            "S030 Denied Recipient",
+            &digest,
+            &age_token
+        )
+        .await,
         Err(AuthorError::Forbidden),
     );
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
@@ -290,14 +327,12 @@ async fn s030_pg_denies_age_layer_history_revoked_session_and_forger() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "UPDATE commerce_layers SET current_version_id=$2 WHERE id=$1",
-    )
-    .bind(layer)
-    .bind(version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE commerce_layers SET current_version_id=$2 WHERE id=$1")
+        .bind(layer)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO commerce_layer_version_books(layer_version_id,book_id)
          VALUES($1,$2)",
@@ -308,39 +343,64 @@ async fn s030_pg_denies_age_layer_history_revoked_session_and_forger() {
     .await
     .unwrap();
     let layer_token = transfer_token(
-        &accounts, from, book_id, "S030 Denied Recipient", &digest, &hash,
-    ).await;
+        &accounts,
+        from,
+        book_id,
+        "S030 Denied Recipient",
+        &digest,
+        &hash,
+    )
+    .await;
     assert_eq!(
-        repo.transfer(from, book_id, from, "S030 Denied Recipient", &digest, &layer_token).await,
+        repo.transfer(
+            from,
+            book_id,
+            from,
+            "S030 Denied Recipient",
+            &digest,
+            &layer_token
+        )
+        .await,
         Err(AuthorError::Conflict),
     );
     let token = transfer_token(
-        &accounts, from, book_id, "S030 Denied Recipient", &digest, &hash,
-    ).await;
+        &accounts,
+        from,
+        book_id,
+        "S030 Denied Recipient",
+        &digest,
+        &hash,
+    )
+    .await;
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
         .bind(digest.as_slice())
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(
-        repo.transfer(from, book_id, from, "S030 Denied Recipient", &digest, &token).await,
+        repo.transfer(
+            from,
+            book_id,
+            from,
+            "S030 Denied Recipient",
+            &digest,
+            &token
+        )
+        .await,
         Err(AuthorError::Forbidden),
     );
-    let owned: i64 = sqlx::query_scalar(
-        "SELECT owner_user_id FROM books WHERE id=$1",
-    )
-    .bind(book_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let owned: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(owned, from);
-    let events: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id=$1",
-    )
-    .bind(book_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let events: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id=$1")
+            .bind(book_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(events, 0);
     pool.close().await;
 }
