@@ -367,10 +367,7 @@ pub(super) async fn assert_layer_s3_grants(
             "Layer shell must close on {moderation} Book"
         );
         assert!(
-            to_bytes(denied.into_body(), 8192)
-                .await
-                .unwrap()
-                .is_empty(),
+            to_bytes(denied.into_body(), 8192).await.unwrap().is_empty(),
             "hidden Layer shell must not leak text or metadata"
         );
     }
