@@ -155,7 +155,7 @@ impl PgCollectionFeedback {
         // Serialize this actor's writes against other comment submissions.
         // Replays must succeed even when the account reaches the posting cap.
         let prior = sqlx::query(
-            "SELECT id,body,deleted_at FROM social_book_collection_comments
+            "SELECT id,body,(deleted_at IS NULL) AS is_active FROM social_book_collection_comments
              WHERE collection_id=$1 AND author_user_id=$2 AND request_key=$3",
         )
         .bind(collection_id)
@@ -165,9 +165,8 @@ impl PgCollectionFeedback {
         .await?;
         if let Some(row) = prior {
             let prior_body: String = row.try_get("body")?;
-            let deleted_at: Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>> =
-                row.try_get("deleted_at")?;
-            if deleted_at.is_some() || prior_body != trimmed {
+            let is_active: bool = row.try_get("is_active")?;
+            if !is_active || prior_body != trimmed {
                 return Err(CollectionError::Conflict);
             }
             let existing_id: i64 = row.try_get("id")?;
