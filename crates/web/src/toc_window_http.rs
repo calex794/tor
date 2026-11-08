@@ -24,7 +24,11 @@ pub(super) async fn book_toc_window(
     headers: axum::http::HeaderMap,
 ) -> Response {
     use tor_reading::services::toc::{TocCursor, TocWindowPosition};
-    let position = match (query.around_chapter_id, query.before.as_deref(), query.after.as_deref()) {
+    let position = match (
+        query.around_chapter_id,
+        query.before.as_deref(),
+        query.after.as_deref(),
+    ) {
         (Some(id), None, None) if id > 0 => TocWindowPosition::Around(id),
         (None, Some(raw), None) => match TocCursor::parse(raw) {
             Some(cursor) => TocWindowPosition::Before(cursor),
@@ -40,24 +44,32 @@ pub(super) async fn book_toc_window(
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
     let digest = public_reader_http::reader_session_digest(&state, &headers);
-    let page = match reader.public_toc_window_for_session(
-        id, position, query.limit.unwrap_or(99), digest.as_ref()
-    ).await {
+    let page = match reader
+        .public_toc_window_for_session(id, position, query.limit.unwrap_or(99), digest.as_ref())
+        .await
+    {
         Ok(Some(page)) => page,
         Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
         Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
     };
-    let items = page.chapters.into_iter().map(|chapter| TocItem {
-        chapter_id: chapter.id.to_string(),
-        chapter_no: chapter.number,
-        title: chapter.title,
-        access_level: if chapter.is_paid { "paid" } else { "free" },
-    }).collect();
+    let items = page
+        .chapters
+        .into_iter()
+        .map(|chapter| TocItem {
+            chapter_id: chapter.id.to_string(),
+            chapter_no: chapter.number,
+            title: chapter.title,
+            access_level: if chapter.is_paid { "paid" } else { "free" },
+        })
+        .collect();
     // TOC is a viewer-scoped projection. Never share or cache an age-gated response.
     let response = Json(TocWindowResponse {
-        items, before_cursor: page.before_cursor,
-        after_cursor: page.after_cursor, total_chapters: page.total_chapters,
-    }).into_response();
+        items,
+        before_cursor: page.before_cursor,
+        after_cursor: page.after_cursor,
+        total_chapters: page.total_chapters,
+    })
+    .into_response();
     let mut response = response;
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,
@@ -65,4 +77,3 @@ pub(super) async fn book_toc_window(
     );
     response
 }
-
