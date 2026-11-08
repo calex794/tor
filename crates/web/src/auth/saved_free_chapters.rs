@@ -112,7 +112,8 @@ pub(super) async fn read(
         // archive from chapter 1. Every returned link is still actor-scoped.
         let start = i64::from(saved.chapter_no).saturating_sub(25);
         let after = (start > 0).then_some(start);
-        let window = match state.bookmarks
+        let window = match state
+            .bookmarks
             .saved_archive_chapters(actor, saved.book_id, 50, after, &session_digest)
             .await
         {
@@ -122,9 +123,7 @@ pub(super) async fn read(
             }
             Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         };
-        pages::saved_free_reader_with_toc(
-            &saved, &csrf, &window, state.paid_reader_available,
-        )
+        pages::saved_free_reader_with_toc(&saved, &csrf, &window, state.paid_reader_available)
     } else {
         pages::saved_free_reader(&saved, &csrf)
     };
