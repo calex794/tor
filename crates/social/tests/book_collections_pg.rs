@@ -96,7 +96,7 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
         .iter()
         .all(|c| c.id != private.id));
     assert_eq!(
-        collections.edit(other, private.id, 1, "Hi", "public").await,
+        collections.update_metadata_if_current(other, private.id, 1, "Hi", "public").await,
         Err(CollectionError::NotFound)
     );
     assert_eq!(
@@ -124,13 +124,13 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
     assert_eq!(detail.books[0].id, public_book);
     assert_eq!(
         collections
-            .edit(owner, private.id, 1, "Old", "public")
+            .update_metadata_if_current(owner, private.id, 1, "Old", "public")
             .await,
         Err(CollectionError::Conflict)
     );
     assert_eq!(
         collections
-            .edit(owner, private.id, 2, "Public shelf", "public")
+            .update_metadata_if_current(owner, private.id, 2, "Public shelf", "public")
             .await
             .unwrap(),
         3
@@ -156,10 +156,10 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
         .books
         .is_empty());
     assert_eq!(
-        collections.delete(other, private.id, 3).await,
+        collections.delete_owned_collection(other, private.id, 3).await,
         Err(CollectionError::NotFound)
     );
-    collections.delete(owner, private.id, 3).await.unwrap();
+    collections.delete_owned_collection(owner, private.id, 3).await.unwrap();
     assert_eq!(
         collections.detail(Some(owner), private.id).await.err(),
         Some(CollectionError::NotFound)
@@ -231,11 +231,11 @@ async fn e_07_rejects_invalid_or_missing_ownership_without_writes() {
         Err(CollectionError::NotFound)
     );
     assert_eq!(
-        service.edit(owner, col.id, 0, "X", "public").await,
+        service.update_metadata_if_current(owner, col.id, 0, "X", "public").await,
         Err(CollectionError::Invalid)
     );
     assert_eq!(
-        service.remove_book(other, col.id, 1, book).await,
+        service.remove_book_if_current(other, col.id, 1, book).await,
         Err(CollectionError::NotFound)
     );
     assert_eq!(
