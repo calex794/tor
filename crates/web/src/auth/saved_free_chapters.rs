@@ -6,9 +6,8 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    Json,
     routing::get,
-    Router,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tor_reading::{
@@ -121,37 +120,64 @@ pub(super) async fn read(
             chapter_no: saved.chapter_no,
             chapter_id: saved.chapter_id,
         };
-        let previous = match state.bookmarks
+        let previous = match state
+            .bookmarks
             .saved_archive_toc_window(
-                actor, saved.book_id, 25, cursor, SavedArchiveTocSide::Before, &session_digest,
-            ).await {
+                actor,
+                saved.book_id,
+                25,
+                cursor,
+                SavedArchiveTocSide::Before,
+                &session_digest,
+            )
+            .await
+        {
             Ok(page) => page,
-            Err(LibraryError::Invalid | LibraryError::NotFound) =>
-                return deny(StatusCode::NOT_FOUND),
+            Err(LibraryError::Invalid | LibraryError::NotFound) => {
+                return deny(StatusCode::NOT_FOUND)
+            }
             Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         };
-        let following = match state.bookmarks
+        let following = match state
+            .bookmarks
             .saved_archive_toc_window(
-                actor, saved.book_id, 25, cursor, SavedArchiveTocSide::AtOrAfter, &session_digest,
-            ).await {
+                actor,
+                saved.book_id,
+                25,
+                cursor,
+                SavedArchiveTocSide::AtOrAfter,
+                &session_digest,
+            )
+            .await
+        {
             Ok(page) => page,
-            Err(LibraryError::Invalid | LibraryError::NotFound) =>
-                return deny(StatusCode::NOT_FOUND),
+            Err(LibraryError::Invalid | LibraryError::NotFound) => {
+                return deny(StatusCode::NOT_FOUND)
+            }
             Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         };
         // A concurrent pin removal must not turn an old chapter page into a
         // general archive-enumeration session.
-        if !following.items.first().is_some_and(|item|
-            item.chapter_id == saved.chapter_id
-        ) {
+        if !following
+            .items
+            .first()
+            .is_some_and(|item| item.chapter_id == saved.chapter_id)
+        {
             return deny(StatusCode::NOT_FOUND);
         }
         let mut items = previous.items;
         items.extend(following.items);
-        let page = SavedArchivePage { items, next_cursor: None };
+        let page = SavedArchivePage {
+            items,
+            next_cursor: None,
+        };
         pages::saved_free_reader_with_paginated_toc(
-            &saved, &csrf, &page, state.paid_reader_available,
-            previous.next_cursor.as_deref(), following.next_cursor.as_deref(),
+            &saved,
+            &csrf,
+            &page,
+            state.paid_reader_available,
+            previous.next_cursor.as_deref(),
+            following.next_cursor.as_deref(),
         )
     } else {
         pages::saved_free_reader(&saved, &csrf)
@@ -216,8 +242,14 @@ pub(super) async fn toc_window(
     };
     let digest = tor_accounts::services::security::session_token_digest(&token);
     let (cursor, side) = match (query.before.as_deref(), query.after.as_deref()) {
-        (Some(raw), None) => (SavedArchiveTocCursor::parse(raw), SavedArchiveTocSide::Before),
-        (None, Some(raw)) => (SavedArchiveTocCursor::parse(raw), SavedArchiveTocSide::After),
+        (Some(raw), None) => (
+            SavedArchiveTocCursor::parse(raw),
+            SavedArchiveTocSide::Before,
+        ),
+        (None, Some(raw)) => (
+            SavedArchiveTocCursor::parse(raw),
+            SavedArchiveTocSide::After,
+        ),
         _ => return deny(StatusCode::BAD_REQUEST),
     };
     let Some(cursor) = cursor else {
@@ -227,13 +259,19 @@ pub(super) async fn toc_window(
     if !(1..=60).contains(&limit) {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let saved = match state.bookmarks.pinned_free_chapter(actor, chapter_id, &digest).await {
+    let saved = match state
+        .bookmarks
+        .pinned_free_chapter(actor, chapter_id, &digest)
+        .await
+    {
         Ok(Some(saved)) if saved.ordinary_deleted => saved,
-        Ok(_) | Err(LibraryError::Invalid | LibraryError::NotFound) =>
-            return deny(StatusCode::NOT_FOUND),
+        Ok(_) | Err(LibraryError::Invalid | LibraryError::NotFound) => {
+            return deny(StatusCode::NOT_FOUND)
+        }
         Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let page = match state.bookmarks
+    let page = match state
+        .bookmarks
         .saved_archive_toc_window(actor, saved.book_id, limit, cursor, side, &digest)
         .await
     {
@@ -242,15 +280,25 @@ pub(super) async fn toc_window(
         Err(LibraryError::NotFound) => return deny(StatusCode::NOT_FOUND),
         Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let items = page.items.into_iter().map(|chapter| ArchiveTocItem {
-        chapter_id: chapter.chapter_id.to_string(),
-        chapter_no: chapter.chapter_no,
-        title: chapter.chapter_title,
-        saved_free_version_no: chapter.saved_free_version_no,
-        purchased: chapter.purchased.map(|edition| ArchiveTocPurchased {
-            purchase_id: edition.purchase_id.to_string(),
-            version_no: edition.version_no,
+    let items = page
+        .items
+        .into_iter()
+        .map(|chapter| ArchiveTocItem {
+            chapter_id: chapter.chapter_id.to_string(),
+            chapter_no: chapter.chapter_no,
+            title: chapter.chapter_title,
+            saved_free_version_no: chapter.saved_free_version_no,
+            purchased: chapter.purchased.map(|edition| ArchiveTocPurchased {
+                purchase_id: edition.purchase_id.to_string(),
+                version_no: edition.version_no,
+            }),
+        })
+        .collect();
+    private_response(
+        Json(ArchiveTocResponse {
+            items,
+            next_cursor: page.next_cursor,
         }),
-    }).collect();
-    private_response(Json(ArchiveTocResponse { items, next_cursor: page.next_cursor }), &[])
+        &[],
+    )
 }

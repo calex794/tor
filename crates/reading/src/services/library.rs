@@ -111,7 +111,8 @@ pub struct SavedArchiveTocCursor {
 impl SavedArchiveTocCursor {
     pub fn parse(value: &str) -> Option<Self> {
         let (number, id) = value.split_once('.')?;
-        if number.starts_with('0') || id.starts_with('0')
+        if number.starts_with('0')
+            || id.starts_with('0')
             || !number.bytes().all(|byte| byte.is_ascii_digit())
             || !id.bytes().all(|byte| byte.is_ascii_digit())
         {
@@ -119,7 +120,10 @@ impl SavedArchiveTocCursor {
         }
         let chapter_no = number.parse::<i32>().ok()?;
         let chapter_id = id.parse::<i64>().ok()?;
-        (chapter_no > 0 && chapter_id > 0).then_some(Self { chapter_no, chapter_id })
+        (chapter_no > 0 && chapter_id > 0).then_some(Self {
+            chapter_no,
+            chapter_id,
+        })
     }
 
     pub fn encode(self) -> String {
@@ -156,11 +160,36 @@ mod tests {
 
     #[test]
     fn archived_cursor_requires_canonical_positive_number_and_id() {
-        assert_eq!(SavedArchiveTocCursor::parse("1805.42"),
-            Some(SavedArchiveTocCursor { chapter_no: 1805, chapter_id: 42 }));
-        assert_eq!(SavedArchiveTocCursor { chapter_no: 1805, chapter_id: 42 }.encode(), "1805.42");
-        for invalid in ["", "0.1", "1.0", "01.1", "1.02", "1", "-1.5",
-            "1.-5", "1.2.3", "1.%20", "1. 2", "2147483648.1", "1.9223372036854775808"] {
+        assert_eq!(
+            SavedArchiveTocCursor::parse("1805.42"),
+            Some(SavedArchiveTocCursor {
+                chapter_no: 1805,
+                chapter_id: 42
+            })
+        );
+        assert_eq!(
+            SavedArchiveTocCursor {
+                chapter_no: 1805,
+                chapter_id: 42
+            }
+            .encode(),
+            "1805.42"
+        );
+        for invalid in [
+            "",
+            "0.1",
+            "1.0",
+            "01.1",
+            "1.02",
+            "1",
+            "-1.5",
+            "1.-5",
+            "1.2.3",
+            "1.%20",
+            "1. 2",
+            "2147483648.1",
+            "1.9223372036854775808",
+        ] {
             assert!(SavedArchiveTocCursor::parse(invalid).is_none(), "{invalid}");
         }
     }

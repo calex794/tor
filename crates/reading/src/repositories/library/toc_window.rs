@@ -76,15 +76,15 @@ impl PgLibrary {
              ORDER BY c.chapter_no {order}, c.id {order} LIMIT $5",
         );
         let rows = sqlx::query(&statement)
-        .bind(user_id)
-        .bind(book_id)
-        .bind(cursor.chapter_no)
-        .bind(cursor.chapter_id)
-        .bind(i64::from(limit) + 1)
-        .bind(session_digest.as_slice())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| LibraryError::Unavailable)?;
+            .bind(user_id)
+            .bind(book_id)
+            .bind(cursor.chapter_no)
+            .bind(cursor.chapter_id)
+            .bind(i64::from(limit) + 1)
+            .bind(session_digest.as_slice())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| LibraryError::Unavailable)?;
         let mut items = rows
             .into_iter()
             .map(|r| {
@@ -127,15 +127,16 @@ impl PgLibrary {
             } else {
                 items.last()
             };
-            edge.map(|item| SavedArchiveTocCursor {
-                chapter_no: item.chapter_no,
-                chapter_id: item.chapter_id,
-            }.encode())
+            edge.map(|item| {
+                SavedArchiveTocCursor {
+                    chapter_no: item.chapter_no,
+                    chapter_id: item.chapter_id,
+                }
+                .encode()
+            })
         } else {
             None
         };
         Ok(SavedArchiveTocPage { items, next_cursor })
     }
-
-
 }

@@ -175,9 +175,7 @@ pub fn saved_free_reader_with_toc(
     page: &tor_reading::services::library::SavedArchivePage,
     paid_reader_available: bool,
 ) -> Html<String> {
-    saved_free_reader_with_paginated_toc(
-        chapter, csrf, page, paid_reader_available, None, None,
-    )
+    saved_free_reader_with_paginated_toc(chapter, csrf, page, paid_reader_available, None, None)
 }
 
 /// Renders a book-order window around the actual pinned chapter, with separate
@@ -193,7 +191,11 @@ pub fn saved_free_reader_with_paginated_toc(
     if !chapter.ordinary_deleted {
         return saved_free_reader(chapter, csrf);
     }
-    saved_free_reader_internal(chapter, csrf, Some((page, paid_reader_available, before, after)))
+    saved_free_reader_internal(
+        chapter,
+        csrf,
+        Some((page, paid_reader_available, before, after)),
+    )
 }
 
 fn archive_toc_markup(
@@ -473,8 +475,14 @@ mod tests {
         assert!(html.contains("/read/paid/38?purchase_id=901"));
         assert!(html.contains("/me/library/123/saved?after=1806"));
         let paged = saved_free_reader_with_paginated_toc(
-            &saved, "csrf", &page, true, Some("1780.41"), Some("1829.62"),
-        ).0;
+            &saved,
+            "csrf",
+            &page,
+            true,
+            Some("1780.41"),
+            Some("1829.62"),
+        )
+        .0;
         assert!(paged.contains("data-archive-toc-chapter=\"38\""));
         assert!(paged.contains("data-archive-toc-before=\"1780.41\""));
         assert!(paged.contains("data-archive-toc-after=\"1829.62\""));
