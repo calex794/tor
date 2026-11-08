@@ -28,8 +28,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .unwrap();
@@ -179,14 +187,19 @@ async fn s046_real_http_shows_only_c_verified_grants_to_authenticated_reader() {
     assert_eq!(u8::from(left.unwrap()) + u8::from(right.unwrap()), 1);
     let granted: i64 = pg(
         &url,
-        &format!(
-            "SELECT count(*) FROM user_achievement_grants WHERE user_id={actor}"
-        ),
+        &format!("SELECT count(*) FROM user_achievement_grants WHERE user_id={actor}"),
     )
     .parse()
     .unwrap();
     assert_eq!(granted, 1, "replay or race must not double-grant a badge");
-    assert_eq!(achievements.snapshot(other).await.unwrap().completed_chapters, 0);
+    assert_eq!(
+        achievements
+            .snapshot(other)
+            .await
+            .unwrap()
+            .completed_chapters,
+        0
+    );
     let private = dashboard(&app, &owner_cookie).await;
     assert_eq!(private.status(), StatusCode::OK);
     assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
@@ -194,7 +207,10 @@ async fn s046_real_http_shows_only_c_verified_grants_to_authenticated_reader() {
     assert!(own_html.contains("Первая глава"));
     assert!(own_html.contains("Получено: 1/1 глав"));
     assert!(own_html.contains("Дата получения:"));
-    assert!(!own_html.contains(&event), "no source event IDs in the page");
+    assert!(
+        !own_html.contains(&event),
+        "no source event IDs in the page"
+    );
     assert!(!own_html.contains("C-verified completion text"));
     let foreign_html = page(dashboard(&app, &other_cookie).await).await;
     assert!(!foreign_html.contains("Получено: 1/1 глав"));
