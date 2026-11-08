@@ -277,7 +277,6 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
 #[path = "support/s015_notification_privacy_pg.rs"]
 mod s015_notification_privacy_pg;
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
@@ -500,13 +499,12 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     .await
     .unwrap();
     assert_eq!(root_receipts, 1);
-    let root_done: bool = sqlx::query_scalar(
-        "SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid",
-    )
-    .bind(&root)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let root_done: bool =
+        sqlx::query_scalar("SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid")
+            .bind(&root)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(root_done);
 
     // An independently leased child must not be projected prematurely.
@@ -545,13 +543,11 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     .await
     .unwrap();
     assert_eq!(receipts_before, 500);
-    sqlx::query(
-        "UPDATE outbox_events SET lease_until=NULL WHERE id=$1::uuid",
-    )
-    .bind(&fenced_child)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE outbox_events SET lease_until=NULL WHERE id=$1::uuid")
+        .bind(&fenced_child)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(restarted.deliver_pending(1).await.unwrap(), 1);
     assert_eq!(restarted.deliver_pending(1).await.unwrap(), 0);
     let receipts_after: i64 = sqlx::query_scalar(
