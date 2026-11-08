@@ -250,3 +250,6 @@ async fn s033_http_owner_only_create_edit_read_and_deny_all_cross_user_paths() {
 
 #[path = "s033_personal_http_pg/s026_teams.rs"]
 mod s026_teams;
+
+#[path = "s033_personal_http_pg/s027_teams.rs"]
+mod s027_teams;
