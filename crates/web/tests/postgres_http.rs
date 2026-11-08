@@ -54,6 +54,31 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
         .await
         .expect("tor_app");
     let app = tor_web::router_with_postgres_reading(catalog, reader);
+    let (status, window) = get(
+        app.clone(), "/api/v1/books/1/toc/window?around_chapter_id=103&limit=3",
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(window.contains("\\"chapter_no\\":3"), "{window}");
+    assert!(window.contains("\\"access_level\\":\\"paid\\""), "{window}");
+    assert!(!window.contains("PRIVATE-PAID-MARKER"));
+    for path in [
+        "/api/v1/books/1/toc/window",
+        "/api/v1/books/1/toc/window?around_chapter_id=0",
+        "/api/v1/books/1/toc/window?around_chapter_id=101&after=1.101",
+        "/api/v1/books/1/toc/window?around_chapter_id=101&limit=101",
+        "/api/v1/books/1/toc/window?before=bad",
+        "/api/v1/books/1/toc/window?after=1.0",
+    ] {
+        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+    }
+    assert_eq!(
+        get(app.clone(), "/api/v1/books/1/toc/window?around_chapter_id=102").await.0,
+        StatusCode::NOT_FOUND,
+    );
+    assert_eq!(
+        get(app.clone(), "/api/v1/books/2/toc/window?around_chapter_id=101").await.0,
+        StatusCode::NOT_FOUND,
+    );
     let (status, json) = get(app.clone(), "/api/v1/books/1/toc?limit=1").await;
     assert_eq!(status, StatusCode::OK);
     assert!(json.contains("\"chapter_no\":1"));
