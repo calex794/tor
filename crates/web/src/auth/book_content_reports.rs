@@ -98,7 +98,11 @@ pub(super) async fn form(
         <p><a href="/books/{id}">Вернуться к книге</a></p>
         </div></section>"#,
         super::escape_html(&title),
-        query.comment_id.map_or_else(String::new, |comment_id| format!(r#"<input type="hidden" name="comment_id" value="{comment_id}">"#)),
+        query
+            .comment_id
+            .map_or_else(String::new, |comment_id| format!(
+                r#"<input type="hidden" name="comment_id" value="{comment_id}">"#
+            )),
         generate_session_token(),
         super::escape_html(&csrf),
     );
@@ -120,7 +124,14 @@ pub(super) async fn submit(
     };
     let result = if let Some(comment_id) = form.comment_id {
         store(&s)
-            .submit_comment(&digest, id, comment_id, &form.reason, &form.details, &form.command_key)
+            .submit_comment(
+                &digest,
+                id,
+                comment_id,
+                &form.reason,
+                &form.details,
+                &form.command_key,
+            )
             .await
     } else {
         store(&s)
@@ -167,7 +178,10 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             </form></article>"#,
             item.id,
             item.book_id,
-            item.comment_id.map_or_else(|| "Жалоба на книгу".to_owned(), |id| format!("Комментарий #{id}")),
+            item.comment_id.map_or_else(
+                || "Жалоба на книгу".to_owned(),
+                |id| format!("Комментарий #{id}")
+            ),
             item.reporter_id,
             super::escape_html(&item.reason),
             super::escape_html(&item.details),
