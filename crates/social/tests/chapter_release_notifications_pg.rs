@@ -15,7 +15,6 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    align_disposable_users_sequence(&pool).await;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -30,8 +29,9 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         "library-only",
     ] {
         let user: i64 = sqlx::query_scalar(
-            "INSERT INTO users(email_normalized,display_name,password_hash)
-             VALUES($1,$2,'$argon2id$test') RETURNING id",
+            "INSERT INTO users(id,email_normalized,display_name,password_hash)
+             VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+                    $1,$2,'$argon2id$test') RETURNING id",
         )
         .bind(format!("s058-release-{role}-{nonce}@example.invalid"))
         .bind(format!("S058 {role}"))
@@ -289,14 +289,14 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
-    align_disposable_users_sequence(&pool).await;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let author: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'G08 chapter author','$argon2id$test') RETURNING id",
+        "INSERT INTO users(id,email_normalized,display_name,password_hash)
+         VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+                $1,'G08 chapter author','$argon2id$test') RETURNING id",
     )
     .bind(format!("g08-author-{nonce}@example.invalid"))
     .fetch_one(&pool)
@@ -316,10 +316,12 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     // A single SQL set avoids 501 sequential app-side creates and makes the
     // >2-page acceptance fast enough for the normal PostgreSQL CI lane.
     let mut readers: Vec<i64> = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         SELECT $1::text || '-' || gs.n::text || '@example.invalid',
+        "WITH id_base AS (SELECT COALESCE(MAX(id),0) AS base FROM users)
+         INSERT INTO users(id,email_normalized,display_name,password_hash)
+         SELECT id_base.base + gs.n,
+                $1::text || '-' || gs.n::text || '@example.invalid',
                 'G08 reader ' || gs.n::text,'$argon2id$test'
-         FROM generate_series(1,501) AS gs(n)
+         FROM id_base CROSS JOIN generate_series(1,501) AS gs(n)
          RETURNING id",
     )
     .bind(format!("ci-g08-{nonce}"))
@@ -407,8 +409,9 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     .await
     .unwrap();
     let late: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'Late reader','$argon2id$test') RETURNING id",
+        "INSERT INTO users(id,email_normalized,display_name,password_hash)
+         VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+                $1,'Late reader','$argon2id$test') RETURNING id",
     )
     .bind(format!("ci-g08-late-{nonce}@example.invalid"))
     .fetch_one(&pool)
@@ -602,23 +605,4 @@ async fn g08_count_children(pool: &PgPool, chapter: i64) -> i64 {
     .fetch_one(pool)
     .await
     .unwrap()
-}
-
-/// Prior disposable integration fixtures insert explicit user IDs without
-/// advancing the serial sequence. Only synchronize within /tor_ci while
-/// holding this suite's advisory lock; never reset a live sequence backwards.
-async fn align_disposable_users_sequence(pool: &PgPool) {
-    sqlx::query(
-        "SELECT setval(
-             pg_get_serial_sequence('users','id')::regclass,
-             GREATEST(
-                 COALESCE((SELECT MAX(id) FROM users), 1::bigint),
-                 nextval(pg_get_serial_sequence('users','id')::regclass)
-             ),
-             true
-         )",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
 }
