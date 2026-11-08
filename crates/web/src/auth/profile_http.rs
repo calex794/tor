@@ -74,7 +74,13 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         _ => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::profile_settings(&profile, &csrf, None), &cookies)
+    let page = pages::profile_settings(&profile, &csrf, None);
+    let page = if state.telegram_enabled {
+        pages::telegram_recovery::settings_link(page)
+    } else {
+        page
+    };
+    private_response(page, &cookies)
 }
 
 pub(super) async fn api_get(State(state): State<AuthState>, headers: HeaderMap) -> Response {
@@ -186,13 +192,15 @@ pub(super) async fn submit(
     match save(&state.accounts, actor, form).await {
         Ok(_) => private_response(Redirect::to("/me/settings"), &[]),
         Err((status, _, message)) => match state.accounts.profile(actor).await {
-            Ok(Some(profile)) => private_response(
-                (
-                    status,
-                    pages::profile_settings(&profile, &csrf, Some(message)),
-                ),
-                &[],
-            ),
+            Ok(Some(profile)) => {
+                let page = pages::profile_settings(&profile, &csrf, Some(message));
+                let page = if state.telegram_enabled {
+                    pages::telegram_recovery::settings_link(page)
+                } else {
+                    page
+                };
+                private_response((status, page), &[])
+            },
             _ => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
         },
     }

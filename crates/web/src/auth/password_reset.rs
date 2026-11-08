@@ -34,7 +34,7 @@ pub(super) struct ConfirmForm {
 pub(super) async fn request_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::reset_request_form(&csrf, state.reset_delivery.is_some(), None),
+        pages::reset_request_form_with_telegram(&csrf, state.reset_delivery.is_some(), state.telegram_enabled, None),
         &cookies,
     )
 }
@@ -131,7 +131,7 @@ pub(super) async fn confirm(
     {
         return confirm_response(StatusCode::FORBIDDEN, &[]);
     }
-    if state.reset_delivery.is_none() {
+    if state.reset_delivery.is_none() && !state.telegram_enabled {
         return confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
     }
     // Apply the same independent identity/IP limits to known, expired and forged proofs.
@@ -169,7 +169,7 @@ pub(super) async fn confirm(
     }
     let stored_hash = match state
         .accounts
-        .live_reset_password_hash(&session_token_digest(&form.token))
+        .live_reset_password_hash_allowed(&session_token_digest(&form.token), state.reset_delivery.is_some(), state.telegram_enabled)
         .await
     {
         Ok(Some(hash)) => hash,
@@ -216,7 +216,7 @@ pub(super) async fn confirm(
     };
     match state
         .accounts
-        .consume_password_reset(&session_token_digest(&form.token), &hash)
+        .consume_password_reset_allowed(&session_token_digest(&form.token), &hash, state.reset_delivery.is_some(), state.telegram_enabled)
         .await
     {
         Ok(true) => confirm_response(Redirect::to("/login"), &state.cookies.cleared_cookies()),

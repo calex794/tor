@@ -1,5 +1,6 @@
 use super::{
     notification_settings, password_change, password_reset, profile_http, session_security,
+    telegram_recovery,
     AuthState,
 };
 use axum::{
@@ -9,6 +10,10 @@ use axum::{
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
+        .route("/me/security/telegram", get(telegram_recovery::link_page))
+        .route("/me/security/telegram/begin", post(telegram_recovery::begin_link))
+        .route("/me/security/telegram/confirm", post(telegram_recovery::confirm_link))
+        .route("/recover/backup", get(telegram_recovery::backup_page).post(telegram_recovery::backup_submit))
         .route("/assets/account-reset.js", get(password_reset::script))
         .route(
             "/me/security/sessions",
