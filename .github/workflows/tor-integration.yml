@@ -417,6 +417,7 @@ jobs:
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s033_personal_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test book_shares_pg -- --ignored --test-threads=1
           cargo test -p tor-social --test book_collections_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s009_collections_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s030_owner_transfer_pg -- --ignored --test-threads=1
