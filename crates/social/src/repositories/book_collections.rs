@@ -172,7 +172,7 @@ impl PgBookCollections {
              JOIN books b ON b.id=i.book_id
              WHERE i.collection_id=$1 AND b.visibility='public'
                AND b.visibility_status='active'
-               AND b.lifecycle_status='active'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND b.access_level='basic'
                AND NOT b.is_deleted AND NOT b.admin_hold
              ORDER BY i.added_at,i.book_id LIMIT 100",
@@ -265,7 +265,7 @@ impl PgBookCollections {
         let visible: Option<i64> = sqlx::query_scalar(
             "SELECT b.id FROM books b WHERE b.id=$1
                AND b.visibility='public' AND b.visibility_status='active'
-               AND b.lifecycle_status='active' AND b.access_level='basic'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') AND b.access_level='basic'
                AND NOT b.is_deleted AND NOT b.admin_hold FOR SHARE",
         )
         .bind(book_id)
