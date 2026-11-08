@@ -773,6 +773,7 @@ async fn d_03_mixed_toc_window_keeps_purchased_rights_and_paginates_205_chapters
         .await
         .unwrap()
         .purchase_id;
+    let purchase = PositiveId::new(purchase.get()).unwrap();
     // The original anchor has a pinned paid V1; neighbours may be public
     // free, paid metadata or hidden and must not convey another entitlement.
     sqlx::query(
