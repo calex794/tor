@@ -48,6 +48,69 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_admin_mail_cannot_read_with_unverified_digest(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail.rs",
+            ".users(&digest, q, query.before, 50)",
+            ".users(&[0; 32], q, query.before, 50)",
+            start="pub(super) async fn index(",
+        )
+        self.assert_detected("missing session-bound audited admin mail repository call")
+
+    def test_admin_mail_cannot_bypass_cookie_session(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail.rs",
+            "let digest = match actor(&state, &headers).await",
+            "let digest = match unverified_actor(&state, &headers).await",
+            start="pub(super) async fn conversation(",
+        )
+        self.assert_detected("missing verified PG session guard")
+
+    def test_support_close_requires_current_administrator_session(self):
+        self.mutate(
+            "crates/web/src/auth/support_admin.rs",
+            "administrator(&state, &headers).await",
+            "unverified_support(&state, &headers).await",
+            start="pub(super) async fn close(",
+        )
+        self.assert_detected("missing live support administrator role guard")
+
+    def test_support_reopen_cannot_skip_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/support_admin.rs",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+            "state.cookies.bypass_csrf(&headers, &form.csrf_token)",
+            start="pub(super) async fn reopen(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_layer_browser_form_must_charge_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/layer_storefront.rs",
+            "layer_checkout_api::charge(\n        &state,\n        actor,",
+            "layer_checkout_api::charge(\n        &state,\n        7,",
+            start="pub(super) async fn buy_form(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_layer_json_api_must_charge_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/layer_checkout_api.rs",
+            "match charge(\n        &state,\n        actor,",
+            "match charge(\n        &state,\n        7,",
+            start="pub(super) async fn buy(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_layer_shared_checkout_must_bind_wallet_and_authoritative_transaction(self):
+        self.mutate(
+            "crates/web/src/auth/layer_checkout_api.rs",
+            "WalletId::new(actor.get())",
+            "WalletId::new(7)",
+            start="pub(super) async fn charge(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",
@@ -59,19 +122,37 @@ class RilGovernanceTests(unittest.TestCase):
     def test_swapped_handler_is_not_authorized_by_old_policy(self):
         self.mutate(
             "crates/web/src/auth.rs",
-            '.route("/me/books/{id}", get(author_book))',
+            '.route("/me/books/{id}", get(author_book_page::page))',
             '.route("/me/books/{id}", get(new_author_book))',
         )
         self.assert_detected("route without reviewed security policy")
 
     def test_session_guard_removal_fails(self):
         self.mutate(
-            "crates/web/src/auth.rs",
+            "crates/web/src/auth/author_book_page.rs",
             "session_user(&state, &headers)",
             "unverified_user(&state, &headers)",
-            start="async fn author_book(",
+            start="pub(super) async fn page(",
         )
         self.assert_detected("missing verified PG session guard")
+
+    def test_private_reader_return_must_remain_a_fixed_local_route(self):
+        self.mutate(
+            "crates/web/src/auth/private_reader.rs",
+            'format!("/login?next=/read/{id}")',
+            'format!("/redirect?next=/read/{id}")',
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
+    def test_private_reader_return_cannot_skip_the_login_redirect(self):
+        self.mutate(
+            "crates/web/src/auth/private_reader.rs",
+            "return private_response(Redirect::to(&destination), &[])",
+            'return private_response(Redirect::to("/other"), &[])',
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
 
     def test_owner_guard_removal_fails(self):
         self.mutate(
@@ -82,14 +163,14 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing actor-bound owner repository call")
 
-    def test_seo_description_owner_guard_removal_fails(self):
+    def test_seo_description_scoped_guard_removal_fails(self):
         self.mutate(
             "crates/web/src/auth/book_description.rs",
             "update_book_description(actor, book_id, &form.description)",
             "update_book_description(book_id, &form.description)",
             start="pub(super) async fn save(",
         )
-        self.assert_detected("missing actor-bound owner repository call")
+        self.assert_detected("missing actor-bound scoped repository call")
 
     def test_seo_description_csrf_bypass_fails(self):
         self.mutate(
@@ -196,6 +277,65 @@ class RilGovernanceTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assert_detected("protected route downgraded to public/entry")
 
+    def test_e12_team_queue_must_remain_scoped_not_session_only(self):
+        target = self.root / INVENTORY
+        data = json.loads(target.read_text(encoding="utf-8"))
+        issue_queue = next(
+            item for item in data["routes"]
+            if item["template"] == "/me/books/{id}/issues"
+            and item["method"] == "GET"
+        )
+        issue_queue["policy"] = "session"
+        target.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("E-12 team triage must remain actor-scoped")
+
+    def test_e12_status_mutation_requires_actor_scoped_membership(self):
+        self.mutate(
+            "crates/web/src/auth/text_issues.rs",
+            "            actor,\n            book_id,\n            issue_id,",
+            "            book_id,\n            issue_id,",
+            start="pub(super) async fn change_status(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_e12_status_mutation_still_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/text_issues.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.skip_origin(&headers)",
+            start="pub(super) async fn change_status(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_e12_paid_corrections_cannot_downgrade_to_session(self):
+        path = self.root / INVENTORY
+        data = json.loads(path.read_text(encoding="utf-8"))
+        endpoint = next(
+            route for route in data["routes"]
+            if route["template"] == "/api/v1/reader/chapters/{chapter_id}/text-issues"
+        )
+        endpoint["policy"] = "session"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("E-12 paid correction must remain actor-scoped")
+
+    def test_e12_paid_corrections_must_bind_actor(self):
+        self.mutate(
+            "crates/web/src/paid_grants_http/text_issues.rs",
+            "        .create_paid(\n            actor,",
+            "        .create_paid(\n            1,",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_e12_paid_corrections_require_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/paid_grants_http/text_issues.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.same_origin_bypass(&headers)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_duplicate_reviewed_binding_fails(self):
         path = self.root / INVENTORY
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -283,6 +423,69 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+
+    def test_mail_block_cannot_lose_the_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            ".set_block(actor, page.peer_id, form.blocked)",
+            ".set_block(page.peer_id, form.blocked)",
+            start="pub(super) async fn block(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_mail_csrf_guard_removal_is_detected(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            "state.cookies.valid_csrf(headers, t)",
+            "state.cookies.valid_csrf_skip(headers, t)",
+            start="fn csrf(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_notification_feed_requires_verified_actor_scope(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
+            "store.list_section(1, query.before, 50, tab)",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_tabs_require_section_filtered_repository(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
+            "store.list(actor, query.before, 50)",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            ".set_preferences(actor, &enabled_kinds)",
+            ".set_preferences(1, &enabled_kinds)",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_preferences_save_requires_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "if let Err(status) = csrf(",
+            "if let Err(status) = unchecked_csrf(",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_notification_read_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.unchecked_origin(headers)",
+            start="fn csrf(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
 
 if __name__ == "__main__":
     unittest.main()

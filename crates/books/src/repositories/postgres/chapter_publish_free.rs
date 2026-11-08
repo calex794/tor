@@ -2,6 +2,7 @@
 //! atomic owner-only transaction. The historical private/draft commands remain
 //! separate for books that are not yet published.
 use super::PgAuthoring;
+use crate::repositories::chapter_number;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, SaveChapter, SavedChapter,
 };
@@ -20,7 +21,7 @@ impl PgAuthoring {
             || input.book_id <= 0
             || input.chapter_id.is_some()
             || input.expected_revision != 0
-            || input.number <= 0
+            || input.number < 0
             || input.access != ChapterAccess::Free
             || input.price_amount != 0
             || !(1..=200).contains(&input.title.chars().count())
@@ -112,13 +113,14 @@ impl PgAuthoring {
             });
         }
 
+        let number = chapter_number::assign(&mut tx, input.book_id, input.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters
                  (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",
         )
         .bind(input.book_id)
-        .bind(input.number)
+        .bind(number)
         .bind(&input.title)
         .fetch_one(&mut *tx)
         .await
@@ -145,11 +147,12 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
-            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-             VALUES($1,$2)",
+            "INSERT INTO chapter_first_release_events
+             (chapter_id,version_id,creator_user_id) VALUES($1,$2,$3)",
         )
         .bind(chapter_id)
         .bind(version_id)
+        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;

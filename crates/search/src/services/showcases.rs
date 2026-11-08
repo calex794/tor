@@ -2,6 +2,7 @@
 //! "Latest added" is ordered by the canonical book identity, NOT publication date.
 use crate::domain::{normalize_genre, SearchBook, SearchError};
 use async_trait::async_trait;
+use std::collections::HashSet;
 
 /// The repository MUST reject draft, held and deleted books before LIMIT.
 /// HTTP and the read service cannot be trusted to filter after paging.
@@ -45,6 +46,72 @@ impl<'a> RecentShowcases<'a> {
         if books.len() > limit
             || books.iter().any(|book| book.id == 0)
             || books.windows(2).any(|pair| pair[0].id <= pair[1].id)
+        {
+            return Err(SearchError::Unavailable);
+        }
+        Ok(books)
+    }
+}
+
+/// Read model for real first chapter releases, never inferred from book IDs.
+#[async_trait]
+pub trait ReleaseShowcaseRepository: Send + Sync {
+    async fn recent_free_releases(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError>;
+}
+
+pub struct ReleaseShowcases<'a> {
+    repository: &'a dyn ReleaseShowcaseRepository,
+}
+
+impl<'a> ReleaseShowcases<'a> {
+    pub fn new(repository: &'a dyn ReleaseShowcaseRepository) -> Self {
+        Self { repository }
+    }
+
+    /// Each book may appear only once, even when many chapters were published.
+    pub async fn recent_free_releases(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        if !(1..=MAX_SHOWCASE_SIZE).contains(&limit) {
+            return Err(SearchError::Invalid);
+        }
+        let books = self.repository.recent_free_releases(limit).await?;
+        let mut ids = HashSet::new();
+        if books.len() > limit
+            || books
+                .iter()
+                .any(|book| book.id == 0 || !ids.insert(book.id))
+        {
+            return Err(SearchError::Unavailable);
+        }
+        Ok(books)
+    }
+}
+
+/// Genuine weekly growth in distinct readers who completed free chapters.
+/// Repeated opens and multiple chapters from one account do not raise the score.
+#[async_trait]
+pub trait RisingShowcaseRepository: Send + Sync {
+    async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError>;
+}
+
+pub struct RisingShowcases<'a> {
+    repository: &'a dyn RisingShowcaseRepository,
+}
+
+impl<'a> RisingShowcases<'a> {
+    pub fn new(repository: &'a dyn RisingShowcaseRepository) -> Self {
+        Self { repository }
+    }
+
+    pub async fn rising_free_readers(&self, limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+        if !(1..=MAX_SHOWCASE_SIZE).contains(&limit) {
+            return Err(SearchError::Invalid);
+        }
+        let books = self.repository.rising_free_readers(limit).await?;
+        let mut seen = HashSet::new();
+        if books.len() > limit
+            || books
+                .iter()
+                .any(|book| book.id == 0 || !seen.insert(book.id))
         {
             return Err(SearchError::Unavailable);
         }
@@ -106,6 +173,79 @@ mod tests {
         assert_eq!(
             showcase.latest_added(Some("genre,other"), 2).await,
             Err(SearchError::Invalid)
+        );
+    }
+
+    struct DuplicateRising;
+
+    #[async_trait]
+    impl RisingShowcaseRepository for DuplicateRising {
+        async fn rising_free_readers(&self, _limit: usize) -> Result<Vec<SearchBook>, SearchError> {
+            let book = SearchBook {
+                id: 15,
+                title: "Книга".into(),
+                language: "ru".into(),
+                author_name: String::new(),
+                genres: Vec::new(),
+                tags: Vec::new(),
+                fandoms: Vec::new(),
+            };
+            Ok(vec![book.clone(), book])
+        }
+    }
+
+    #[tokio::test]
+    async fn f_04_rising_rejects_fake_duplicates_and_bad_limits() {
+        let showcase = RisingShowcases::new(&DuplicateRising);
+        assert_eq!(
+            showcase.rising_free_readers(0).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.rising_free_readers(25).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.rising_free_readers(8).await,
+            Err(SearchError::Unavailable)
+        );
+    }
+
+    struct DuplicateReleases;
+
+    #[async_trait]
+    impl ReleaseShowcaseRepository for DuplicateReleases {
+        async fn recent_free_releases(
+            &self,
+            _limit: usize,
+        ) -> Result<Vec<SearchBook>, SearchError> {
+            let book = SearchBook {
+                id: 42,
+                title: "Выпуск".into(),
+                language: "ru".into(),
+                author_name: String::new(),
+                genres: Vec::new(),
+                tags: Vec::new(),
+                fandoms: Vec::new(),
+            };
+            Ok(vec![book.clone(), book])
+        }
+    }
+
+    #[tokio::test]
+    async fn releases_reject_duplicates_and_invalid_limits() {
+        let showcase = ReleaseShowcases::new(&DuplicateReleases);
+        assert_eq!(
+            showcase.recent_free_releases(0).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.recent_free_releases(25).await,
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            showcase.recent_free_releases(12).await,
+            Err(SearchError::Unavailable)
         );
     }
 }

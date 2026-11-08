@@ -2,24 +2,43 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Path, Query, State},
+    http::{HeaderMap, Method, StatusCode},
     response::{Redirect, Response},
 };
-use tor_reading::{domain::renderer::valid_reader_length, services::PublicReadingRepository};
+use tor_reading::domain::renderer::valid_reader_length;
+
+#[derive(serde::Deserialize)]
+pub(super) struct IssueFeedbackQuery {
+    issue: Option<String>,
+}
 
 /// Private verified reader; public free chapters use /reader/{id}.
 pub(super) async fn page(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
+    Query(query): Query<IssueFeedbackQuery>,
     headers: HeaderMap,
+    method: Method,
 ) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Ok(None) => {
+            let destination = format!("/login?next=/read/{id}");
+            return private_response(Redirect::to(&destination), &[]);
+        }
         Err(status) => return deny(status),
     };
-    let chapter = match state.reader.public_chapter(id).await {
+    // Recheck the same session inside the PostgreSQL query returning chapter text.
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
@@ -60,9 +79,36 @@ pub(super) async fn page(
     } else {
         None
     };
+    // Statistics are best-effort; their failure must never deny reading.
+    if method == Method::GET {
+        if let Err(error) =
+            tor_reading::repositories::book_stats::PgBookStats::new(state.accounts.pool().clone())
+                .record_open(chapter_id, Some(actor))
+                .await
+        {
+            tracing::warn!(?error, "book statistics open not recorded");
+        }
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::private_reader_with_demand(id, &chapter, &csrf, saved, revision, completed, demand),
+    let mut response = private_response(
+        pages::private_reader_with_options(
+            id,
+            &chapter,
+            &csrf,
+            saved,
+            revision,
+            completed,
+            pages::PrivateReaderOptions {
+                demand,
+                issue: query.issue.as_deref(),
+            },
+        ),
         &cookies,
-    )
+    );
+    // E-12: the only new script is self-hosted and cannot run inline JS.
+    response.headers_mut().insert(
+        "content-security-policy",
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
+    );
+    response
 }

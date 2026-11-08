@@ -24,6 +24,67 @@ pub trait CoverJobs: Send + Sync {
 
 #[async_trait]
 pub trait CoverObjectStore: Send + Sync {
+    /// Direct public cover delivery is opt-in. Unconfigured/fake stores refuse
+    /// grants and never expose a private S3 bucket or object key.
+    fn direct_read_origin(&self) -> Option<&str> {
+        None
+    }
+
+    /// Sign only a validated, attached public variant after B has checked ACL.
+    /// This method is a storage capability, NOT authorization by itself.
+    async fn presign_variant_get(
+        &self,
+        _key: &str,
+        _ttl: std::time::Duration,
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+    /// Opt-in immutable published WebP storage, separate from the private source.
+    /// The caller must first verify the current book/public-cover ACL in B.
+    fn public_cdn_origin(&self) -> Option<&str> {
+        None
+    }
+
+    /// Copy one verified public version to a distinct CDN origin bucket.
+    /// No private object key or S3 credentials are returned to the browser.
+    async fn publish_public_cover(
+        &self,
+        _book_id: u64,
+        _revision: i64,
+        _variant: &str,
+        _source_key: &str,
+        _sha256: &[u8; 32],
+        _size_bytes: i64,
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
+    /// Delete an exact previously published immutable cover from the public
+    /// origin bucket. Only a trusted lifecycle worker may request this.
+    /// This does NOT purge a CDN edge cache.
+    async fn remove_public_cover(
+        &self,
+        _book_id: u64,
+        _revision: i64,
+        _variant: &str,
+        _sha256: &[u8; 32],
+    ) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
+    /// Remove ONLY an obsolete immutable private variant selected by the
+    /// B-owned, seven-day PostgreSQL retention and fenced lease ledger.
+    /// Never accept browser input or delete sources, current slots, or paid files.
+    async fn remove_private_staging_variant(&self, _key: &str) -> Result<(), CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
+    /// Delete only a private original retired by the B-owned source ledger.
+    /// Never invoke this capability from browser routes or public CDN cleanup.
+    async fn remove_private_staging_source(&self, _key: &str) -> Result<(), CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
     /// A source must be verified by a signed PUT, HEAD, and bounded GET.
     /// Stores without source-upload support fail closed.
     async fn put_source_verified(

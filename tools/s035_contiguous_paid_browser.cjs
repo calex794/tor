@@ -207,6 +207,72 @@ async function testViewport(browser, buyer, viewport) {
     assert.equal(after.status(), 200);
     assert((await page.textContent("body")).includes("нет двух доступных"),
       "purchased chapters must not be offered again");
+
+    // C-06/S006: keep purchase, live PG progress and private S3 delivery in
+    // one browser journey. Only the publication fixture is changed via SQL.
+    const chapter = fixture.chapters[1];
+    const purchase = purchaseIds.get(String(chapter.id));
+    const readerPath = "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
+    const progressPath = "/api/v1/me/progress/purchased?chapter_id=" + chapter.id +
+      "&purchase_id=" + purchase + "&version_id=" + chapter.version;
+    await page.goto(SITE + readerPath);
+    await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
+    await page.getByText("Место сохранено.", { exact: true }).waitFor();
+    const savedResponse = await context.request.get(SITE + progressPath);
+    assert.equal(savedResponse.status(), 200);
+    const saved = await savedResponse.json();
+    assert.equal(saved.version_id, String(chapter.version));
+    assert.equal(saved.block_id, 1);
+    assert(saved.char_offset > 0 && saved.revision > 0);
+    const email = pg("SELECT email_normalized FROM users WHERE id=" + buyer.id);
+    const newText = "C06 new publication must not replace purchased text";
+    pg("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES(" +
+      chapter.id + ",2,'" + newText + "') ON CONFLICT (chapter_id,version_no) DO NOTHING");
+    const v2 = count("SELECT id FROM chapter_versions WHERE chapter_id=" +
+      chapter.id + " AND version_no=2");
+    assert.notEqual(v2, chapter.version);
+    try {
+      pg("UPDATE chapter_publications SET version_id=" + v2 +
+        " WHERE chapter_id=" + chapter.id);
+      await page.goto(SITE + "/me");
+      await page.getByRole("button", { name: "Выйти", exact: true }).click();
+      await page.waitForURL("**/login");
+      const revoked = await context.request.get(SITE + progressPath);
+      assert.equal(revoked.status(), 401);
+      await page.getByLabel("Электронная почта").fill(email);
+      await page.getByLabel("Пароль", { exact: true }).fill("S034RealStorageE2EPassword2026");
+      const login = page.waitForResponse((r) =>
+        new URL(r.url()).pathname === "/login" && r.request().method() === "POST");
+      await page.getByRole("button", { name: "Войти", exact: true }).click();
+      assert.equal((await login).status(), 303, "real login must create a new session");
+      await page.waitForURL("**/me");
+      await page.goto(SITE + "/me/purchases");
+      const grant = page.waitForResponse((r) =>
+        r.url().endsWith("/chapters/" + chapter.id + "/delivery-grants"));
+      await page.locator('a[href="' + readerPath + '"]').click();
+      const resumedGrant = await grant;
+      assert.equal(resumedGrant.status(), 200);
+      assert.equal((await resumedGrant.json()).version_id, String(chapter.version));
+      const resume = page.locator('[data-paid-resume] a[href="#p-1"]');
+      await resume.waitFor();
+      await resume.click();
+      assert.equal(new URL(page.url()).hash, "#p-1");
+      const text = await page.locator("[data-paid-content]").innerText();
+      assert(text.includes(contentMarkers[1]));
+      assert(!text.includes(newText));
+      const restored = await context.request.get(SITE + progressPath);
+      assert.equal(restored.status(), 200);
+      assert.deepEqual(await restored.json(), saved,
+        "relogin after V2 must preserve the exact V1 cursor and revision");
+      assert.equal(count("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=" +
+        buyer.id), 250, "resuming V1 must not charge again");
+      console.log("C06 contiguous Chromium PASS: " + viewport.name +
+        " purchased V1 cursor survives V2 publication and real logout/login");
+    } finally {
+      // Both viewport buyers must start with the same original offer.
+      pg("UPDATE chapter_publications SET version_id=" + chapter.version +
+        " WHERE chapter_id=" + chapter.id);
+    }
     console.log("S035 contiguous Chromium PASS: " + viewport.name +
       " native purchase -> library -> two decrypted private chapters");
   } finally {

@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from ci_test_map import RULES_ONLY_FILES, SUITES
+from ci_test_map import POSTGRES_RUNTIME_ONLY_TEST_FILES, RULES_ONLY_FILES, SUITES
 from select_feature_tests import cargo_graph, closure, event_selection, select
 
 
@@ -48,6 +48,28 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("tor-web", result["packages"])
         self.assertNotIn("crypto", enabled(result))
         self.assertNotIn("image", enabled(result))
+
+    def test_known_postgres_integration_test_edits_do_not_start_unrelated_suites(self):
+        # These test files are already run directly by the mandatory PG job;
+        # selecting a file still runs the entire Rust and PostgreSQL jobs.
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 98)
+        for path in (
+            "crates/reading/tests/paid_tier_entitlement_pg.rs",
+            "crates/web/tests/s020_age_editor_http_pg.rs",
+            "crates/web/tests/s020_age_editor_browser_pg.rs",
+            "crates/web/tests/c08_saved_free_http_pg.rs",
+            "crates/social/tests/book_collections_pg.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, POSTGRES_RUNTIME_ONLY_TEST_FILES)
+                self.assertEqual(enabled(select(ROOT, [path])), {"rust", "postgres"})
+        # New or unregistered tests still fall back to the complete pack.
+        self.assertEqual(enabled(select(ROOT, ["crates/web/tests/unknown_new_pg.rs"])), set(SUITES))
+        # A mixed production+test change inherits the strict production policy.
+        self.assertEqual(enabled(select(ROOT, [
+            "crates/web/tests/s020_age_editor_http_pg.rs",
+            "crates/web/src/auth.rs",
+        ])), set(SUITES))
 
     def test_only_image_test_does_not_boot_postgres_or_s3(self):
         result = select(ROOT, ["crates/ingest/tests/image_pipeline.rs"])

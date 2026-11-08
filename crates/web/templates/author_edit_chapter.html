@@ -2,7 +2,7 @@
   <div class="container">
     <div class="auth-card author-chapter-card">
       <p class="eyebrow">Кабинет автора · <!--EDIT_EYEBROW--></p>
-      <h1>Редактировать главу</h1>
+      <h1>Редактировать главу: <!--TITLE_HEADING--></h1>
       <p>Редакция №<!--REVISION-->. <!--EDIT_DESCRIPTION--></p>
       <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters/<!--CHAPTER_ID-->/edit" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
@@ -11,7 +11,8 @@
         <label for="edit-chapter-number">Номер главы</label>
         <input id="edit-chapter-number" name="number" type="number" min="1" max="1000000" value="<!--NUMBER-->" readonly required>
         <label for="edit-chapter-title">Название главы</label>
-        <input id="edit-chapter-title" name="title" type="text" value="<!--TITLE-->" maxlength="200" required>
+        <input id="edit-chapter-title" name="title" type="text" value="<!--TITLE-->" maxlength="200" <!--TITLE_READONLY--> required>
+        <!--EDIT_PRICE-->
         <label for="edit-chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
         <textarea id="edit-chapter-body" name="body" rows="18" maxlength="50000" required><!--BODY--></textarea>
         <p class="author-edit-warning">Если глава изменена в другой вкладке, сохранение будет отклонено. Откройте страницу заново, чтобы получить последнюю редакцию.</p>

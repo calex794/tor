@@ -83,6 +83,73 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert_eq!(grants, 0, "adult consent cannot create a pro/paid grant");
 }
 
+/// Source display-name keys ignore case; ambiguous legacy keys must never
+/// silently resolve to the first account or reveal any different account.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn e_08_public_display_name_resolution_fails_closed_on_case_collision() {
+    let (accounts, alice, _) = fixture("e08-profile-alice").await;
+    let (_, bob, _) = fixture("e08-profile-bob").await;
+    let display_name = format!("Mail Reader {alice}");
+    let colliding_name = format!("mAiL rEaDeR {alice}");
+    accounts
+        .update_profile(
+            alice,
+            &ProfileUpdate {
+                display_name: Some(display_name.clone()),
+                handle: None,
+                adult_enabled: None,
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        accounts
+            .public_profile_by_display_name(&colliding_name)
+            .await
+            .unwrap(),
+        Some((alice, display_name.clone())),
+    );
+    assert_eq!(
+        accounts
+            .public_profile_by_display_name(&format!("  {colliding_name}  "))
+            .await
+            .unwrap(),
+        Some((alice, display_name.clone())),
+    );
+    assert_eq!(
+        accounts.public_profile_by_display_name("  ").await.unwrap(),
+        None
+    );
+    accounts
+        .update_profile(
+            bob,
+            &ProfileUpdate {
+                display_name: Some(colliding_name.clone()),
+                handle: None,
+                adult_enabled: None,
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    for key in [&display_name, &colliding_name] {
+        assert_eq!(
+            accounts.public_profile_by_display_name(key).await.unwrap(),
+            None
+        );
+    }
+    assert_eq!(
+        accounts.profile(alice).await.unwrap().unwrap().display_name,
+        display_name
+    );
+    assert_eq!(
+        accounts.profile(bob).await.unwrap().unwrap().display_name,
+        colliding_name
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() {
@@ -241,4 +308,178 @@ async fn a_04_a_05_roles_are_live_audited_and_never_granted_by_identity_claims()
         .await
         .unwrap()
         .is_none());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_05_moderator_is_live_revocable_and_never_an_administrator() {
+    let (accounts, admin, admin_session) = fixture("a05-mod-admin").await;
+    let (_, moderator, moderator_session) = fixture("a05-moderator").await;
+    let (_, outsider, outsider_session) = fixture("a05-mod-outsider").await;
+    let target = UserId::new(moderator).unwrap();
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
+        .bind(admin)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+
+    // A normal authenticated account cannot assign the moderator role.
+    assert!(matches!(
+        accounts
+            .change_account_role(&outsider_session, target, AccountRole::Moderator, true)
+            .await,
+        Err(AuthorityError::Denied)
+    ));
+    let before = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!before.moderator && !before.administrator && !before.author);
+
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Moderator, true)
+        .await
+        .unwrap();
+    let live = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(live.moderator);
+    assert!(!live.administrator && !live.author);
+    assert_eq!(live.actor.user_id, target);
+
+    // The new role is not a site administrator and cannot grant other roles.
+    assert!(matches!(
+        accounts
+            .change_account_role(
+                &moderator_session,
+                UserId::new(outsider).unwrap(),
+                AccountRole::Administrator,
+                true
+            )
+            .await,
+        Err(AuthorityError::Denied)
+    ));
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Moderator, false)
+        .await
+        .unwrap();
+    let revoked = accounts
+        .session_actor(&moderator_session)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!revoked.moderator && !revoked.administrator);
+    let values: Vec<String> = sqlx::query_scalar(
+        "SELECT value FROM account_role_events
+         WHERE user_id=$1 AND role='moderator' ORDER BY id",
+    )
+    .bind(moderator)
+    .fetch_all(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(values, vec!["granted", "revoked"]);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privilege() {
+    let (accounts, admin, admin_session) = fixture("a05-grant-admin").await;
+    let (_, recipient, _) = fixture("a05-grant-recipient").await;
+    let target = UserId::new(recipient).unwrap();
+
+    // Only the isolated test fixture bootstraps the first administrator.
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
+        .bind(admin)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    for state in ["suspended", "closed"] {
+        sqlx::query("UPDATE users SET account_state=$1 WHERE id=$2")
+            .bind(state)
+            .bind(recipient)
+            .execute(accounts.pool())
+            .await
+            .unwrap();
+        for role in [
+            AccountRole::Administrator,
+            AccountRole::Moderator,
+            AccountRole::Author,
+        ] {
+            assert!(matches!(
+                accounts
+                    .change_account_role(&admin_session, target, role, true)
+                    .await,
+                Err(AuthorityError::Denied)
+            ));
+        }
+    }
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM account_roles WHERE user_id=$1")
+        .bind(recipient)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, 0, "denied grant must not leave a dormant privilege");
+    let denied_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_role_events WHERE user_id=$1")
+            .bind(recipient)
+            .fetch_one(accounts.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        denied_events, 0,
+        "denied grant must not be audited as success"
+    );
+
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(recipient)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    let new_session = session_token_digest(&format!("a05-active-again-{recipient}"));
+    accounts
+        .insert_session(recipient, &new_session, NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        !accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Administrator, true)
+        .await
+        .unwrap();
+    assert!(
+        accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Administrator, false)
+        .await
+        .unwrap();
+    assert!(
+        !accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
+    let events: Vec<String> =
+        sqlx::query_scalar("SELECT value FROM account_role_events WHERE user_id=$1 ORDER BY id")
+            .bind(recipient)
+            .fetch_all(accounts.pool())
+            .await
+            .unwrap();
+    assert_eq!(events, vec!["granted", "revoked"]);
 }

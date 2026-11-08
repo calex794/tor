@@ -50,8 +50,8 @@ async fn f_03_nfkc_and_yo_e_search_match_without_exposing_private_rows() {
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books (source_identity,target_language,title,author_name,genres,
-                                visibility,admin_hold,is_deleted)
-             VALUES ($1,'ru',$2,$3,ARRAY['f03-nfkc-test'],$4,$5,$6)
+                                visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,'ru',$2,$3,ARRAY['f03-nfkc-test'],$4,$5,$6,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,

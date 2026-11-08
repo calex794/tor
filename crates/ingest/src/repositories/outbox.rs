@@ -34,21 +34,20 @@ impl PgOutbox {
         Self { pool }
     }
 
-    /// A worker may crash on its final lease without recording an explicit
-    /// failure. Reap such events in bounded batches, rather than reclaiming
-    /// them indefinitely. A live lease is never reaped.
+    /// Operator maintenance only. Consumers claim narrowly to avoid touching
+    /// another subsystem's events and receipts.
     pub async fn reap_exhausted(&self) -> Result<u64, OutboxError> {
         let result = sqlx::query(
             "WITH exhausted AS (
                SELECT id FROM outbox_events
                WHERE delivered_at IS NULL AND dead_at IS NULL
-                 AND attempts>=12 AND next_attempt_at<=now()
-                 AND (lease_until IS NULL OR lease_until<now())
+                 AND attempts>=12 AND next_attempt_at<=clock_timestamp()
+                 AND (lease_until IS NULL OR lease_until<clock_timestamp())
                ORDER BY next_attempt_at,created_at,id
                FOR UPDATE SKIP LOCKED LIMIT 64
              )
              UPDATE outbox_events AS event
-             SET dead_at=now(),lease_until=NULL
+             SET dead_at=clock_timestamp(),lease_until=NULL
              FROM exhausted WHERE event.id=exhausted.id",
         )
         .execute(&self.pool)
@@ -57,27 +56,79 @@ impl PgOutbox {
         Ok(result.rows_affected())
     }
 
-    /// SKIP LOCKED permits competing workers without duplicate claims.
-    /// The lease epoch fences acknowledgments from superseded workers.
-    pub async fn claim_next(&self) -> Result<Option<ClaimedEvent>, OutboxError> {
-        self.reap_exhausted().await?;
+    /// Reap only the selected event family; never change unrelated outboxes.
+    async fn reap_exhausted_for(
+        &self,
+        event_type: &str,
+        consumer: &str,
+    ) -> Result<(), OutboxError> {
+        sqlx::query(
+            "WITH exhausted AS (
+               SELECT e.id FROM outbox_events e
+               WHERE e.event_type=$1
+                 AND e.required_consumers @> ARRAY[$2::text]
+                 AND NOT EXISTS (
+                     SELECT 1 FROM event_deliveries d
+                     WHERE d.event_id=e.id AND d.consumer=$2
+                 )
+                 AND e.delivered_at IS NULL AND e.dead_at IS NULL
+                 AND e.attempts>=12 AND e.next_attempt_at<=clock_timestamp()
+                 AND (e.lease_until IS NULL OR e.lease_until<clock_timestamp())
+               ORDER BY e.next_attempt_at,e.created_at,e.id
+               FOR UPDATE SKIP LOCKED LIMIT 64
+             )
+             UPDATE outbox_events AS e SET dead_at=clock_timestamp(),lease_until=NULL
+             FROM exhausted WHERE e.id=exhausted.id",
+        )
+        .bind(event_type)
+        .bind(consumer)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| OutboxError::Unavailable)?;
+        Ok(())
+    }
+
+    /// A claimant is allowed to handle only its own event type and consumer.
+    /// Previously received events are not leased again. This API never starts
+    /// a worker or sends a notification.
+    pub async fn claim_next_for_consumer(
+        &self,
+        event_type: &str,
+        consumer: &str,
+    ) -> Result<Option<ClaimedEvent>, OutboxError> {
+        if event_type.is_empty()
+            || event_type.len() > 100
+            || consumer.is_empty()
+            || consumer.len() > 100
+        {
+            return Err(OutboxError::Invalid);
+        }
+        self.reap_exhausted_for(event_type, consumer).await?;
         let row = sqlx::query(
             "WITH next_event AS (
-               SELECT id FROM outbox_events
-               WHERE delivered_at IS NULL AND dead_at IS NULL
-                 AND attempts<12 AND next_attempt_at<=now()
-                 AND (lease_until IS NULL OR lease_until<now())
-               ORDER BY next_attempt_at,created_at,id
+               SELECT e.id FROM outbox_events e
+               WHERE e.event_type=$1
+                 AND e.required_consumers @> ARRAY[$2::text]
+                 AND NOT EXISTS (
+                     SELECT 1 FROM event_deliveries d
+                     WHERE d.event_id=e.id AND d.consumer=$2
+                 )
+                 AND e.delivered_at IS NULL AND e.dead_at IS NULL
+                 AND e.attempts<12 AND e.next_attempt_at<=clock_timestamp()
+                 AND (e.lease_until IS NULL OR e.lease_until<clock_timestamp())
+               ORDER BY e.next_attempt_at,e.created_at,e.id
                FOR UPDATE SKIP LOCKED LIMIT 1
              )
              UPDATE outbox_events AS e
              SET lease_epoch=e.lease_epoch+1,attempts=e.attempts+1,
-                 lease_until=now()+interval '60 seconds'
+                 lease_until=clock_timestamp()+interval '60 seconds'
              FROM next_event
              WHERE e.id=next_event.id
              RETURNING e.id::text AS id,e.event_type,
                        e.required_consumers,e.lease_epoch",
         )
+        .bind(event_type)
+        .bind(consumer)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| OutboxError::Unavailable)?;
@@ -96,6 +147,53 @@ impl PgOutbox {
             })
         })
         .transpose()
+    }
+
+    /// Extend only a still-active generation. An expired worker cannot
+    /// resurrect its lease or race a successor's acknowledgement.
+    pub async fn renew_lease(&self, event_id: &str, epoch: i64) -> Result<(), OutboxError> {
+        if event_id.len() != 36 || epoch <= 0 {
+            return Err(OutboxError::Invalid);
+        }
+        let row = sqlx::query_scalar::<_, i64>(
+            "UPDATE outbox_events SET lease_until=clock_timestamp()+interval '60 seconds'
+             WHERE id=$1::uuid AND lease_epoch=$2 AND lease_until>clock_timestamp()
+               AND delivered_at IS NULL AND dead_at IS NULL
+             RETURNING lease_epoch",
+        )
+        .bind(event_id)
+        .bind(epoch)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| OutboxError::Unavailable)?;
+        if row.is_none() {
+            return Err(OutboxError::LostLease);
+        }
+        Ok(())
+    }
+
+    /// Hand an unfinished event to its next required consumer without waiting
+    /// for TTL. Existing receipts stay durable; only the current generation
+    /// can release a lease, and a released one cannot acknowledge anything.
+    pub async fn release_unfinished(&self, event_id: &str, epoch: i64) -> Result<(), OutboxError> {
+        if event_id.len() != 36 || epoch <= 0 {
+            return Err(OutboxError::Invalid);
+        }
+        let row = sqlx::query_scalar::<_, i64>(
+            "UPDATE outbox_events SET lease_until=NULL
+             WHERE id=$1::uuid AND lease_epoch=$2 AND lease_until>clock_timestamp()
+               AND delivered_at IS NULL AND dead_at IS NULL
+             RETURNING lease_epoch",
+        )
+        .bind(event_id)
+        .bind(epoch)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| OutboxError::Unavailable)?;
+        if row.is_none() {
+            return Err(OutboxError::LostLease);
+        }
+        Ok(())
     }
 
     /// Records a consumer that has ALREADY completed its idempotent local effect.

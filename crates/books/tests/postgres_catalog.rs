@@ -54,7 +54,7 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
 
     let mut tx = pool.begin().await.unwrap();
     sqlx::query(
-        "UPDATE books SET visibility='public',admin_hold=FALSE,is_deleted=FALSE WHERE id=905",
+        "UPDATE books SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,access_level='basic' WHERE id=905",
     )
     .execute(&mut *tx)
     .await
@@ -88,6 +88,47 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
                  decode(repeat('33',32),'hex'),202)",
     )
     .bind(job)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    // This test checks public B projection, not the moderation handler.
+    // Establish a complete independent site-review fixture in disposable tor_ci;
+    // the database trigger must still reject every slot without this decision.
+    let reviewer: i64 = sqlx::query_scalar(
+        "SELECT id FROM users WHERE id<>905 AND account_state='active'
+         ORDER BY id LIMIT 1",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("independent site reviewer in seeded tor_ci");
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'moderator',TRUE)",
+    )
+    .bind(reviewer)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let review_id: i64 = sqlx::query_scalar(
+        "INSERT INTO book_cover_review_requests
+           (book_id,job_id,submitted_by_user_id,expected_slot_revision,
+            state,reviewer_user_id,decided_at)
+         VALUES(905,$1,905,0,'approved',$2,clock_timestamp())
+         RETURNING id",
+    )
+    .bind(job)
+    .bind(reviewer)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_cover_review_decisions
+           (request_id,book_id,job_id,reviewer_user_id,outcome)
+         VALUES($1,905,$2,$3,'approved')",
+    )
+    .bind(review_id)
+    .bind(job)
+    .bind(reviewer)
     .execute(&mut *tx)
     .await
     .unwrap();
@@ -154,6 +195,23 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
         .await
         .unwrap()
         .is_none());
+    // The public cover endpoint must not return age-restricted variants.
+    sqlx::query(
+        "UPDATE books SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,access_level='adult' WHERE id=905",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(covers
+        .public_variant(905, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(covers.public_card_ids(&[905]).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=905")
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
 
@@ -243,4 +301,71 @@ async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
     let result = PgShadowCatalog::connect(&url).await;
     assert!(result.is_err(), "tor_app credentials must be rejected");
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn s020_public_books_api_excludes_adult_pro_and_unknown() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test URL");
+    assert!(url.ends_with("/tor_ci"), "never alter a retained DB");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let mut ids = Vec::new();
+    for (name, tier) in [
+        ("basic", Some("basic")),
+        ("adult", Some("adult")),
+        ("pro", Some("pro_adult")),
+        ("legacy", None),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES($1,'ru',$2,'public',$3) RETURNING id",
+        )
+        .bind(format!("ci:s020:pubapi:{stamp}:{name}"))
+        .bind(format!("S020 API {stamp} {name}"))
+        .bind(tier)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    assert!(catalog.get_public(ids[0] as u64).await.unwrap().is_some());
+    for id in ids.iter().skip(1) {
+        assert!(catalog.get_public(*id as u64).await.unwrap().is_none());
+        sqlx::query("INSERT INTO book_related_links(smaller_book_id,larger_book_id) VALUES($1,$2)")
+            .bind(ids[0].min(*id))
+            .bind(ids[0].max(*id))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    assert!(
+        catalog
+            .public_related_books(ids[0])
+            .await
+            .unwrap()
+            .is_empty(),
+        "anonymous related-book links must not leak age-restricted titles"
+    );
+    sqlx::query("DELETE FROM book_related_links WHERE smaller_book_id=$1 OR larger_book_id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=ANY($1::bigint[])")
+        .bind(&ids)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    catalog.close_for_test().await;
 }

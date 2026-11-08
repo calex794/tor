@@ -1,3 +1,9 @@
+mod book_schedule_worker;
+mod moderation_overdue_bell_worker;
+mod moderation_overdue_worker;
+mod social_notification_consumer;
+mod support_cleanup;
+
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -53,6 +59,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if !demo && env::var("DATABASE_URL").is_ok() && !tor_web::activate_ril_sqlx_observation() {
         eprintln!("RIL SQLx completion telemetry disabled (subscriber unavailable)");
     }
+    // CDN public bucket is a separate explicit opt-in. This only configures
+    // the adapter: it does not publish, delete, purge, or start any worker.
+    let cdn_config = tor_web::cover_cdn_config::from_environment(
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        cfg!(feature = "s3-covers"),
+    )?;
+    #[cfg(not(feature = "s3-covers"))]
+    let _ = &cdn_config;
+
     // Private cover S3 is an explicit operator-owned opt-in. A deployment
     // without S3 continues serving books, but never invents image URLs.
     #[cfg(feature = "s3-covers")]
@@ -62,6 +78,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
                 let client = aws_sdk_s3::Client::new(&config);
                 let store = tor_ingest::repositories::s3::S3CoverStore::new(client, bucket)?;
+                let store = if let Some(cdn) = cdn_config.as_ref() {
+                    store.with_public_cdn(cdn.bucket.clone(), cdn.origin.clone())?
+                } else {
+                    store
+                };
                 Some(Arc::new(store))
             }
             Err(env::VarError::NotPresent) => None,
@@ -71,6 +92,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cover_store: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>> = {
         if env::var_os("TOR_COVER_S3_BUCKET").is_some() {
             return Err("TOR_COVER_S3_BUCKET requires a build with --features s3-covers".into());
+        }
+        None
+    };
+
+    // Chapter-import staging is a separate private S3 capability. It stores
+    // only the author's already-reviewed canonical UTF-8 text.
+    #[cfg(feature = "s3-chapter-import")]
+    let chapter_import_store: Option<Arc<dyn tor_imports::services::ChapterImportObjectStore>> =
+        match env::var("TOR_CHAPTER_IMPORT_S3_BUCKET") {
+            Ok(bucket) => {
+                let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                let client = aws_sdk_s3::Client::new(&config);
+                let store =
+                    tor_imports::repositories::s3::S3ChapterImportStore::new(client, bucket)
+                        .map_err(|_| "Invalid TOR_CHAPTER_IMPORT_S3_BUCKET")?;
+                Some(Arc::new(store))
+            }
+            Err(env::VarError::NotPresent) => None,
+            Err(error) => return Err(error.into()),
+        };
+    #[cfg(not(feature = "s3-chapter-import"))]
+    let chapter_import_store: Option<Arc<dyn tor_imports::services::ChapterImportObjectStore>> = {
+        if env::var_os("TOR_CHAPTER_IMPORT_S3_BUCKET").is_some() {
+            return Err(
+                "TOR_CHAPTER_IMPORT_S3_BUCKET requires a build with --features s3-chapter-import"
+                    .into(),
+            );
         }
         None
     };
@@ -90,13 +138,137 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(enabled) => enabled,
         Err(reason) => return Err(reason.into()),
     };
+    // Separate explicit operator approval. Configuring the CDN bucket/HTML
+    // does not publish covers or start an external Yandex purge worker.
+    let cdn_worker_setting = match env::var("TOR_CDN_COVER_LIFECYCLE_WORKER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let cdn_worker_enabled = tor_web::cover_cdn_lifecycle::worker_opt_in(
+        cdn_worker_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+        cover_store.is_some(),
+        cdn_config.is_some(),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    // Validate the resource and bearer before binding HTTP. Never print secrets
+    // or redirect the management client to a user/environment-supplied host.
+    let cdn_credentials = if cdn_worker_enabled {
+        let resource = env::var("TOR_CDN_COVER_YANDEX_RESOURCE_ID")
+            .map_err(|_| "missing S025 CDN resource ID")?;
+        let bearer =
+            env::var("TOR_CDN_COVER_YANDEX_BEARER").map_err(|_| "missing S025 CDN bearer")?;
+        Some((resource, bearer))
+    } else {
+        None
+    };
+    let chapter_import_worker_setting = match env::var("TOR_CHAPTER_IMPORT_WORKER_ENABLED") {
+        Ok(setting) => Some(setting),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let chapter_import_worker_enabled = match tor_web::chapter_import_worker::worker_opt_in(
+        chapter_import_worker_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+        chapter_import_store.is_some(),
+    ) {
+        Ok(enabled) => enabled,
+        Err(reason) => return Err(reason.into()),
+    };
     // Do not start jobs until the HTTP application and listener have passed
     // their own readiness checks. No second database pool is opened.
     let mut pending_cover_worker: Option<(
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    let mut pending_cdn_lifecycle: Option<(
+        PgCatalog,
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+    )> = None;
+    // These are scoped across the runtime branches and only populated after
+    // PostgreSQL, authenticated HTTP and the import-object store are available.
+    let mut pending_chapter_import_worker: Option<(
+        PgCatalog,
+        Arc<dyn tor_imports::services::ChapterImportObjectStore>,
+    )> = None;
+    let mut pending_chapter_import_routes: Option<axum::Router> = None;
+    let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
+    let mut pending_achievements_consumer: Option<
+        tor_recommendations::repositories::PgAchievements,
+    > = None;
+    let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
+    for flag in ["TOR_RECOMMENDATIONS_ENABLED", "TOR_REC_ATTRIBUTION_ENABLED"] {
+        if let Ok(value) = env::var(flag) {
+            if !matches!(value.as_str(), "0" | "1") {
+                return Err(format!("invalid boolean flag {flag}").into());
+            }
+        }
+    }
+    if env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1")
+        && env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1")
+    {
+        return Err("attribution requires recommendations".into());
+    }
+    let mut pending_social_notifications = None;
+    let mut pending_support_cleanup = None;
+    let mut pending_security_retention: Option<PgAccounts> = None;
+    // Explicit operator opt-in. A copied binary must never silently run
+    // scheduled releases before the additive S058 migration is applied.
+    let schedule_worker_enabled = match env::var("TOR_SCHEDULED_RELEASE_WORKER_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_SCHEDULED_RELEASE_WORKER_ENABLED must be 0 or 1".into()),
+    };
+    if schedule_worker_enabled
+        && (demo
+            || env::var_os("DATABASE_URL").is_none()
+            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1"))
+    {
+        return Err("S058 worker requires authenticated PostgreSQL runtime".into());
+    }
+    // Disabled unless explicitly enabled by an operator. This only scans and
+    // stores overdue observations; no notification delivery is activated.
+    let overdue_setting = match env::var("TOR_MOD_OVERDUE_OBSERVER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let overdue_observer_enabled = moderation_overdue_worker::worker_opt_in(
+        overdue_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    // The bell is a distinct explicit opt-in: enabling observation alone
+    // must never start recipient-facing delivery.
+    let bell_setting =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_DELIVERY_ENABLED")?;
+    let bell_recipients =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_RECIPIENT_POLICY")?;
+    let bell_thresholds =
+        moderation_overdue_bell_worker::read_setting("TOR_MOD_OVERDUE_BELL_SLA_POLICY")?;
+    let bell_delivery_enabled = moderation_overdue_bell_worker::worker_opt_in(
+        bell_setting.as_deref(),
+        bell_recipients.as_deref(),
+        bell_thresholds.as_deref(),
+        overdue_observer_enabled,
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    let mut pending_overdue_bell: Option<tor_social::repositories::notifications::PgNotifications> =
+        None;
+    let mut pending_overdue_observer: Option<PgAccounts> = None;
+    let mut pending_scheduled_release_worker = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -104,9 +276,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_rec_worker = Some(
+                    tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
+                );
+            }
+            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_support_cleanup = Some(
+                    tor_support::repositories::postgres::PgSupport::new(pool.clone()),
+                );
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
+                pending_achievements_consumer = Some(
+                    tor_recommendations::repositories::PgAchievements::new(pool.clone()),
+                );
+                pending_referral_consumer =
+                    Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
+                pending_social_notifications = Some(
+                    tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
@@ -115,6 +303,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             reader.probe().await?;
             if cover_worker_enabled {
                 pending_cover_worker = cover_store
+                    .as_ref()
+                    .map(|storage| (catalog.clone(), storage.clone()));
+            }
+            if cdn_worker_enabled {
+                pending_cdn_lifecycle = cover_store
                     .as_ref()
                     .map(|storage| (catalog.clone(), storage.clone()));
             }
@@ -140,6 +333,51 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                pending_security_retention = Some(accounts.clone());
+                if overdue_observer_enabled {
+                    accounts
+                        .probe_moderation_overdue_observations()
+                        .await
+                        .map_err(|_| "MOD overdue observation ledger migration is not applied")?;
+                    pending_overdue_observer = Some(accounts.clone());
+                }
+                if bell_delivery_enabled {
+                    // This path is allowed only after the live authenticated
+                    // ledger probe; no new pool or migration is created.
+                    pending_overdue_bell = Some(
+                        tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                    );
+                }
+                if schedule_worker_enabled {
+                    let author = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
+                    author
+                        .probe_scheduled_releases()
+                        .await
+                        .map_err(|_| "S058 scheduled release migration is not applied")?;
+                    author
+                        .probe_book_schedule_worker()
+                        .await
+                        .map_err(|_| "S058 book-level slot migrations are not applied")?;
+                    pending_scheduled_release_worker = Some(author);
+                }
+                if chapter_import_worker_enabled {
+                    tor_imports::repositories::postgres::PgImportJobs::new(pool.clone())
+                        .probe()
+                        .await
+                        .map_err(|_| "S023 chapter import migration is not applied")?;
+                    let storage = chapter_import_store
+                        .as_ref()
+                        .expect("validated chapter import S3 configuration")
+                        .clone();
+                    pending_chapter_import_worker = Some((catalog.clone(), storage.clone()));
+                    pending_chapter_import_routes =
+                        Some(tor_web::chapter_import_queue_http::router(
+                            accounts.clone(),
+                            secure,
+                            origin.clone(),
+                            storage,
+                        ));
+                }
                 #[cfg(feature = "s3-paid")]
                 let (paid_storage, paid_author): (
                     Option<Arc<dyn PrivateObjectDeliveryPort>>,
@@ -258,6 +496,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
+    let app = if let Some(routes) = pending_chapter_import_routes {
+        // The base router already has RIL instrumentation. Instrument this
+        // late-bound route group with the same process recorder before merge.
+        app.merge(tor_web::instrument_additional_routes(routes))
+    } else {
+        app
+    };
     let listener = tokio::net::TcpListener::bind(address).await?;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
@@ -269,14 +514,76 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let _cdn_lifecycle_worker = if let Some((catalog, storage)) = pending_cdn_lifecycle {
+        let (resource, bearer) = cdn_credentials.expect("validated opt-in credentials");
+        let worker = tor_web::cover_cdn_lifecycle::start(catalog, storage, resource, bearer)
+            .map_err(|_| "invalid S025 CDN provider configuration")?;
+        println!("TOR opt-in S025 approved-cover CDN lifecycle worker enabled");
+        Some(worker)
+    } else {
+        None
+    };
+    let _overdue_observer = pending_overdue_observer.map(|accounts| {
+        println!("TOR moderation overdue observation enabled");
+        moderation_overdue_worker::start(accounts)
+    });
+    let _overdue_bell_worker = pending_overdue_bell.map(|notifications| {
+        println!("TOR moderation overdue in-app admin bell enabled (no external delivery)");
+        moderation_overdue_bell_worker::start(notifications)
+    });
+    let _scheduled_release_worker = pending_scheduled_release_worker.map(|author| {
+        println!("TOR S058 scheduled release worker enabled");
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                for _ in 0..16 {
+                    match author.process_one_due_scheduled_release().await {
+                        Ok(Some((_chapter, _outcome))) => (),
+                        Ok(None) => break,
+                        Err(error) => {
+                            tracing::warn!(?error, "S058 worker failed; lease retry pending");
+                            break;
+                        }
+                    }
+                }
+                if let Err(error) = book_schedule_worker::drain_due_book_slots(&author).await {
+                    tracing::warn!(?error, "S058 book-slot worker failed; lease retry pending");
+                }
+            }
+        })
+    });
+    let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
+        println!("TOR chapter import worker enabled");
+        tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
+    });
     // C completion events remain durable if the server restarts.
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
-    axum::serve(
+    let _achievements_consumer = pending_achievements_consumer
+        .map(tor_web::achievement_consumer::start_achievements_consumer);
+    // Registrations and their outbox facts were committed atomically.
+    // Replay pending facts after restart; only the authenticated PG runtime runs this.
+    let _referral_consumer =
+        pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
+    let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
+    let _social_notification_consumer =
+        pending_social_notifications.map(social_notification_consumer::start);
+    let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
+    // The authenticated server starts this worker once, after binding HTTP.
+    let account_retention =
+        pending_security_retention.map(tor_web::start_account_security_retention);
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await?;
+    .await;
+    if let Some(handle) = account_retention {
+        handle.abort();
+        let _ = handle.await;
+    }
+    serve_result?;
     Ok(())
 }

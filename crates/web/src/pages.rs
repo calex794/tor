@@ -6,24 +6,44 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod layer_storefront;
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
+mod creators;
+pub use creators::creator_follows;
+mod referrals;
+mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_follow_updates,
-    password_change_form, registration_form, registration_form_with_error,
+    account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
+    my_account_with_achievements_and_swap, my_account_with_achievements_refunds_and_swap,
+    my_account_with_follow_updates, password_change_form, registration_form,
+    registration_form_with_error, registration_form_with_error_and_next,
+    registration_form_with_next,
 };
+pub use referrals::referrals_page;
+pub use session_security::active_sessions;
+mod reader_free;
+mod reader_free_comments;
+mod reader_free_issues;
+pub use reader_free::{reader_with_login_link, reader_with_public_discussions};
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
-pub use reader_private::private_reader_with_demand;
+pub use reader_private::{private_reader_with_options, PrivateReaderOptions};
 mod paywall;
-pub use paywall::paid_chapter_paywall;
+pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
+mod checkout_page;
+pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
-    catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
-    PublicBookCard,
+    catalog, catalog_search_with_covers, home, home_recent_with_covers, home_recent_with_growth,
+    home_recent_with_updates, CatalogPageQuery, PublicBookCard,
 };
 
 pub fn escape_html(value: &str) -> String {
@@ -43,6 +63,19 @@ pub fn escape_html(value: &str) -> String {
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     layout_with_seo(title, description, content, seo_head::default_head())
+}
+
+/// Public homepage widget; all private page CSP rules remain unchanged.
+pub(super) fn layout_with_support_widget(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
+    Html(html.0.replace(
+        "</body>",
+        "<script src=\"/assets/newboo-support-widget.js\" defer></script>\n</body>",
+    ))
 }
 
 fn layout_with_seo(
@@ -104,10 +137,12 @@ fn book_detail_with_chapters_cover_internal(
             } else {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
+                write!(items, "<!--BOOK_OWNER_EDIT:{}--></li>", chapter.id)
+                    .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -169,6 +204,16 @@ pub fn book_detail_with_chapters_cover_stars_batch(
     Html(
         html.0
             .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
+    )
+}
+
+/// Book likes are independent of ratings, chapter thanks and purchases.
+pub fn book_likes_strip(book_id: u64, count: i64) -> String {
+    format!(
+        "<section class=\"book-likes\" aria-label=\"Отметки «Нравится»\">\
+         <span>Нравится: {count}</span>\
+         <a class=\"text-link\" href=\"/books/{book_id}/like\">Отметить книгу</a>\
+         </section>"
     )
 }
 
@@ -283,8 +328,8 @@ fn book_detail_body(
     };
     let discussion = if toc.is_some() {
         format!(
-            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
-            book.id
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a> · <a class=\"text-link\" href=\"/books/{}/room\">Книжный чат</a></section>",
+            book.id, book.id
         )
     } else {
         String::new()
@@ -297,6 +342,20 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace(
+            "<!--BOOK_SHARE_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a>",
+                book.id
+            ),
+        )
+        .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
         .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {
@@ -326,69 +385,6 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
     reader_with_login_link(chapter, None)
 }
 
-/// The public reader can link to the existing authenticated completion route.
-/// A link never creates demand, grants access, or assumes that an open was read.
-pub fn reader_with_login_link(
-    chapter: &tor_reading::services::PublicChapterPage,
-    chapter_id: Option<u64>,
-) -> Html<String> {
-    let previous = chapter
-        .previous_chapter_id
-        .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
-        .unwrap_or_default();
-    use tor_reading::services::PublicContinuation;
-    let (next, continuation_status) = match chapter.continuation() {
-        PublicContinuation::ReadNow(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
-            "",
-        ),
-        PublicContinuation::NeedsAccess(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
-            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
-        ),
-        PublicContinuation::WaitingForRelease => (
-            String::new(),
-            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
-        ),
-    };
-    let return_to_reading = if matches!(
-        chapter.continuation(),
-        PublicContinuation::WaitingForRelease
-    ) {
-        chapter_id
-            .map(|id| {
-                format!(
-                    "<p class=\"reader-next-state\"><a class=\"text-link\" href=\"/read/{id}\">Отметить главу прочитанной и попросить продолжение</a></p>"
-                )
-            })
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
-    let continuation_status = format!("{continuation_status}{return_to_reading}");
-    let navigation = if previous.is_empty() && next.is_empty() {
-        String::new()
-    } else {
-        format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
-    };
-    let html = include_str!("../templates/reader.html")
-        .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
-        .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
-        .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
-        .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
-        .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
-        .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
-        .replace(
-            "<!--CHAPTER_CONTENT-->",
-            &tor_reading::domain::renderer::render(&chapter.body_markdown),
-        );
-    layout(
-        &chapter.chapter_title,
-        "Опубликованная бесплатная глава.",
-        &html,
-    )
-}
-
 pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str) -> Html<String> {
     let title = escape_html(&book.title);
     let token = escape_html(csrf);
@@ -404,7 +400,9 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates;
+pub use library::my_library_with_updates_and_layers_and_purchased_only;
+mod library_saved_free;
+pub use library_saved_free::{saved_archive_list, saved_free_reader};
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
@@ -428,7 +426,11 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/newboo-support-widget.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
         css
@@ -442,6 +444,34 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
     )
 }
 
+/// Public free-reader display settings only.
+pub async fn free_reader_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../assets/newboo-free-reader.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-progress.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-toc.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-issues.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-comments.js"));
+                js
+            });
+            JS.as_str()
+        },
+    )
+}
+
 /// Public static runtime only; no signed URL or scoped key is embedded here.
 pub async fn paid_reader_script() -> impl IntoResponse {
     (
@@ -452,7 +482,29 @@ pub async fn paid_reader_script() -> impl IntoResponse {
             ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../assets/newboo-paid-reader.mjs"),
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../assets/newboo-paid-reader.mjs"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-paid-toc.js"));
+                js
+            });
+            JS.as_str()
+        },
+    )
+}
+
+/// Same-origin safe UI for D-authorized immutable paid discussions.
+pub async fn paid_comments_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-paid-comments.mjs"),
     )
 }
 

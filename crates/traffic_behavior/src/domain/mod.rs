@@ -2,8 +2,12 @@
 //! Subject keys must be pseudonyms from a trusted, keyed HMAC computed elsewhere.
 //! This crate never takes an IP, URI, cookie, account ID, or free-form route label.
 
+mod flow;
 mod paths;
 mod rollup;
+pub use flow::{
+    FlowCountRow, FlowHourlyCount, FlowPageview, FlowVisitWindows, FLOW_SOURCES, FLOW_SURFACES,
+};
 pub use paths::{
     Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW,
 };

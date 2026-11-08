@@ -1,11 +1,12 @@
 //! The original NEwBOO public catalogue layout, sourced from real TOR read data.
-use super::{escape_html, layout};
+use super::{escape_html, layout, layout_with_support_widget};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::domain::seo_urls::BookUrl;
-use tor_search::repositories::catalog::TaxonomyOptions;
+use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 mod catalog_active_filters;
+mod catalog_pagination;
 mod catalog_taxonomy_selects;
 mod home_spotlight;
 
@@ -130,7 +131,13 @@ fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> Stri
     html
 }
 
-fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> Html<String> {
+fn home_body(
+    books: &[PublicBookCard],
+    latest: bool,
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+    rising: &[PublicBookCard],
+) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
@@ -156,6 +163,11 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
             &book_cards(books, latest, "Недавно добавленные книги", covers),
         )
         .replace(
+            "<!--RECENT_RELEASES-->",
+            &recent_release_section(updates, covers),
+        )
+        .replace("<!--RISING_READERS-->", &rising_section(rising, covers))
+        .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
                 recent_genre_shelves(books, covers)
@@ -163,22 +175,60 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
                 String::new()
             },
         );
-    layout(
+    layout_with_support_widget(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
         &content,
     )
 }
 
+fn recent_release_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+    if books.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<section class=\"section home-release-section\" aria-labelledby=\"home-releases\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-releases\" class=\"ui-section-header__title\">Обновились</h2></header></div>{}</div></section>",
+        book_cards(books, true, "Недавно вышли новые главы", covers)
+    )
+}
+
+fn rising_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+    if books.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<section class=\"section home-rising-section\" aria-labelledby=\"home-rising\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-rising\" class=\"ui-section-header__title\">Набирают читателей</h2></header></div>{}</div></section>",
+        book_cards(books, true, "Книги с ростом числа читателей", covers)
+    )
+}
+
+pub fn home_recent_with_growth(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+    rising: &[PublicBookCard],
+) -> Html<String> {
+    home_body(books, true, covers, updates, rising)
+}
+
+/// Explicitly released books only; independent of the existing added-book shelf.
+pub fn home_recent_with_updates(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+) -> Html<String> {
+    home_body(books, true, covers, updates, &[])
+}
+
 /// Demo mode cannot claim recent insertion order; only the PG projection can.
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, false, &HashSet::new())
+    home_body(books, false, &HashSet::new(), &[], &[])
 }
 
 /// F-04 read model supplies descending creation identity, never a false daily top
 /// or a claim about publication time, rating or personal recommendations.
 pub fn home_recent_with_covers(books: &[PublicBookCard], covers: &HashSet<u64>) -> Html<String> {
-    home_body(books, true, covers)
+    home_body(books, true, covers, &[], &[])
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
@@ -216,9 +266,11 @@ pub struct CatalogPageQuery<'a> {
     pub tag: Option<&'a str>,
     pub fandom: Option<&'a str>,
     pub cursor: Option<&'a str>,
+    pub previous_cursor: Option<&'a str>,
+    pub page_number: u32,
     pub sort: &'a str,
     pub total: Option<u64>,
-    pub options: Option<&'a TaxonomyOptions>,
+    pub options: Option<&'a CatalogTaxonomyView>,
 }
 
 pub fn catalog_search_with_covers(
@@ -227,13 +279,16 @@ pub fn catalog_search_with_covers(
     covers: &HashSet<u64>,
 ) -> Html<String> {
     let active_filters = catalog_active_filters::render(&request);
+    let pagination = catalog_pagination::render(&request);
     let CatalogPageQuery {
         query,
         language,
         genre,
         tag,
         fandom,
-        cursor,
+        cursor: _,
+        previous_cursor: _,
+        page_number: _,
         sort,
         total,
         options,
@@ -267,35 +322,6 @@ pub fn catalog_search_with_covers(
         );
     }
     controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
-    if let Some(cursor) = cursor {
-        let language_param = language
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;language={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let genre_param = genre
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;genre={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let tag_param = tag
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;tag={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let fandom_param = fandom
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;fandom={}", encode_search_term(value)))
-            .unwrap_or_default();
-        write!(
-            controls,
-            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
-            encode_search_term(query),
-            language_param,
-            genre_param,
-            tag_param,
-            fandom_param,
-            escape_html(sort),
-            escape_html(cursor),
-        ).expect("string write");
-    }
     let count_markup = total
         .map(|number| {
             format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
@@ -317,7 +343,8 @@ pub fn catalog_search_with_covers(
             },
         )
         .replace("<!--SEARCH_FORM-->", &controls)
-        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"));
+        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"))
+        .replace("<!--PAGINATION-->", &pagination);
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",
@@ -327,7 +354,7 @@ pub fn catalog_search_with_covers(
 
 #[cfg(test)]
 pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true, &HashSet::new())
+    home_body(books, true, &HashSet::new(), &[], &[])
 }
 
 #[cfg(test)]
@@ -450,6 +477,8 @@ mod home_tests {
                 tag: None,
                 fandom: None,
                 cursor: None,
+                previous_cursor: None,
+                page_number: 1,
                 sort: "oldest",
                 total: Some(2),
                 options: None,
@@ -481,6 +510,38 @@ mod home_tests {
         let html = catalog(&[card]).0;
         assert!(html.contains("&lt;img src=x onerror=evil()&gt;"));
         assert!(!html.contains("<img src=x"));
+    }
+
+    #[test]
+    fn releases_render_once_and_escape_untrusted_text() {
+        let mut release = book(91, "<script>bad</script>");
+        release.author_name = Some("<img src=x>".into());
+        let html = home_recent_with_updates(&[book(2, "Новая")], &HashSet::new(), &[release]).0;
+        assert!(html.contains("Обновились"));
+        assert!(html.contains("href=\"/books/91\""));
+        assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(html.contains("&lt;img src=x&gt;"));
+        assert!(!html.contains("<script>bad</script>"));
+        assert_eq!(html.matches("home-release-section").count(), 1);
+        let empty = home_recent_with_updates(&[book(2, "Новая")], &HashSet::new(), &[]).0;
+        assert!(!empty.contains("home-release-section"));
+    }
+
+    #[test]
+    fn rising_section_only_renders_genuine_input_and_escapes_titles() {
+        let page = home_recent_with_growth(
+            &[book(2, "Новая")],
+            &HashSet::new(),
+            &[],
+            &[book(17, "<script>bad</script>")],
+        )
+        .0;
+        assert!(page.contains("Набирают читателей"));
+        assert!(page.contains("href=\"/books/17\""));
+        assert!(page.contains("&lt;script&gt;bad&lt;/script&gt;"));
+        assert!(!page.contains("<script>bad</script>"));
+        let empty = home_recent_with_growth(&[book(2, "Новая")], &HashSet::new(), &[], &[]).0;
+        assert!(!empty.contains("home-rising-section"));
     }
 
     #[test]

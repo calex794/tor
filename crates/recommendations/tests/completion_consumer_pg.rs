@@ -93,8 +93,8 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
     .unwrap();
     for i in 0..3_i64 {
         sqlx::query(
-            "INSERT INTO books(id,source_identity,target_language,title,visibility)
-             VALUES($1,$2,'ru',$3,'public')",
+            "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+             VALUES($1,$2,'ru',$3,'public','basic')",
         )
         .bind(99510 + i)
         .bind(format!("ci:f05:completion:{i}"))

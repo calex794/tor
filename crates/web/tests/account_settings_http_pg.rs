@@ -227,3 +227,6 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[path = "auth_spray_http_pg.rs"]
+mod auth_spray;

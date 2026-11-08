@@ -43,7 +43,7 @@ impl PgRanking {
                AND e.delivered_at IS NULL
                AND (e.lease_until IS NULL OR e.lease_until<now())
                AND active.user_id IS NULL
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND NOT EXISTS (
                  SELECT 1 FROM event_deliveries AS d
                  WHERE d.event_id=e.id AND d.consumer=$1
@@ -139,7 +139,7 @@ impl PgRanking {
         // Hold the row until the event/rank are committed.
         let allowed: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM books WHERE id=$1
-             AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+             AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
              FOR SHARE",
         )
         .bind(book_id)

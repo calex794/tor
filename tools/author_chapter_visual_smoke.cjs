@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
@@ -43,10 +44,10 @@ async function inspect(page, viewport, name) {
 
       await page.getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
-      await page.getByRole('link', { name: 'Создать книгу' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
       await page.getByLabel('Название книги').fill('Новая книга ' + viewport);
-      await page.getByLabel('Язык').fill('ru');
+      await page.getByLabel('Язык', { exact: true }).fill('ru');
       await page.getByRole('button', { name: 'Создать книгу' }).click();
       await page.waitForURL(/\/me\/books\/\d+$/);
 
@@ -60,15 +61,21 @@ async function inspect(page, viewport, name) {
       await page.getByLabel('Аннотация (до 4000 символов)').fill(description);
       await inspect(page, viewport, 'description-editor');
       await page.getByRole('button', { name: 'Сохранить аннотацию', exact: true }).click();
-      await page.waitForURL(base + '/me/books/' + bookId);
-      await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+      await page.getByRole('link', { name: 'Аннотация книги', exact: true }).click();
       assert(await page.getByLabel('Аннотация (до 4000 символов)').inputValue() === description,
         viewport + ': description did not survive save and reload');
-      await page.getByRole('link', { name: 'Вернуться к книге', exact: true }).click();
-      await page.waitForURL(base + '/me/books/' + bookId);
+      await page.getByRole('link', { name: 'Все настройки книги', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId + '/settings');
+      // This actor owns the Book. Chapter controls remain owner-only.
+      await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
-      await page.getByLabel('Номер главы').fill('1');
+      const chapterNumber = page.getByLabel('Номер главы');
+      assert(await chapterNumber.inputValue() === '1',
+        viewport + ': first auto-number preview must be 1');
+      assert(await chapterNumber.getAttribute('readonly') !== null,
+        viewport + ': automatic chapter number must be read-only');
       await page.getByLabel('Название главы').fill('Глава для проверки');
       await page.getByLabel('Текст главы').fill('Проверочный текст: **важная строка**.');
       await inspect(page, viewport, 'editor');
@@ -85,6 +92,8 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
       assert(await page.getByRole('heading', { name: 'Редактировать главу' }).isVisible(),
         viewport + ': missing draft editor');
+      assert(await page.locator('h1 a[href^="/reader/"]').count() === 0,
+        viewport + ': unpublished draft must not advertise an unreadable reader page');
       assert(await page.getByText('Редакция №1.').isVisible(),
         viewport + ': initial chapter revision missing');
       await page.getByLabel('Текст главы').fill('Обновлённая версия: **важная строка**.');
@@ -100,6 +109,13 @@ async function inspect(page, viewport, name) {
       await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
       await page.waitForURL(base + '/books/' + bookId);
+      const awaitingApproval = await page.goto(base + '/books/' + bookId);
+      assert(awaitingApproval && awaitingApproval.status() === 404,
+        viewport + ': new book bypassed pending site review');
+      approvePendingBookForIsolatedCi(bookId);
+      const newlyApproved = await page.goto(base + '/books/' + bookId);
+      assert(newlyApproved && newlyApproved.status() === 200,
+        viewport + ': site-approved book is not publicly visible');
       assert(await page.getByRole('heading', { name: 'Новая книга ' + viewport }).isVisible(),
         viewport + ': public book missing after release');
       await inspect(page, viewport, 'published');
@@ -121,7 +137,8 @@ async function inspect(page, viewport, name) {
       await page.waitForURL('**/chapters/new');
       assert(await page.getByText(/сразу после сохранения/).isVisible(),
         viewport + ': immediate release help text missing');
-      await page.getByLabel('Номер главы').fill('2');
+      assert(await page.getByLabel('Номер главы').inputValue() === '2',
+        viewport + ': second auto-number preview must be 2');
       await page.getByLabel('Название главы').fill('Вторая глава опубликована');
       await page.getByLabel('Текст главы').fill('PUBLIC B06 new');
       await inspect(page, viewport, 'second-editor');
@@ -151,6 +168,62 @@ async function inspect(page, viewport, name) {
         viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
 
+      // S058: a published book must still allow a deliberately private free
+      // draft, then owner-only scheduling, rescheduling and cancellation.
+      await page.goto(base + '/me/books/' + bookId);
+      await page.getByRole('link', { name: 'Добавить главу' }).click();
+      await page.waitForURL('**/chapters/new');
+      const privateChoice = page.getByLabel('Отложенная публикация');
+      assert(await privateChoice.isVisible(),
+        viewport + ': missing S058 delayed-publication option on public book');
+      assert(await page.getByLabel('Номер главы').inputValue() === '3',
+        viewport + ': delayed draft auto-number preview must be 3');
+      await page.getByLabel('Название главы').fill('S058 scheduled draft');
+      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
+      await privateChoice.check();
+      await Promise.all([
+        page.waitForURL(/\/chapters\/\d+\/release$/),
+        page.getByRole('button', { name: 'Сохранить главу' }).click(),
+      ]);
+      const scheduledDraftUrl = page.url();
+      const scheduledDraftId = scheduledDraftUrl.match(/\/chapters\/(\d+)\/release$/)?.[1];
+      assert(scheduledDraftId,
+        viewport + ': S058 new draft did not open release confirmation');
+      assert(await page.getByText('PRIVATE S058 browser content').isVisible(),
+        viewport + ': scheduled author preview lost exact private draft');
+      const beforeTime = await page.goto(base + '/reader/' + scheduledDraftId);
+      assert(beforeTime && beforeTime.status() === 404,
+        viewport + ': scheduled free chapter exposed before due time');
+      await page.goto(scheduledDraftUrl);
+      const scheduledUtc = new Date(Date.now() + 60 * 60 * 1000)
+        .toISOString().slice(0, 16);
+      await page.getByLabel('Дата и время (UTC)').fill(scheduledUtc);
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
+      ]);
+      assert(await page.getByText(/статус: pending/).isVisible(),
+        viewport + ': scheduled release not shown as pending');
+      await inspect(page, viewport, 's058-scheduled');
+      const rescheduledUtc = new Date(Date.now() + 2 * 60 * 60 * 1000)
+        .toISOString().slice(0, 16);
+      await page.getByLabel('Дата и время (UTC)').fill(rescheduledUtc);
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
+      ]);
+      assert((await page.content()).includes(rescheduledUtc),
+        viewport + ': S058 changed UTC deadline was not persisted');
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Отменить отложенный выпуск' }).click(),
+      ]);
+      assert(await page.getByText(/статус: cancelled/).isVisible(),
+        viewport + ': cancelled S058 release still appears active');
+      const afterCancel = await page.goto(base + '/reader/' + scheduledDraftId);
+      assert(afterCancel && afterCancel.status() === 404,
+        viewport + ': cancelled S058 draft became publicly readable');
+
       // BKR-96: the published free chapter editor is available to its owner.
       // A second release remains forbidden; Save immediately publishes V2.
       const chapterId = href.split('/').pop();
@@ -162,6 +235,17 @@ async function inspect(page, viewport, name) {
         viewport + ': published editor lacks immediate release explanation');
       assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
         viewport + ': published free chapter editor has no Save');
+      // NEwBOO "В главу": in TOR the chapter title itself is clickable.
+      const linkedTitle = page.locator('h1 a.author-chapter-view-link');
+      assert(await linkedTitle.getAttribute('href') === '/reader/' + chapterId,
+        viewport + ': published chapter title does not lead to the real reader');
+      await linkedTitle.click();
+      await page.waitForURL(base + '/reader/' + chapterId);
+      assert(await page.getByText('PUBLIC B06 new').isVisible(),
+        viewport + ': title-to-reader navigation lost the published chapter');
+      await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      await inspect(page, viewport, 'published-editor-title-link');
       const release = await page.goto(base + '/me/books/' + bookId +
         '/chapters/' + chapterId + '/release');
       assert(release && release.status() === 404,
@@ -209,6 +293,95 @@ async function inspect(page, viewport, name) {
         assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
+        // S010: real reader UI -> server-side book like -> public counter.
+        await reader.goto(base + '/books/' + bookId);
+        const likeLink = reader.locator('a[href="/books/' + bookId + '/like"]');
+        assert(await likeLink.isVisible(), viewport + ': S010 book like entry missing');
+        await likeLink.click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like');
+        assert(await reader.getByText('Отметок «Нравится»: 0').isVisible(),
+          viewport + ': S010 initial public count wrong');
+        await reader.getByRole('button', { name: 'Нравится', exact: true }).click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like?done=added');
+        assert(await reader.getByText('Отметок «Нравится»: 1').isVisible(),
+          viewport + ': S010 like was not persisted');
+        await reader.reload();
+        assert(await reader.getByText('Отметок «Нравится»: 1').isVisible(),
+          viewport + ': S010 like lost on reload');
+        await guest.goto(base + '/books/' + bookId);
+        assert(await guest.getByText('Нравится: 1').isVisible(),
+          viewport + ': S010 public counter not visible to guest');
+        await reader.getByRole('button', { name: 'Убрать отметку «Нравится»' }).click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like?done=removed');
+        assert(await reader.getByText('Отметок «Нравится»: 0').isVisible(),
+          viewport + ': S010 unlike did not restore zero');
+        await reader.reload();
+        assert(await reader.getByRole('button', { name: 'Нравится', exact: true }).isVisible(),
+          viewport + ': S010 unlike state was not durable');
+        await guest.reload();
+        assert(await guest.getByText('Нравится: 0').isVisible(),
+          viewport + ': S010 public counter not updated after unlike');
+
+        // E-05 / S014: an account-follow is independent of saving a Book.
+        // Exercise the real user action and private author-follow listing.
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': creator-follow control missing from book');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': account-follow did not persist');
+        await reader.goto(base + '/me/creators');
+        assert(await reader.getByRole('heading', { name: 'Подписки на авторов' }).isVisible(),
+          viewport + ': private followed-creators page missing');
+        assert(await reader.getByText('Автор ' + viewport).isVisible(),
+          viewport + ': authoritative owner not in reader follows');
+        assert(await reader.getByRole('link', { name: 'Новая книга ' + viewport }).isVisible(),
+          viewport + ': source Book attribution missing');
+        await inspect(reader, viewport, 'creator-followed');
+        await reader.getByRole('button', { name: 'Отписаться от автора' }).click();
+        await reader.waitForURL(base + '/me/creators');
+        assert(await reader.getByText(/Вы пока не подписаны на авторов/).isVisible(),
+          viewport + ': unsubscribe did not deactivate the follow');
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': re-follow after unsubscribe unavailable');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': new active creator period absent');
+
+        // The author publishes a new chapter in the same account after the
+        // reader follows the author. This is not a BookFollow: the feed entry
+        // must be produced by the creator-follow period alone.
+        await page.goto(base + '/me/books/' + bookId);
+        await page.getByRole('link', { name: 'Добавить главу' }).click();
+        await page.waitForURL('**/chapters/new');
+        assert(await page.getByLabel('Номер главы').inputValue() === '4',
+          viewport + ': follower update auto-number preview must be 4');
+        await page.getByLabel('Название главы').fill('Глава после подписки');
+        await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
+        await page.getByRole('button', { name: 'Сохранить главу' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        await reader.goto(base + '/me/library');
+        const updates = reader.locator('#new-chapters');
+        assert(await updates.getByRole('heading', { name: 'Новые главы подписок' }).isVisible(),
+          viewport + ': release feed missing');
+        assert(await updates.getByText('Глава после подписки').isVisible(),
+          viewport + ': release by followed author in same account was not delivered to feed');
+        // The authenticated follow feed intentionally opens free chapters in
+        // /read/:id so the reader can save progress and complete the chapter.
+        const newRelease = updates.locator('a[href^="/read/"]').last();
+        assert(await newRelease.isVisible(), viewport + ': free author release has no private reader link');
+        const newReleaseHref = await newRelease.getAttribute('href');
+        assert(/^\/read\/\d+$/.test(newReleaseHref),
+          viewport + ': free author release must open the completion-capable reader');
+        await newRelease.click();
+        await reader.waitForURL(base + newReleaseHref);
+        assert(await reader.getByText('Новая глава после подписки автора.').isVisible(),
+          viewport + ': reader could not open the author release');
+        await inspect(reader, viewport, 'author-release-feed');
+
         const privateReader = await reader.goto(base + '/read/' + chapterId);
         assert(privateReader && privateReader.status() === 200,
           viewport + ': account-only free reader failed');
@@ -223,6 +396,25 @@ async function inspect(page, viewport, name) {
           viewport + ': new reader did not persist a chapter-specific place');
         await inspect(reader, viewport, 'cross-user-saved');
 
+        // C-08/S007: saved books and reading positions have independent lifetimes.
+        // A second authenticated account must not inherit the reader's bookmark.
+        await page.goto(base + '/me/library');
+        assert(await page.getByRole('region', { name: 'Сохранённые книги' })
+          .locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': reader bookmark leaked into the author account');
+        const savedBooks = reader.getByRole('region', { name: 'Сохранённые книги' });
+        const savedCard = savedBooks.locator('.library-card').filter({
+          has: reader.locator('a[href="/books/' + bookId + '"]'),
+        });
+        await savedCard.getByRole('button', { name: 'Убрать из библиотеки' }).click();
+        await reader.waitForURL(base + '/me/library');
+        await reader.reload();
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after reload');
+        assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
+          viewport + ': removing bookmark erased the saved reading position');
+        await inspect(reader, viewport, 'bookmark-removed');
+
         await reader.goto(base + '/me');
         await reader.getByRole('button', { name: 'Выйти' }).click();
         await reader.waitForURL('**/login');
@@ -235,6 +427,8 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL('**/me');
         await reader.goto(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after logout and login');
         assert(await resume.isVisible(),
           viewport + ': reader lost saved place after logout and login');
         await resume.click();
@@ -244,6 +438,110 @@ async function inspect(page, viewport, name) {
         assert(await reader.getByText('PUBLIC B06 new').isVisible(),
           viewport + ': resumed reader text differs from author publication');
         await inspect(reader, viewport, 'cross-user-resumed');
+
+        await reader.goto(base + '/books/' + bookId);
+        await reader.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+        await reader.waitForURL(base + '/me/library/add/' + bookId);
+        await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
+        await reader.waitForURL(base + '/me/library');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 1,
+          viewport + ': removed book could not be saved again exactly once');
+        assert(await resume.isVisible(),
+          viewport + ': re-adding bookmark changed saved reading position');
+        await inspect(reader, viewport, 'bookmark-restored');
+
+        // E-12/S047-S048: a real reader selection becomes a version-pinned
+        // issue. The author edits the chapter separately and closes the task.
+        const issueReader = await reader.goto(base + '/read/' + chapterId);
+        assert(issueReader && issueReader.status() === 200,
+          viewport + ': E-12 reader is not available');
+        assert(await reader.locator('.reader-issues form').isVisible(),
+          viewport + ': E-12 correction form is missing');
+        const selectIssueQuote = async () => reader.evaluate(() => {
+          const span = Array.from(document.querySelectorAll(
+            '.reader-private__content [data-md-start]')).find(
+              element => element.textContent.includes('PUBLIC'));
+          if (!span || !span.firstChild || span.firstChild.nodeType !== Node.TEXT_NODE) return false;
+          const offset = span.firstChild.textContent.indexOf('PUBLIC');
+          if (offset < 0) return false;
+          const range = document.createRange();
+          range.setStart(span.firstChild, offset);
+          range.setEnd(span.firstChild, offset + 6);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event('selectionchange'));
+          return true;
+        });
+        const selectedQuote = await selectIssueQuote();
+        assert(selectedQuote && await reader.locator('#issue-quote').inputValue() === 'PUBLIC',
+          viewport + ': E-12 exact source quotation was not selected');
+        assert(await reader.locator('#issue-block').inputValue() === '1',
+          viewport + ': E-12 selection lost its block');
+        await reader.getByLabel('Предложение').fill('PUBLIC исправлено');
+        await reader.getByRole('button', { name: 'Отправить автору' }).click();
+        await reader.waitForURL(base + '/read/' + chapterId + '?issue=sent');
+        assert(await reader.locator('.reader-issue-feedback[role="status"]')
+          .getByText('Сообщение об ошибке отправлено автору.').isVisible(),
+          viewport + ': E-12 reader got no visible submission receipt');
+        assert(await selectIssueQuote(), viewport + ': E-12 repeat selection failed');
+        await reader.getByLabel('Предложение').fill('PUBLIC исправлено');
+        await reader.getByRole('button', { name: 'Отправить автору' }).click();
+        await reader.waitForURL(base + '/read/' + chapterId + '?issue=repeat');
+        assert(await reader.locator('.reader-issue-feedback[role="status"]')
+          .getByText('Такое сообщение уже было отправлено автору.').isVisible(),
+          viewport + ': E-12 duplicate submission had no visible result');
+
+        const issueQueue = base + '/me/books/' + bookId + '/issues';
+        const forbiddenReaderQueue = await reader.goto(issueQueue);
+        assert(forbiddenReaderQueue && forbiddenReaderQueue.status() === 404,
+          viewport + ': E-12 reader gained access to someone else\'s issue queue');
+        const authorQueue = await page.goto(issueQueue);
+        assert(authorQueue && authorQueue.status() === 200,
+          viewport + ': E-12 owner cannot open the issue queue');
+        assert(await page.locator('.auth-card blockquote').getByText('PUBLIC', { exact: true }).isVisible(),
+          viewport + ': E-12 author cannot see the verified quote');
+        assert(await page.locator('.auth-card').count() === 1,
+          viewport + ': E-12 duplicate submission created two author tasks');
+        await inspect(page, viewport, 'text-issue-author-queue');
+        await page.locator('.auth-card select[name="status"]').selectOption('fixed');
+        await page.getByRole('button', { name: 'Сохранить состояние' }).click();
+        await page.waitForURL(issueQueue + '?error=revision');
+        assert(await page.getByRole('alert').getByText(/Сначала опубликуйте исправленную редакцию/).isVisible(),
+          viewport + ': E-12 premature fixed status was not rejected');
+        await page.goto(issueQueue);
+
+        const editIssueChapter = '/me/books/' + bookId + '/chapters/' + chapterId + '/edit';
+        const issueEditorLink = page.locator('a[href="' + editIssueChapter + '"]');
+        assert(await issueEditorLink.isVisible(),
+          viewport + ': E-12 task does not lead to the correct chapter editor');
+        await issueEditorLink.click();
+        await page.waitForURL(base + editIssueChapter);
+        await page.getByLabel('Текст главы').fill('PUBLIC B06 corrected');
+        await page.getByRole('button', { name: 'Сохранить изменения' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        const fixedReader = await reader.goto(base + '/read/' + chapterId);
+        assert(fixedReader && fixedReader.status() === 200
+          && await reader.getByText('PUBLIC B06 corrected').isVisible(),
+          viewport + ': E-12 new published version not visible to reader');
+
+        await page.goto(issueQueue);
+        await page.locator('.auth-card select[name="status"]').selectOption('fixed');
+        await page.locator('.auth-card textarea[name="resolution_note"]')
+          .fill('Исправлено в новой редакции');
+        await page.getByRole('button', { name: 'Сохранить состояние' }).click();
+        await page.waitForURL(issueQueue);
+        await page.goto(issueQueue + '?status=fixed');
+        assert(await page.locator('.auth-card blockquote').getByText('PUBLIC', { exact: true }).isVisible(),
+          viewport + ': E-12 old immutable quote lost after chapter update');
+        assert(await page.getByText(/Состояние: fixed/).isVisible(),
+          viewport + ': E-12 fixed status and author decision not durable');
+        assert(await page.getByText(/Исправлено в опубликованной редакции №/).isVisible(),
+          viewport + ': E-12 fixed issue is not linked to a published revision');
+        const anonymousQueue = await guest.goto(issueQueue);
+        assert(anonymousQueue && new URL(guest.url()).pathname === '/login',
+          viewport + ': E-12 guest gained access to private author issues');
+        await inspect(page, viewport, 'text-issue-fixed');
       } finally {
         await guestContext.close();
         await readerContext.close();

@@ -213,7 +213,8 @@ async fn f_05_http_browser_form_skip_and_resume() {
 async fn f_05_http_hidden_book_denied_without_writing_comparison() {
     let (app, repo, uid, session) = fixture("hidden").await;
     // Obtain CSRF from an empty authorized dashboard BEFORE seeding an
-    // inaccessible book. Once hidden state exists, every ranking GET fails closed.
+    // inaccessible book. A hidden stale comparison is displayed as a
+    // restricted state without any Book title or answerable question.
     let (csrf_cookie, token) = csrf(&app, &session).await;
     // Book 2 is a CI draft; only this test fixture may seed such stale state.
     let before = ready(&repo, uid, [1, 2]).await;
@@ -224,8 +225,19 @@ async fn f_05_http_hidden_book_denied_without_writing_comparison() {
         request("GET", "/api/v1/me/rankings", "", &cookies, ORIGIN),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    assert!(body_of(response).await.is_empty());
+    assert_eq!(response.status(), StatusCode::OK);
+    let restricted: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
+    assert_eq!(restricted["state"], "restricted");
+    assert!(restricted["question"].is_null());
+    assert_eq!(restricted["revision"], before.revision);
+    assert!(
+        restricted["ranked_books"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|book| book["book_id"] != "2"),
+        "draft Book identity must not escape through personal rankings"
+    );
     let json = format!(
         r#"{{"expected_revision":{},"expected_state_version":{},"comparison_id":"{}","outcome":"a_wins"}}"#,
         before.revision, q.state_version, q.comparison_id,
@@ -353,7 +365,10 @@ async fn f_05_http_reader_finish_form_to_personal_ranking() {
     )
     .await;
     assert_eq!(completed.status(), StatusCode::SEE_OTHER);
-    assert_eq!(completed.headers()[header::LOCATION], "/me/rankings");
+    assert_eq!(
+        completed.headers()[header::LOCATION],
+        "/read/101#continuation"
+    );
     assert_eq!(
         send(
             &app,
@@ -398,6 +413,23 @@ async fn f_05_http_reader_finish_form_to_personal_ranking() {
     let reopened_html = body_of(reopened).await;
     assert!(reopened_html.contains("Глава уже отмечена прочитанной"));
     assert!(!reopened_html.contains("action=\"/read/101/complete\""));
+
+    // F-12/S046: this very same verified C event also awards the first
+    // private reading badge; pageview and saved place alone did not.
+    let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
+    assert_eq!(private.status(), StatusCode::OK);
+    assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
+    let dashboard = body_of(private).await;
+    assert!(dashboard.contains("Первая глава"));
+    assert!(dashboard.contains("Получено: 1/1 глав"));
+    assert!(dashboard.contains("Дата получения:"));
+    assert_eq!(
+        send(&app, request("GET", "/me", "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER,
+        "guest must never see another reader's achievements"
+    );
 
     let result = send(&app, request("GET", "/me/rankings", "", &session, ORIGIN)).await;
     assert_eq!(result.status(), StatusCode::OK);

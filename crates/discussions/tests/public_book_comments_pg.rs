@@ -15,8 +15,8 @@ async fn e_02_public_book_visibility_and_replay() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e02:comment','ru','E02 Book','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e02:comment','ru','E02 Book','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -89,15 +89,15 @@ async fn e_02_e03_replies_bind_parent_target_and_concurrent_replay() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:replies','ru','Replies','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e03:replies','ru','Replies','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
     let other_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:other','ru','Other','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:e03:other','ru','Other','public','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -235,8 +235,8 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     .await
     .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES('ci:e03:inbox','ru','Reply book','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,visibility_status,access_level)
+         VALUES('ci:e03:inbox','ru','Reply book','public','active','basic') RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -479,6 +479,9 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     let bounded = repo.received_replies(users[0], 1).await.unwrap();
     assert_eq!(bounded.len(), 1);
     assert_eq!(bounded[0].comment_id, second);
+
+    s020_age_inbox::verify(&pool, &repo, &inbox, book, users[0], second).await;
+
     sqlx::query("DELETE FROM discussion_comments WHERE parent_id=$1")
         .bind(parent)
         .execute(&pool)
@@ -500,3 +503,423 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending /tor_ci"]
+async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
+    use tor_discussions::repositories::inbox::PgInbox;
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PG URL");
+    assert!(url.ends_with("/tor_ci"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = format!("ci:e03:mention:{seed}");
+    let users: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1,'Target','$argon2id$fixture'),($2,'Writer','$argon2id$fixture')
+         RETURNING id",
+    )
+    .bind(format!("e03-target-{seed}@example.invalid"))
+    .bind(format!("e03-writer-{seed}@example.invalid"))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Mentions','public','basic') RETURNING id",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let store = PgPublicBookComments::new(pool.clone());
+    let first_comment = store
+        .create(
+            users[0],
+            book,
+            "Target is participating",
+            &"x".repeat(43),
+            &[9; 32],
+        )
+        .await;
+    assert!(matches!(first_comment, CreateResult::Created(_)));
+    let body = format!("Hello @[user:{}] @[user:{}]", users[0], i64::MAX);
+    let write = store
+        .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+        .await;
+    let comment_id = match write {
+        CreateResult::Created(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+            .await,
+        CreateResult::Replayed(comment_id)
+    );
+    let text: String = sqlx::query_scalar("SELECT body FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(text, format!("Hello @[user:{}] @пользователь", users[0]));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM discussion_comment_mentions WHERE comment_id=$1")
+            .bind(comment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    let rows = PgInbox::new(pool.clone())
+        .received(users[0], None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reply.comment_id, comment_id);
+    assert!(rows[0].is_mention);
+    assert!(PgInbox::new(pool.clone())
+        .received(users[1], None, None, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first_id: i64 = sqlx::query_scalar("SELECT id FROM discussion_comments WHERE book_id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(first_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for user in users {
+        sqlx::query("DELETE FROM users WHERE id=$1")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+}
+
+/// S011: PostgreSQL checks exact free version, UTF-16 anchor, replay,
+/// same-version parent, paywall and withdraw/republication without new schema.
+#[tokio::test]
+#[ignore = "disposable PostgreSQL 18 tor_ci with migrations"]
+async fn e_02_free_chapter_comments_edition_acl_and_replay() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tor_discussions::repositories::public_chapter_comments::{
+        CreateResult as ChapterCreate, NewAnchor, NewChapterComment, PgPublicChapterComments,
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable test database");
+    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let store = PgPublicChapterComments::new(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S011 reader','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e02-free-comment-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','S011 free','public','basic') RETURNING id",
+    )
+    .bind(format!("ci:s011:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,1,'Free','public','free',0) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,2,'Private','public','paid',100) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,$2) RETURNING id",
+    )
+    .bind(chapter)
+    .bind("A😀Z\n\n**Привет** мир")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'PAID-SOURCE-SECRET') RETURNING id",
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
+        .bind(chapter)
+        .bind(version)
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let key = "a".repeat(43);
+    let hash = [3_u8; 32];
+    let anchor = NewAnchor {
+        block_index: 1,
+        start_utf16: 1,
+        end_utf16: 3,
+        quote: "😀",
+    };
+    let message = NewChapterComment {
+        chapter_id: chapter,
+        version_id: version,
+        body: "Привет, ||секрет||",
+        command_key: &key,
+        payload_hash: &hash,
+        parent_id: None,
+        anchor: Some(anchor),
+    };
+    let id = match store.create_free(actor, message).await {
+        ChapterCreate::Created(id) => id,
+        other => panic!("expected created, got {other:?}"),
+    };
+    assert_eq!(
+        store.create_free(actor, message).await,
+        ChapterCreate::Replayed(id)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    body: "Другая запись",
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::Conflict
+    );
+    let part: (String, i32, i32) = sqlx::query_as(
+        "SELECT block_key,start_utf16,end_utf16 FROM discussion_anchors WHERE comment_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(part, ("b:1".to_owned(), 1, 3));
+    let page = store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].id, id);
+    assert_eq!(page.items[0].anchor.as_ref().unwrap().block_index, 1);
+    assert_eq!(page.next_cursor, None);
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    anchor: Some(NewAnchor {
+                        quote: "Z",
+                        ..anchor
+                    }),
+                    command_key: &"k".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::Invalid
+    );
+    assert_eq!(store.create_free(0, message).await, ChapterCreate::Invalid);
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    chapter_id: paid,
+                    version_id: paid_version,
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    let key2 = "b".repeat(43);
+    let reply = NewChapterComment {
+        parent_id: Some(id),
+        anchor: None,
+        command_key: &key2,
+        payload_hash: &[4; 32],
+        body: "Ответ",
+        ..message
+    };
+    let reply_id = match store.create_free(actor, reply).await {
+        ChapterCreate::Created(id) => id,
+        other => panic!("expected reply, got {other:?}"),
+    };
+    assert_eq!(
+        store.create_free(actor, reply).await,
+        ChapterCreate::Replayed(reply_id)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    parent_id: Some(i64::MAX),
+                    command_key: &"c".repeat(43),
+                    ..reply
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    let first_page = store
+        .list_free(chapter, version, None, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first_page.items[0].id, reply_id);
+    assert_eq!(first_page.next_cursor, Some(reply_id));
+    let second_page = store
+        .list_free(chapter, version, first_page.next_cursor, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second_page.items[0].id, id);
+    assert_eq!(second_page.next_cursor, None);
+    // Moderated roots hide the entire reply chain, without leaking bodies.
+    sqlx::query("UPDATE discussion_comments SET visibility='hidden' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"d".repeat(43),
+                    ..reply
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"e".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let next_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Новая редакция') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter)
+        .bind(next_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
+    );
+    assert!(store
+        .list_free(chapter, next_version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"f".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    assert_eq!(
+        store.list_free(paid, paid_version, None, 25).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        store.list_free(chapter, version, Some(-1), 25).await,
+        Err(tor_discussions::repositories::public_chapter_comments::ListError::Invalid)
+    );
+}
+
+#[path = "public_book_comments_pg/s020_age_inbox.rs"]
+mod s020_age_inbox;
+
+#[path = "public_book_comments_pg/s020_book_comments_age.rs"]
+mod s020_book_comments_age;
+
+#[path = "public_book_comments_pg/s020_chapter_comments_age.rs"]
+mod s020_chapter_comments_age;

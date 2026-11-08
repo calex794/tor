@@ -1,0 +1,600 @@
+//! E-08/E-06 projection of committed social events through the shared outbox.
+//! One short PostgreSQL transaction owns the event lock, projection and receipt.
+use super::mail::{blocked, pair_lock, unavailable};
+use crate::domain::MailError;
+use sqlx::PgPool;
+use std::{collections::HashMap, fmt::Write};
+
+#[path = "notification_read_policy.rs"]
+mod read_policy;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserNotification {
+    pub id: i64,
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    pub url: String,
+    pub created_at: String,
+    pub is_read: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPreference {
+    pub kind: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub enabled: bool,
+}
+
+// NEwBOO 17125ef7 bell preferences: missing (user,kind) rows mean enabled.
+// These are independent of the reader delivery-time setting.
+#[rustfmt::skip]
+const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
+    ("scene_marketplace", "Маркетплейс сцен", "Продажи, отзывы, модерация и обновления пресетов."),
+    ("mail", "Почта", "Новые личные сообщения."),
+    ("comment", "Комментарии", "Комментарии к книгам и главам."),
+    ("comment_reply", "Ответы на комментарии", "Прямые ответы на ваши комментарии."),
+    ("comment_mention", "Упоминания в комментариях", "Когда вас упоминают по handle."),
+    ("chapter_created", "Новые главы", "Главы в книгах из вашей библиотеки."),
+    ("book_invite", "Книги", "Добавление в книгу и роли в проекте."),
+    ("book_share", "Рекомендации книг", "Книги, которыми с вами делятся друзья."),
+    ("friendship", "Друзья", "Заявки, принятие и удаление из друзей."),
+    ("text_issue", "Ошибки текста", "Предложения читателей по исправлению текста."),
+    ("team_invite", "Команды", "Приглашения в команды."),
+    ("book_pending_deletion", "Удаление книг", "Книги, поставленные на удаление."),
+    ("book_moderation_passed", "Модерация: одобрено", "Книга прошла модерацию."),
+    ("book_moderation_problem", "Модерация: проблемы", "Книга скрыта или ограничена модерацией."),
+    ("refund", "Возвраты читателя", "Решения по вашим возвратам."),
+    ("refund_author", "Возвраты автора", "Возвраты по вашим книгам."),
+    ("payout", "Выплаты", "Финансовые события по выводу средств."),
+    ("project_news", "Новости проекта", "Важные новости и объявления платформы."),
+    ("author_new_book", "Авторы: новые книги", "Новые книги от пользователей, на которых вы подписаны."),
+    ("author_new_layer", "Авторы: пакеты", "Новые публичные пакеты доступа от пользователей, на которых вы подписаны."),
+    ("author_new_collection", "Авторы: коллекции", "Новые публичные коллекции от пользователей, на которых вы подписаны."),
+    ("daily_reader_digest", "Ежедневная сводка", "Сводка новых глав, авторских обновлений и подборок."),
+];
+
+// This kind must never appear in an ordinary reader's bell preferences.
+const ADMIN_MODERATION_PREF: (&str, &str, &str) = (
+    "moderation_overdue",
+    "Просроченные заявки модерации",
+    "Служебные сигналы ожидания для администратора сайта.",
+);
+
+#[derive(Clone)]
+pub struct PgNotifications {
+    pool: PgPool,
+}
+
+impl PgNotifications {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    async fn can_configure_moderation_alerts(&self, actor: i64) -> Result<bool, MailError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM account_roles role
+                JOIN users u ON u.id=role.user_id
+                WHERE role.user_id=$1 AND role.role='administrator'
+                  AND role.is_active AND u.account_state='active'
+            )",
+        )
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)
+    }
+
+    /// Delivers to existing in-app bells only when explicitly invoked by an
+    /// internal caller. Nothing schedules or automatically enables this method.
+    /// Unapproved recipient/SLA policies must not be enabled on production.
+    pub async fn project_moderation_overdue_to_admin_bell(
+        &self,
+        limit: u16,
+    ) -> Result<usize, MailError> {
+        super::moderation_overdue_bell::project(&self.pool, limit).await
+    }
+
+    /// Fan out S058's canonical release fact into recipient-scoped events.
+    /// No direct notification or plaintext is created here.
+    pub async fn fanout_chapter_releases(&self, limit: u16) -> Result<usize, MailError> {
+        super::chapter_notifications::fanout(&self.pool, limit).await
+    }
+
+    /// Consume only this feature's events. Row-level SKIP LOCKED and the
+    /// source-event unique key make competing workers/restarts idempotent.
+    /// No external message or notification is sent before the DB receipt.
+    pub async fn deliver_pending(&self, limit: u16) -> Result<usize, MailError> {
+        if !(1..=100).contains(&limit) {
+            return Err(MailError::Invalid);
+        }
+        let mut processed = 0;
+        for _ in 0..limit {
+            let mut tx = self.pool.begin().await.map_err(unavailable)?;
+            let event = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
+                "SELECT e.id::text,e.event_type,
+                        (e.payload->>'actor_user_id')::bigint,
+                        (e.payload->>'recipient_user_id')::bigint,
+                        (e.payload->>'object_id')::bigint
+                 FROM outbox_events e
+                 WHERE e.delivered_at IS NULL AND e.dead_at IS NULL
+                   AND e.next_attempt_at<=clock_timestamp()
+                   AND e.required_consumers @> ARRAY['user_notifications']::text[]
+                   AND e.event_type IN
+                     ('social.mail.created','social.friendship.requested',
+                      'social.friendship.accepted','social.friendship.removed',
+                      'social.group_mail.created',
+                      'social.group_creator_transfer.proposed',
+                      'reader.chapter.released')
+                   AND NOT EXISTS (
+                     SELECT 1 FROM event_deliveries d
+                     WHERE d.event_id=e.id AND d.consumer='user_notifications')
+                 ORDER BY e.created_at,e.id
+                 FOR UPDATE SKIP LOCKED LIMIT 1",
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+            let Some((event_id, kind, actor, recipient, object_id)) = event else {
+                tx.commit().await.map_err(unavailable)?;
+                break;
+            };
+            // A block committed before consumption suppresses the notification,
+            // never the message. Valid actor/recipient membership is authoritative.
+            let user_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1) AND
+                        EXISTS(SELECT 1 FROM users WHERE id=$2)",
+            )
+            .bind(actor)
+            .bind(recipient)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+            // Use the same pair lock as send/block; a committed block cannot
+            // race past an already-checked notification projection.
+            if user_exists && actor != recipient && actor > 0 && recipient > 0 {
+                pair_lock(&mut tx, actor, recipient).await?;
+            }
+            let is_blocked = if user_exists && actor != recipient && actor > 0 && recipient > 0 {
+                blocked(&mut tx, actor, recipient).await?
+            } else {
+                true
+            };
+            let member = if kind == "social.mail.created" {
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM social_conversations
+                     WHERE id=$1 AND $2 IN(user_low,user_high)
+                       AND $3 IN(user_low,user_high) AND $2<>$3)",
+                )
+                .bind(object_id)
+                .bind(actor)
+                .bind(recipient)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(unavailable)?
+            } else if kind == "social.group_mail.created" {
+                // A departed member must not receive a delayed notification.
+                // FOR SHARE serializes projection against member exit, and the
+                // source message check binds this event to the actual sender.
+                let status: Option<String> = sqlx::query_scalar(
+                    "SELECT m.status FROM social_group_members m
+                     WHERE m.group_id=$1 AND m.user_id=$2
+                       AND EXISTS(
+                         SELECT 1 FROM social_group_messages msg
+                         JOIN outbox_events e ON e.id=$4::uuid
+                         WHERE msg.group_id=$1 AND msg.id=e.aggregate_id
+                           AND msg.sender_id=$3)
+                     FOR SHARE",
+                )
+                .bind(object_id)
+                .bind(recipient)
+                .bind(actor)
+                .bind(&event_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+                status.as_deref() == Some("active")
+            } else if kind == "reader.chapter.released" {
+                super::chapter_notifications::eligible_recipient(
+                    &mut tx, object_id, actor, recipient, &event_id,
+                )
+                .await?
+            } else if kind == "social.group_creator_transfer.proposed" {
+                // Lock the group in a separate statement BEFORE checking
+                // the offer. With READ COMMITTED, joining a locked group in
+                // the offer query could use a stale, unlocked offer snapshot
+                // after a concurrent revoke/decline/accept commits.
+                // Every transfer mutation takes the group lock first.
+                let group_locked = sqlx::query_scalar::<_, i64>(
+                    "SELECT id FROM social_group_conversations WHERE id=$1 FOR SHARE",
+                )
+                .bind(object_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?
+                .is_some();
+                let pending: Option<i64> = if group_locked {
+                    sqlx::query_scalar(
+                        "SELECT t.id FROM social_group_creator_transfers t
+                         JOIN social_group_conversations g ON g.id=t.group_id
+                         JOIN social_group_members owner ON owner.group_id=t.group_id
+                           AND owner.user_id=t.from_user_id AND owner.status='active'
+                           AND owner.role='creator'
+                         JOIN social_group_members member ON member.group_id=t.group_id
+                           AND member.user_id=t.to_user_id AND member.status='active'
+                         JOIN users sender ON sender.id=t.from_user_id
+                           AND sender.account_state='active'
+                         JOIN users receiver ON receiver.id=t.to_user_id
+                           AND receiver.account_state='active'
+                         JOIN outbox_events e ON e.id=$4::uuid AND e.aggregate_id=t.id
+                         WHERE t.group_id=$1 AND t.from_user_id=$3 AND t.to_user_id=$2
+                           AND t.state='pending' AND t.expires_at>clock_timestamp()
+                         FOR SHARE OF t,owner,member,sender,receiver",
+                    )
+                    .bind(object_id)
+                    .bind(recipient)
+                    .bind(actor)
+                    .bind(&event_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(unavailable)?
+                } else {
+                    None
+                };
+                pending.is_some()
+            } else {
+                object_id == actor
+            };
+            if user_exists
+                && !is_blocked
+                && actor > 0
+                && recipient > 0
+                && actor != recipient
+                && member
+            {
+                let name: String = sqlx::query_scalar("SELECT display_name FROM users WHERE id=$1")
+                    .bind(actor)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(unavailable)?;
+                let (category, title, body, url) = match kind.as_str() {
+                    "reader.chapter.released" => (
+                        "chapter_created",
+                        "Новая глава",
+                        format!("{name} опубликовал новую главу"),
+                        format!("/reader/{object_id}"),
+                    ),
+                    "social.mail.created" => (
+                        "mail",
+                        "Новое сообщение",
+                        format!("{name} написал вам"),
+                        format!("/mail/{object_id}"),
+                    ),
+                    "social.group_mail.created" => (
+                        "mail",
+                        "Новое сообщение в группе",
+                        format!("{name} написал в группе"),
+                        format!("/mail/groups/{object_id}"),
+                    ),
+                    "social.group_creator_transfer.proposed" => (
+                        "mail",
+                        "Предложение управлять группой",
+                        format!("{name} предлагает вам управление группой"),
+                        "/mail/group-transfers".to_owned(),
+                    ),
+                    "social.friendship.requested" => (
+                        "friendship",
+                        "Новая заявка в друзья",
+                        format!("{name} хочет добавить вас в друзья."),
+                        format!("/users/{}", encode_segment(&name)),
+                    ),
+                    "social.friendship.accepted" => (
+                        "friendship",
+                        "Заявка в друзья принята",
+                        format!("{name} теперь у вас в друзьях."),
+                        format!("/users/{}", encode_segment(&name)),
+                    ),
+                    "social.friendship.removed" => (
+                        "friendship",
+                        "Удаление из друзей",
+                        format!("{name} удалил вас из друзей."),
+                        format!("/users/{}", encode_segment(&name)),
+                    ),
+                    _ => unreachable!("event_type is closed by SQL"),
+                };
+                sqlx::query(
+                    "INSERT INTO user_notifications
+                       (recipient_user_id,actor_user_id,source_event_id,
+                        kind,title,body,url,created_at)
+                     SELECT $1,$2,e.id,$3,$4,$5,$6,e.created_at
+                     FROM outbox_events e WHERE e.id=$7::uuid
+                       AND NOT EXISTS (
+                         SELECT 1 FROM user_notification_preferences p
+                         WHERE p.user_id=$1 AND p.kind=$3 AND NOT p.enabled)
+                     ON CONFLICT(source_event_id) DO NOTHING",
+                )
+                .bind(recipient)
+                .bind(actor)
+                .bind(category)
+                .bind(title)
+                .bind(body)
+                .bind(url)
+                .bind(&event_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+            }
+            sqlx::query(
+                "INSERT INTO event_deliveries(consumer,event_id)
+                 VALUES('user_notifications',$1::uuid) ON CONFLICT DO NOTHING",
+            )
+            .bind(&event_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+            sqlx::query(
+                "UPDATE outbox_events o SET delivered_at=clock_timestamp()
+                 WHERE o.id=$1::uuid AND NOT EXISTS(
+                     SELECT 1 FROM unnest(o.required_consumers) AS required(consumer)
+                     WHERE NOT EXISTS(
+                         SELECT 1 FROM event_deliveries d
+                         WHERE d.event_id=o.id AND d.consumer=required.consumer))",
+            )
+            .bind(&event_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+            tx.commit().await.map_err(unavailable)?;
+            processed += 1;
+        }
+        Ok(processed)
+    }
+
+    /// Default inbox preserves the existing pagination and actor-only contract.
+    pub async fn list(
+        &self,
+        actor: i64,
+        before: Option<i64>,
+        limit: u16,
+    ) -> Result<Vec<UserNotification>, MailError> {
+        self.list_section(actor, before, limit, "notifications")
+            .await
+    }
+
+    /// Source notification tabs, filtered before LIMIT so later matching rows
+    /// cannot be skipped by a page full of unrelated kinds.
+    pub async fn list_section(
+        &self,
+        actor: i64,
+        before: Option<i64>,
+        limit: u16,
+        section: &str,
+    ) -> Result<Vec<UserNotification>, MailError> {
+        if actor <= 0
+            || before.is_some_and(|id| id <= 0)
+            || !(1..=100).contains(&limit)
+            || !matches!(section, "notifications" | "releases" | "system")
+        {
+            return Err(MailError::Invalid);
+        }
+        let sql = format!(
+            r#"SELECT n.id,n.kind,n.title,n.body,n.url,
+                      to_char((n.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),
+                      n.read_at IS NOT NULL
+               FROM user_notifications n
+               WHERE n.recipient_user_id=$1 AND ($2::bigint IS NULL OR n.id<$2)
+                 AND {}
+                 AND (
+                   $4::text='notifications'
+                   OR ($4='releases' AND n.kind IN (
+                     'chapter_created','project_news','author_new_book',
+                     'author_new_layer','author_new_collection'))
+                   OR ($4='system' AND n.kind NOT IN (
+                     'chapter_created','project_news','author_new_book',
+                     'author_new_layer','author_new_collection',
+                     'comment','comment_reply','comment_mention'))
+                 )
+               -- Evaluate offer validity before LIMIT: stale rows must not
+               -- consume a page slot or reappear on other notification tabs.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM outbox_events e
+                   WHERE e.id=n.source_event_id
+                     AND e.event_type='social.group_creator_transfer.proposed'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM social_group_creator_transfers t
+                       JOIN social_group_members owner
+                         ON owner.group_id=t.group_id AND owner.user_id=t.from_user_id
+                         AND owner.status='active' AND owner.role='creator'
+                       JOIN social_group_members member
+                         ON member.group_id=t.group_id AND member.user_id=t.to_user_id
+                         AND member.status='active'
+                       JOIN users sender ON sender.id=t.from_user_id
+                         AND sender.account_state='active'
+                       JOIN users receiver ON receiver.id=t.to_user_id
+                         AND receiver.account_state='active'
+                       WHERE t.id=e.aggregate_id AND t.from_user_id=n.actor_user_id
+                         AND t.to_user_id=n.recipient_user_id AND t.state='pending'
+                         AND t.expires_at>clock_timestamp()
+                     )
+                 )
+               ORDER BY n.id DESC LIMIT $3"#,
+            read_policy::VISIBLE
+        );
+        let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(&sql)
+            .bind(actor)
+            .bind(before)
+            .bind(i64::from(limit))
+            .bind(section)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| UserNotification {
+                id: r.0,
+                kind: r.1,
+                title: r.2,
+                body: r.3,
+                url: r.4,
+                created_at: r.5,
+                is_read: r.6,
+            })
+            .collect())
+    }
+
+    /// Source semantics: all known kinds are enabled until explicitly saved.
+    pub async fn preferences(&self, actor: i64) -> Result<Vec<NotificationPreference>, MailError> {
+        if actor <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let saved: HashMap<String, bool> = sqlx::query_as::<_, (String, bool)>(
+            "SELECT kind,enabled FROM user_notification_preferences WHERE user_id=$1",
+        )
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .collect();
+        let admin = self.can_configure_moderation_alerts(actor).await?;
+        Ok(NOTIFICATION_KIND_OPTIONS
+            .iter()
+            .copied()
+            .chain(admin.then_some(ADMIN_MODERATION_PREF))
+            .map(|(kind, label, description)| NotificationPreference {
+                kind,
+                label,
+                description,
+                enabled: saved.get(kind).copied().unwrap_or(true),
+            })
+            .collect())
+    }
+
+    /// Save visible kinds atomically (22 general, plus 1 for active site admins).
+    /// Ignore submitted unknown names, and never trust a recipient in a form.
+    pub async fn set_preferences(
+        &self,
+        actor: i64,
+        enabled_kinds: &[String],
+    ) -> Result<(), MailError> {
+        if actor <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let admin = self.can_configure_moderation_alerts(actor).await?;
+        let kinds: Vec<String> = NOTIFICATION_KIND_OPTIONS
+            .iter()
+            .copied()
+            .chain(admin.then_some(ADMIN_MODERATION_PREF))
+            .map(|(kind, _, _)| kind.to_owned())
+            .collect();
+        let enabled: Vec<String> = kinds
+            .iter()
+            .filter(|kind| enabled_kinds.contains(kind))
+            .cloned()
+            .collect();
+        sqlx::query(
+            "INSERT INTO user_notification_preferences(user_id,kind,enabled,updated_at)
+             SELECT $1,k.kind,k.kind=ANY($2::text[]),clock_timestamp()
+             FROM unnest($3::text[]) AS k(kind)
+             WHERE true
+             ON CONFLICT(user_id,kind)
+             DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=EXCLUDED.updated_at",
+        )
+        .bind(actor)
+        .bind(&enabled)
+        .bind(&kinds)
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        Ok(())
+    }
+
+    pub async fn mark_read(&self, actor: i64, id: i64) -> Result<bool, MailError> {
+        if actor <= 0 || id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let sql = format!(
+            r#"UPDATE user_notifications n SET read_at=COALESCE(n.read_at,clock_timestamp())
+             WHERE n.recipient_user_id=$1 AND n.id=$2
+                 AND {}
+               -- A stale form left open in the browser must not acknowledge
+               -- or navigate through an already revoked/expired proposal.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM outbox_events e
+                   WHERE e.id=n.source_event_id
+                     AND e.event_type='social.group_creator_transfer.proposed'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM social_group_creator_transfers t
+                       JOIN social_group_members owner
+                         ON owner.group_id=t.group_id AND owner.user_id=t.from_user_id
+                         AND owner.status='active' AND owner.role='creator'
+                       JOIN social_group_members member
+                         ON member.group_id=t.group_id AND member.user_id=t.to_user_id
+                         AND member.status='active'
+                       JOIN users sender ON sender.id=t.from_user_id
+                         AND sender.account_state='active'
+                       JOIN users receiver ON receiver.id=t.to_user_id
+                         AND receiver.account_state='active'
+                       WHERE t.id=e.aggregate_id AND t.from_user_id=n.actor_user_id
+                         AND t.to_user_id=n.recipient_user_id AND t.state='pending'
+                         AND t.expires_at>clock_timestamp()
+                     )
+                 )"#,
+            read_policy::VISIBLE
+        );
+        let count = sqlx::query(&sql)
+            .bind(actor)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(unavailable)?
+            .rows_affected();
+        Ok(count == 1)
+    }
+
+    pub async fn mark_all_read(&self, actor: i64) -> Result<u64, MailError> {
+        if actor <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let sql = format!(
+            "UPDATE user_notifications n SET read_at=clock_timestamp()
+             WHERE n.recipient_user_id=$1 AND n.read_at IS NULL AND {}",
+            read_policy::VISIBLE
+        );
+        sqlx::query(&sql)
+            .bind(actor)
+            .execute(&self.pool)
+            .await
+            .map(|result| result.rows_affected())
+            .map_err(unavailable)
+    }
+}
+
+/// Encode a single public profile path segment, not an untrusted redirect.
+fn encode_segment(name: &str) -> String {
+    let mut result = String::new();
+    for &byte in name.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            result.push(char::from(byte));
+        } else {
+            write!(result, "%{byte:02X}").expect("write to string");
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_segment;
+
+    #[test]
+    fn profile_notification_link_is_one_encoded_path_segment() {
+        assert_eq!(
+            encode_segment("Алиса / Боб"),
+            "%D0%90%D0%BB%D0%B8%D1%81%D0%B0%20%2F%20%D0%91%D0%BE%D0%B1"
+        );
+        assert_eq!(encode_segment("//evil.example"), "%2F%2Fevil.example");
+    }
+}

@@ -29,7 +29,8 @@ BEGIN
        OR to_regclass('public.chapter_purchase_facts') IS NULL
        OR to_regclass('public.chapter_purchase_commands') IS NULL
        OR to_regclass('public.chapter_encrypted_release_events') IS NULL
-       OR to_regclass('public.chapter_version_assets') IS NULL THEN
+       OR to_regclass('public.chapter_version_assets') IS NULL
+       OR to_regclass('public.chapter_import_jobs') IS NULL THEN
         RAISE EXCEPTION 'Missing contract tables';
     END IF;
 
@@ -37,8 +38,8 @@ BEGIN
       VALUES('migration-test@example.invalid','Migration Fixture','$argon2id$ci-placeholder')
       RETURNING id INTO new_user_id;
 
-    INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-      VALUES ('ci-public-book','ru','CI Public Book','public',new_user_id)
+    INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+      VALUES ('ci-public-book','ru','CI Public Book','public',new_user_id,'basic')
       RETURNING id INTO public_book_id;
 
     INSERT INTO books(source_identity,target_language,title,visibility)

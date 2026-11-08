@@ -54,6 +54,47 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
         .await
         .expect("tor_app");
     let app = tor_web::router_with_postgres_reading(catalog, reader);
+    let (status, window) = get(
+        app.clone(),
+        "/api/v1/books/1/toc/window?around_chapter_id=103&limit=3",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(window.contains(r#""chapter_no":3"#), "{window}");
+    assert!(window.contains(r#""access_level":"paid""#), "{window}");
+    assert!(!window.contains("PRIVATE-PAID-MARKER"));
+    for path in [
+        "/api/v1/books/1/toc/window",
+        "/api/v1/books/1/toc/window?around_chapter_id=0",
+        "/api/v1/books/1/toc/window?around_chapter_id=101&after=1.101",
+        "/api/v1/books/1/toc/window?around_chapter_id=101&limit=101",
+        "/api/v1/books/1/toc/window?before=bad",
+        "/api/v1/books/1/toc/window?after=1.0",
+    ] {
+        assert_eq!(
+            get(app.clone(), path).await.0,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
+    }
+    assert_eq!(
+        get(
+            app.clone(),
+            "/api/v1/books/1/toc/window?around_chapter_id=102"
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND,
+    );
+    assert_eq!(
+        get(
+            app.clone(),
+            "/api/v1/books/2/toc/window?around_chapter_id=101"
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND,
+    );
     let (status, json) = get(app.clone(), "/api/v1/books/1/toc?limit=1").await;
     assert_eq!(status, StatusCode::OK);
     assert!(json.contains("\"chapter_no\":1"));
@@ -157,7 +198,13 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         if path == "/reader/103" {
             assert_eq!(reply.headers()["x-robots-tag"], "noindex, nofollow");
         }
-        assert!(policy.contains("script-src 'none'"));
+        if path == "/reader/101" {
+            assert!(policy.contains("script-src 'self'"));
+            assert!(policy.contains("connect-src 'self'"));
+        } else {
+            assert!(policy.contains("script-src 'none'"));
+            assert!(!policy.contains("connect-src 'self'"));
+        }
         assert!(policy.contains("frame-ancestors 'none'"));
         let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
@@ -528,8 +575,8 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     let book: i64 = sql(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public','basic') RETURNING id"
         ),
     ).parse().expect("book id");
     let chapter: i64 = sql(
@@ -619,3 +666,7 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
     // User-specific purchased-version read paths are not changed by SEO.
 }
+
+// S020: public related-book cards are part of the mandatory real HTTP + PG suite.
+#[path = "public_related_http_pg.rs"]
+mod public_related_http_pg;

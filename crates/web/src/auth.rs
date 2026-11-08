@@ -1,8 +1,6 @@
-//! Real browser account flows, backed by PostgreSQL and revocable sessions.
 #![forbid(unsafe_code)]
-
 use crate::{
-    auth_cookies::{private_response, CookiePolicy},
+    auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -21,54 +19,101 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
-    },
-};
-use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
+use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
+use tor_ingest::services::cover_jobs::CoverObjectStore;
 use tor_reading::domain::renderer::valid_reader_length;
+use tor_reading::repositories::PgReader;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
+    PgReadingSync,
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::{
-        progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
-        PublicReadingRepository,
-    },
+use tor_reading::services::{
+    progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
+    PublicReadingRepository,
 };
-
 mod access_audit;
 mod account_form_http;
+mod account_home;
+mod admin_mail;
+mod admin_mail_routes;
+mod admin_refund_review;
+pub(crate) mod auth_observation;
+mod author_book_page;
 mod batch_checkout_browser;
-mod behavior_consent;
+pub(crate) mod behavior_consent;
+mod book_access_level;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod book_lifecycle;
+mod book_likes;
+mod book_ordinary_deletion;
+mod book_origin_metadata;
+mod book_ownership_finance;
+mod book_project_status;
+mod book_registration_http;
+mod book_related;
+mod book_rooms;
+mod book_shares;
+mod book_sources;
 mod book_stars;
+mod book_stats_http;
+mod book_title_suggestions;
+mod book_titles;
+mod chapter_comments;
+mod chapter_thanks;
 mod checkout;
+mod checkout_browser;
+mod collections;
 mod complete_chapter;
 mod continuation_demand;
+mod creator_follows;
+mod direct_swap_browser;
 mod follow_read_state;
 mod followed_purchase_links;
+mod friendship;
+mod group_mail;
+pub(crate) mod honeypot;
 mod inbox;
+mod layer_checkout_api;
+mod layer_routes;
+mod layer_storefront;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod mail;
+mod mail_api;
+mod mail_book_previews;
+mod mail_pages;
+mod moderation_books;
+mod moderation_confirm;
+mod moderation_covers;
 mod notification_settings;
+mod notifications;
 mod paid_completion;
 mod password_change;
 mod password_reset;
+mod personal_books;
 mod private_reader;
 mod profile_http;
+mod public_profile;
 mod rankings;
+mod referral_alias;
+mod referral_capture;
+mod referral_dashboard;
+mod referral_routes;
+mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
-mod security_retention;
+mod saved_free_chapters;
+pub(crate) mod security_retention;
+mod session_security;
 mod settings_routes;
+mod support_bundle;
 mod sync_actions;
+mod teams;
+mod text_issues;
 mod types;
 use types::*;
 pub(crate) fn router(
@@ -79,7 +124,6 @@ pub(crate) fn router(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, None, false, None)
 }
-
 pub(crate) fn router_with_cover_uploads(
     accounts: PgAccounts,
     reader: PgReader,
@@ -89,8 +133,6 @@ pub(crate) fn router_with_cover_uploads(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
-
-/// Enable purchased-library navigation only when an authorized reader is mounted.
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
     reader: PgReader,
@@ -108,9 +150,6 @@ pub(crate) fn router_with_paid_reader(
         None,
     )
 }
-
-/// Only the private, explicitly enabled paid-author router provides a writer.
-/// The existing grant-only constructor never changes author capabilities.
 pub(crate) fn router_with_paid_reader_author(
     accounts: PgAccounts,
     reader: PgReader,
@@ -129,7 +168,6 @@ pub(crate) fn router_with_paid_reader_author(
         Some(author),
     )
 }
-
 fn router_inner(
     accounts: PgAccounts,
     reader: PgReader,
@@ -139,11 +177,17 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
-    security_retention::start(accounts.clone());
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
+    let pool = accounts.pool().clone();
+    let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
+    let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+    let social_routes = personal_books::router(accounts.clone(), cookies.clone())
+        .merge(teams::router(accounts.clone(), cookies.clone()))
+        .merge(collections::router(accounts.clone(), cookies.clone()))
+        .merge(book_shares::router(accounts.clone(), cookies.clone()));
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -152,42 +196,60 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let creator_follows = tor_social::services::follow::PgCreatorFollows::new(pool.clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
+    let achievements = tor_recommendations::repositories::PgAchievements::new(pool.clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage
-        .as_ref()
-        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
+    let layer_checkout_enabled =
+        paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
+    let swap_browser_enabled = paid_checkout_enabled
+        && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
+    let refund_browser_enabled = paid_checkout_enabled
+        && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
-        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
-            accounts.pool().clone(),
-        ),
+        notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled,
+        layer_pages_enabled,
+        swap_browser_enabled,
+        refund_browser_enabled,
         paid_reader_available,
+        paid_author_available,
         authoring,
         progress,
         sync,
         bookmarks,
         demand,
         book_follows,
+        creator_follows,
         follow_updates,
         reader,
         rankings,
+        achievements,
         cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
-        cover_jobs,
+        cover_preview_storage: storage.clone(),
         cover_upload_enabled,
+        age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(layer_routes::routes())
+        .merge(layer_storefront::router())
+        .merge(support_bundle::router())
+        .merge(referral_routes::router())
+        .merge(notifications::router().merge(group_mail::invitations::router()))
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -196,10 +258,59 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
+        .merge(creator_follows::router())
+        .route(
+            "/me/books/{id}/follow-creator",
+            post(book_follow_actions::follow_creator),
+        )
+        .route("/users/{display_name}", get(public_profile::page))
+        .route("/users/{target_user_id}/friend", post(friendship::request))
+        .route("/users/{target_user_id}/unfriend", post(friendship::remove))
+        .route("/users/{target_user_id}/block", post(friendship::block))
+        .merge(admin_mail_routes::router())
+        .merge(admin_refund_review::router())
+        .merge(moderation_books::router())
+        .merge(moderation_covers::router())
+        .merge(book_project_status::router().merge(book_titles::router()))
+        .merge(book_ordinary_deletion::router())
+        .merge(book_ownership_finance::router())
+        .merge(book_related::router().merge(book_origin_metadata::router()))
+        .route("/mail", get(mail::index))
+        .route("/mail/start/{recipient_user_id}", post(mail::start))
+        .route("/mail/{id}", get(mail::conversation))
+        .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
+        .route("/mail/{id}/block", post(mail::block))
+        .route(
+            "/mail/groups",
+            get(group_mail::index).post(group_mail::create),
+        )
+        .route("/mail/groups/{id}", get(group_mail::detail))
+        .route(
+            "/mail/groups/{id}/messages",
+            get(group_mail::poll).post(group_mail::send),
+        )
+        .route("/mail/groups/{id}/leave", post(group_mail::leave))
+        .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
+        .route("/mail/groups/{id}/disband", post(group_mail::disband))
+        .route("/books/{id}/room", get(book_rooms::page))
+        .route("/books/{id}/room/join", post(book_rooms::join))
+        .route("/books/{id}/room/messages", post(book_rooms::send))
+        .route("/books/{id}/room/leave", post(book_rooms::leave))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
+        .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
+        )
+        .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route(
+            "/api/v1/social/mentions/discover",
+            get(book_comments::discover_mentions),
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
@@ -208,14 +319,30 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .merge(saved_free_chapters::router())
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
         .route(
+            "/books/{id}/like",
+            get(book_likes::page).post(book_likes::submit),
+        )
+        .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route("/read/{id}/text-issues", post(text_issues::submit))
+        .route("/me/books/{id}/issues", get(text_issues::author_page))
+        .route(
+            "/me/books/{id}/issues/{issue_id}/status",
+            post(text_issues::change_status),
+        )
+        .route("/reader/{id}/comments", post(chapter_comments::submit))
+        .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
         )
         .route(
             "/books/{id}/comments",
@@ -226,7 +353,13 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
+        .merge(refund_browser::router())
+        .route(
+            "/me/refunds/swap",
+            get(direct_swap_browser::page).post(direct_swap_browser::submit),
+        )
         .route("/api/v1/purchases", post(checkout::buy))
+        .merge(checkout_browser::router())
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
             "/me/books/{id}/buy-chapters",
@@ -261,11 +394,30 @@ fn router_inner(
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
         .route("/me/books", get(author_books).post(create_book))
-        .route("/me/books/new", get(new_author_book))
-        .route("/me/books/{id}", get(author_book))
+        .route("/me/books/new", get(book_registration_http::new_page))
+        .route(
+            "/me/books/title-suggestions",
+            get(book_title_suggestions::find),
+        )
+        .route(
+            "/assets/book-title-suggestions.js",
+            get(book_title_suggestions::script),
+        )
+        .route("/me/books/{id}", get(author_book_page::page))
+        .route(
+            "/me/books/{id}/registration-status",
+            get(author_book_page::registration_status),
+        )
+        .route("/me/books/{id}/preview", get(mail_book_previews::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
+        )
+        .route(
+            "/me/books/{id}/settings/sources",
+            get(book_sources::edit).post(book_sources::save),
         )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader::page))
@@ -283,18 +435,12 @@ fn router_inner(
             observation_state,
             behavior_consent::annotate_verified_ril,
         ))
-        .merge(chapter_routes);
-    if let Some(cover_routes) = cover_routes {
-        app.merge(cover_routes)
-    } else {
-        app
-    }
+        .merge(chapter_routes)
+        .merge(social_routes);
+    let app = cover_routes.into_iter().fold(app, Router::merge);
+    let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
+    crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
-
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
-}
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
@@ -305,31 +451,8 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let name = match state.accounts.user_display_name(user_id).await {
-        Ok(Some(value)) => value,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let discussions =
-        tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
-            state.accounts.pool().clone(),
-        );
-    let replies = match discussions.received_replies(user_id, 10).await {
-        Ok(replies) => replies,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let unread = match state.follow_updates.unread_count_capped(user_id).await {
-        Ok(count) => count,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
-        &cookies,
-    )
+    account_home::page(state, headers, user_id).await
 }
-
-/// Browser author workspace backed by the current PostgreSQL user session.
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
@@ -337,23 +460,10 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(status) => return deny(status),
     };
     match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+        Ok(books) => layer_routes::author_index(&state, actor, &books).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
-async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => (),
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    }
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    // Each form gets a unique cryptographic command key for safe POST replay.
-    let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
-}
-
 async fn create_book(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -371,23 +481,7 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    // Manual authorship does not invoke collectors or trust client-supplied IDs.
-    // The source identity is stable across retries of this exact form.
-    let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_taxonomy(
-        &identity,
-        &form.target_language,
-        &form.title,
-        &form.command_key,
-        form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
-        TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
-        },
-    )
-    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    {
+    let request = match book_registration_http::request(actor, &form) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -396,63 +490,12 @@ async fn create_book(
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Conflict) => {
+            private_response((StatusCode::CONFLICT, author_pages::create_conflict()), &[])
+        }
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
-async fn author_book(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let book = match state.authoring.owned_book(actor, id).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let published = match state.authoring.owned_book_is_public(actor, id).await {
-        Ok(published) => published,
-        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let demand_count = match state.demand.current_count(id).await {
-        Ok(count) => count,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
-        Ok(chapters) => chapters,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
-        match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else {
-        None
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        author_chapter_pages::detail_with_covers_with_demand(
-            &book,
-            published,
-            &chapters,
-            &csrf,
-            state.cover_upload_enabled,
-            latest_cover.as_deref(),
-            demand_count,
-        ),
-        &cookies,
-    )
-}
-
-/// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
@@ -471,22 +514,12 @@ async fn cover_settings(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let latest = match state.cover_jobs.as_ref() {
-        Some(jobs) => match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        },
-        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let latest = match slots.owner_latest_status(id, actor).await {
+        Ok(latest) => latest,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let slots =
-        tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
-    let current = match slots
-        .public_variant(
-            id,
-            tor_books::repositories::cover_slots::PublicCoverKind::Main,
-        )
-        .await
-    {
+    let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -503,8 +536,6 @@ async fn cover_settings(
     );
     response
 }
-
-/// Manual place save checks session, Origin, CSRF, published version and visibility.
 async fn save_place(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
@@ -559,24 +590,11 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Form(form): Form<LogoutForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
+    // session_security::logout enforces same-origin and CSRF itself.
+    session_security::logout(State(state), headers, Form(form)).await
 }

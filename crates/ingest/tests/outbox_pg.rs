@@ -28,7 +28,11 @@ async fn g_06_two_consumers_finish_only_after_both_receipts() {
     .await
     .unwrap();
     let outbox = PgOutbox::new(pool.clone());
-    let claimed = outbox.claim_next().await.unwrap().unwrap();
+    let claimed = outbox
+        .claim_next_for_consumer("G06Test", "g06-one")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(claimed.id, event_id);
     assert_eq!(claimed.required_consumers, vec!["g06-one", "g06-two"]);
     assert_eq!(
@@ -101,7 +105,7 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     .await
     .unwrap();
     let outbox = PgOutbox::new(pool.clone());
-    let first = outbox.claim_next().await.unwrap().unwrap();
+    let first = outbox.claim_next_for_consumer("G07Test", "g07-target").await.unwrap().unwrap();
     assert_eq!(first.id, event_id);
     sqlx::query(
         "UPDATE outbox_events SET lease_until=now()-interval '1 second'
@@ -111,7 +115,7 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     .execute(&pool)
     .await
     .unwrap();
-    let second = outbox.claim_next().await.unwrap().unwrap();
+    let second = outbox.claim_next_for_consumer("G07Test", "g07-target").await.unwrap().unwrap();
     assert_eq!(second.id, event_id);
     assert_eq!(second.lease_epoch, first.lease_epoch + 1);
     assert_eq!(
@@ -154,7 +158,7 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
     .unwrap();
 
     let outbox = PgOutbox::new(pool.clone());
-    let first = outbox.claim_next().await.unwrap().unwrap();
+    let first = outbox.claim_next_for_consumer("G07RetryTest", "g07-one").await.unwrap().unwrap();
     assert_eq!(first.id, event_id);
     assert!(!outbox
         .acknowledge(&event_id, first.lease_epoch, "g07-one")
@@ -201,7 +205,7 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
     .execute(&pool)
     .await
     .unwrap();
-    let second = outbox.claim_next().await.unwrap().unwrap();
+    let second = outbox.claim_next_for_consumer("G07RetryTest", "g07-two").await.unwrap().unwrap();
     assert_eq!(second.id, event_id);
     assert_eq!(second.lease_epoch, first.lease_epoch + 1);
     assert!(outbox
@@ -238,7 +242,7 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let first = outbox.claim_next().await.unwrap().unwrap();
+    let first = outbox.claim_next_for_consumer("G07DeadTest", "g07-failed").await.unwrap().unwrap();
     assert_eq!(first.id, first_id);
     assert_eq!(
         outbox
@@ -265,7 +269,7 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let last = outbox.claim_next().await.unwrap().unwrap();
+    let last = outbox.claim_next_for_consumer("G07LastTest", "g07-last").await.unwrap().unwrap();
     assert_eq!(last.id, last_id);
     assert_eq!(
         outbox
@@ -298,5 +302,162 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
                 .unwrap();
         assert!(dead, "failed and crashed events must become dead letters");
     }
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL /tor_ci"]
+async fn g_07_claim_is_consumer_scoped_and_handoff_fences_old_worker() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "never touch a durable database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let id: String = sqlx::query_scalar(
+        "INSERT INTO outbox_events
+         (event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,
+          payload,required_consumers,next_attempt_at)
+         VALUES('G07ScopedTest',1,'book',0,$1,'{}'::jsonb,
+                ARRAY['g07-scope-a','g07-scope-b'],now()-interval '10 days')
+         RETURNING id::text",
+    )
+    .bind(format!("g07-scope-{}", std::process::id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let unrelated: String = sqlx::query_scalar(
+        "INSERT INTO outbox_events
+         (event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,
+          payload,required_consumers,next_attempt_at,attempts)
+         VALUES('G07UnrelatedTest',1,'book',0,$1,'{}'::jsonb,
+                ARRAY['different-consumer'],now()-interval '10 days',12)
+         RETURNING id::text",
+    )
+    .bind(format!("g07-unrelated-{}", std::process::id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let repo = PgOutbox::new(pool.clone());
+    assert!(repo
+        .claim_next_for_consumer("G07ScopedTest", "other")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(repo
+        .claim_next_for_consumer("G07UnrelatedTest", "g07-scope-a")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        repo.claim_next_for_consumer("", "g07-scope-a").await,
+        Err(OutboxError::Invalid)
+    );
+    let a = repo
+        .claim_next_for_consumer("G07ScopedTest", "g07-scope-a")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(a.id, id);
+    assert!(!repo
+        .acknowledge(&id, a.lease_epoch, "g07-scope-a")
+        .await
+        .unwrap());
+    repo.release_unfinished(&id, a.lease_epoch).await.unwrap();
+    assert_eq!(
+        repo.renew_lease(&id, a.lease_epoch).await,
+        Err(OutboxError::LostLease)
+    );
+    assert_eq!(
+        repo.acknowledge(&id, a.lease_epoch, "g07-scope-b").await,
+        Err(OutboxError::LostLease)
+    );
+    assert!(repo
+        .claim_next_for_consumer("G07ScopedTest", "g07-scope-a")
+        .await
+        .unwrap()
+        .is_none());
+    let b = repo
+        .claim_next_for_consumer("G07ScopedTest", "g07-scope-b")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(b.lease_epoch > a.lease_epoch);
+    assert!(repo
+        .acknowledge(&id, b.lease_epoch, "g07-scope-b")
+        .await
+        .unwrap());
+    let dead: bool =
+        sqlx::query_scalar("SELECT dead_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid")
+            .bind(&unrelated)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!dead, "scoped claim must not reap unrelated events");
+    sqlx::query("DELETE FROM outbox_events WHERE id=$1::uuid")
+        .bind(&unrelated)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL /tor_ci"]
+async fn g_07_renewal_rejects_expired_and_replaced_generations() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "never touch a durable database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let id: String = sqlx::query_scalar(
+        "INSERT INTO outbox_events
+         (event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,
+          payload,required_consumers,next_attempt_at)
+         VALUES('G07HeartbeatTest',1,'book',0,$1,'{}'::jsonb,
+                ARRAY['g07-heartbeat'],now()-interval '10 days')
+         RETURNING id::text",
+    )
+    .bind(format!("g07-heartbeat-{}", std::process::id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let repo = PgOutbox::new(pool.clone());
+    let a = repo
+        .claim_next_for_consumer("G07HeartbeatTest", "g07-heartbeat")
+        .await
+        .unwrap()
+        .unwrap();
+    repo.renew_lease(&id, a.lease_epoch).await.unwrap();
+    sqlx::query(
+        "UPDATE outbox_events SET lease_until=now()-interval '1 second'
+         WHERE id=$1::uuid",
+    )
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.renew_lease(&id, a.lease_epoch).await,
+        Err(OutboxError::LostLease)
+    );
+    let b = repo
+        .claim_next_for_consumer("G07HeartbeatTest", "g07-heartbeat")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(b.lease_epoch, a.lease_epoch + 1);
+    assert_eq!(
+        repo.release_unfinished(&id, a.lease_epoch).await,
+        Err(OutboxError::LostLease)
+    );
+    assert_eq!(
+        repo.record_failure(&id, a.lease_epoch, true).await,
+        Err(OutboxError::LostLease)
+    );
+    assert_eq!(
+        repo.record_failure(&id, b.lease_epoch, false).await,
+        Ok(FailureDisposition::DeadLetter)
+    );
+    assert!(repo
+        .claim_next_for_consumer("G07HeartbeatTest", "g07-heartbeat")
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }

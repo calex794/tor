@@ -26,6 +26,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Read-only I-06 main ruleset proof on trusted push
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/check_one_click_release_ci.py \
+            --repo ${{ github.repository }} \
+            --sha "${{ github.sha }}" --policy-only
+      - name: Block duplicate SQLx migration versions in merged checkout
+        run: python3 tools/check_sqlx_checkout_tree.py migrations
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
       - name: Enforce executable TOR roadmap coverage
@@ -42,6 +52,10 @@ jobs:
         run: python3 tools/check_contracts.py
       - name: Verify architecture guard catches regressions
         run: python3 -m unittest discover -s tests/architecture -v
+      - name: Ensure S020 guarded age editor survives unrelated merges
+        run: python3 tests/architecture/test_s020_age_editor_survival.py
+      - name: Syntax-check S020 real Chromium journey
+        run: node --check tools/s020_age_editor_chromium.cjs
       - name: Syntax-check read-only TOR RIL-09 VPS audit
         run: bash -n ops/audit-ril-exposure-vps.sh
       - name: Check TOR SSH bootstrap shell syntax

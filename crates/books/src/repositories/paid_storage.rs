@@ -3,14 +3,17 @@
 //! No entitlement is created here; D remains the sole rights authority.
 use crate::services::authoring::{valid_command_key, AuthorError, ChapterAccess, SaveChapter};
 use crate::services::paid_asset_markers::referenced_private_image_ids;
-use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use tor_contracts::paid_delivery::{
-    ChapterVersionPort, ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind,
-    EncryptedObjectRef, ObjectId, ObjectRef,
-};
+use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
+
+mod admin_delivery;
+mod delivery;
+mod edit;
+pub(crate) mod scheduled;
+pub use admin_delivery::PgAdminPaidStorage;
+pub use edit::PreparedPaidEdit;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaidPublication {
@@ -18,6 +21,12 @@ pub enum PaidPublication {
     KeepCurrent,
     /// B-owned compare-and-swap of the published pointer. None = first release.
     Publish { expected_current: Option<i64> },
+    /// Published paid text revision: V1 stays pinned to existing purchases.
+    /// A successful pointer swap also advances the optimistic edit revision.
+    PublishEdit {
+        expected_current: i64,
+        expected_revision: i64,
+    },
 }
 
 /// Durable B-owned draft, not visible until G verifies the ciphertext
@@ -58,11 +67,21 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
+        self.prepare_new_paid_chapter_with_mode(actor, request, false)
+            .await
+    }
+
+    async fn prepare_new_paid_chapter_with_mode(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        delayed: bool,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
         if actor <= 0
             || request.book_id <= 0
             || request.chapter_id.is_some()
             || request.expected_revision != 0
-            || request.number <= 0
+            || request.number < 0
             || request.access != ChapterAccess::Paid
             || request.price_amount <= 0
             || !valid_command_key(&request.command_key)
@@ -85,6 +104,14 @@ impl PgPaidStorage {
         ] {
             hasher.update((field.len() as u64).to_be_bytes());
             hasher.update(field.as_bytes());
+        }
+        // Keep the immediate-mode hash unchanged for old idempotent retries.
+        // The same browser command cannot turn a queued paid edition into
+        // an immediate publication by toggling the delayed checkbox.
+        if delayed {
+            let marker = "book-scheduled-paid-chapter-v1";
+            hasher.update((marker.len() as u64).to_be_bytes());
+            hasher.update(marker.as_bytes());
         }
         let payload_hash: [u8; 32] = hasher.finalize().into();
         let content_hash: [u8; 32] = Sha256::digest(request.body.as_bytes()).into();
@@ -161,13 +188,15 @@ impl PgPaidStorage {
 
         // The chapter must not enter catalog/reader until B verifies an
         // attached G object. Failed S3 leaves only an owner-visible draft.
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(
                  book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision
              ) VALUES($1,$2,$3,'draft','paid',$4,1) RETURNING id",
         )
         .bind(request.book_id)
-        .bind(request.number)
+        .bind(number)
         .bind(&request.title)
         .bind(request.price_amount)
         .fetch_one(&mut *tx)
@@ -220,13 +249,23 @@ impl PgPaidStorage {
         if actor <= 0 || book_id <= 0 {
             return Err(AuthorError::Invalid);
         }
-        if let PaidPublication::Publish {
-            expected_current: Some(expected),
-        } = publication
-        {
-            if expected <= 0 || expected == version_id {
+        match publication {
+            PaidPublication::Publish {
+                expected_current: Some(expected),
+            } if expected <= 0 || expected == version_id => {
                 return Err(AuthorError::Invalid);
             }
+            PaidPublication::PublishEdit {
+                expected_current,
+                expected_revision,
+            } if expected_current <= 0
+                || expected_current == version_id
+                || expected_revision < 0
+                || expected_revision == i64::MAX =>
+            {
+                return Err(AuthorError::Invalid);
+            }
+            _ => {}
         }
 
         let mut tx = self.pool.begin().await.map_err(map_write)?;
@@ -247,8 +286,8 @@ impl PgPaidStorage {
         }
 
         // Prevent a free chapter from being linked to paid-only ciphertext.
-        let chapter_visibility: Option<String> = sqlx::query_scalar(
-            "SELECT visibility FROM chapters
+        let chapter_data: Option<(String, i64)> = sqlx::query_as(
+            "SELECT visibility,edit_revision FROM chapters
              WHERE id=$1 AND book_id=$2 AND access_level='paid'
                AND price_amount>0 AND NOT admin_hold AND NOT is_deleted
                AND (reader_released_at IS NULL OR reader_released_at<=now())
@@ -259,7 +298,7 @@ impl PgPaidStorage {
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_write)?;
-        let Some(chapter_visibility) = chapter_visibility else {
+        let Some((chapter_visibility, chapter_revision)) = chapter_data else {
             return Err(AuthorError::Missing);
         };
 
@@ -290,10 +329,26 @@ impl PgPaidStorage {
         .await
         .map_err(map_write)?;
 
-        if let PaidPublication::Publish { expected_current } = publication {
-            // Exactly replayed publish is safe, but a stale caller cannot move
-            // a newer published version backwards.
-            if current != Some(version_id) && current != expected_current {
+        let expected_current = match publication {
+            PaidPublication::KeepCurrent => None,
+            PaidPublication::Publish { expected_current } => Some(expected_current),
+            PaidPublication::PublishEdit {
+                expected_current,
+                expected_revision,
+            } => {
+                if chapter_visibility != "public"
+                    || (current != Some(version_id) && chapter_revision != expected_revision)
+                    || (current == Some(version_id) && chapter_revision != expected_revision + 1)
+                {
+                    return Err(AuthorError::Conflict);
+                }
+                Some(Some(expected_current))
+            }
+        };
+        if let Some(expected) = expected_current {
+            // Exact replay may succeed, but the previous published edition
+            // may never be overwritten by a stale or differently pinned tab.
+            if current != Some(version_id) && current != expected {
                 return Err(AuthorError::Conflict);
             }
             if current == Some(version_id) && chapter_visibility != "public" {
@@ -434,133 +489,83 @@ impl PgPaidStorage {
             return Err(AuthorError::Conflict);
         }
 
-        if let PaidPublication::Publish { .. } = publication {
-            if current != Some(version_id) {
-                match current {
-                    Some(old_version) => {
-                        let changed = sqlx::query(
-                            "UPDATE chapter_publications
-                             SET version_id=$3,published_at=now()
-                             WHERE chapter_id=$1 AND version_id=$2",
-                        )
-                        .bind(chapter_id)
-                        .bind(old_version)
-                        .bind(version_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
-                        if changed.rows_affected() != 1 {
-                            return Err(AuthorError::Conflict);
-                        }
-                    }
-                    None => {
-                        sqlx::query(
-                            "INSERT INTO chapter_publications(chapter_id,version_id)
-                             VALUES($1,$2)",
-                        )
-                        .bind(chapter_id)
-                        .bind(version_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
-                        sqlx::query(
-                            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-                             VALUES($1,$2) ON CONFLICT(chapter_id) DO NOTHING",
-                        )
-                        .bind(chapter_id)
-                        .bind(version_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
+        if !matches!(publication, PaidPublication::KeepCurrent) && current != Some(version_id) {
+            match current {
+                Some(old_version) => {
+                    let changed = sqlx::query(
+                        "UPDATE chapter_publications
+                         SET version_id=$3,published_at=now()
+                         WHERE chapter_id=$1 AND version_id=$2",
+                    )
+                    .bind(chapter_id)
+                    .bind(old_version)
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
+                    if changed.rows_affected() != 1 {
+                        return Err(AuthorError::Conflict);
                     }
                 }
+                None => {
+                    sqlx::query(
+                        "INSERT INTO chapter_publications(chapter_id,version_id)
+                         VALUES($1,$2)",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
+                    sqlx::query(
+                        "INSERT INTO chapter_first_release_events
+                         (chapter_id,version_id,creator_user_id)
+                         VALUES($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .bind(actor)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
+                }
+            }
+            if let PaidPublication::PublishEdit {
+                expected_revision, ..
+            } = publication
+            {
+                let changed = sqlx::query(
+                    "UPDATE chapters SET edit_revision=edit_revision+1
+                     WHERE id=$1 AND edit_revision=$2 AND visibility='public'",
+                )
+                .bind(chapter_id)
+                .bind(expected_revision)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_write)?;
+                if changed.rows_affected() != 1 {
+                    return Err(AuthorError::Conflict);
+                }
+            } else {
                 sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
                     .bind(chapter_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(map_write)?;
-                sqlx::query(
-                    "INSERT INTO chapter_encrypted_release_events
-                       (chapter_id,version_id,storage_object_id)
-                     VALUES($1,$2,$3::uuid) ON CONFLICT(chapter_id,version_id) DO NOTHING",
-                )
-                .bind(chapter_id)
-                .bind(version_id)
-                .bind(object_id.as_str())
-                .execute(&mut *tx)
-                .await
-                .map_err(map_write)?;
             }
+            sqlx::query(
+                "INSERT INTO chapter_encrypted_release_events
+                   (chapter_id,version_id,storage_object_id)
+                 VALUES($1,$2,$3::uuid) ON CONFLICT(chapter_id,version_id) DO NOTHING",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .bind(object_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_write)?;
         }
         tx.commit().await.map_err(map_write)?;
         Ok(())
-    }
-}
-
-/// B resolves historical versions only after D returns an Allowed pinned
-/// edition. No query joins the current-publication pointer: V1 is retained
-/// after a later V2. Creator-hide is not refund; holds and hard deletion
-/// always deny. The D port must independently authorize exact V1 first.
-#[async_trait]
-impl ChapterVersionPort for PgPaidStorage {
-    async fn encrypted_chapter(
-        &self,
-        pinned: ChapterVersionRef,
-    ) -> Result<Option<EncryptedObjectRef>, DeliveryError> {
-        let row = sqlx::query(
-            "SELECT o.id::text AS object_id, o.sha256_ciphertext, o.size_bytes,
-                    o.object_nonce, o.object_aad, o.kek_id
-             FROM chapter_versions v
-             JOIN chapters c ON c.id=v.chapter_id
-             JOIN books b ON b.id=c.book_id
-             JOIN storage_objects o ON o.id=v.storage_object_id
-             WHERE v.chapter_id=$1 AND v.id=$2
-               AND c.access_level='paid'
-               AND NOT c.admin_hold AND NOT c.is_deleted
-               AND NOT b.admin_hold AND NOT b.is_deleted
-               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-               AND o.state='attached' AND o.object_kind='chapter' AND o.codec='gzip'",
-        )
-        .bind(pinned.chapter_id.get())
-        .bind(pinned.version_id.get())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| DeliveryError::Unavailable)?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let uuid: String = row
-            .try_get("object_id")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let size: i64 = row
-            .try_get("size_bytes")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let digest: Vec<u8> = row
-            .try_get("sha256_ciphertext")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let nonce: Vec<u8> = row
-            .try_get("object_nonce")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let aad: Vec<u8> = row
-            .try_get("object_aad")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let kek_id: String = row
-            .try_get("kek_id")
-            .map_err(|_| DeliveryError::Unavailable)?;
-        let object_id = ObjectId::parse(&uuid).map_err(|_| DeliveryError::Unavailable)?;
-        let object = ObjectRef::new(
-            object_id,
-            EncryptedObjectKind::Chapter,
-            digest.try_into().map_err(|_| DeliveryError::Unavailable)?,
-            size.try_into().map_err(|_| DeliveryError::Unavailable)?,
-        )
-        .map_err(|_| DeliveryError::Unavailable)?;
-        Ok(Some(EncryptedObjectRef {
-            object,
-            nonce: nonce.try_into().map_err(|_| DeliveryError::Unavailable)?,
-            aad,
-            wrapped_key_id: kek_id,
-            codec: ContentCodec::Gzip,
-        }))
     }
 }

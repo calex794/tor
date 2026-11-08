@@ -15,6 +15,7 @@ use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
 
+mod flow;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,
@@ -83,6 +84,16 @@ pub(crate) fn instrument(router: Router) -> Router {
     instrument_with_recorder(router, recorder)
 }
 
+/// Instrument an additional router before it is merged into an already
+/// instrumented application. It shares the same process recorder but does not
+/// install a second fallback route.
+pub(crate) fn instrument_additional(router: Router) -> Router {
+    let recorder = TRAFFIC
+        .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
+        .clone();
+    router.layer(middleware::from_fn_with_state(recorder, observe))
+}
+
 fn instrument_with_recorder(router: Router, recorder: TrafficRecorder) -> Router {
     // A known route returning 404 remains known; an unregistered URL is unknown.
     // Return the same 404 as Axum's default without echoing the URL.
@@ -102,6 +113,7 @@ async fn observe(
         .get::<MatchedPath>()
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
+    let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
     request.extensions_mut().insert(trace_id);
@@ -142,6 +154,14 @@ async fn observe(
         response.extensions_mut().remove::<VerifiedRilSubject>();
         None
     };
+    // FLOW receives only a finite HTML category and coarse source hint.
+    // Anonymous requests can be counted as pageviews, NOT as unique humans.
+    let flow_pageview = flow_request.observed(
+        status,
+        response.headers(),
+        passport.route_known,
+        subject.is_some(),
+    );
     // SQLx events are counted only within this request task; background tasks
     // remain excluded. Zero is genuine only when the subscriber was installed.
     if let Some(measured) = sql_measurement {
@@ -152,13 +172,16 @@ async fn observe(
         });
     }
     // Anonymous counters remain independent from personal behavior paths.
-    let _accepted = recorder.try_record(BehaviorEvent {
-        route: RouteCode::from_family(passport.route_family),
-        status: StatusGroup::from_status(status),
-        latency: LatencyGroup::from_elapsed(elapsed),
-        subject,
-        at_millis: recorder.uptime_millis(),
-    });
+    let _accepted = recorder.try_record_with_flow(
+        BehaviorEvent {
+            route: RouteCode::from_family(passport.route_family),
+            status: StatusGroup::from_status(status),
+            latency: LatencyGroup::from_elapsed(elapsed),
+            subject,
+            at_millis: recorder.uptime_millis(),
+        },
+        flow_pageview,
+    );
     response.extensions_mut().insert(observation);
     response
 }
@@ -166,7 +189,12 @@ async fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::to_bytes, extract::Extension, http::Method, routing::get};
+    use axum::{
+        body::to_bytes,
+        extract::Extension,
+        http::Method,
+        routing::{get, post},
+    };
     use tor_route_intelligence::{CostClass, RoutePassport, StatusBucket};
     use tower::ServiceExt;
 
@@ -241,6 +269,31 @@ mod tests {
         assert!(response.headers().get("x-ril-passport").is_none());
         let text = to_bytes(response.into_body(), 256).await.unwrap();
         assert_eq!(text.as_ref(), b"/books/");
+    }
+
+    #[tokio::test]
+    async fn additional_router_keeps_ril_observation_when_merged_later() {
+        let app = instrument_additional(
+            Router::new().route("/me/books/{book_id}/chapters/import-queue", post(family)),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/me/books/42/chapters/import-queue")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let observed = response
+            .extensions()
+            .get::<RouteObservation>()
+            .expect("additional route must be observed");
+        assert!(observed.passport.route_known);
+        assert_eq!(observed.passport.route_family, "/me/");
+        assert_eq!(observed.passport.cost_class, CostClass::Write);
     }
 
     #[tokio::test]
@@ -329,5 +382,40 @@ mod tests {
         let debug = format!("{obs:?}");
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
+    }
+    #[tokio::test]
+    async fn flow_02_real_html_is_recorded_but_api_and_bots_are_not() {
+        use axum::response::Html;
+        let recorder = TrafficRecorder::start(8, 64);
+        let app = instrument_with_recorder(
+            Router::new()
+                .route("/books/{id}", get(|| async { Html("<p>read</p>") }))
+                .route("/api/v1/books", get(|| async { Html("<p>not a page</p>") })),
+            recorder.clone(),
+        );
+        for (url, bot) in [
+            ("/books/10?private=DO_NOT_STORE", false),
+            ("/api/v1/books", false),
+            ("/books/20", true),
+        ] {
+            let mut builder = Request::builder().uri(url);
+            if bot {
+                builder = builder.header("user-agent", "Googlebot/2.1");
+            }
+            let response = app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let delta = recorder.drain_for_persistence().unwrap();
+        assert_eq!(delta.route_rows().iter().map(|r| r.count).sum::<i64>(), 3);
+        assert_eq!(delta.flow_rows().len(), 1);
+        let row = delta.flow_rows()[0];
+        assert_eq!(row.surface, 2);
+        assert_eq!(row.html_requests, 1);
+        assert_eq!(row.opted_in_html_requests, 0);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
     }
 }

@@ -16,6 +16,10 @@ jobs:
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,8 +34,24 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
         run: cargo test --workspace --all-targets
+      - name: Repeat trace writer crash recovery with CPU contention
+        run: |
+          python3 -c 'while True: pass' &
+          load_pid=$!
+          trap 'kill "$load_pid" 2>/dev/null || true; wait "$load_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Trace crash recovery under CPU contention: attempt $attempt/3"
+            cargo test -p tor-observability --test trace_store_daemon \
+              writer_crash_does_not_block_publisher_and_restart_recovers_old_traces \
+              -- --exact --test-threads=1
+          done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # The short S3 cover job owns this lint if its suite is selected.
+      # Fall back to Rust when cover_s3 is not selected alongside PostgreSQL.
+      - name: Combined S3 feature Clippy (PG selected without cover_s3)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
         run: cargo build --release -p tor-web
       - name: Real HTTP smoke (loopback only)

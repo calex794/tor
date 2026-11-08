@@ -21,7 +21,21 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 99);
+    assert_eq!(unique.len(), 340);
+}
+
+#[test]
+fn per_chapter_moderation_has_no_registered_routes() {
+    assert!(classify(Some("/moderation/books"), "GET").route_known);
+    for (route, method) in [
+        ("/moderation/chapters", "GET"),
+        ("/moderation/chapters/{id}/hold", "POST"),
+    ] {
+        assert!(
+            !classify(Some(route), method).route_known,
+            "chapter-level moderation is not a product capability"
+        );
+    }
 }
 
 #[test]
@@ -30,6 +44,22 @@ fn public_private_and_write_routes_are_distinct() {
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,
         CostClass::Write
     );
+    let organic_post = classify(Some("/api/v1/discovery/activate"), "POST");
+    let organic_asset = classify(Some("/assets/organic_discovery.js"), "GET");
+    let free_reader_asset = classify(Some("/assets/newboo-free-reader.js"), "GET");
+    assert!(free_reader_asset.route_known);
+    assert_eq!(free_reader_asset.traffic_surface, TrafficSurface::Static);
+    assert_eq!(free_reader_asset.cost_class, CostClass::Free);
+    assert!(!classify(Some("/assets/newboo-free-reader.js"), "POST").route_known);
+    assert!(organic_post.route_known && organic_asset.route_known);
+    assert_eq!(organic_post.cost_class, CostClass::Write);
+    assert_eq!(organic_post.product_area, ProductArea::Recommendations);
+    assert_eq!(organic_asset.traffic_surface, TrafficSurface::Static);
+    let like_get = classify(Some("/books/{id}/like"), "GET");
+    let like_post = classify(Some("/books/{id}/like"), "POST");
+    assert_eq!(like_get.cost_class, CostClass::CheapRead);
+    assert_eq!(like_post.cost_class, CostClass::Write);
+    assert_eq!(like_post.route_family, "/books/");
     let get = classify(Some("/login"), "GET");
     let post = classify(Some("/login"), "POST");
     assert_eq!(get.product_area, ProductArea::Auth);
@@ -68,6 +98,14 @@ fn public_private_and_write_routes_are_distinct() {
         CostClass::Write
     );
     assert_eq!(classify(Some("/me/books/{id}"), "GET").route_family, "/me/");
+    assert_eq!(
+        classify(Some("/me/books/{id}/settings/sources"), "GET").cost_class,
+        CostClass::CheapRead
+    );
+    assert_eq!(
+        classify(Some("/me/books/{id}/settings/sources"), "POST").cost_class,
+        CostClass::Write
+    );
     assert_eq!(
         classify(Some("/me/books/{id}/chapters/{chapter_id}/release"), "GET").cost_class,
         CostClass::CheapRead
@@ -220,4 +258,30 @@ fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
         assert_ne!(route.route_family, "/unknown/");
     }
     assert!(!classify(Some("/api/v1/me/rankings"), "POST").route_known);
+}
+
+#[test]
+fn e_08_private_member_preview_is_read_only_mail_route() {
+    let page = classify(Some("/me/books/{id}/preview"), "GET");
+    assert!(page.route_known);
+    assert_eq!(page.product_area, ProductArea::Mail);
+    assert_eq!(page.cost_class, CostClass::CheapRead);
+    assert!(!classify(Some("/me/books/{id}/preview"), "POST").route_known);
+}
+
+#[test]
+fn e_08_admin_room_read_routes_are_audited_and_read_only() {
+    for template in [
+        "/admin/mail/groups",
+        "/admin/mail/groups/{id}",
+        "/admin/mail/book-rooms",
+        "/admin/mail/book-rooms/{id}",
+    ] {
+        let route = classify(Some(template), "GET");
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+        assert_eq!(route.cost_class, CostClass::CheapRead);
+        assert!(!classify(Some(template), "POST").route_known);
+    }
 }

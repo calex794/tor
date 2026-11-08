@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 use tor_books::repositories::{
+    cover_review::{CoverReviewError, PgCoverReview},
     cover_slots::{PgCoverSlots, PublicCoverKind},
     PgCatalog,
 };
@@ -100,7 +101,43 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let jobs = PgCoverJobs::new(pool.clone());
-    let slots = PgCoverSlots::new(pool);
+    let slots = PgCoverSlots::new(pool.clone());
+    let reviews = PgCoverReview::new(pool.clone());
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
+    let reviewer_token = tor_accounts::services::security::generate_session_token();
+    let reviewer_digest = tor_accounts::services::security::session_token_digest(&reviewer_token);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let reviewer = accounts
+        .register_with_session(
+            &format!("br060-cover-reviewer-{nonce}@example.invalid"),
+            "Cover reviewer",
+            &tor_accounts::services::security::hash_password("CoverReviewCiPassword2026!").unwrap(),
+            &reviewer_digest,
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    // Only disposable tor_ci bootstraps the site-role; no author endpoint does.
+    let result = std::process::Command::new("psql")
+        .args([
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", &url, "--command",
+            &format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({reviewer},'moderator',true)"),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        reviews.pending(&[0_u8; 32], None).await.err(),
+        Some(CoverReviewError::Denied)
+    );
     let bridge = PgBookCoverBridge::new(slots.clone());
     let store = MemoryS3::default();
     let worker = CoverWorker {
@@ -148,8 +185,24 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     assert_eq!(local.attached, 1);
     assert_eq!(local.errors, 0);
     assert_eq!(local.timeouts, 0);
-    assert_eq!(slots.current_slot(901).await.unwrap(), Some((job, 1)));
+    assert_eq!(slots.current_slot(901).await.unwrap(), None);
     assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"));
+    let pending = reviews.pending(&reviewer_digest, None).await.unwrap();
+    let first_request = pending.iter().find(|r| r.job_id == job).unwrap();
+    let cover = reviews
+        .preview(&reviewer_digest, first_request.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(store
+        .exists_verified(&cover.storage_key, &cover.sha256, cover.size_bytes)
+        .await
+        .unwrap());
+    reviews
+        .decide(&reviewer_digest, first_request.id, 0, true, "")
+        .await
+        .unwrap();
+    assert_eq!(slots.current_slot(901).await.unwrap(), Some((job, 1)));
     let card = slots
         .public_variant(901, PublicCoverKind::Card)
         .await
@@ -260,6 +313,22 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap();
     let second = jobs.enqueue(id, 901, 901, 1, RECIPE_VERSION).await.unwrap();
     assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
+    assert_eq!(
+        slots.current_slot(901).await.unwrap(),
+        Some((job, 1)),
+        "replacement stays private until reviewed"
+    );
+    let newer = reviews
+        .pending(&reviewer_digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.job_id == second)
+        .unwrap();
+    reviews
+        .decide(&reviewer_digest, newer.id, 1, true, "")
+        .await
+        .unwrap();
     assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
     assert_ne!(second, job);
     let current = slots
@@ -273,6 +342,64 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     assert_eq!(fresh.status(), StatusCode::OK);
     let bytes = to_bytes(fresh.into_body(), 8 * 1024 * 1024).await.unwrap();
     assert_eq!(digest(&bytes), current.sha256);
+
+    // Rejection of a replacement must never overwrite an approved public slot.
+    let rejected_bytes = png(111);
+    let rejected_key = "staging/covers/ci-book-901-rejected.png";
+    store.add(rejected_key, rejected_bytes.clone());
+    let rejected_source = jobs
+        .register_verified_source(
+            901,
+            901,
+            rejected_key,
+            "image/png",
+            rejected_bytes.len() as i64,
+            &digest(&rejected_bytes),
+        )
+        .await
+        .unwrap();
+    let rejected_job = jobs
+        .enqueue(rejected_source, 901, 901, 2, RECIPE_VERSION)
+        .await
+        .unwrap();
+    assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
+    assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
+    let pending = reviews
+        .pending(&reviewer_digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.job_id == rejected_job)
+        .unwrap();
+    assert_eq!(
+        reviews
+            .decide(&reviewer_digest, pending.id, 2, false, "")
+            .await,
+        Err(CoverReviewError::Invalid),
+        "a rejected image requires a recorded reason"
+    );
+    reviews
+        .decide(&reviewer_digest, pending.id, 2, false, "Unsuitable cover")
+        .await
+        .unwrap();
+    assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
+    assert_eq!(
+        reviews
+            .decide(&reviewer_digest, pending.id, 2, true, "")
+            .await,
+        Err(CoverReviewError::Stale),
+        "two different decisions cannot be applied to the same candidate"
+    );
+    let history = reviews
+        .private_history(&reviewer_digest, 901)
+        .await
+        .unwrap();
+    assert!(history.iter().any(|row| row.job_id == rejected_job
+        && row.outcome == "rejected"
+        && row.reviewer_user_id == reviewer));
+    assert!(history.iter().any(|row| row.job_id == second
+        && row.outcome == "approved"
+        && row.reviewer_user_id == reviewer));
     assert_eq!(
         jobs.existing_variants(job).await.unwrap().len(),
         2,
@@ -304,8 +431,25 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     let latter = worker.run_one().await.unwrap();
     assert_eq!(
         [first, latter],
-        [WorkerResult::Attached, WorkerResult::Superseded]
+        [WorkerResult::Attached, WorkerResult::Attached]
     );
+    assert_eq!(slots.current_slot(902).await.unwrap(), None);
+    let pending_902: Vec<_> = reviews
+        .pending(&reviewer_digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.book_id == 902)
+        .collect();
+    assert_eq!(
+        pending_902.len(),
+        1,
+        "new candidate supersedes first pending review"
+    );
+    reviews
+        .decide(&reviewer_digest, pending_902[0].id, 0, true, "")
+        .await
+        .unwrap();
     assert_eq!(slots.current_slot(902).await.unwrap().unwrap().1, 1);
 
     // Bad source hash is terminal, never attached or exposed to public readers.
@@ -437,8 +581,23 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     );
     assert_eq!(
         slots.current_slot(904).await.unwrap(),
-        Some((interrupted_job, 1)),
-        "replay after restart must attach the exact job once"
+        None,
+        "replay after restart stages candidate, never auto-publishes"
+    );
+    let pending_904 = reviews
+        .pending(&reviewer_digest, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.job_id == interrupted_job)
+        .unwrap();
+    reviews
+        .decide(&reviewer_digest, pending_904.id, 0, true, "")
+        .await
+        .unwrap();
+    assert_eq!(
+        slots.current_slot(904).await.unwrap(),
+        Some((interrupted_job, 1))
     );
     assert_eq!(
         jobs.existing_variants(interrupted_job).await.unwrap().len(),

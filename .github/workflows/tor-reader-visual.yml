@@ -47,8 +47,13 @@ jobs:
           node-version: '22'
       - name: PostgreSQL client and disposable roles
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
           CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
@@ -68,9 +73,9 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATION_URL" cargo run -p tor-migrations --bin tor-migrate
           PGPASSWORD=tor-reader-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          VALUES(1,'ci:visual:public','ru','Книга для браузерной приёмки','public'),
-                (2,'ci:visual:private','ru','Закрытая книга','draft');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+          VALUES(1,'ci:visual:public','ru','Книга для браузерной приёмки','public','basic'),
+                (2,'ci:visual:private','ru','Закрытая книга','draft','basic');
           INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
           VALUES(101,1,1,'Начало истории','public','free',0),
                 (102,1,2,'Черновик','draft','free',0),
@@ -85,11 +90,13 @@ jobs:
           # Fixed-ID book fixtures require a sequence correction by the migrator role.
           psql -X -v ON_ERROR_STOP=1 "$MIGRATION_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
       - name: Build the real PostgreSQL-backed server
-        run: cargo build -p tor-web
+        run: |
+          cargo build -p tor-web
+          cargo build -p tor-observability --bin tor-trace-store
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Browse chapter, TOC, mobile layout and locked URLs
         run: |
           set -euo pipefail
@@ -102,14 +109,45 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:3098/readyz
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
-          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
-          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
-          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
-          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
+          ci_timed_browser() {
+            local scenario="$1" started=$SECONDS result
+            shift
+            if node "$scenario" "$@"; then
+              result=0
+            else
+              result=$?
+            fi
+            echo "CI_BROWSER_SCENARIO_SECONDS scenario=$scenario seconds=$((SECONDS-started)) exit=$result"
+            return "$result"
+          }
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/reader_visual_smoke.cjs
+          node --check tools/br060_archive_browser_pg.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/br060_archive_browser_pg.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
+          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
+          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
+          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
+          node --check tools/mail_browser_pg.cjs
+          node --check tools/support_browser_pg.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
+          node --check tools/referral_share_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
+          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
+      - name: S059 real SQL delay, operator diagnostics and writer recovery
+        run: python3 tools/operator_trace_pg_smoke.py
+      - name: Preserve S059 measured acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s059-real-pg-diagnostics
+          path: |
+            ${{ runner.temp }}/s059-pg/report.json
+            ${{ runner.temp }}/s059-pg/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4

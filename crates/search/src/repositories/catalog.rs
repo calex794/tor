@@ -3,10 +3,38 @@
 use super::CatalogFacets;
 use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
 use sqlx::{PgPool, Row};
+use std::borrow::Cow;
+
+/// Keep anonymous indexed SQL unchanged. Signed queries bind a server-side
+/// session digest and verify live A/Book state in the metadata SELECT itself.
+/// This replacement only operates on checked-in SQL constants.
+pub(super) fn scoped_sql(
+    sql: &'static str,
+    digest: Option<&[u8; 32]>,
+    bind_index: usize,
+) -> Cow<'static, str> {
+    if digest.is_none() {
+        return Cow::Borrowed(sql);
+    }
+    assert!(sql.contains("access_level='basic'"));
+    let gate = format!(
+        "(books.access_level='basic' OR EXISTS (
+           SELECT 1 FROM sessions sess
+           JOIN users acct ON acct.id=sess.user_id
+           WHERE sess.token_hash=${bind_index}::bytea
+             AND sess.revoked_at IS NULL AND sess.expires_at>now()
+             AND acct.account_state='active'
+             AND ((books.access_level='adult' AND acct.adult_enabled)
+               OR (books.access_level='pro_adult' AND EXISTS (
+                 SELECT 1 FROM user_level_grants g
+                 WHERE g.user_id=acct.id AND g.level='pro_adult' AND g.is_active)))))"
+    );
+    Cow::Owned(sql.replacen("access_level='basic'", &gate, 1))
+}
 
 const ASCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -19,7 +47,7 @@ ORDER BY id ASC LIMIT $3";
 
 const DESCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -36,20 +64,26 @@ pub(super) async fn read_page(
     after: i64,
     limit: usize,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<SearchPage, SearchError> {
-    let sql = match sort {
+    let base = match sort {
         CatalogSort::Oldest => ASCENDING,
         CatalogSort::Newest => DESCENDING,
         _ => return Err(SearchError::Invalid),
     };
-    let rows = sqlx::query(sql)
+    let sql = scoped_sql(base, digest, 8);
+    let mut query = sqlx::query(sql.as_ref())
         .bind(filters.term.trim())
         .bind(after)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
         .bind(filters.language)
         .bind(filters.genre)
         .bind(filters.tag)
-        .bind(filters.fandom)
+        .bind(filters.fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let rows = query
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -90,7 +124,7 @@ pub(super) async fn read_page(
 /// This query is separate from the hot keyset path and must be opt-in.
 const FILTERED_TOTAL: &str = "
 SELECT COUNT(*) FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -106,13 +140,36 @@ pub(super) async fn count_filtered(
     genre: Option<&str>,
     tag: Option<&str>,
     fandom: Option<&str>,
+    digest: Option<&[u8; 32]>,
 ) -> Result<u64, SearchError> {
-    let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
+    // Exact, transactionally maintained public total for unfiltered pages.
+    // Filtered totals still use the original SQL predicates, never estimates.
+    if digest.is_none()
+        && term.trim().is_empty()
+        && language.is_none()
+        && genre.is_none()
+        && tag.is_none()
+        && fandom.is_none()
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+        return u64::try_from(count).map_err(|_| SearchError::Unavailable);
+    }
+    let sql = scoped_sql(FILTERED_TOTAL, digest, 6);
+    let mut query = sqlx::query_scalar(sql.as_ref())
         .bind(term.trim())
         .bind(language)
         .bind(genre)
         .bind(tag)
-        .bind(fandom)
+        .bind(fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let total: i64 = query
         .fetch_one(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -123,7 +180,7 @@ pub(super) async fn count_filtered(
 // The extra id is the stable tie breaker for duplicate names.
 const TITLE_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -136,7 +193,7 @@ ORDER BY lower(title) ASC,id ASC LIMIT $4";
 
 const AUTHOR_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
-WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND lifecycle_status<>'pending_deletion' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
            @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
@@ -157,7 +214,7 @@ fn hex_nibble(byte: u8) -> Result<u8, SearchError> {
 
 /// The key is taken from PostgreSQL lower(...), not Rust Unicode lowercasing.
 /// This keeps the cursor's collation consistent with ORDER BY in PostgreSQL.
-fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
+pub(super) fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     let mut encoded = String::with_capacity(key.len() * 2 + 40);
     encoded.push_str(sort.as_str());
     encoded.push('.');
@@ -170,7 +227,7 @@ fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     encoded
 }
 
-fn decode_lexical_cursor(
+pub(super) fn decode_lexical_cursor(
     raw: Option<&str>,
     sort: CatalogSort,
 ) -> Result<(Option<String>, i64), SearchError> {
@@ -212,14 +269,16 @@ pub(super) async fn read_lexical_page(
     after: Option<&str>,
     limit: usize,
     sort: CatalogSort,
+    digest: Option<&[u8; 32]>,
 ) -> Result<SearchPage, SearchError> {
-    let query = match sort {
+    let base = match sort {
         CatalogSort::Title => TITLE_ORDER,
         CatalogSort::Author => AUTHOR_ORDER,
         _ => return Err(SearchError::Invalid),
     };
+    let sql = scoped_sql(base, digest, 9);
     let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
-    let rows = sqlx::query(query)
+    let mut query = sqlx::query(sql.as_ref())
         .bind(filters.term.trim())
         .bind(cursor_key.as_deref())
         .bind(cursor_id)
@@ -227,7 +286,11 @@ pub(super) async fn read_lexical_page(
         .bind(filters.language)
         .bind(filters.genre)
         .bind(filters.tag)
-        .bind(filters.fandom)
+        .bind(filters.fandom);
+    if let Some(digest) = digest {
+        query = query.bind(digest.as_slice());
+    }
+    let rows = query
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -281,72 +344,29 @@ pub struct TaxonomyOptions {
 }
 
 pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
-    // Only a performance decision: the exact visibility predicate is applied
-    // in BOTH branches. Unknown/stale statistics safely fall back to the
-    // original dense-table path; they never select stale public metadata.
-    //
-    // reltuples comes from PostgreSQL ANALYZE, not from user input. The
-    // small pg_class lookup is deliberately done on each first-page request:
-    // no TTL-based cache or delayed book-visibility invalidation.
-    const CHOOSE_SPARSE: &str = "
-        SELECT COALESCE((
-            SELECT i.reltuples >= 0 AND b.reltuples > 0
-                   AND i.reltuples * 5 <= b.reltuples
-            FROM pg_catalog.pg_class AS i
-            CROSS JOIN pg_catalog.pg_class AS b
-            WHERE i.oid = to_regclass('public.books_public_nonempty_taxonomy_idx')
-              AND b.oid = to_regclass('public.books')
-        ), FALSE)";
-
-    // Sparse case: a single indexed pass through only books with categories.
-    // DISTINCT and row_number preserve the original 100-item limit PER kind.
-    const SPARSE_SQL: &str = "
-        SELECT kind, name FROM (
-            SELECT kind, name,
-                   ROW_NUMBER() OVER (PARTITION BY kind ORDER BY name) AS ordinal
-            FROM (
-                SELECT DISTINCT facet.kind, item.name
-                FROM books AS b
-                CROSS JOIN LATERAL (
-                    VALUES ('genre'::text, b.genres),
-                           ('tag'::text, b.tags),
-                           ('fandom'::text, b.fandoms)
-                ) AS facet(kind, entries)
-                CROSS JOIN LATERAL unnest(facet.entries) AS item(name)
-                WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-                  AND (b.genres <> '{}'::text[] OR b.tags <> '{}'::text[]
-                       OR b.fandoms <> '{}'::text[])
-            ) AS distinct_names
-        ) AS ordered_names
-        WHERE ordinal <= 100
-        ORDER BY kind, name";
-
-    // Dense case: three parallel scans beat a random heap-heavy index walk.
-    // These are the exact pre-optimization public predicates and limits.
-    const DENSE_SQL: &str = "
+    // The migration maintains exact distinct-public-book references in the
+    // SAME transaction as every publication, hold, deletion and facet change.
+    // No stale TTL, pg_class estimates, or per-request scans of all books.
+    const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
-            SELECT DISTINCT unnest(genres) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='genre' AND reference_count>0
             ORDER BY name LIMIT 100
         ) g
         UNION ALL
         SELECT 'tag' AS kind, name FROM (
-            SELECT DISTINCT unnest(tags) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='tag' AND reference_count>0
             ORDER BY name LIMIT 100
         ) t
         UNION ALL
         SELECT 'fandom' AS kind, name FROM (
-            SELECT DISTINCT unnest(fandoms) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='fandom' AND reference_count>0
             ORDER BY name LIMIT 100
         ) f";
 
-    let sparse: bool = sqlx::query_scalar(CHOOSE_SPARSE)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
-    let rows = sqlx::query(if sparse { SPARSE_SQL } else { DENSE_SQL })
+    let rows = sqlx::query(SQL)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;

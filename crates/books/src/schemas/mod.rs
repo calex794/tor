@@ -5,3 +5,10 @@ pub struct BookView {
     pub title: String,
     pub target_language: String,
 }
+
+/// Author-visible first-release schedule, independent of database storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledChapter {
+    pub scheduled_utc: String,
+    pub status: String,
+}

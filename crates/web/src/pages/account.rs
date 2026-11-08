@@ -2,18 +2,46 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use tor_discussions::repositories::public_book_comments::ReceivedReply;
+use tor_recommendations::repositories::ReaderAchievements;
 
+fn auth_next_markup(next: Option<&str>) -> (String, String) {
+    let Some(next) = next else {
+        return (String::new(), String::new());
+    };
+    let escaped = escape_html(next);
+    (
+        format!(r#"<input type="hidden" name="next" value="{escaped}">"#),
+        format!("?next={escaped}"),
+    )
+}
+
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form(csrf: &str) -> Html<String> {
-    registration_form_with_error(csrf, "", "", None)
+    registration_form_with_next(csrf, None)
+}
+
+pub fn registration_form_with_next(csrf: &str, next: Option<&str>) -> Html<String> {
+    registration_form_with_error_and_next(csrf, "", "", None, next)
 }
 
 /// Use server-side validation instead of the browser's locale-dependent
 /// English popups. Keep the email/name, but never replay the password.
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form_with_error(
     csrf: &str,
     display_name: &str,
     email: &str,
     error: Option<&str>,
+) -> Html<String> {
+    registration_form_with_error_and_next(csrf, display_name, email, error, None)
+}
+
+pub fn registration_form_with_error_and_next(
+    csrf: &str,
+    display_name: &str,
+    email: &str,
+    error: Option<&str>,
+    next: Option<&str>,
 ) -> Html<String> {
     let banner = error
         .map(|message| {
@@ -23,11 +51,14 @@ pub fn registration_form_with_error(
             )
         })
         .unwrap_or_default();
+    let (return_field, login_next) = auth_next_markup(next);
     let content = include_str!("../../templates/register_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--DISPLAY_NAME-->", &escape_html(display_name))
         .replace("<!--EMAIL-->", &escape_html(email))
         .replace("<!--FORM_ERROR-->", &banner)
+        .replace("<!--AUTH_RETURN_FIELD-->", &return_field)
+        .replace("<!--AUTH_LOGIN_NEXT-->", &login_next)
         .replace(
             "<!--AUTH_PANDA-->",
             include_str!("../../templates/auth_panda.html"),
@@ -35,9 +66,17 @@ pub fn registration_form_with_error(
     layout("Регистрация", "Создать личный кабинет читателя.", &content)
 }
 
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn login_form(csrf: &str) -> Html<String> {
+    login_form_with_next(csrf, None)
+}
+
+pub fn login_form_with_next(csrf: &str, next: Option<&str>) -> Html<String> {
+    let (return_field, register_next) = auth_next_markup(next);
     let content = include_str!("../../templates/login_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--AUTH_RETURN_FIELD-->", &return_field)
+        .replace("<!--AUTH_REGISTER_NEXT-->", &register_next)
         .replace(
             "<!--AUTH_PANDA-->",
             include_str!("../../templates/auth_panda.html"),
@@ -99,6 +138,74 @@ pub fn my_account_with_follow_updates(
     replies: &[ReceivedReply],
     unread: u16,
 ) -> Html<String> {
+    render_my_account(name, csrf, replies, unread, None)
+}
+
+#[allow(dead_code)] // Kept for legacy callers and inline tests.
+pub fn my_account_with_achievements(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+) -> Html<String> {
+    render_my_account(name, csrf, replies, unread, Some(achievements))
+}
+
+#[allow(dead_code)] // Retained for the established swap-only renderer and its snapshot tests.
+pub fn my_account_with_achievements_and_swap(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+    swap_enabled: bool,
+) -> Html<String> {
+    my_account_with_achievements_refunds_and_swap(
+        name,
+        csrf,
+        replies,
+        unread,
+        achievements,
+        swap_enabled,
+        false,
+    )
+}
+
+pub fn my_account_with_achievements_refunds_and_swap(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+    swap_enabled: bool,
+    refund_enabled: bool,
+) -> Html<String> {
+    let html = render_my_account(name, csrf, replies, unread, Some(achievements));
+    let swap_link = if swap_enabled {
+        "<a class=\"dashboard-nav__item\" href=\"/me/refunds/swap\">Обмен глав</a>"
+    } else {
+        ""
+    };
+    let refund_link = if refund_enabled {
+        "<a class=\"dashboard-nav__item\" href=\"/me/refunds\">Заявки на возврат</a>"
+    } else {
+        ""
+    };
+    Html(
+        html.0
+            .replace("<!--SWAP_NAV_LINK-->", swap_link)
+            .replace("<!--REFUND_NAV_LINK-->", refund_link),
+    )
+}
+
+fn render_my_account(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: Option<&ReaderAchievements>,
+) -> Html<String> {
     let count = if unread >= 100 {
         "99+".to_owned()
     } else {
@@ -119,9 +226,21 @@ pub fn my_account_with_follow_updates(
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
-        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf));
-    // Only the authenticated private page changes its navigation.
-    let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
+        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf))
+        .replace(
+            "<!--READER_ACHIEVEMENTS-->",
+            &reader_achievements(achievements),
+        );
+    private_account_layout("Мой кабинет", "Учётная запись и личный кабинет.", &content)
+}
+
+/// Switch public navigation to the authenticated account shell.
+pub(super) fn private_account_layout(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
     Html(
         html.0
             .replace(
@@ -133,6 +252,42 @@ pub fn my_account_with_follow_updates(
                 "",
             ),
     )
+}
+
+fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
+    let Some(snapshot) = snapshot else {
+        return "<p class=\"ui-section-header__text\">Достижения появятся после подтверждённого чтения.</p>"
+            .to_owned();
+    };
+    let mut cards = String::from("<div class=\"me-block-grid\">");
+    for badge in &snapshot.badges {
+        let definition = badge.definition;
+        let done = badge.unlocked_on.is_some();
+        let status = if done {
+            "Получено"
+        } else {
+            "Пока не получено"
+        };
+        let progress = snapshot.completed_chapters.min(definition.threshold);
+        cards.push_str(&format!(
+            "<article class=\"dashboard-tile dashboard-tile--reader\">\
+             <h3 class=\"dashboard-tile__title\">{}</h3>\
+             <p class=\"dashboard-tile__text\">{}</p>\
+             <p class=\"dashboard-tile__text\">{status}: {progress}/{} глав</p>",
+            escape_html(definition.title),
+            escape_html(definition.description),
+            definition.threshold,
+        ));
+        if let Some(unlocked_on) = &badge.unlocked_on {
+            cards.push_str(&format!(
+                "<p class=\"dashboard-tile__text\">Дата получения: {}</p>",
+                escape_html(unlocked_on),
+            ));
+        }
+        cards.push_str("</article>");
+    }
+    cards.push_str("</div>");
+    cards
 }
 
 fn received_replies(replies: &[ReceivedReply], csrf: &str) -> String {
@@ -214,6 +369,8 @@ mod tests {
             assert!(html.contains("auth-panda__svg"));
             assert!(html.contains("viewBox=\"0 0 260 190\""));
             assert!(html.contains("auth-panda__cover-arms"));
+            assert!(html.contains("name=\"website\""));
+            assert!(html.contains("auth-form__website-trap"));
             assert!(!html.contains("<!--AUTH_PANDA-->"));
             assert!(!html.contains("<script"));
         }
@@ -238,6 +395,36 @@ mod tests {
     }
 
     #[test]
+    fn f_12_dashboard_shows_only_verified_private_reader_badges() {
+        use tor_recommendations::repositories::ReaderBadge;
+        use tor_recommendations::services::achievements::READER_ACHIEVEMENTS_V1;
+        let achievements = ReaderAchievements {
+            completed_chapters: 1,
+            badges: vec![
+                ReaderBadge {
+                    definition: READER_ACHIEVEMENTS_V1[0],
+                    unlocked_on: Some("2026-10-31".to_owned()),
+                },
+                ReaderBadge {
+                    definition: READER_ACHIEVEMENTS_V1[1],
+                    unlocked_on: None,
+                },
+            ],
+        };
+        let page = my_account_with_achievements("Reader", "csrf", &[], 0, &achievements).0;
+        assert!(page.contains("Достижения"));
+        assert!(page.contains("Первая глава"));
+        assert!(page.contains("Получено: 1/1 глав"));
+        assert!(page.contains("Пока не получено: 1/10 глав"));
+        assert!(page.contains("Дата получения: 2026-10-31"));
+        assert!(!page.contains("<!--READER_ACHIEVEMENTS-->"));
+        assert!(!page.contains("source_event_id"));
+        assert!(!my_account("Reader", "csrf", &[])
+            .0
+            .contains("Получено: 1/1 глав"));
+    }
+
+    #[test]
     fn original_dashboard_sections_keep_only_implemented_routes() {
         let html = my_account("<Читатель>", "csrf-token", &[]).0;
         assert!(html.contains("class=\"me-page\""));
@@ -247,7 +434,13 @@ mod tests {
         assert!(html.contains("Работа с книгами"));
         assert!(html.contains("Чтение"));
         assert!(html.contains("Сейчас"));
-        for route in ["/me/library", "/me/books", "/me/books/new", "/catalog"] {
+        for route in [
+            "/me/library",
+            "/me/books",
+            "/me/books/new",
+            "/me/teams",
+            "/catalog",
+        ] {
             assert!(html.contains(&format!("href=\"{route}\"")));
         }
         assert!(html.contains("name=\"csrf_token\" value=\"csrf-token\""));
@@ -258,5 +451,32 @@ mod tests {
         assert!(!html.contains("href=\"/me/settings\""));
         assert!(!html.contains("href=\"/me/purchases\""));
         assert!(!html.contains("href=\"/me/finance\""));
+    }
+    #[test]
+    fn d_06_swap_link_requires_explicit_browser_opt_in() {
+        let achievements = ReaderAchievements {
+            completed_chapters: 0,
+            badges: Vec::new(),
+        };
+        let hidden =
+            my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, false).0;
+        assert!(!hidden.contains("href=\"/me/refunds/swap\""));
+        let enabled =
+            my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, true).0;
+        assert!(enabled.contains("href=\"/me/refunds/swap\""));
+
+        let refund_only = my_account_with_achievements_refunds_and_swap(
+            "Reader",
+            "csrf",
+            &[],
+            0,
+            &achievements,
+            false,
+            true,
+        )
+        .0;
+        assert!(refund_only.contains("href=\"/me/refunds\""));
+        assert!(!refund_only.contains("href=\"/me/refunds/swap\""));
+        assert!(!hidden.contains("href=\"/me/refunds\""));
     }
 }

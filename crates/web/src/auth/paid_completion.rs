@@ -140,6 +140,14 @@ pub(super) async fn post(
             {
                 tracing::warn!("paid encrypted chapter ranking delivery remains queued");
             }
+            if state
+                .achievements
+                .accept_completed_chapter(&event_id)
+                .await
+                .is_err()
+            {
+                tracing::warn!("paid chapter achievement delivery remains queued");
+            }
             private_response(
                 Json(CompletionResult {
                     status: if newly_completed {

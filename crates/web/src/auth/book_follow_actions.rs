@@ -72,3 +72,44 @@ pub(super) async fn unfollow(
         Err(status) => deny(status),
     }
 }
+
+/// Follow the real current owner of a visible book; the browser never sends
+/// a trusted creator id or source attribution.
+pub(super) async fn follow_creator(
+    State(state): State<AuthState>,
+    Path(id): Path<u64>,
+    headers: HeaderMap,
+    Form(form): Form<FollowForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let book_id = match i64::try_from(id) {
+        Ok(book_id) if book_id > 0 => book_id,
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
+    match state.creator_follows.follow_from_book(actor, book_id).await {
+        Ok(_) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
+        Err(tor_social::services::follow::CreatorFollowError::NotFound) => {
+            deny(StatusCode::NOT_FOUND)
+        }
+        Err(tor_social::services::follow::CreatorFollowError::Forbidden) => {
+            deny(StatusCode::FORBIDDEN)
+        }
+        Err(tor_social::services::follow::CreatorFollowError::Invalid) => {
+            deny(StatusCode::BAD_REQUEST)
+        }
+        Err(tor_social::services::follow::CreatorFollowError::Unavailable) => {
+            deny(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
+}

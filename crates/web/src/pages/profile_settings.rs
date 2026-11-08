@@ -1,6 +1,6 @@
 use super::{escape_html, layout};
 use axum::response::Html;
-use tor_accounts::repositories::profile::Profile;
+use tor_accounts::services::profile::Profile;
 
 pub fn profile_settings(p: &Profile, csrf: &str, error: Option<&str>) -> Html<String> {
     let options = |enabled: bool| {

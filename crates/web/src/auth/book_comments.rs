@@ -5,19 +5,91 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
+    Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
-use tor_accounts::services::security::generate_session_token;
+use tor_accounts::{
+    repositories::scoped_actions::ScopedActionAdmission,
+    services::security::{generate_session_token, session_token_digest},
+};
 use tor_discussions::{
     domain::{
         comments::{CommentBody, CommentIntentKey},
         spoilers::{mask_mentions, parse, Segment},
     },
-    repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
+    repositories::public_book_comments::{
+        CreateResult, PgPublicBookComments, PublicComment, ReadStateResult,
+    },
 };
+
+pub(super) async fn mention_script() -> Response {
+    private_response(
+        (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/javascript; charset=utf-8",
+            )],
+            include_str!("../../assets/mentions.js"),
+        )
+            .into_response(),
+        &[],
+    )
+}
+
+#[derive(Deserialize)]
+pub(super) struct MentionsQuery {
+    book_id: i64,
+    q: String,
+}
+
+#[derive(Serialize)]
+struct MentionOption {
+    user_id: i64,
+    label: String,
+}
+
+#[derive(Serialize)]
+struct MentionOptions {
+    items: Vec<MentionOption>,
+}
+
+pub(super) async fn discover_mentions(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<MentionsQuery>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let repo = PgPublicBookComments::new(state.accounts.pool().clone());
+    match repo
+        .mention_candidates(actor, query.book_id, &query.q)
+        .await
+    {
+        Ok(items) => private_response(
+            Json(MentionOptions {
+                items: items
+                    .into_iter()
+                    .map(|item| MentionOption {
+                        user_id: item.user_id,
+                        label: item.display_name,
+                    })
+                    .collect(),
+            })
+            .into_response(),
+            &[],
+        ),
+        Err(tor_discussions::repositories::public_book_comments::ListCommentsError::Invalid) => {
+            deny(StatusCode::BAD_REQUEST)
+        }
+        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
 
 #[derive(Default, Deserialize)]
 pub(super) struct CommentsQuery {
@@ -67,7 +139,7 @@ fn comments_list(book_id: i64, comments: &[PublicComment], csrf: Option<&str>) -
                 "<details class=\"comment-reply\"><summary>Ответить на комментарий №{id}</summary>
                  <form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
                  <label for=\"reply-{id}\">Ваш ответ на комментарий №{id}</label>
-                 <textarea class=\"ui-textarea comments-form__input\" id=\"reply-{id}\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea>
+                 <textarea data-mention-book=\"{book_id}\" class=\"ui-textarea comments-form__input\" id=\"reply-{id}\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea>
                  <input type=\"hidden\" name=\"parent_id\" value=\"{id}\">
                  <input type=\"hidden\" name=\"command_key\" value=\"{}\">
                  <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
@@ -111,7 +183,7 @@ fn comments_page(
             "<form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
              <label for=\"comment-body\">Ваш комментарий</label>
              <p id=\"spoiler-help\">Чтобы скрыть спойлер, заключите текст в ||двойные черты||.</p>
-             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
+             <textarea data-mention-book=\"{book_id}\" class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
              <button class=\"ui-button ui-button--primary comments-form__submit\" type=\"submit\">Отправить</button>
@@ -135,7 +207,7 @@ fn comments_page(
          </div></div>
          {form}
          {list}
-         </section></div></section>",
+         </section></div></section><script defer src=\"/assets/mentions.js\"></script>",
         list = comments_list(book_id, comments, csrf),
     );
     pages::layout(
@@ -154,20 +226,26 @@ pub(super) async fn page(
     if book_id <= 0 || query.after.is_some_and(|id| id <= 0) {
         return deny(StatusCode::NOT_FOUND);
     }
-    let visible = match state.reader.public_book_page(book_id as u64, 1, None).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let store = PgPublicBookComments::new(state.accounts.pool().clone());
-    let comments = match store.list(book_id, query.after, 25).await {
-        Ok(Some(comments)) => comments,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
     let actor = match session_user(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
+    };
+    // A session cookie is only a locator; the comments SQL checks live A
+    // session, Book tier, grant and administrator role before returning titles.
+    let digest = actor.and_then(|_| {
+        state
+            .cookies
+            .session_token(&headers)
+            .map(|token| session_token_digest(&token))
+    });
+    let store = PgPublicBookComments::new(state.accounts.pool().clone());
+    let (title, comments) = match store
+        .list_for_session(book_id, query.after, 25, digest.as_ref())
+        .await
+    {
+        Ok(Some(result)) => result,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (token, cookies) = if actor.is_some() {
         let (token, cookies) = state.cookies.csrf_for_page(&headers);
@@ -175,10 +253,27 @@ pub(super) async fn page(
     } else {
         (None, Vec::new())
     };
-    private_response(
-        comments_page(book_id, &visible.title, &comments, token.as_deref()),
+    let mut response = private_response(
+        comments_page(book_id, &title, &comments, token.as_deref()),
         &cookies,
-    )
+    );
+    // Permit only self-hosted JS on this editor page; all other private
+    // pages retain their script-src 'none' policy.
+    response.headers_mut().insert(
+        "content-security-policy",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"),
+    );
+    response
+}
+
+/// Shared 429 representation for book and free-chapter comment mutations.
+pub(super) fn comment_rate_denial(seconds: u32) -> Response {
+    let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+    response.headers_mut().insert(
+        axum::http::header::RETRY_AFTER,
+        axum::http::HeaderValue::from_str(&seconds.to_string()).expect("positive seconds"),
+    );
+    response
 }
 
 pub(super) async fn submit(
@@ -227,6 +322,18 @@ pub(super) async fn submit(
         None => format!("book:{book_id}\n{}", body.as_str()),
     };
     let digest = Sha256::digest(payload.as_bytes());
+    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
+        Ok(ScopedActionAdmission::Allowed) => {}
+        Ok(ScopedActionAdmission::Limited { retry_after }) => {
+            return comment_rate_denial(retry_after);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     match store
         .create_with_parent(
@@ -240,6 +347,18 @@ pub(super) async fn submit(
         .await
     {
         CreateResult::Created(_) | CreateResult::Replayed(_) => {
+            // S012: an answer from Inbox marks that received notification as
+            // read, including idempotent retries. Only a verified recipient
+            // can change the read state; a forged return_to cannot read
+            // another user's notification.
+            if let Some(parent_id) = form.parent_id.filter(|_| redirect_to_inbox) {
+                match store.set_reply_read_state(actor, parent_id, true).await {
+                    ReadStateResult::Updated | ReadStateResult::NotFound => {}
+                    // The comment was committed, so the same command_key can
+                    // safely be retried to finish the read-state update.
+                    ReadStateResult::Unavailable => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                }
+            }
             let destination = if redirect_to_inbox {
                 "/me/inbox".to_owned()
             } else {

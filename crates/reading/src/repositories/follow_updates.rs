@@ -1,5 +1,5 @@
 //! Read-only, per-reader updates from canonical first-release facts.
-//! This is an on-site feed, not an email/push delivery or a paid access grant.
+//! Covers explicit book and creator follows; not email/push or paid access grants.
 #![forbid(unsafe_code)]
 use sqlx::{PgPool, Row};
 

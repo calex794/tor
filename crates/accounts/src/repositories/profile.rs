@@ -1,14 +1,7 @@
 //! Account-owned settings, serialized per user and protected by revision CAS.
 use super::PgAccounts;
+pub use crate::services::profile::Profile;
 use crate::services::profile::ProfileUpdate;
-
-pub struct Profile {
-    pub user_id: i64,
-    pub display_name: String,
-    pub handle: Option<String>,
-    pub adult_enabled: bool,
-    pub revision: i64,
-}
 
 #[derive(Debug)]
 pub enum ProfileError {
@@ -27,6 +20,40 @@ impl From<sqlx::Error> for ProfileError {
 }
 
 impl PgAccounts {
+    /// NEwBOO display-name URLs use trimmed, case-insensitive keys.
+    /// PostgreSQL currently permits collisions, so any two folded matches
+    /// must deny resolution rather than choose an arbitrary recipient.
+    /// Never return email, credentials, access tier or a private profile record.
+    pub async fn public_profile_by_display_name(
+        &self,
+        display_name: &str,
+    ) -> Result<Option<(i64, String)>, sqlx::Error> {
+        let normalized = display_name.trim();
+        if normalized.is_empty() || normalized.chars().count() > 80 {
+            return Ok(None);
+        }
+        let mut rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, display_name FROM users
+             WHERE account_state='active' AND lower(display_name)=lower($1::text)
+             ORDER BY id LIMIT 2",
+        )
+        .bind(normalized)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(if rows.len() == 1 { rows.pop() } else { None })
+    }
+
+    /// Account-owned display-name projection for private support admin queues.
+    pub async fn user_display_names(&self, ids: &[i64]) -> Result<Vec<(i64, String)>, sqlx::Error> {
+        if ids.len() > 200 || ids.iter().any(|id| *id <= 0) {
+            return Err(sqlx::Error::Protocol("invalid public-name batch".into()));
+        }
+        sqlx::query_as("SELECT id,display_name FROM users WHERE id=ANY($1)")
+            .bind(ids)
+            .fetch_all(self.pool())
+            .await
+    }
+
     pub async fn profile(&self, user_id: i64) -> Result<Option<Profile>, sqlx::Error> {
         let row: Option<(i64, String, Option<String>, bool, i64)> = sqlx::query_as(
             "SELECT u.id,u.display_name,s.handle,u.adult_enabled,COALESCE(s.revision,0)
