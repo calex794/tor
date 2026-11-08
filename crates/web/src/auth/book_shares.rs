@@ -4,7 +4,7 @@ use crate::{
     pages::{escape_html, layout},
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, State},
+    extract::{DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
@@ -41,6 +41,12 @@ struct ActionForm {
     reason: String,
     details: String,
     csrf_token: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SharePageQuery {
+    sent: Option<String>,
 }
 
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
@@ -95,7 +101,12 @@ fn form_allowed(s: &ShareState, h: &HeaderMap, csrf: &str) -> bool {
     s.cookies.same_origin(h) && s.cookies.valid_csrf(h, csrf)
 }
 
-async fn share_page(State(s): State<ShareState>, Path(id): Path<i64>, h: HeaderMap) -> Response {
+async fn share_page(
+    State(s): State<ShareState>,
+    Path(id): Path<i64>,
+    Query(query): Query<SharePageQuery>,
+    h: HeaderMap,
+) -> Response {
     let actor = match actor(&s, &h).await {
         Ok(actor) => actor,
         Err(e) => return deny(e),
@@ -114,6 +125,9 @@ async fn share_page(State(s): State<ShareState>, Path(id): Path<i64>, h: HeaderM
          <p>{}</p><p>Рекомендация не передаёт право на чтение платных глав.</p>",
         escape_html(&title)
     );
+    if query.sent.as_deref() == Some("1") {
+        body.push_str("<p role=\"status\">Рекомендация отправлена.</p>");
+    }
     if friends.is_empty() {
         body.push_str("<p>Нет доступных друзей для отправки.</p>");
     } else {
@@ -168,7 +182,7 @@ async fn send(
         .send(actor, f.recipient_user_id, id, &f.message, &f.command_key)
         .await
     {
-        Ok(_) => private_response(Redirect::to("/library/shared?notice=sent"), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/books/{id}/share?sent=1")), &[]),
         Err(e) => deny(status(e)),
     }
 }

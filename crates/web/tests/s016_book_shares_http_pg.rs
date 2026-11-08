@@ -221,11 +221,18 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let sent = send(&app, "POST", &share_path, &sender_cookies, &form).await;
+    assert_eq!(sent.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        send(&app, "POST", &share_path, &sender_cookies, &form)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
+        sent.headers()[header::LOCATION],
+        format!("{share_path}?sent=1")
+    );
+    assert!(
+        html(
+            send(&app, "GET", &format!("{share_path}?sent=1"), &sender_cookies, "").await
+        )
+        .await
+        .contains("Рекомендация отправлена.")
     );
     assert_eq!(
         send(&app, "POST", &share_path, &sender_cookies, &form)

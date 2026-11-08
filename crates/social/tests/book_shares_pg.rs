@@ -1,6 +1,6 @@
 //! S016/S017 disposable PostgreSQL acceptance. No production credentials.
 #![forbid(unsafe_code)]
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_social::repositories::book_shares::{BookShareError, PgBookShares};
 
