@@ -94,8 +94,7 @@ impl CookiePolicy {
     }
 
     pub(crate) fn telegram_recovery_token(&self, headers: &HeaderMap) -> Option<String> {
-        cookie_value(headers, self.telegram_recovery_name())
-            .filter(|token| valid_token(token))
+        cookie_value(headers, self.telegram_recovery_name()).filter(|token| valid_token(token))
     }
 
     pub(crate) fn telegram_recovery_cookie(&self, token: &str) -> String {

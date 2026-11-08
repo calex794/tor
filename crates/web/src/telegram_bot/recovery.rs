@@ -18,11 +18,7 @@ fn decode_callback(data: &str) -> Option<(i64, bool)> {
     (request_id > 0).then_some((request_id, approve))
 }
 
-pub(super) async fn dispatch(
-    client: &Client,
-    send_endpoint: &str,
-    accounts: &PgAccounts,
-) {
+pub(super) async fn dispatch(client: &Client, send_endpoint: &str, accounts: &PgAccounts) {
     let Ok(queued) = accounts.pending_telegram_recovery_notifications().await else {
         return;
     };
@@ -39,19 +35,25 @@ pub(super) async fn dispatch(
                 [{"text":"Отклонить","callback_data":format!("tr:d:{}", request.id)}]
             ]
         });
-        let sent = client.post(send_endpoint)
+        let sent = client
+            .post(send_endpoint)
             .json(&json!({
                 "chat_id":request.private_chat_id,
                 "text":text,
                 "reply_markup":keyboard,
                 "link_preview_options":{"is_disabled":true}
             }))
-            .send().await;
+            .send()
+            .await;
         let delivered = match sent {
-            Ok(reply) if reply.status().is_success() => reply
-                .json::<serde_json::Value>().await.ok()
-                .and_then(|value| value.get("ok").and_then(|v|v.as_bool()))
-                == Some(true),
+            Ok(reply) if reply.status().is_success() => {
+                reply
+                    .json::<serde_json::Value>()
+                    .await
+                    .ok()
+                    .and_then(|value| value.get("ok").and_then(|v| v.as_bool()))
+                    == Some(true)
+            }
             _ => false,
         };
         if delivered {
@@ -70,14 +72,18 @@ pub(super) async fn callback(
     let Some(message) = cb.message else {
         return;
     };
-    if cb.from.is_bot || cb.from.id <= 0
-        || message.chat.kind != "private" || message.chat.id != cb.from.id
+    if cb.from.is_bot
+        || cb.from.id <= 0
+        || message.chat.kind != "private"
+        || message.chat.id != cb.from.id
     {
         return;
     }
     let action = cb.data.as_deref().and_then(decode_callback);
     let changed = if let Some((id, approve)) = action {
-        accounts.decide_telegram_recovery(id, cb.from.id, message.chat.id, approve).await
+        accounts
+            .decide_telegram_recovery(id, cb.from.id, message.chat.id, approve)
+            .await
             .unwrap_or(false)
     } else {
         false
@@ -88,11 +94,15 @@ pub(super) async fn callback(
         "Заявка уже обработана, недействительна или устарела."
     };
     // A callback acknowledgement has no reset authority.
-    let _ = client.post(answer_endpoint).json(&json!({
-        "callback_query_id":cb.id,
-        "text":response,
-        "show_alert":false
-    })).send().await;
+    let _ = client
+        .post(answer_endpoint)
+        .json(&json!({
+            "callback_query_id":cb.id,
+            "text":response,
+            "show_alert":false
+        }))
+        .send()
+        .await;
 }
 
 #[cfg(test)]
@@ -103,8 +113,15 @@ mod tests {
     fn a_07_callback_data_is_not_a_bearer_secret_or_freeform_command() {
         assert_eq!(decode_callback("tr:a:123"), Some((123, true)));
         assert_eq!(decode_callback("tr:d:123"), Some((123, false)));
-        for candidate in ["tr:a:0","tr:a:-1","tr:a:99999999999999999999999",
-                          "tr:x:5","tr:a:5:6","tr:a:abc","tr:a:1\ntr:a:2"] {
+        for candidate in [
+            "tr:a:0",
+            "tr:a:-1",
+            "tr:a:99999999999999999999999",
+            "tr:x:5",
+            "tr:a:5:6",
+            "tr:a:abc",
+            "tr:a:1\ntr:a:2",
+        ] {
             assert_eq!(decode_callback(candidate), None);
         }
     }

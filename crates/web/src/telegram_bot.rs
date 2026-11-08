@@ -237,7 +237,10 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
     // Fixed Telegram authority; never allow an operator-supplied endpoint.
     let poll = format!("https://api.telegram.org/bot{}/getUpdates", cfg.token);
     let send = format!("https://api.telegram.org/bot{}/sendMessage", cfg.token);
-    let answer = format!("https://api.telegram.org/bot{}/answerCallbackQuery", cfg.token);
+    let answer = format!(
+        "https://api.telegram.org/bot{}/answerCallbackQuery",
+        cfg.token
+    );
     let mut offset = 0_i64;
     loop {
         recovery::dispatch(&client, &send, &accounts).await;

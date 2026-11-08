@@ -223,86 +223,174 @@ async fn a_07_browser_receives_reset_only_after_linked_telegram_approval() {
     std::env::set_var("TOR_TELEGRAM_RECOVERY_ENABLED", "1");
     std::env::set_var("TOR_TELEGRAM_BOT_USERNAME", "TorRecoveryBot");
     let catalog = tor_books::repositories::PgCatalog::connect(&url)
-        .await.unwrap();
+        .await
+        .unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, tor_reading::repositories::PgReader::new(pool),
-        accounts.clone(), false, ORIGIN.into(),
+        catalog,
+        tor_reading::repositories::PgReader::new(pool),
+        accounts.clone(),
+        false,
+        ORIGIN.into(),
     );
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let email = format!("tg-browser-{nonce}@example.invalid");
     let session = generate_session_token();
     let old_password = "SecureInitialTelegramRecovery2026";
-    let user = accounts.register_with_session(
-        &email, "Reader", &hash_password(old_password).unwrap(),
-        &session_token_digest(&session), NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
+    let user = accounts
+        .register_with_session(
+            &email,
+            "Reader",
+            &hash_password(old_password).unwrap(),
+            &session_token_digest(&session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let tg_id = 13_000_000_i64 + user;
     let binding_nonce = session_token_digest(&format!("browser-binding-{user}"));
-    assert!(accounts.begin_telegram_link(
-        user, &session_token_digest(&session),
-        &accounts.password_hash_for_user(user).await.unwrap().unwrap(),
-        &binding_nonce,
-    ).await.unwrap());
-    assert!(accounts.claim_telegram_link(&binding_nonce,tg_id,tg_id).await.unwrap());
-    let codes: [[u8;32];8] = std::array::from_fn(|i|
-        session_token_digest(&format!("http-recovery-code-{user}-{i}"))
+    assert!(accounts
+        .begin_telegram_link(
+            user,
+            &session_token_digest(&session),
+            &accounts
+                .password_hash_for_user(user)
+                .await
+                .unwrap()
+                .unwrap(),
+            &binding_nonce,
+        )
+        .await
+        .unwrap());
+    assert!(accounts
+        .claim_telegram_link(&binding_nonce, tg_id, tg_id)
+        .await
+        .unwrap());
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("http-recovery-code-{user}-{i}")));
+    assert_eq!(
+        accounts
+            .finish_telegram_link(user, &session_token_digest(&session), &codes,)
+            .await
+            .unwrap(),
+        Some(tg_id)
     );
-    assert_eq!(accounts.finish_telegram_link(
-        user, &session_token_digest(&session), &codes,
-    ).await.unwrap(),Some(tg_id));
     let form = request(&app, "GET", "/recover/telegram", "", String::new()).await;
-    assert_eq!(form.status(),StatusCode::OK);
-    let csrf_cookie = form.headers().get_all(header::SET_COOKIE).iter()
-        .map(|v|v.to_str().unwrap())
-        .find(|v|v.starts_with("tor-dev-csrf=")).unwrap()
-        .split(';').next().unwrap().to_owned();
-    let csrf = value_after(&html(form).await,"name=\"csrf_token\" value=\"").to_owned();
-    let started = request(&app, "POST", "/recover/telegram", &csrf_cookie,
-        format!("email={email}&csrf_token={csrf}")).await;
-    assert_eq!(started.status(),StatusCode::OK);
-    let browser_cookie = started.headers().get_all(header::SET_COOKIE).iter()
-        .map(|v|v.to_str().unwrap())
-        .find(|v|v.starts_with("tor-dev-tg-recover=")).unwrap()
-        .split(';').next().unwrap().to_owned();
+    assert_eq!(form.status(), StatusCode::OK);
+    let csrf_cookie = form
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .find(|v| v.starts_with("tor-dev-csrf="))
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let csrf = value_after(&html(form).await, "name=\"csrf_token\" value=\"").to_owned();
+    let started = request(
+        &app,
+        "POST",
+        "/recover/telegram",
+        &csrf_cookie,
+        format!("email={email}&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(started.status(), StatusCode::OK);
+    let browser_cookie = started
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .find(|v| v.starts_with("tor-dev-tg-recover="))
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
     let waiting_html = html(started).await;
-    let match_code = &waiting_html[
-        waiting_html.find("Код сверки: <strong>").unwrap()+20..
-        waiting_html.find("Код сверки: <strong>").unwrap()+26
-    ];
-    assert_eq!(match_code.len(),6);
+    let match_code = &waiting_html[waiting_html.find("Код сверки: <strong>").unwrap() + 20
+        ..waiting_html.find("Код сверки: <strong>").unwrap() + 26];
+    assert_eq!(match_code.len(), 6);
     assert!(!waiting_html.contains("/reset-password#"));
     let cookies = format!("{csrf_cookie}; {browser_cookie}");
-    let before = request(&app,"POST","/recover/telegram/complete",&cookies,
-        format!("csrf_token={csrf}")).await;
-    assert_eq!(before.status(),StatusCode::CONFLICT);
-    let dispatch = accounts.pending_telegram_recovery_notifications().await.unwrap();
-    let item = dispatch.iter().find(|item| item.private_chat_id==tg_id).unwrap();
-    assert_eq!(item.match_code,match_code);
-    assert!(!accounts.decide_telegram_recovery(item.id,tg_id+1,tg_id,true).await.unwrap());
-    assert!(accounts.decide_telegram_recovery(item.id,tg_id,tg_id,true).await.unwrap());
-    let foreign = request(&app,"POST","/recover/telegram/complete",
-        &format!("{csrf_cookie}; tor-dev-tg-recover={}",generate_session_token()),
-        format!("csrf_token={csrf}")).await;
-    assert_eq!(foreign.status(),StatusCode::CONFLICT);
-    let ready = request(&app,"GET","/recover/telegram",&cookies,String::new()).await;
+    let before = request(
+        &app,
+        "POST",
+        "/recover/telegram/complete",
+        &cookies,
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(before.status(), StatusCode::CONFLICT);
+    let dispatch = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap();
+    let item = dispatch
+        .iter()
+        .find(|item| item.private_chat_id == tg_id)
+        .unwrap();
+    assert_eq!(item.match_code, match_code);
+    assert!(!accounts
+        .decide_telegram_recovery(item.id, tg_id + 1, tg_id, true)
+        .await
+        .unwrap());
+    assert!(accounts
+        .decide_telegram_recovery(item.id, tg_id, tg_id, true)
+        .await
+        .unwrap());
+    let foreign = request(
+        &app,
+        "POST",
+        "/recover/telegram/complete",
+        &format!(
+            "{csrf_cookie}; tor-dev-tg-recover={}",
+            generate_session_token()
+        ),
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(foreign.status(), StatusCode::CONFLICT);
+    let ready = request(&app, "GET", "/recover/telegram", &cookies, String::new()).await;
     let ready_html = html(ready).await;
     assert!(ready_html.contains("Продолжить смену пароля"));
-    let complete = request(&app,"POST","/recover/telegram/complete",&cookies,
-        format!("csrf_token={csrf}")).await;
-    assert_eq!(complete.status(),StatusCode::OK);
+    let complete = request(
+        &app,
+        "POST",
+        "/recover/telegram/complete",
+        &cookies,
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(complete.status(), StatusCode::OK);
     let content = html(complete).await;
-    let reset_token = value_after(&content,"/reset-password#").to_owned();
-    assert_eq!(reset_token.len(),43);
-    let replay = request(&app,"POST","/recover/telegram/complete",&cookies,
-        format!("csrf_token={csrf}")).await;
-    assert_eq!(replay.status(),StatusCode::CONFLICT);
+    let reset_token = value_after(&content, "/reset-password#").to_owned();
+    assert_eq!(reset_token.len(), 43);
+    let replay = request(
+        &app,
+        "POST",
+        "/recover/telegram/complete",
+        &cookies,
+        format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::CONFLICT);
     let new_password = "SecureNewTelegramPassword2026";
     let rotated = request(&app,"POST","/reset-password",&csrf_cookie,
         format!("csrf_token={csrf}&token={reset_token}&new_password={new_password}&confirm_password={new_password}"))
         .await;
-    assert_eq!(rotated.status(),StatusCode::SEE_OTHER);
-    assert_eq!(accounts.active_session_user(&session_token_digest(&session)).await.unwrap(),None);
+    assert_eq!(rotated.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        accounts
+            .active_session_user(&session_token_digest(&session))
+            .await
+            .unwrap(),
+        None
+    );
 }

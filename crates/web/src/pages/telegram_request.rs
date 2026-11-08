@@ -3,7 +3,11 @@ use super::{escape_html, layout};
 use axum::response::Html;
 
 fn page(body: &str) -> Html<String> {
-    layout("Восстановление через Telegram", "Смена пароля с подтверждением через Telegram.", body)
+    layout(
+        "Восстановление через Telegram",
+        "Смена пароля с подтверждением через Telegram.",
+        body,
+    )
 }
 
 pub fn begin_form(csrf: &str) -> Html<String> {
