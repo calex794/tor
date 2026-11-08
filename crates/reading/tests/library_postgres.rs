@@ -1,3 +1,6 @@
+#[path = "library_postgres/archive_toc.rs"]
+mod archive_toc;
+
 //! C-08/S007: isolated PostgreSQL bookmarks, owner privacy and bounded keyset.
 use std::collections::HashSet;
 use tor_reading::{
