@@ -58,8 +58,8 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
         app.clone(), "/api/v1/books/1/toc/window?around_chapter_id=103&limit=3",
     ).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(window.contains("\\"chapter_no\\":3"), "{window}");
-    assert!(window.contains("\\"access_level\\":\\"paid\\""), "{window}");
+    assert!(window.contains(r#""chapter_no":3"#), "{window}");
+    assert!(window.contains(r#""access_level":"paid""#), "{window}");
     assert!(!window.contains("PRIVATE-PAID-MARKER"));
     for path in [
         "/api/v1/books/1/toc/window",
