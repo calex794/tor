@@ -220,7 +220,7 @@ impl PgBookCollections {
         }
     }
 
-    pub async fn edit(
+    pub async fn update_metadata_if_current(
         &self,
         actor: i64,
         id: i64,
@@ -306,7 +306,7 @@ impl PgBookCollections {
         Ok(revision)
     }
 
-    pub async fn remove_book(
+    pub async fn remove_book_if_current(
         &self,
         actor: i64,
         id: i64,
@@ -340,7 +340,7 @@ impl PgBookCollections {
         Ok(revision)
     }
 
-    pub async fn delete(&self, actor: i64, id: i64, expected: i64) -> Result<(), CollectionError> {
+    pub async fn delete_owned_collection(&self, actor: i64, id: i64, expected: i64) -> Result<(), CollectionError> {
         let mut tx = self.pool.begin().await?;
         Self::lock_owned(&mut tx, actor, id, expected).await?;
         sqlx::query(
