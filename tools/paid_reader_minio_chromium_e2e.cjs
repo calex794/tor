@@ -21,7 +21,12 @@ const purchase = fixture.purchase_id;
 const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
 const data = fixture.reader_html;
 const csp = fixture.reader_csp;
-const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
+// Mirror the exact JS bundle returned by pages::paid_reader_script in Rust.
+const script = Buffer.concat([
+  fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs"),
+  Buffer.from("\n"),
+  fs.readFileSync("crates/web/assets/newboo-paid-toc.js"),
+]);
 const paidCommentScript = fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs");
 // Serve the EXACT two stylesheets used by pages::layout and
 // pages::newboo_stylesheet, not reader-only CSS as both URLs.
@@ -39,6 +44,9 @@ const orderedNewbooFiles = [
 // Extract the actual Rust handler's include_str! order, so future changes
 // cannot silently turn this Chromium smoke into a stale visual fixture.
 const pageSource = fs.readFileSync("crates/web/src/pages.rs", "utf8");
+assert(pageSource.includes('include_str!("../assets/newboo-paid-reader.mjs")') &&
+  pageSource.includes('include_str!("../assets/newboo-paid-toc.js")'),
+  "Real paid-reader asset handler must serve both module sources");
 const start = pageSource.indexOf("pub async fn newboo_stylesheet()");
 const end = pageSource.indexOf("pub async fn paid_reader_script()", start);
 assert(start >= 0 && end > start, "NEwBOO Rust CSS handler missing");
