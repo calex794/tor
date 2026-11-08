@@ -429,7 +429,7 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(session_security::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -591,12 +591,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    // session_security::logout enforces same-origin and CSRF itself.
-    session_security::logout(State(state), headers, Form(form)).await
 }
