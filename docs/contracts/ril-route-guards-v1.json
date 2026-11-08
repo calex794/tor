@@ -2334,6 +2334,27 @@
       "policy": "owner"
     },
     {
+      "method": "POST",
+      "template": "/collections/{id}/rate",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "rate",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/comments",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "comment",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/collections/{id}/comments/{comment_id}/delete",
+      "source": "crates/web/src/auth/collections.rs",
+      "handler": "remove_comment",
+      "policy": "scoped"
+    },
+    {
       "method": "GET",
       "template": "/me/security/telegram",
       "source": "crates/web/src/auth/settings_routes.rs",

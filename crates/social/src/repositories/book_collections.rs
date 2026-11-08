@@ -11,6 +11,7 @@ pub enum CollectionError {
     Invalid,
     NotFound,
     Conflict,
+    RateLimited,
     Unavailable,
 }
 impl From<sqlx::Error> for CollectionError {

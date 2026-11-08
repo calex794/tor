@@ -295,6 +295,131 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         .await
         .contains("PublicShelves"));
 
+    // Public feedback, including CSRF, guest read, replay and HTML escaping.
+    let other_page = send(&app, "GET", &path, &other, "").await;
+    let other_csrf_cookie = cookie(&other_page, "tor-dev-csrf=");
+    let other_html = html(other_page).await;
+    let other_csrf = field(&other_html, "csrf_token");
+    let other_key = field(&other_html, "request_key");
+    let other_cookies = format!("{other}; {other_csrf_cookie}");
+    let rating = format!("rating=5&csrf_token={other_csrf}");
+    assert_eq!(
+        send(&app, "POST", &format!("{path}/rate"), "", &rating)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/rate"),
+            &other_cookies,
+            &rating
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(html(send(&app, "GET", &path, "", "").await)
+        .await
+        .contains("5.0 из 5"));
+
+    let comment = format!(
+        "body=%3Cscript%3Ealert%281%29%3C%2Fscript%3E&request_key={other_key}&csrf_token={other_csrf}"
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &comment
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &comment
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let public_comments = html(send(&app, "GET", &path, "", "").await).await;
+    assert!(public_comments.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!public_comments.contains("<script>alert(1)</script>"));
+    assert!(!public_comments.contains("Удалить комментарий"));
+    let collection_id: i64 = path.trim_start_matches("/collections/").parse().unwrap();
+    let comment_id: i64 = pg(&format!(
+        "SELECT id FROM social_book_collection_comments
+         WHERE collection_id={collection_id} AND deleted_at IS NULL"
+    ))
+    .parse()
+    .unwrap();
+    let remove = format!("csrf_token={csrf}");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments/{comment_id}/delete"),
+            &cookies,
+            &remove
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(!html(send(&app, "GET", &path, "", "").await)
+        .await
+        .contains("&lt;script&gt;"));
+
+    // Two thousand Unicode characters must fit the bounded URL-encoded form.
+    let next_html = html(send(&app, "GET", &path, &other_cookies, "").await).await;
+    let fresh_key = field(&next_html, "request_key");
+    let russian_form = format!(
+        "body={}&request_key={fresh_key}&csrf_token={other_csrf}",
+        "%D0%96".repeat(1500)
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &russian_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+
+    // Percent-encoded supplementary Unicode also fits the 2000-char policy.
+    let emoji_html = html(send(&app, "GET", &path, &other_cookies, "").await).await;
+    let emoji_key = field(&emoji_html, "request_key");
+    let emoji_form = format!(
+        "body={}&request_key={emoji_key}&csrf_token={other_csrf}",
+        "%F0%9F%98%80".repeat(1500)
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &emoji_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+
     pg(&format!(
         "UPDATE books SET visibility='draft' WHERE id={book}"
     ));
