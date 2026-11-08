@@ -385,19 +385,22 @@ mod tests {
             genres: "",
             tags: "",
             fandoms: ""
-        }).is_err());
+        })
+        .is_err());
         assert!(normalize_discovery_fields(DiscoveryFields {
             author_name: "",
             genres: "",
             tags: "tag,",
             fandoms: ""
-        }).is_err());
+        })
+        .is_err());
         assert!(normalize_discovery_fields(DiscoveryFields {
             author_name: "",
             genres: "",
             tags: "",
             fandoms: &"name,".repeat(9)
-        }).is_err());
+        })
+        .is_err());
     }
 
     #[test]
