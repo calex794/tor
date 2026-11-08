@@ -268,7 +268,8 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
             // crash or a temporary PostgreSQL failure loses the approval.
             if let Some(callback) = update.callback_query {
                 if recovery::callback(&client, &answer, &accounts, &cfg, callback)
-                    .await.is_err()
+                    .await
+                    .is_err()
                 {
                     storage_failure = true;
                     break;

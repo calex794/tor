@@ -83,7 +83,8 @@ pub(super) async fn callback(
     let changed = if let Some((id, approve)) = action {
         accounts
             .decide_telegram_recovery(id, cb.from.id, message.chat.id, approve)
-            .await.map_err(|_| "Telegram storage unavailable")?
+            .await
+            .map_err(|_| "Telegram storage unavailable")?
     } else {
         false
     };
