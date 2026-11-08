@@ -28,21 +28,36 @@ done
 # No production port, database or remote database may be used.
 url="${TOR_DR_RESTORE_URL:-}"
 [[ -n "$url" ]] || fail 'TOR_DR_RESTORE_URL required for disposable target'
-python3 - "$url" <<'PY' || fail 'unsafe restore target'
+# Passwords must NEVER appear in process argument lists. Use root-only .pgpass.
+[[ -n "${PGPASSFILE:-}" && -f "$PGPASSFILE" && ! -L "$PGPASSFILE" &&
+   "$(stat -c '%U:%G:%a' "$PGPASSFILE")" == root:root:600 ]] ||
+  fail 'sandbox PGPASSFILE missing or unsafe'
+# Parse user/host/port/database, refuse embedded passwords and connection options.
+# This must not permit a production 5432 endpoint or a non-sandbox database.
+read -r PGHOST PGPORT PGUSER PGDATABASE < <(
+  TOR_DR_PARSE_URL="$url" python3 - <<'PY'
+import os
 from urllib.parse import urlparse
 import re
 import sys
-u = urlparse(sys.argv[1])
-db = u.path.lstrip('/')
-if (u.scheme not in ('postgres', 'postgresql') or
-    u.hostname not in ('127.0.0.1', 'localhost') or
-    u.port is None or u.port == 5432 or not (15432 <= u.port <= 15999) or
-    not re.fullmatch(r'tor_dr_[a-z0-9_]{1,32}', db) or
+u = urlparse(os.environ["TOR_DR_PARSE_URL"])
+db = u.path.lstrip("/")
+if (u.scheme not in ("postgres", "postgresql") or
+    u.hostname not in ("127.0.0.1", "localhost") or
+    u.username is None or not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", u.username) or
+    u.password is not None or
+    u.port is None or not (15432 <= u.port <= 15999) or
+    not re.fullmatch(r"tor_dr_[a-z0-9_]{1,32}", db) or
     u.query or u.fragment):
     sys.exit(1)
+print(u.hostname, u.port, u.username, db)
 PY
-# A precreated isolated role/database must exist; fail on nonempty public schema.
-[[ "$(psql "$url" -X -At -v ON_ERROR_STOP=1 -c \
+) || fail 'unsafe restore target'
+[[ -n "${PGDATABASE:-}" && "${PGDATABASE}" == tor_dr_* ]] ||
+  fail 'invalid restore target'
+export PGHOST PGPORT PGUSER PGDATABASE PGPASSFILE
+# The disposable database must already exist and have an EMPTY public schema.
+[[ "$(psql -X -At -v ON_ERROR_STOP=1 -c \
   "SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind IN ('r','p','v','m','f')" 2>/dev/null)" == 0 ]] ||
   fail 'restore target is nonempty or inaccessible'
 
@@ -62,13 +77,13 @@ print(max(items,key=lambda x:x.get("time",""))["id"])
 # Pipeline failures are fatal because pipefail is set.
 restic dump "$snapshot" tor-pg18.dump | \
   /usr/lib/postgresql/18/bin/pg_restore \
-    --dbname="$url" --no-owner --no-acl --exit-on-error
+    --dbname="$PGDATABASE" --no-owner --no-acl --exit-on-error
 
 # Only validate restored data in this disposable database.
-psql "$url" -X -v ON_ERROR_STOP=1 -At -c \
+psql -X -v ON_ERROR_STOP=1 -At -c \
   "SELECT count(*) FROM public._sqlx_migrations WHERE success" |
   grep -Eq '^[1-9][0-9]*$' || fail 'SQLx migrations missing'
-psql "$url" -X -v ON_ERROR_STOP=1 -At -c \
+psql -X -v ON_ERROR_STOP=1 -At -c \
   "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='books'" |
   grep -qx 1 || fail 'books table missing'
 echo TOR_OFFSITE_RESTORE_VERIFIED
