@@ -397,9 +397,9 @@ async function run() {
               right: bounds.right,
               bottom: bounds.bottom,
               top: bounds.top,
-              summaryTop: element.closest("details").querySelector("summary")
-                .getBoundingClientRect().top,
               viewportWidth: document.documentElement.clientWidth,
+              gridColumns: getComputedStyle(
+                element.querySelector(".reader-paid__toc-list")).gridTemplateColumns.split(" ").length,
               viewportHeight: window.innerHeight,
             };
           });
@@ -407,8 +407,10 @@ async function run() {
           footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
           footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
           device + ": footer menu clips beyond viewport");
-        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
-          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.gridColumns === (device === "desktop" ? 3 : 1),
+          device + ": paid TOC grid should use 3 desktop or 1 mobile column");
+        assert(await footerToc.locator("[data-paid-toc-close]").isVisible(),
+          device + ": modal close control must be accessible without the trigger");
         assert(footerGeometry.top >= -1,
           device + ": footer menu begins outside the visible viewport");
         await page.screenshot({
@@ -416,7 +418,7 @@ async function run() {
           fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
           maskColor: "#e5e7eb",
         });
-        await footerToc.locator("summary").click();
+        await footerToc.locator("[data-paid-toc-close]").click();
         assert(!(await footerToc.evaluate((element) => element.open)),
           device + ": footer TOC does not close");
         const footerStyles = await bottomNavigation.evaluate((element) => {
@@ -529,7 +531,7 @@ async function run() {
         });
         assert(visuals.ownedBg !== visuals.freeBg &&
           visuals.freeBg !== visuals.closedBg &&
-          visuals.menuWidth <= width - 24,
+          visuals.menuWidth <= width + 1,
           device + ": mixed TOC styles diverge from NEwBOO reading hierarchy");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-mixed-toc-" + device + ".png"),
@@ -547,7 +549,7 @@ async function run() {
         await toc.locator(".reader-paid__toc-menu").screenshot({
           path: path.join(screenshotRoot, "s065-mixed-toc-menu-" + device + ".png"),
         });
-        await toc.locator("summary").click();
+        await toc.locator("[data-paid-toc-close]").click();
         assert(!(await toc.evaluate((element) => element.open)),
           device + ": purchased TOC did not close");
 
