@@ -99,16 +99,12 @@ async fn library_has_book(app: &Router, cookie: &str, book: i64) -> bool {
     let (status, body) = page(app, "/api/v1/me/library", cookie).await;
     assert_eq!(status, StatusCode::OK);
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-    json["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|item| {
-            item["book_id"]
-                .as_str()
-                .and_then(|raw| raw.parse::<i64>().ok())
-                == Some(book)
-        })
+    json["items"].as_array().unwrap().iter().any(|item| {
+        item["book_id"]
+            .as_str()
+            .and_then(|raw| raw.parse::<i64>().ok())
+            == Some(book)
+    })
 }
 
 async fn submit(
