@@ -83,6 +83,7 @@ impl PgTeamBooks {
              JOIN translation_teams t ON t.id=tb.team_id
              JOIN books b ON b.id=tb.book_id
              WHERE tb.team_id=$1 AND tb.is_active
+               AND b.owner_user_id=tb.added_by_user_id
                AND NOT b.is_deleted AND NOT b.admin_hold
                AND (b.owner_user_id=t.owner_user_id OR EXISTS (
                    SELECT 1 FROM translation_team_members member
@@ -125,11 +126,7 @@ impl PgTeamBooks {
     }
 
     /// Team owner controls the roster; Book roles remain exclusively in B-09.
-    pub async fn members(
-        &self,
-        actor: i64,
-        team_id: i64,
-    ) -> Result<Vec<TeamMemberRow>, TeamError> {
+    pub async fn members(&self, actor: i64, team_id: i64) -> Result<Vec<TeamMemberRow>, TeamError> {
         if !self.is_team_owner(actor, team_id).await? {
             return Err(TeamError::Missing);
         }

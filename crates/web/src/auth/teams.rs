@@ -20,7 +20,8 @@ use tor_accounts::{
 use tor_books::{
     repositories::{
         translation_team_books::{PgTeamBooks, TeamMemberRow},
-        translation_team_invites::PgTeamInvites, translation_teams::PgTranslationTeams,
+        translation_team_invites::PgTeamInvites,
+        translation_teams::PgTranslationTeams,
     },
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
@@ -74,7 +75,10 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route("/me/teams/{id}", get(detail))
         .route("/me/teams/{id}/books", get(books_page).post(add_book))
         .route("/me/teams/{id}/books/{book_id}/remove", post(remove_book))
-        .route("/me/teams/{id}/members/{member_id}/remove", post(remove_member))
+        .route(
+            "/me/teams/{id}/members/{member_id}/remove",
+            post(remove_member),
+        )
         .route("/me/teams/{id}/invites", post(invite))
         .route("/me/teams/invites/{token}", get(invite_page))
         .route("/me/teams/invites/{token}/accept", post(accept))
@@ -184,7 +188,9 @@ fn roster_html(team_id: i64, csrf: &str, members: &[TeamMemberRow]) -> String {
         )
         .expect("HTML");
     }
-    html.push_str("</ul><p>Удаление участника из команды не изменяет книжные роли и покупки читателей.</p>");
+    html.push_str(
+        "</ul><p>Удаление участника из команды не изменяет книжные роли и покупки читателей.</p>",
+    );
     html
 }
 
@@ -428,7 +434,6 @@ async fn decline(
     }
 }
 
-
 /// S028: independent Team + Book gate; a linked book grants no reading rights.
 async fn books_page(
     State(s): State<TeamState>,
@@ -449,13 +454,7 @@ async fn books_page(
          <p>Это список проектов. Он не открывает главы и не меняет владельца книги.</p><ul>"
     );
     for book in &view.linked {
-        write!(
-            html,
-            "<li>{} (#{})",
-            escape_html(&book.title),
-            book.id
-        )
-        .expect("HTML");
+        write!(html, "<li>{} (#{})", escape_html(&book.title), book.id).expect("HTML");
         if view.is_owner {
             write!(
                 html,
