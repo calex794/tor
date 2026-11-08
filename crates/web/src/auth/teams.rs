@@ -162,7 +162,20 @@ async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
         Err(error) => return team_error(error),
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
-    page("Мои команды", &list_html(&teams, &csrf), &cookies)
+    let joined = match s.invites.joined(actor).await {
+        Ok(teams) => teams,
+        Err(error) => return team_error(error),
+    };
+    let mut html = list_html(&teams, &csrf);
+    let mut fragment = String::from("<h2>Команды, в которых я участвую</h2><ul>");
+    for (id, name) in joined {
+        write!(fragment, "<li><a href=\\"/me/teams/{}\\">{}</a></li>", id, escape_html(&name)).expect("HTML");
+    }
+    fragment.push_str("</ul>");
+    if let Some(index) = html.rfind("</div></section>") {
+        html.insert_str(index, &fragment);
+    }
+    page("Мои команды", &html, &cookies)
 }
 
 async fn create(
