@@ -44,6 +44,7 @@ use tower::ServiceExt;
 mod s065_role_matrix;
 #[path = "paid_grants_http_pg/s065_unsealed.rs"]
 mod s065_unsealed;
+#[path = "paid_grants_http_pg/s034_toc_window.rs"] mod s034_toc_window;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
@@ -617,6 +618,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         "S034 raw plaintext must not enter SSR HTML"
     );
     assert!(!html.contains("dek_b64u"), "S034 no scoped DEK in SSR HTML");
+    s034_toc_window::check(&browser, &app, chapter, purchase_id, &buyer_cookie, &author_cookie).await;
     s065_alternate_reader_access_matrix(
         &browser,
         (chapter, version, purchase_id),
