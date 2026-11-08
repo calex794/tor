@@ -29,6 +29,10 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
             "<span class=\"reader-paid__toc-title\">Глава {}. {title}</span>",
             chapter.chapter_no
         );
+        let position_attributes = format!(
+            "data-toc-id=\"{}\" data-toc-no=\"{}\"",
+            chapter.chapter_id, chapter.chapter_no
+        );
         match chapter.access {
             MixedTocAccess::Purchased {
                 purchase_id,
@@ -37,7 +41,7 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
             } if chapter.chapter_id == edition.chapter_id && purchase_id == edition.purchase_id => {
                 write!(
                     entries,
-                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--current\" data-toc-state=\"current\">
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--current\" data-toc-state=\"current\" {position_attributes}>
                        <span aria-current=\"page\">{label}<span class=\"reader-paid__toc-badge reader-paid__toc-badge--owned\">Читаю · редакция {version_no}</span></span>
                      </li>"
                 )
@@ -50,7 +54,7 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
             } => {
                 write!(
                     entries,
-                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--owned\" data-toc-state=\"owned\">
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--owned\" data-toc-state=\"owned\" {position_attributes}>
                        <a data-paid-toc-link href=\"/read/paid/{}?purchase_id={purchase_id}\">{label}
                          <span class=\"reader-paid__toc-badge reader-paid__toc-badge--owned\">Куплено · редакция {version_no}</span>
                        </a>
@@ -62,7 +66,7 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
             MixedTocAccess::PublicFree => {
                 write!(
                     entries,
-                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--free\" data-toc-state=\"free\">
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--free\" data-toc-state=\"free\" {position_attributes}>
                        <a data-free-toc-link href=\"/reader/{}\">{label}
                          <span class=\"reader-paid__toc-badge reader-paid__toc-badge--free\">Бесплатно</span>
                        </a>
@@ -77,7 +81,7 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
                 });
                 write!(
                     entries,
-                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--locked\" data-toc-state=\"locked\">
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--locked\" data-toc-state=\"locked\" {position_attributes}>
                        <span class=\"reader-paid__toc-locked\" aria-disabled=\"true\">{label}
                          <span class=\"reader-paid__toc-badge reader-paid__toc-badge--locked\">Не куплено{price}</span>
                        </span>
@@ -105,12 +109,20 @@ fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: boo
     format!(
         "<details class=\"reader-topbar__toc {position}\" {toc_attr}>
           <summary aria-label=\"Оглавление книги\">Оглавление</summary>
-          <div class=\"reader-paid__toc-menu\" role=\"group\" aria-label=\"Оглавление книги\">
+          <button type=\"button\" class=\"reader-paid__toc-backdrop\" data-paid-toc-backdrop
+            tabindex=\"-1\" aria-label=\"Закрыть оглавление\"></button>
+          <div class=\"reader-paid__toc-menu\" data-paid-toc-modal
+            role=\"dialog\" aria-modal=\"true\" aria-label=\"Оглавление книги\">
             <div class=\"reader-paid__toc-head\">
-              <strong>Главы книги</strong>
-              <span>Бесплатные, купленные и закрытые</span>
+              <div><strong>Главы книги</strong>
+                <span>Бесплатные, купленные и закрытые</span></div>
+              <button type=\"button\" class=\"reader-paid__toc-close\" data-paid-toc-close
+                aria-label=\"Закрыть оглавление\">×</button>
             </div>
-            <ol class=\"reader-paid__toc-list\">{entries}</ol>
+            <div class=\"reader-paid__toc-scroll\" data-paid-toc-scroll
+              tabindex=\"0\" aria-label=\"Прокрутка оглавления\">
+              <ol class=\"reader-paid__toc-list\">{entries}</ol>
+            </div>
             {overflow}
           </div>
          </details>"
@@ -428,6 +440,10 @@ mod tests {
             truncated: true,
         };
         let html = paid_book_toc(&edition, &toc);
+        assert!(html.contains("data-paid-toc-modal"));
+        assert!(html.contains("data-paid-toc-close"));
+        assert!(html.contains("data-paid-toc-scroll"));
+        assert!(html.contains("data-toc-id=\"23\""));
         assert!(html.contains("aria-current=\"page\""));
         assert!(html.contains("href=\"/read/paid/24?purchase_id=32\""));
         assert!(html.contains("href=\"/reader/21\""));
