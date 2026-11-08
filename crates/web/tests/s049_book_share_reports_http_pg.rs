@@ -194,9 +194,8 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
     let recipient_csrf_cookie = cookie(&inbox, "tor-dev-csrf=");
     let recipient_csrf = field(&html(inbox).await, "csrf_token");
     let recipient_cookies = format!("{recipient}; {recipient_csrf_cookie}");
-    let report_form = format!(
-        "action=report&reason=spam&details=Repeated&csrf_token={recipient_csrf}"
-    );
+    let report_form =
+        format!("action=report&reason=spam&details=Repeated&csrf_token={recipient_csrf}");
     assert_eq!(
         send(
             &app,
@@ -212,7 +211,10 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
     let queue = send(&app, "GET", admin_path, &admin, "").await;
     assert_eq!(queue.status(), StatusCode::OK);
     assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(queue.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(
+        queue.headers()["x-robots-tag"],
+        "noindex, nofollow, noarchive"
+    );
     let admin_csrf_cookie = cookie(&queue, "tor-dev-csrf=");
     let queue_html = html(queue).await;
     assert!(queue_html.contains(&format!("Жалоба #{share}")));
@@ -267,9 +269,12 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
         send(&app, "POST", &decide_path, &admin_cookies, &choice),
         send(&app, "POST", &decide_path, &admin_cookies, &choice)
     );
-    let mut results = [left.status(), right.status()];
+    let mut results = [left.status().as_u16(), right.status().as_u16()];
     results.sort();
-    assert_eq!(results, [StatusCode::SEE_OTHER, StatusCode::CONFLICT]);
+    assert_eq!(
+        results,
+        [StatusCode::SEE_OTHER.as_u16(), StatusCode::CONFLICT.as_u16()]
+    );
     assert_eq!(
         pg(&format!(
             "SELECT state FROM social_book_share_reports WHERE share_id={share}"
@@ -296,9 +301,11 @@ async fn s049_admin_only_receives_share_reports_and_decision_is_once_with_audit(
         )),
         "0"
     );
-    assert!(!html(send(&app, "GET", admin_path, &admin_cookies, "").await)
-        .await
-        .contains(&format!("Жалоба #{share}")));
+    assert!(
+        !html(send(&app, "GET", admin_path, &admin_cookies, "").await)
+            .await
+            .contains(&format!("Жалоба #{share}"))
+    );
     assert_eq!(
         send(&app, "POST", &decide_path, &admin_cookies, &choice)
             .await

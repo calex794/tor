@@ -20,7 +20,10 @@ pub(super) struct ReviewForm {
 }
 
 fn session_digest(s: &ShareState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
-    let token = s.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = s
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(session_token_digest(&token))
 }
 
@@ -80,9 +83,7 @@ pub(super) async fn decide(
     headers: HeaderMap,
     Form(form): Form<ReviewForm>,
 ) -> Response {
-    if !s.cookies.same_origin(&headers)
-        || !s.cookies.valid_csrf(&headers, &form.csrf_token)
-    {
+    if !s.cookies.same_origin(&headers) || !s.cookies.valid_csrf(&headers, &form.csrf_token) {
         return deny(StatusCode::FORBIDDEN);
     }
     let digest = match session_digest(&s, &headers) {
