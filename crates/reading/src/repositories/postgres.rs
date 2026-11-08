@@ -342,3 +342,5 @@ impl PublicReadingRepository for PgReader {
         self.public_chapter_for_session(id, None).await
     }
 }
+
+mod toc_window;
