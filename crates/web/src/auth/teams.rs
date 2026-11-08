@@ -8,12 +8,12 @@ use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Deserialize;
 use std::fmt::Write;
-use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_accounts::{repositories::PgAccounts, services::security::{session_token_digest, generate_session_token}};
 use tor_books::{
     repositories::translation_teams::PgTranslationTeams,
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
@@ -34,6 +34,18 @@ struct TeamForm {
     csrf_token: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InviteForm {
+    recipient_email: String,
+    csrf_token: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DecisionForm {
+    csrf_token: Option<String>,
+}
+
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let state = TeamState {
         teams: TeamService::new(PgTranslationTeams::new(accounts.pool().clone())),
@@ -43,6 +55,10 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/me/teams", get(index).post(create))
         .route("/me/teams/{id}", get(detail))
+        .route("/me/teams/{id}/invites", post(invite))
+        .route("/me/teams/invites/{token}", get(invite_page))
+        .route("/me/teams/invites/{token}/accept", post(accept))
+        .route("/me/teams/invites/{token}/decline", post(decline))
         .layer(DefaultBodyLimit::max(8 * 1024))
         .with_state(state)
 }
@@ -112,14 +128,22 @@ fn list_html(teams: &[TranslationTeam], csrf: &str) -> String {
     .expect("String formatting");
     html
 }
-fn detail_html(team: &TranslationTeam) -> String {
+fn detail_html(team: &TranslationTeam, csrf: &str) -> String {
     format!(
         "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
          <p>{}</p><p>Вы владелец команды. Приглашения и книги будут доступны \
          после отдельной проверки прав.</p>\
+         <h2>Пригласить участника</h2>\
+         <form method="post" action="/me/teams/{}/invites">\
+         <label>Электронная почта<input name="recipient_email" type="email" required maxlength="320"></label>\
+         <input type="hidden" name="csrf_token" value="{}">\
+         <button class="button" type="submit">Создать приглашение</button></form>\
+         <p>Ссылка появляется один раз. Передайте её приглашённому самостоятельно.</p>\
          <p><a href=\"/me/teams\">Все команды</a></p></div></section>",
         escape_html(&team.name),
-        escape_html(&team.description)
+        escape_html(&team.description),
+        team.id,
+        escape_html(csrf)
     )
 }
 
@@ -183,7 +207,108 @@ async fn detail(
         Err(error) => return team_error(error),
     };
     match owner.get(team_id).await {
-        Ok(team) => page("Команда", &detail_html(&team), &[]),
+        Ok(team) => {
+            let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
+            page("Команда", &detail_html(&team, &csrf), &cookies)
+        },
+        Err(error) => team_error(error),
+    }
+}
+
+
+fn valid_write(s: &TeamState, headers: &HeaderMap, csrf: Option<&str>) -> bool {
+    s.cookies.same_origin(headers)
+        && s.cookies.valid_csrf(headers, csrf.unwrap_or(""))
+}
+
+/// Owner can share this one-time URL out of band; do not put bearer tokens in a DB or logs.
+async fn invite(
+    State(s): State<TeamState>,
+    Path(team_id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<InviteForm>,
+) -> Response {
+    if !valid_write(&s, &headers, form.csrf_token.as_deref()) {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let owner = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    let token = generate_session_token();
+    if let Err(error) = s.invites.invite(owner, team_id, &form.recipient_email, &token).await {
+        return team_error(error);
+    }
+    let link = format!("/me/teams/invites/{token}");
+    page("Приглашение", &format!(
+        "<section class=\"section\"><div class=\"container\"><h1>Приглашение создано</h1>\
+         <p>Передайте ссылку адресату. Она действует семь дней и не даёт прав на книги.</p>\
+         <p><a href=\"{}\">Ссылка приглашения</a></p>\
+         <p><a href=\"/me/teams/{}\">Вернуться к команде</a></p></div></section>",
+        escape_html(&link), team_id
+    ), &[])
+}
+
+async fn invite_page(
+    State(s): State<TeamState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let recipient = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    let invite = match s.invites.detail(recipient, &token).await {
+        Ok(value) => value,
+        Err(error) => return team_error(error),
+    };
+    let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
+    let content = if invite.state == "pending" {
+        format!(
+            "<form method=\"post\" action=\"/me/teams/invites/{}/accept\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <button type=\"submit\">Принять</button></form>\
+             <form method=\"post\" action=\"/me/teams/invites/{}/decline\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <button type=\"submit\">Отклонить</button></form>",
+            token, escape_html(&csrf), token, escape_html(&csrf)
+        )
+    } else {
+        format!("<p>Приглашение: {}</p>", escape_html(&invite.state))
+    };
+    page("Приглашение в команду", &format!(
+        "<section class=\"section\"><div class=\"container\">\
+         <h1>Приглашение в команду {}</h1>{}</div></section>",
+        escape_html(&invite.team_name), content
+    ), &cookies)
+}
+
+async fn accept(
+    State(s): State<TeamState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<DecisionForm>,
+) -> Response {
+    decide(s, token, headers, form, true).await
+}
+async fn decline(
+    State(s): State<TeamState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<DecisionForm>,
+) -> Response {
+    decide(s, token, headers, form, false).await
+}
+async fn decide(s: TeamState, token: String, headers: HeaderMap, form: DecisionForm, yes: bool) -> Response {
+    if !valid_write(&s, &headers, form.csrf_token.as_deref()) {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let recipient = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    match s.invites.decide(recipient, &token, yes).await {
+        Ok(_) => private_response(Redirect::to("/me/teams"), &[]),
         Err(error) => team_error(error),
     }
 }
