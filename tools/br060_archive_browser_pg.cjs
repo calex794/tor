@@ -440,9 +440,10 @@ async function checkViewport(page, screen) {
     const outsider = await outsiderContext.newPage();
     await register(outsider, address('outsider'), 'Посторонний BR-060');
     assert.equal((await outsider.goto(archivedURL)).status(), 404);
-    const outsiderToc = await outsider.evaluate(async url =>
-      (await fetch(url, { credentials: 'same-origin' })).status,
-    '/api/v1/me/library/saved/' + chapter + '/toc/window?after=1.' + chapter);
+    const outsiderReply = await outsiderContext.request.get(
+      base + '/api/v1/me/library/saved/' + chapter + '/toc/window?after=1.' + chapter,
+    );
+    const outsiderToc = outsiderReply.status();
     assert.equal(outsiderToc, 404, 'other signed-in account cannot enumerate archive');
 
     const outsidersLibrary = await outsider.goto(base + '/me/library');
