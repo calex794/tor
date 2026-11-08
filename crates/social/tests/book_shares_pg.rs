@@ -264,3 +264,95 @@ async fn s016_sender_quota_and_moderation_visibility_hold() {
         Err(BookShareError::NotFound)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s016_adult_and_pro_adult_shares_follow_live_recipient_access() {
+    let (pool, sender, receiver, _, basic, adult, _) = fixture().await;
+    friends(&pool, sender, receiver).await;
+    let pro: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+         VALUES($1,'ru','ProAdultShare','public','pro_adult',$2) RETURNING id",
+    )
+    .bind(format!("ci:s016:pro:{sender}:{receiver}"))
+    .bind(sender)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let shares = PgBookShares::new(pool.clone());
+    assert_eq!(
+        shares.send(sender, receiver, adult, "", &key(300)).await,
+        Err(BookShareError::NotFound)
+    );
+    assert_eq!(
+        shares.send(sender, receiver, pro, "", &key(301)).await,
+        Err(BookShareError::NotFound)
+    );
+    // Both book metadata and the sending form must fail closed for the sender.
+    assert_eq!(
+        shares.public_book_title(adult, sender).await,
+        Err(BookShareError::NotFound)
+    );
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id IN ($1,$2)")
+        .bind(sender)
+        .bind(receiver)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(shares.public_book_title(adult, sender).await.is_ok());
+    let adult_id = shares.send(sender, receiver, adult, "Adult", &key(302))
+        .await.unwrap();
+    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == adult_id));
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(receiver)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == adult_id));
+    assert_eq!(
+        shares.send(sender, receiver, adult, "", &key(303)).await,
+        Err(BookShareError::NotFound)
+    );
+    // A pro_adult grant alone does not imply the adult opt-in required by
+    // the current public reader; but it does authorize a 21+ Book.
+    for user_id in [sender, receiver] {
+        sqlx::query(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES($1,'pro_adult','moderation',TRUE)",
+        )
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    assert_eq!(
+        shares.send(sender, receiver, adult, "", &key(304)).await,
+        Err(BookShareError::NotFound)
+    );
+    let pro_id = shares.send(sender, receiver, pro, "Pro", &key(305))
+        .await.unwrap();
+    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == pro_id));
+    sqlx::query(
+        "UPDATE user_level_grants SET is_active=FALSE
+         WHERE user_id=$1 AND level='pro_adult'",
+    )
+    .bind(receiver)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == pro_id));
+    assert_eq!(
+        shares.send(sender, receiver, pro, "", &key(306)).await,
+        Err(BookShareError::NotFound)
+    );
+    // Basic shares remain unaffected by age downgrades.
+    let basic_id = shares.send(sender, receiver, basic, "", &key(307))
+        .await.unwrap();
+    assert!(shares.inbox(receiver).await.unwrap().iter().any(|s| s.id == basic_id));
+    // Delivery is a link, never an entitlement.
+    let purchased: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM library_purchased_chapters WHERE user_id=$1",
+    )
+    .bind(receiver).fetch_one(&pool).await.unwrap();
+    assert_eq!(purchased, 0);
+}
