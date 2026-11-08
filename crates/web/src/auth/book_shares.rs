@@ -111,7 +111,7 @@ async fn share_page(
         Ok(actor) => actor,
         Err(e) => return deny(e),
     };
-    let title = match s.shares.public_book_title(id).await {
+    let title = match s.shares.public_book_title(id, actor).await {
         Ok(title) => title,
         Err(e) => return deny(status(e)),
     };
@@ -122,7 +122,7 @@ async fn share_page(
     let (csrf, cookies) = s.cookies.csrf_for_page(&h);
     let mut body = format!(
         "<section class=\"section\"><div class=\"container\"><h1>Посоветовать книгу другу</h1>
-         <p>{}</p><p>Рекомендация не передаёт право на чтение платных глав.</p>",
+         <p>{}</p><p>Рекомендация не передаёт право на чтение платных глав. Для книг 18+/21+ получателю необходим действующий возрастной допуск.</p>",
         escape_html(&title)
     );
     if query.sent.as_deref() == Some("1") {
