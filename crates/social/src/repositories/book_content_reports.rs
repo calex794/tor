@@ -374,8 +374,16 @@ impl PgBookContentReports {
                 return Err(BookShareError::Conflict);
             }
         }
-        let state = if decision == "dismissed" { "dismissed" } else { "reviewed" };
-        let action = if hide_comment { "hide_book_comment" } else { "none" };
+        let state = if decision == "dismissed" {
+            "dismissed"
+        } else {
+            "reviewed"
+        };
+        let action = if hide_comment {
+            "hide_book_comment"
+        } else {
+            "none"
+        };
         sqlx::query(
             "INSERT INTO social_book_content_review_events
              (report_id,reviewer_user_id,decision,note,moderation_action)
