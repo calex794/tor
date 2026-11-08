@@ -1,12 +1,12 @@
--- S027 / B: recipient-bound, expiring Team invites are not Book or paid entitlements.
--- Add-only migration for disposable PostgreSQL CI. No production rollout.
+-- S027 / B: recipient-bound expiring Team invites are not Book or paid entitlements.
+-- Add-only migration for disposable PostgreSQL CI; no production rollout.
 CREATE TABLE translation_team_invites (
-    token UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_digest BYTEA PRIMARY KEY CHECK (octet_length(token_digest) = 32),
     team_id BIGINT NOT NULL REFERENCES translation_teams(id) ON DELETE RESTRICT,
     invitee_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     inviter_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     status TEXT NOT NULL DEFAULT 'pending'
-        CHECK(status IN ('pending', 'accepted', 'declined', 'expired')),
+        CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + INTERVAL '7 days'),
     decided_at TIMESTAMPTZ,
@@ -25,7 +25,7 @@ CREATE INDEX translation_team_invites_recipient_pending
 CREATE TABLE translation_team_members (
     team_id BIGINT NOT NULL REFERENCES translation_teams(id) ON DELETE RESTRICT,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    accepted_invite UUID NOT NULL REFERENCES translation_team_invites(token) ON DELETE RESTRICT,
+    invite_digest BYTEA NOT NULL REFERENCES translation_team_invites(token_digest) ON DELETE RESTRICT,
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (team_id, user_id)
 );
