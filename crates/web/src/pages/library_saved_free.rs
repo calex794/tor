@@ -472,6 +472,14 @@ mod tests {
         assert!(html.contains("href=\"/me/library/saved/38\" aria-current=\"page\""));
         assert!(html.contains("/read/paid/38?purchase_id=901"));
         assert!(html.contains("/me/library/123/saved?after=1806"));
+        let paged = saved_free_reader_with_paginated_toc(
+            &saved, "csrf", &page, true, Some("1780.41"), Some("1829.62"),
+        ).0;
+        assert!(paged.contains("data-archive-toc-chapter=\"38\""));
+        assert!(paged.contains("data-archive-toc-before=\"1780.41\""));
+        assert!(paged.contains("data-archive-toc-after=\"1829.62\""));
+        assert!(paged.contains("data-archive-paid-available=\"1\""));
+        assert!(paged.contains("data-archive-toc-status"));
         assert!(html.contains("&lt;unsafe&gt; &amp; original"));
         assert!(!html.contains("<unsafe>"));
         let unavailable = saved_free_reader_with_toc(&saved, "csrf", &page, false).0;
