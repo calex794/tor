@@ -90,3 +90,16 @@ CREATE INDEX account_telegram_recovery_outbox
     WHERE user_id IS NOT NULL AND status='pending' AND notified_at IS NULL;
 CREATE INDEX account_telegram_recovery_expiry
     ON account_telegram_recovery_requests(expires_at);
+
+
+-- Exactly one active long-polling owner for a Telegram bot id across TOR nodes.
+-- A fenced, expiring lease uses database time, not node wall clocks. Every
+-- renewed owner must present the original digest and unchanged epoch.
+CREATE TABLE account_telegram_poller_leases (
+    bot_id BIGINT PRIMARY KEY CHECK (bot_id > 0),
+    owner_digest BYTEA NOT NULL CHECK (octet_length(owner_digest) = 32),
+    lease_epoch BIGINT NOT NULL DEFAULT 1 CHECK (lease_epoch > 0),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX account_telegram_poller_leases_expiry
+    ON account_telegram_poller_leases(expires_at);
