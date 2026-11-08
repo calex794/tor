@@ -203,6 +203,14 @@ impl PgAccounts {
             .execute(&mut *tx)
             .await?;
         sqlx::query(
+            "UPDATE account_telegram_recovery_requests SET status='denied'
+             WHERE user_id=$1 AND status IN ('pending','approved')",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
             "UPDATE password_reset_tokens SET consumed_at=now()
              WHERE user_id=$1 AND source IN ('telegram','backup')
                AND consumed_at IS NULL",
@@ -268,6 +276,14 @@ impl PgAccounts {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query(
+            "UPDATE account_telegram_recovery_requests SET status='denied'
+             WHERE user_id=$1 AND status IN ('pending','approved')",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
         sqlx::query("DELETE FROM account_recovery_codes WHERE user_id=$1")
             .bind(user_id)
             .execute(&mut *tx)
@@ -286,59 +302,6 @@ impl PgAccounts {
         )
         .bind(user_id)
         .bind(telegram_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(true)
-    }
-
-    /// A Telegram identity is proof only for ordinary, active accounts.
-    /// Admin/moderator/author and other global roles require a separate factor.
-    pub async fn issue_telegram_reset(
-        &self,
-        telegram_user_id: i64,
-        private_chat_id: i64,
-        reset_digest: &[u8; 32],
-    ) -> Result<bool, sqlx::Error> {
-        if telegram_user_id <= 0 || private_chat_id != telegram_user_id {
-            return Ok(false);
-        }
-        let mut tx = self.pool().begin().await?;
-        let account: Option<(i64, String)> = sqlx::query_as(
-            "SELECT u.id,u.password_hash FROM account_telegram_bindings b
-             JOIN users u ON u.id=b.user_id
-             WHERE b.telegram_user_id=$1 AND b.private_chat_id=$2
-               AND u.account_state='active'
-               AND NOT EXISTS (
-                 SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.is_active
-               )
-               AND NOT EXISTS (SELECT 1 FROM books b WHERE b.owner_user_id=u.id)
-               AND NOT EXISTS (SELECT 1 FROM book_members bm
-                               WHERE bm.user_id=u.id AND bm.is_active)
-             FOR UPDATE OF u",
-        )
-        .bind(telegram_user_id)
-        .bind(private_chat_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some((user_id, hash)) = account else {
-            return Ok(false);
-        };
-        sqlx::query(
-            "UPDATE password_reset_tokens SET consumed_at=now()
-             WHERE user_id=$1 AND consumed_at IS NULL",
-        )
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO password_reset_tokens
-             (token_hash,user_id,credential_fingerprint,source,expires_at)
-             VALUES($1,$2,$3,'telegram',now()+INTERVAL '10 minutes')",
-        )
-        .bind(reset_digest.as_slice())
-        .bind(user_id)
-        .bind(session_token_digest(&hash).as_slice())
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -415,14 +378,5 @@ impl PgAccounts {
         Ok(receipt.is_some())
     }
 
-    pub async fn revoke_telegram_reset(&self, digest: &[u8; 32]) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE password_reset_tokens SET consumed_at=now()
-             WHERE token_hash=$1 AND source='telegram' AND consumed_at IS NULL",
-        )
-        .bind(digest.as_slice())
-        .execute(self.pool())
-        .await?;
-        Ok(())
-    }
+
 }
