@@ -2,6 +2,9 @@
 //! The canonical E-01 tables already store version-bound comments and anchors.
 //! Paid/private chapters must use their own D entitlement checks, never this repo.
 #![forbid(unsafe_code)]
+pub use crate::services::public_chapter_comments::{
+    ChapterComment, ChapterCommentAnchor, ChapterCommentPage,
+};
 use sqlx::PgPool;
 use tor_contracts::reader_manifest::reader_blocks;
 
@@ -43,27 +46,6 @@ pub enum CreateResult {
 pub enum ListError {
     Invalid,
     Unavailable,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChapterCommentAnchor {
-    pub block_index: i32,
-    pub start_utf16: i32,
-    pub end_utf16: i32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChapterComment {
-    pub id: i64,
-    pub parent_id: Option<i64>,
-    pub body: String,
-    pub anchor: Option<ChapterCommentAnchor>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChapterCommentPage {
-    pub items: Vec<ChapterComment>,
-    pub next_cursor: Option<i64>,
 }
 
 /// A source-exact UTF-16 quote; no uncontrolled fragment text is persisted in

@@ -5,7 +5,7 @@ use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
 use tor_discussions::{
     domain::spoilers::{mask_mentions, parse, Segment},
-    repositories::public_chapter_comments::{ChapterComment, ChapterCommentPage},
+    services::public_chapter_comments::{ChapterComment, ChapterCommentPage},
 };
 
 fn comment_body_html(body: &str) -> String {
@@ -203,7 +203,7 @@ pub(super) fn panel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tor_discussions::repositories::public_chapter_comments::{
+    use tor_discussions::services::public_chapter_comments::{
         ChapterCommentAnchor, ChapterCommentPage,
     };
 

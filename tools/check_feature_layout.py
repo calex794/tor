@@ -23,8 +23,6 @@ WEB_PAGE_REPOSITORY_BASELINE = {
     "pages/layer_storefront.rs": 3,
     "pages/library.rs": 8,
     "pages/profile_settings.rs": 1,
-    "pages/reader_free.rs": 1,
-    "pages/reader_free_comments.rs": 2,
     "pages/reader_private.rs": 1,
     "pages/referrals.rs": 2,
     "pages/session_security.rs": 1,
