@@ -213,7 +213,8 @@ async fn f_05_http_browser_form_skip_and_resume() {
 async fn f_05_http_hidden_book_denied_without_writing_comparison() {
     let (app, repo, uid, session) = fixture("hidden").await;
     // Obtain CSRF from an empty authorized dashboard BEFORE seeding an
-    // inaccessible book. Once hidden state exists, every ranking GET fails closed.
+    // inaccessible book. A hidden stale comparison is displayed as a
+    // restricted state without any Book title or answerable question.
     let (csrf_cookie, token) = csrf(&app, &session).await;
     // Book 2 is a CI draft; only this test fixture may seed such stale state.
     let before = ready(&repo, uid, [1, 2]).await;
@@ -224,8 +225,20 @@ async fn f_05_http_hidden_book_denied_without_writing_comparison() {
         request("GET", "/api/v1/me/rankings", "", &cookies, ORIGIN),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    assert!(body_of(response).await.is_empty());
+    assert_eq!(response.status(), StatusCode::OK);
+    let restricted: serde_json::Value =
+        serde_json::from_str(&body_of(response).await).unwrap();
+    assert_eq!(restricted["state"], "restricted");
+    assert!(restricted["question"].is_null());
+    assert_eq!(restricted["revision"], before.revision);
+    assert!(
+        restricted["ranked_books"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|book| book["book_id"] != "2"),
+        "draft Book identity must not escape through personal rankings"
+    );
     let json = format!(
         r#"{{"expected_revision":{},"expected_state_version":{},"comparison_id":"{}","outcome":"a_wins"}}"#,
         before.revision, q.state_version, q.comparison_id,
