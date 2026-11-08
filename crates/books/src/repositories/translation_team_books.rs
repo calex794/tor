@@ -250,8 +250,11 @@ impl PgTeamBooks {
         team_id: i64,
         member_id: i64,
     ) -> Result<(), TeamError> {
-        if actor <= 0 || team_id <= 0 || member_id <= 0 || actor == member_id {
+        if actor <= 0 || team_id <= 0 || member_id <= 0 {
             return Err(TeamError::Invalid);
+        }
+        if actor == member_id {
+            return Err(TeamError::Missing);
         }
         let mut tx = self.pool.begin().await.map_err(db_error)?;
         let owner: Option<i64> = sqlx::query_scalar(
