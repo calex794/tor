@@ -1,3 +1,4 @@
+pub mod active_sessions;
 pub mod auth_observation;
 pub mod profile;
 pub mod ril_pseudonym;
