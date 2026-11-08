@@ -24,6 +24,25 @@ pub fn link_page(
         Some(id) => format!("<p>Привязан Telegram ID: {}.</p>", id),
         None => "<p>Telegram ещё не привязан.</p>".to_owned(),
     };
+    let unlink_form = if linked.is_some() {
+        format!(
+            "<section><h2>Отвязать Telegram</h2>\
+             <p>Для удаления привязки нужен текущий пароль. При отвязке \
+             все резервные коды и ещё не использованные токены Telegram \
+             аннулируются. Убедитесь, что у вас остаётся доступ к аккаунту.</p>\
+             <form method=\"post\" action=\"/me/security/telegram/unlink\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+             <label for=\"tg-unlink-password\">Текущий пароль для отвязки</label>\
+             <input id=\"tg-unlink-password\" type=\"password\" name=\"current_password\" \
+             autocomplete=\"current-password\" maxlength=\"512\" required>\
+             <button class=\"button\" type=\"submit\">Отвязать Telegram и удалить резервные коды</button>\
+             </form></section>",
+            escape_html(csrf)
+        )
+    } else {
+        String::new()
+    };
+
     let pending = candidate.map_or_else(String::new, |id| {
         format!(
             "<p><strong>Заявка из Telegram ID {id}.</strong> Сверьте этот ID с сообщением вашего бота. Если вы не открывали ссылку, ничего не подтверждайте.</p>\
@@ -48,7 +67,7 @@ pub fn link_page(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card">
 <h1>Telegram и восстановление доступа</h1>
 <p>Привязка требует текущего пароля. Восстановление из бота недоступно администраторам и аккаунтам с правами авторов/модераторов.</p>
-{status}{message}{pending}{link}
+{status}{message}{pending}{link}{unlink_form}
 <form method="post" action="/me/security/telegram/begin">
 <input type="hidden" name="csrf_token" value="{csrf}">
 <label for="tg-current-password">Текущий пароль</label>
@@ -57,6 +76,7 @@ pub fn link_page(
 <p><a href="/me/settings">Вернуться к настройкам</a></p>
 </div></div></section>"#,
         csrf = escape_html(csrf),
+        unlink_form = unlink_form,
     );
     auth_page("Telegram — безопасность", &body)
 }

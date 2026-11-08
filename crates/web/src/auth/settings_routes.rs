@@ -10,6 +10,7 @@ use axum::{
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/me/security/telegram", get(telegram_recovery::link_page))
+        .route("/me/security/telegram/unlink", post(telegram_recovery::unlink))
         .route(
             "/me/security/telegram/begin",
             post(telegram_recovery::begin_link),

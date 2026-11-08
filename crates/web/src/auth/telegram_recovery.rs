@@ -180,6 +180,60 @@ pub(super) async fn confirm_link(
     }
 }
 
+pub(super) async fn unlink(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<BeginForm>,
+) -> Response {
+    if !state.telegram_enabled {
+        return private_response(StatusCode::NOT_FOUND, &[]);
+    }
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    if form.current_password.is_empty() || form.current_password.len() > 512 {
+        return private_response(StatusCode::BAD_REQUEST, &[]);
+    }
+    let user = match session_user(&state, &headers).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
+        Err(status) => return private_response(status, &[]),
+    };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return private_response(StatusCode::UNAUTHORIZED, &[]);
+    };
+    let attempt = session_token_digest(&format!("a07:telegram-unlink:{user}"));
+    match state.accounts.permit_auth_attempt(&attempt, 8, 600).await {
+        Ok(true) => (),
+        Ok(false) => return private_response(StatusCode::TOO_MANY_REQUESTS, &[]),
+        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+    let current = match state.accounts.password_hash_for_user(user).await {
+        Ok(Some(hash)) => hash,
+        _ => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    let check = current.clone();
+    let typed = form.current_password;
+    let valid = match state.password_jobs
+        .run(move || verify_password(&typed, &check)).await
+    {
+        Ok(value) => value,
+        Err(status) => return private_response(status, &[]),
+    };
+    if !valid {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    match state.accounts
+        .unlink_telegram(user, &session_token_digest(&token), &current).await
+    {
+        Ok(true) => private_response(Redirect::to("/me/security/telegram"), &[]),
+        Ok(false) => private_response(StatusCode::CONFLICT, &[]),
+        Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+}
+
 pub(super) async fn backup_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
