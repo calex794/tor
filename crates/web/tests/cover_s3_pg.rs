@@ -49,10 +49,11 @@ mod cdn_html;
 mod cdn_wire;
 #[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
-#[path = "cover_s3_pg/moderator_withdrawal.rs"]
-mod withdraw_s3;
+
 #[path = "cover_s3_pg/source_cleanup.rs"]
 mod source_cleanup;
+#[path = "cover_s3_pg/moderator_withdrawal.rs"]
+mod withdraw_s3;
 
 const BUCKET: &str = "tor-private-obs09-ci";
 const BOOK_ID: i64 = 950;
@@ -989,6 +990,16 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         "recovering a stored object must not attach another revision"
     );
 
-    withdraw_s3::verify(&slots, &reviews, &ledger, &store, &card, &session_digest, &app, job).await;
+    withdraw_s3::verify(
+        &slots,
+        &reviews,
+        &ledger,
+        &store,
+        &card,
+        &session_digest,
+        &app,
+        job,
+    )
+    .await;
     catalog.pool().close().await;
 }
