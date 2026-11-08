@@ -452,9 +452,9 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
     )
     .bind(b)
-        .execute(&pool)
-        .await
-        .unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(repo
         .find_related_candidates(owner, a, &b_title)
         .await
@@ -509,9 +509,9 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
     )
     .bind(a)
-        .execute(&pool)
-        .await
-        .unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(repo
         .manageable_related_books(owner, a)
         .await
