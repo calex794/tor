@@ -2,7 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_accounts::repositories::sessions::ActiveSession;
+use tor_accounts::services::active_sessions::ActiveSession;
 
 pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
     let mut rows = String::new();
