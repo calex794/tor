@@ -665,11 +665,21 @@ async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_
             .unwrap(),
         Some(telegram_id)
     );
-    let proof = session_token_digest(&format!("telegram-preunlink-{user}"));
-    assert!(accounts
-        .issue_telegram_reset(telegram_id, telegram_id, &proof)
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(accounts.pool())
         .await
-        .unwrap());
+        .unwrap();
+    let proof = session_token_digest(&format!("telegram-preunlink-{user}"));
+    let browser = session_token_digest(&format!("telegram-unlink-browser-{user}"));
+    accounts.begin_browser_telegram_recovery(Some(&email), &browser, "Unl_42")
+        .await.unwrap();
+    let pending = accounts.pending_telegram_recovery_notifications().await.unwrap();
+    let request_id = pending.iter().find(|x| x.private_chat_id == telegram_id).unwrap().id;
+    assert!(accounts.decide_telegram_recovery(request_id, telegram_id, telegram_id, true)
+        .await.unwrap());
+    assert!(accounts.exchange_browser_telegram_approval(&browser, &proof)
+        .await.unwrap());
     assert!(!accounts
         .unlink_telegram(user, &stranger_session, "$argon2id$fixture")
         .await
@@ -694,10 +704,11 @@ async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_
             .linked_user_id,
         None
     );
-    assert!(!accounts
-        .issue_telegram_reset(telegram_id, telegram_id, &[2_u8; 32])
-        .await
-        .unwrap());
+    let unlinked_browser = session_token_digest(&format!("unlinked-browser-{user}"));
+    accounts.begin_browser_telegram_recovery(Some(&email), &unlinked_browser, "Unl_43")
+        .await.unwrap();
+    assert!(!accounts.pending_telegram_recovery_notifications().await.unwrap()
+        .iter().any(|x| x.private_chat_id == telegram_id));
     assert_eq!(
         accounts
             .live_reset_password_hash_allowed(&proof, false, true)
@@ -705,11 +716,6 @@ async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_
             .unwrap(),
         None
     );
-    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
-        .bind(user)
-        .fetch_one(accounts.pool())
-        .await
-        .unwrap();
     let backup = session_token_digest(&format!("after-unlink-{user}"));
     assert!(!accounts
         .consume_backup_code(&email, &codes[0], &backup)
