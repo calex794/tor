@@ -2,12 +2,7 @@
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DemandState {
-    NotEligible,
-    Ready,
-    Recorded,
-}
+pub use crate::services::continuation_demand::DemandState;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DemandError {
