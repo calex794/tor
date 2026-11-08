@@ -526,7 +526,9 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&format!("SELECT visibility FROM discussion_comments WHERE id={comment}")),
+        pg(&format!(
+            "SELECT visibility FROM discussion_comments WHERE id={comment}"
+        )),
         "hidden"
     );
     assert_eq!(
@@ -547,9 +549,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         StatusCode::CONFLICT
     );
     assert_eq!(
-        send(&app, "GET", &comment_path, &reader, "")
-            .await
-            .status(),
+        send(&app, "GET", &comment_path, &reader, "").await.status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -578,13 +578,21 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .unwrap();
     let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
     assert_eq!(
-        send(&app, "POST", &book_only_action, &admin_cookies, &manual_hide)
-            .await
-            .status(),
+        send(
+            &app,
+            "POST",
+            &book_only_action,
+            &admin_cookies,
+            &manual_hide
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        pg(&format!("SELECT state FROM social_book_content_reports WHERE id={book_only_report}")),
+        pg(&format!(
+            "SELECT state FROM social_book_content_reports WHERE id={book_only_report}"
+        )),
         "pending",
         "invalid sanction must leave the complaint unresolved"
     );
