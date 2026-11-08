@@ -8,7 +8,9 @@ use tor_books::{
     repositories::{postgres::PgAuthoring, translation_team_invites::PgTeamInvites, PgCatalog},
     services::authoring::new_book,
 };
-use tor_reading::repositories::{book_stats::PgBookStats, PgChapterThanks, PgReader, ThanksMutation};
+use tor_reading::repositories::{
+    book_stats::PgBookStats, PgChapterThanks, PgReader, ThanksMutation,
+};
 
 /// Insert only synthetic, bounded fixtures into tor_ci, matching the established
 /// Book stats HTTP regression. No production DB or persistent migrations.
@@ -167,7 +169,10 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     stats.record_open(chapter, None).await.unwrap();
     let thanks = PgChapterThanks::new(pool.clone());
     assert_eq!(
-        thanks.thank_visible_free(foreign_id, chapter).await.unwrap(),
+        thanks
+            .thank_visible_free(foreign_id, chapter)
+            .await
+            .unwrap(),
         ThanksMutation::Added
     );
     let scoped = format!("{team}/analytics?period=7d&book_id={own_book_id}");
@@ -190,7 +195,10 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     assert!(!csv.contains(&format!(";{other_book_id};")));
     assert_eq!(csv.lines().count(), 3, "header, total, one linked book");
     let csv_book = csv.lines().nth(2).unwrap();
-    let values = csv_book.trim_end_matches('\r').split(';').collect::<Vec<_>>();
+    let values = csv_book
+        .trim_end_matches('\r')
+        .split(';')
+        .collect::<Vec<_>>();
     assert_eq!(values[5], "2", "actual public chapter opens");
     assert_eq!(values[6], "1", "anonymous opening");
     assert_eq!(values[7], "1", "first authenticated chapter opening");
