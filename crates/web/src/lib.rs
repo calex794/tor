@@ -170,7 +170,6 @@ struct TocResponse {
     next_cursor: Option<String>,
 }
 
-
 fn reading_status(error: ReadingError) -> StatusCode {
     match error {
         ReadingError::InvalidPage => StatusCode::BAD_REQUEST,
@@ -509,7 +508,10 @@ fn make_router_with_paid_checkout(
             get(cover_http::cover_direct_grant),
         )
         .route("/api/v1/books/{id}/toc", get(book_toc))
-        .route("/api/v1/books/{id}/toc/window", get(toc_window_http::book_toc_window))
+        .route(
+            "/api/v1/books/{id}/toc/window",
+            get(toc_window_http::book_toc_window),
+        )
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/newboo-text-issues.js", get(text_issue_script))
         .route(
