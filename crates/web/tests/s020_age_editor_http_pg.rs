@@ -103,7 +103,12 @@ async fn library_has_book(app: &Router, cookie: &str, book: i64) -> bool {
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["book_id"] == book.to_string())
+        .any(|item| {
+            item["book_id"]
+                .as_str()
+                .and_then(|raw| raw.parse::<i64>().ok())
+                == Some(book)
+        })
 }
 
 async fn submit(
