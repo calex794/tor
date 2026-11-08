@@ -40,7 +40,6 @@ impl TocCursor {
     }
 }
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TocWindowPosition {
     Around(u64),
