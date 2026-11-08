@@ -1,8 +1,6 @@
 //! MOD-COVER-01: the site moderator's private cover candidate queue.
 //! Processed variants are not attached until an audited moderator decision.
 use super::{deny, AuthState};
-#[path = "moderation_cover_withdraw.rs"]
-mod withdraw;
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
@@ -392,13 +390,68 @@ pub(super) async fn decide(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WithdrawForm {
+    csrf_token: String,
+    expected_slot_revision: i64,
+    reason: String,
+    confirmed: Option<String>,
+    action: Option<String>,
+}
+
 pub(super) async fn submit_withdrawal(
     State(state): State<AuthState>,
     Path(book_id): Path<i64>,
     headers: HeaderMap,
-    form: Form<withdraw::WithdrawForm>,
+    Form(form): Form<WithdrawForm>,
 ) -> Response {
-    withdraw::submit(State(state), Path(book_id), headers, form).await
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Some(digest) = session(&state, &headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if form.action.as_deref().is_some_and(|action| action != "withdraw") {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let reason = form.reason.trim();
+    let back = format!("/moderation/books/{book_id}/cover-history");
+    if book_id <= 0 || form.expected_slot_revision <= 0
+        || reason.is_empty() || reason.len() > 2000
+    {
+        return super::moderation_books::decision_error(StatusCode::BAD_REQUEST, &back);
+    }
+    let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
+        Ok(value) => value,
+        Err(code) => return super::moderation_books::decision_error(code, &back),
+    };
+    if !confirmed {
+        return super::moderation_confirm::confirmation_page(
+            super::moderation_confirm::ReviewIntent {
+                kind: "cover_withdraw",
+                subject_id: book_id,
+                revision: form.expected_slot_revision,
+                action: "withdraw",
+                reason,
+                csrf: &form.csrf_token,
+            },
+        );
+    }
+    let repository = PgCoverReview::new(state.accounts.pool().clone());
+    match repository
+        .withdraw_current(&digest, book_id, form.expected_slot_revision, reason)
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&back), &[]),
+        Err(error) => super::moderation_books::decision_error(error_code(error), &back),
+    }
 }
 
 pub(super) async fn history(
