@@ -53,9 +53,10 @@ fn render(id: i64, view: &BookOwnershipSettings, csrf: &str) -> Html<String> {
     for member in &view.contributors {
         write!(
             rows,
-            "<label for=\"share_{id}\">{} (#{}, {}) — доля, %</label>\
+            "<label for=\"share_{}\">{} (#{}, {}) — доля, %</label>\
              <input id=\"share_{}\" name=\"share_{}\" type=\"number\" min=\"0\" max=\"100\"\
                step=\"1\" value=\"{}\" required>",
+            member.user_id,
             pages::escape_html(&member.display_name),
             member.user_id,
             pages::escape_html(&member.role),
