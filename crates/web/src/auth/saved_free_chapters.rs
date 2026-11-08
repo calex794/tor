@@ -33,7 +33,15 @@ async fn progress_script() -> impl IntoResponse {
             ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../../assets/newboo-free-progress.js"),
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../../assets/newboo-free-progress.js"));
+                js.push('\n');
+                js.push_str(include_str!("../../assets/newboo-archive-toc.js"));
+                js
+            });
+            JS.as_str()
+        },
     )
 }
 
@@ -99,7 +107,28 @@ pub(super) async fn read(
         Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(pages::saved_free_reader(&saved, &csrf), &cookies);
+    let html = if saved.ordinary_deleted {
+        // Start near the open chapter rather than scanning a 2000-chapter
+        // archive from chapter 1. Every returned link is still actor-scoped.
+        let start = i64::from(saved.chapter_no).saturating_sub(25);
+        let after = (start > 0).then_some(start);
+        let window = match state.bookmarks
+            .saved_archive_chapters(actor, saved.book_id, 50, after, &session_digest)
+            .await
+        {
+            Ok(window) => window,
+            Err(LibraryError::Invalid | LibraryError::NotFound) => {
+                return deny(StatusCode::NOT_FOUND);
+            }
+            Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        pages::saved_free_reader_with_toc(
+            &saved, &csrf, &window, state.paid_reader_available,
+        )
+    } else {
+        pages::saved_free_reader(&saved, &csrf)
+    };
+    let mut response = private_response(html, &cookies);
     // Only the finalized archive opts into the self-hosted cursor script.
     // Earlier saved-free views remain script-free.
     let csp = if saved.ordinary_deleted {
