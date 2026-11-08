@@ -449,7 +449,8 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     // rediscovered or newly relinked. Pending-deletion member management
     // remains covered separately above and must not be conflated with this.
     sqlx::query(
-        "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         visibility='draft',ordinary_deleted_at=clock_timestamp() WHERE id=$1",
     )
     .bind(b)
     .execute(&pool)
@@ -491,7 +492,8 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .await
     .unwrap();
     assert_eq!(historical_links, 1, "do not delete old relations");
-    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public' WHERE id=$1")
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public',
+         ordinary_deleted_at=NULL WHERE id=$1")
         .bind(b)
         .execute(&pool)
         .await
@@ -506,7 +508,8 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     // A completed deletion of the source freezes member settings and link
     // writes even though is_deleted stays FALSE for immutable entitlements.
     sqlx::query(
-        "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
+        "UPDATE books SET lifecycle_status='ordinary_deleted',
+         visibility='draft',ordinary_deleted_at=clock_timestamp() WHERE id=$1",
     )
     .bind(a)
     .execute(&pool)
@@ -534,7 +537,8 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .await
         .unwrap()
         .is_empty());
-    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public' WHERE id=$1")
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public',
+         ordinary_deleted_at=NULL WHERE id=$1")
         .bind(a)
         .execute(&pool)
         .await
