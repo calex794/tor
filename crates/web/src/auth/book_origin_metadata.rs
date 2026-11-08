@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_books::{
-    repositories::postgres::{ManagedOriginMetadata, origin_metadata::OriginFields},
+    repositories::postgres::{ManagedOriginMetadata, OriginFields},
     services::authoring::{AuthorError, DiscoveryFields},
 };
 
