@@ -1,14 +1,15 @@
 //! S029: Team analytics HTML and CSV share the same filtered PostgreSQL read model.
-use super::{actor, page as render_team_page, session_failure, team_error, TeamState};
+use super::{page as render_team_page, team_error, TeamState};
 use crate::auth_cookies::private_response;
 use crate::pages::escape_html;
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue},
-    response::{Html, Response},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{Html, Redirect, Response},
 };
 use serde::Deserialize;
 use std::fmt::Write;
+use tor_accounts::services::security::session_token_digest;
 use tor_books::repositories::translation_team_analytics::{
     PgTeamAnalytics, TeamAnalyticsReport, TeamPeriod,
 };
@@ -25,13 +26,23 @@ async fn load(
     headers: &HeaderMap,
     team_id: i64,
     query: &ReportQuery,
-) -> Result<TeamAnalyticsReport, Response> {
-    let actor = actor(state, headers).await.map_err(session_failure)?;
+) -> Result<(TeamAnalyticsReport, i64), Response> {
+    let token = state
+        .cookies
+        .session_token(headers)
+        .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
+    let actor = state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+        .map_err(|_| private_response(StatusCode::SERVICE_UNAVAILABLE, &[]))?
+        .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
     let period = TeamPeriod::parse(query.period.as_deref()).map_err(team_error)?;
-    PgTeamAnalytics::new(state.accounts.pool().clone())
+    let report = PgTeamAnalytics::new(state.accounts.pool().clone())
         .report(actor, team_id, query.book_id, period)
         .await
-        .map_err(team_error)
+        .map_err(team_error)?;
+    Ok((report, actor))
 }
 
 fn currency(minor: i64) -> String {
@@ -44,8 +55,8 @@ pub(super) async fn page(
     Query(query): Query<ReportQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let report = match load(&state, &headers, team_id, &query).await {
-        Ok(report) => report,
+    let (report, actor_id) = match load(&state, &headers, team_id, &query).await {
+        Ok(value) => value,
         Err(response) => return response,
     };
     let mut body = format!(
@@ -73,10 +84,6 @@ pub(super) async fn page(
         );
     }
     body.push_str("</select></label><label>Книга <select name=\"book_id\"><option value=\"\">Все</option>");
-    let actor_id = match actor(&state, &headers).await {
-        Ok(id) => id,
-        Err(status) => return session_failure(status),
-    };
     let view = match state.books.view(actor_id, team_id).await {
         Ok(view) => view,
         Err(error) => return team_error(error),
