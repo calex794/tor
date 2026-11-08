@@ -227,13 +227,18 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
         sent.headers()[header::LOCATION],
         format!("{share_path}?sent=1")
     );
-    assert!(
-        html(
-            send(&app, "GET", &format!("{share_path}?sent=1"), &sender_cookies, "").await
+    assert!(html(
+        send(
+            &app,
+            "GET",
+            &format!("{share_path}?sent=1"),
+            &sender_cookies,
+            ""
         )
         .await
-        .contains("Рекомендация отправлена.")
-    );
+    )
+    .await
+    .contains("Рекомендация отправлена."));
     assert_eq!(
         send(&app, "POST", &share_path, &sender_cookies, &form)
             .await
