@@ -10,6 +10,7 @@ use axum::{
 use std::{
     net::SocketAddr,
     num::NonZeroU32,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -22,6 +23,23 @@ use tor_recommendations::repositories::PgAchievements;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
+
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let output = Command::new("psql")
+        .args([
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", url, "--command", sql,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
 
 async fn dashboard(app: &Router, cookie: &str) -> Response {
     let mut request = Request::builder()
@@ -95,66 +113,63 @@ async fn s046_real_http_shows_only_c_verified_grants_to_authenticated_reader() {
     assert_eq!(empty.headers()[header::CACHE_CONTROL], "no-store");
     assert!(page(empty).await.contains("Пока не получено: 0/1 глав"));
 
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
-         VALUES($1,'ru','S046 verified book','public','basic') RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:s046:http:{stamp}','ru','S046 verified book','public','basic')
+             RETURNING id"
+        ),
     )
-    .bind(format!("ci:s046:http:{stamp}"))
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,1,'Test chapter','public','free',0) RETURNING id",
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Test chapter','public','free',0) RETURNING id"
+        ),
     )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'C-verified completion text') RETURNING id",
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'C-verified completion text') RETURNING id"
+        ),
     )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .unwrap();
-    let event: String = sqlx::query_scalar(
-        "INSERT INTO reader_chapter_completions
-           (user_id,book_id,chapter_id,first_version_id,source_event_id)
-         VALUES($1,$2,$3,$4,gen_random_uuid()) RETURNING source_event_id::text",
-    )
-    .bind(actor)
-    .bind(book)
-    .bind(chapter)
-    .bind(version)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO outbox_events
-           (id,event_type,schema_version,aggregate_kind,aggregate_id,
-            dedupe_key,payload,required_consumers)
-         VALUES($1::uuid,'ChapterCompletedV1',1,'chapter',$2,$3,
-           jsonb_build_object('user_id',$4::bigint,'book_id',$5::bigint,
-             'chapter_id',$2::bigint,'version_id',$6::bigint,
-             'authority','C-verified-free-position'),ARRAY['achievements-v1'])",
-    )
-    .bind(&event)
-    .bind(chapter)
-    .bind(format!("ci:s046:http:completion:{stamp}"))
-    .bind(actor)
-    .bind(book)
-    .bind(version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({chapter},{version})"
+        ),
+    );
+    let event = pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
+               (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES({actor},{book},{chapter},{version},gen_random_uuid())
+             RETURNING source_event_id::text"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO outbox_events
+               (id,event_type,schema_version,aggregate_kind,aggregate_id,
+                dedupe_key,payload,required_consumers)
+             VALUES('{event}'::uuid,'ChapterCompletedV1',1,'chapter',{chapter},
+               'ci:s046:http:completion:{stamp}',jsonb_build_object(
+               'user_id',{actor},'book_id',{book},'chapter_id',{chapter},
+               'version_id',{version},'authority','C-verified-free-position'),
+               ARRAY['achievements-v1'])"
+        ),
+    );
 
     let achievements = PgAchievements::new(pool.clone());
     let (left, right) = tokio::join!(
@@ -162,12 +177,13 @@ async fn s046_real_http_shows_only_c_verified_grants_to_authenticated_reader() {
         achievements.accept_completed_chapter(&event)
     );
     assert_eq!(u8::from(left.unwrap()) + u8::from(right.unwrap()), 1);
-    let granted: i64 = sqlx::query_scalar(
-        "SELECT count(*)::bigint FROM user_achievement_grants WHERE user_id=$1",
+    let granted: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM user_achievement_grants WHERE user_id={actor}"
+        ),
     )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     assert_eq!(granted, 1, "replay or race must not double-grant a badge");
     assert_eq!(achievements.snapshot(other).await.unwrap().completed_chapters, 0);
