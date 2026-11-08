@@ -122,7 +122,14 @@ mod tests {
         assert!(page.contains("csrf_token"));
         assert!(!page.contains("password_hash"));
         assert!(!page.contains("recover#"));
-        let link = link_page("csrf", None, None, Some("https://t.me/TorBot?start=bind_test"), None).0;
+        let link = link_page(
+            "csrf",
+            None,
+            None,
+            Some("https://t.me/TorBot?start=bind_test"),
+            None,
+        )
+        .0;
         assert!(link.contains("rel=\"noreferrer noopener\""));
     }
 }

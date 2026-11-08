@@ -60,9 +60,9 @@ fn parse_command(text: &str) -> BotCommand<'_> {
     match text.strip_prefix("/start bind_") {
         Some(secret)
             if secret.len() == 43
-                && secret.bytes().all(|b| {
-                    b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
-                }) =>
+                && secret
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') =>
         {
             BotCommand::Bind(secret)
         }
@@ -74,7 +74,9 @@ fn validated_bot_username() -> Result<String, &'static str> {
     let value = std::env::var("TOR_TELEGRAM_BOT_USERNAME")
         .map_err(|_| "TOR_TELEGRAM_BOT_USERNAME missing")?;
     if !(5..=32).contains(&value.len())
-        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         || !value.to_ascii_lowercase().ends_with("bot")
     {
         return Err("Invalid TOR_TELEGRAM_BOT_USERNAME");
@@ -88,13 +90,15 @@ fn config(origin: &str) -> Result<Option<BotConfig>, &'static str> {
         Ok("1") => {}
         _ => return Err("TOR_TELEGRAM_RECOVERY_ENABLED must be 0 or 1"),
     }
-    let token = std::env::var("TOR_TELEGRAM_BOT_TOKEN")
-        .map_err(|_| "TOR_TELEGRAM_BOT_TOKEN missing")?;
+    let token =
+        std::env::var("TOR_TELEGRAM_BOT_TOKEN").map_err(|_| "TOR_TELEGRAM_BOT_TOKEN missing")?;
     let (bot_id, secret) = token.split_once(':').ok_or("Invalid Telegram bot token")?;
     if bot_id.is_empty()
         || !bot_id.bytes().all(|b| b.is_ascii_digit())
         || !(25..=160).contains(&secret.len())
-        || !secret.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        || !secret
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
         || !(origin.starts_with("https://") || origin.starts_with("http://127.0.0.1:"))
         || origin.contains(['#', '?', '\r', '\n', ' ', '\t'])
     {
@@ -142,12 +146,7 @@ pub async fn start(
     })))
 }
 
-async fn send_message(
-    client: &Client,
-    endpoint: &str,
-    chat_id: i64,
-    text: &str,
-) -> bool {
+async fn send_message(client: &Client, endpoint: &str, chat_id: i64, text: &str) -> bool {
     if chat_id <= 0 || text.len() > 3500 {
         return false;
     }
@@ -162,7 +161,10 @@ async fn send_message(
         .await;
     match response {
         Ok(response) if response.status().is_success() => {
-            response.json::<serde_json::Value>().await.ok()
+            response
+                .json::<serde_json::Value>()
+                .await
+                .ok()
                 .and_then(|result| result.get("ok").and_then(|v| v.as_bool()))
                 == Some(true)
         }
@@ -207,7 +209,13 @@ async fn process_message(
             match accounts.permit_auth_attempt(&key, 3, 3600).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    let _ = send_message(client, send_endpoint, sender.id, "Слишком много запросов. Повторите позже.").await;
+                    let _ = send_message(
+                        client,
+                        send_endpoint,
+                        sender.id,
+                        "Слишком много запросов. Повторите позже.",
+                    )
+                    .await;
                     return;
                 }
                 Err(_) => return,
@@ -244,9 +252,13 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
     let send = format!("https://api.telegram.org/bot{}/sendMessage", cfg.token);
     let mut offset = 0_i64;
     loop {
-        let response = client.post(&poll).json(&json!({
-            "offset":offset,"limit":25,"timeout":20,"allowed_updates":["message"]
-        })).send().await;
+        let response = client
+            .post(&poll)
+            .json(&json!({
+                "offset":offset,"limit":25,"timeout":20,"allowed_updates":["message"]
+            }))
+            .send()
+            .await;
         let parsed = match response {
             Ok(response) if response.status().is_success() => {
                 response.json::<BotResponse>().await.ok()

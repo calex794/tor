@@ -73,10 +73,10 @@ pub use paid_reader_router::{
     router_with_postgres_reading_auth_paid_grants_browser,
 };
 mod password_jobs;
-pub mod telegram_bot;
 pub mod ranking_consumer;
 pub mod referral_consumer;
 mod ril;
+pub mod telegram_bot;
 mod worker_health;
 #[derive(Clone)]
 struct AppState {

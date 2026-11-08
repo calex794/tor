@@ -1,6 +1,9 @@
 //! A/S004: authenticated Telegram pairing and public backup-code recovery.
 use super::{login_limiter, session_user, AuthState};
-use crate::{auth_cookies::{private_response, valid_token}, pages};
+use crate::{
+    auth_cookies::{private_response, valid_token},
+    pages,
+};
 use axum::{
     extract::{ConnectInfo, Form, State},
     http::{HeaderMap, StatusCode},
@@ -10,9 +13,7 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use tor_accounts::{
     domain::normalize_email,
-    services::security::{
-        generate_session_token, session_token_digest, verify_password,
-    },
+    services::security::{generate_session_token, session_token_digest, verify_password},
 };
 
 #[derive(Deserialize)]
@@ -36,10 +37,7 @@ pub(super) struct BackupForm {
     csrf_token: Option<String>,
 }
 
-pub(super) async fn link_page(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn link_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
@@ -81,7 +79,9 @@ pub(super) async fn begin_link(
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -152,7 +152,9 @@ pub(super) async fn confirm_link(
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -165,9 +167,8 @@ pub(super) async fn confirm_link(
         return private_response(StatusCode::UNAUTHORIZED, &[]);
     };
     let codes: [String; 8] = std::array::from_fn(|_| generate_session_token());
-    let digests: [[u8; 32]; 8] = std::array::from_fn(|i| {
-        session_token_digest(&format!("tor:backup:v1:{}", codes[i]))
-    });
+    let digests: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("tor:backup:v1:{}", codes[i])));
     let linked = state
         .accounts
         .finish_telegram_link(user, &session_token_digest(&token), &digests)
@@ -179,10 +180,7 @@ pub(super) async fn confirm_link(
     }
 }
 
-pub(super) async fn backup_page(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn backup_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     if !state.telegram_enabled {
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
@@ -200,7 +198,9 @@ pub(super) async fn backup_submit(
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
