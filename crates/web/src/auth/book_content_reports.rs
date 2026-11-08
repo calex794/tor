@@ -91,14 +91,14 @@ pub(super) async fn form(
         <option value="other">Другое</option>
         </select></label>
         <label>Подробности <textarea name="details" maxlength="500"></textarea></label>
-        <input type="hidden" name="comment_id" value="{}">
+        {}
         <input type="hidden" name="command_key" value="{}">
         <input type="hidden" name="csrf_token" value="{}">
         <button type="submit">Отправить жалобу</button></form>
         <p><a href="/books/{id}">Вернуться к книге</a></p>
         </div></section>"#,
         super::escape_html(&title),
-        query.comment_id.map_or_else(String::new, |comment_id| comment_id.to_string()),
+        query.comment_id.map_or_else(String::new, |comment_id| format!(r#"<input type="hidden" name="comment_id" value="{comment_id}">"#)),
         generate_session_token(),
         super::escape_html(&csrf),
     );
