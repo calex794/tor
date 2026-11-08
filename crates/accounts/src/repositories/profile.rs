@@ -1,7 +1,7 @@
 //! Account-owned settings, serialized per user and protected by revision CAS.
 use super::PgAccounts;
-use crate::services::profile::ProfileUpdate;
 pub use crate::services::profile::Profile;
+use crate::services::profile::ProfileUpdate;
 
 #[derive(Debug)]
 pub enum ProfileError {
