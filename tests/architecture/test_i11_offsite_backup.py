@@ -32,7 +32,7 @@ class OffsiteBackupBoundaries(unittest.TestCase):
     def test_restore_never_points_to_production_database(self):
         src = RESTORE.read_text(encoding="utf-8")
         for required in (
-            "TOR_DR_RESTORE_URL", "u.port == 5432",
+            "TOR_DR_RESTORE_URL", "15432 <= u.port <= 15999",
             "tor_dr_", "restore target is nonempty",
             "restic dump", "pg_restore", "TOR_OFFSITE_RESTORE_VERIFIED",
         ):
