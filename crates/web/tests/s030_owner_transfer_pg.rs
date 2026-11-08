@@ -17,8 +17,7 @@ use tor_accounts::{
         PgAccounts,
     },
     services::security::{
-        generate_session_token, hash_password, session_token_digest,
-        verify_password_for_step_up,
+        generate_session_token, hash_password, session_token_digest, verify_password_for_step_up,
     },
 };
 use tor_books::{
@@ -41,8 +40,16 @@ fn pg(url: &str, query: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", query,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
         ])
         .output()
         .expect("psql executable in isolated CI");
@@ -55,7 +62,10 @@ fn pg(url: &str, query: &str) -> String {
 }
 
 fn stamp() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
 }
 
 fn database() -> String {
@@ -64,16 +74,14 @@ fn database() -> String {
     url
 }
 
-async fn user(
-    accounts: &PgAccounts,
-    email: &str,
-    display: &str,
-    hash: &str,
-) -> (i64, String) {
+async fn user(accounts: &PgAccounts, email: &str, display: &str, hash: &str) -> (i64, String) {
     let token = generate_session_token();
     let id = accounts
         .register_with_session(
-            email, display, hash, &session_token_digest(&token),
+            email,
+            display,
+            hash,
+            &session_token_digest(&token),
             NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -93,8 +101,13 @@ async fn transfer_token(
     let payload = owner_transfer_payload_digest(actor, book, actor, target);
     accounts
         .issue_book_mutation_step_up(
-            actor, &session_token_digest(session), &verified,
-            book, actor, BOOK_TRANSFER_SCOPE, &payload,
+            actor,
+            &session_token_digest(session),
+            &verified,
+            book,
+            actor,
+            BOOK_TRANSFER_SCOPE,
+            &payload,
         )
         .await
         .unwrap()
@@ -111,27 +124,37 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
     let unique = stamp();
     let recipient_name = format!("S030TeamRecipient{unique}");
     let (from, from_session) = user(
-        &accounts, &format!("s030-team-owner-{unique}@example.invalid"),
-        &format!("S030Owner{unique}"), &hash,
-    ).await;
+        &accounts,
+        &format!("s030-team-owner-{unique}@example.invalid"),
+        &format!("S030Owner{unique}"),
+        &hash,
+    )
+    .await;
     let (to, to_session) = user(
-        &accounts, &format!("s030-team-member-{unique}@example.invalid"),
-        &recipient_name, &hash,
-    ).await;
+        &accounts,
+        &format!("s030-team-member-{unique}@example.invalid"),
+        &recipient_name,
+        &hash,
+    )
+    .await;
     let book: i64 = pg(
         &url,
         &format!(
             "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
              VALUES('ci:s030:{unique}:team','ru','S030 transfer','draft',{from}) RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let team: i64 = pg(
         &url,
         &format!(
             "INSERT INTO translation_teams(owner_user_id,name)
              VALUES({from},'S030 Team {unique}') RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let invite = hex::encode(session_token_digest(&format!("s030-team-invite-{unique}")));
     pg(
         &url,
@@ -158,31 +181,45 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
     let owner_service = PgOwnerTransfer::new(pool.clone());
     assert!(owner_service.settings(from, book).await.unwrap().is_some());
     assert!(owner_service.settings(to, book).await.unwrap().is_none());
-    let token = transfer_token(
-        &accounts, from, book, &recipient_name, &from_session, &hash,
-    ).await;
-    owner_service.transfer(
-        from, book, from, &recipient_name,
-        &session_token_digest(&from_session), &token,
-    ).await.unwrap();
+    let token = transfer_token(&accounts, from, book, &recipient_name, &from_session, &hash).await;
+    owner_service
+        .transfer(
+            from,
+            book,
+            from,
+            &recipient_name,
+            &session_token_digest(&from_session),
+            &token,
+        )
+        .await
+        .unwrap();
 
     assert_eq!(
-        pg(&url,&format!("SELECT owner_user_id FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
         to.to_string(),
     );
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT COUNT(*) FROM book_members WHERE book_id={book}
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM book_members WHERE book_id={book}
              AND is_active AND role='owner'"
-        )),
+            )
+        ),
         "1",
     );
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT COUNT(*) FROM book_owner_transfer_events
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM book_owner_transfer_events
              WHERE book_id={book} AND previous_owner_user_id={from}
                AND new_owner_user_id={to} AND share_revision=1"
-        )),
+            )
+        ),
         "1",
     );
     assert!(owner_service.settings(from, book).await.unwrap().is_none());
@@ -190,44 +227,81 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
     let team_view = PgTeamBooks::new(pool.clone()).view(to, team).await.unwrap();
     assert!(team_view.linked.iter().any(|row| row.id == book));
     assert_eq!(
-        owner_service.transfer(
-            from, book, from, &recipient_name,
-            &session_token_digest(&from_session), &token,
-        ).await,
+        owner_service
+            .transfer(
+                from,
+                book,
+                from,
+                &recipient_name,
+                &session_token_digest(&from_session),
+                &token,
+            )
+            .await,
         Err(AuthorError::Forbidden),
         "transfer confirmation cannot be replayed",
     );
     let assignments = [
-        ShareAssignment { user_id: from, share_percent: 65 },
-        ShareAssignment { user_id: to, share_percent: 35 },
+        ShareAssignment {
+            user_id: from,
+            share_percent: 65,
+        },
+        ShareAssignment {
+            user_id: to,
+            share_percent: 35,
+        },
     ];
     let reason = "new owner revision";
-    let digest = revenue_share_payload_digest(
-        to, book, 1, &assignments, reason,
-    ).unwrap();
+    let digest = revenue_share_payload_digest(to, book, 1, &assignments, reason).unwrap();
     let verified = verify_password_for_step_up(PASSWORD, &hash).unwrap();
-    let share_token = accounts.issue_book_mutation_step_up(
-        to, &session_token_digest(&to_session), &verified,
-        book, 1, BOOK_SHARES_SCOPE, &digest,
-    ).await.unwrap();
+    let share_token = accounts
+        .issue_book_mutation_step_up(
+            to,
+            &session_token_digest(&to_session),
+            &verified,
+            book,
+            1,
+            BOOK_SHARES_SCOPE,
+            &digest,
+        )
+        .await
+        .unwrap();
     let shares = PgRevenueShares::new(pool.clone());
-    let revision = shares.replace_schedule_verified(
-        to, book, 1, &assignments, reason,
-        &session_token_digest(&to_session), &share_token,
-    ).await.unwrap();
+    let revision = shares
+        .replace_schedule_verified(
+            to,
+            book,
+            1,
+            &assignments,
+            reason,
+            &session_token_digest(&to_session),
+            &share_token,
+        )
+        .await
+        .unwrap();
     assert_eq!(revision, 2);
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT share_percent FROM revenue_share_assignments
+        pg(
+            &url,
+            &format!(
+                "SELECT share_percent FROM revenue_share_assignments
              WHERE book_id={book} AND revision=1 AND user_id={from}"
-        )),
+            )
+        ),
         "100",
         "previous purchase conditions must remain immutable",
     );
-    assert!(shares.replace_schedule_verified(
-        to, book, 2, &assignments, reason,
-        &session_token_digest(&to_session), &share_token,
-    ).await.is_err());
+    assert!(shares
+        .replace_schedule_verified(
+            to,
+            book,
+            2,
+            &assignments,
+            reason,
+            &session_token_digest(&to_session),
+            &share_token,
+        )
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -240,13 +314,19 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let unique = stamp();
     let target = format!("S030DeniedRecipient{unique}");
     let (from, from_session) = user(
-        &accounts, &format!("s030-deny-owner-{unique}@example.invalid"),
-        &format!("S030DeniedOwner{unique}"), &hash,
-    ).await;
+        &accounts,
+        &format!("s030-deny-owner-{unique}@example.invalid"),
+        &format!("S030DeniedOwner{unique}"),
+        &hash,
+    )
+    .await;
     let (to, _) = user(
-        &accounts, &format!("s030-deny-target-{unique}@example.invalid"),
-        &target, &hash,
-    ).await;
+        &accounts,
+        &format!("s030-deny-target-{unique}@example.invalid"),
+        &target,
+        &hash,
+    )
+    .await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -255,77 +335,85 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
              VALUES('ci:s030:{unique}:deny','ru','S030 adult','draft',{from},'adult')
              RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let owner_service = PgOwnerTransfer::new(catalog.pool());
     let digest = session_token_digest(&from_session);
-    let age_token = transfer_token(
-        &accounts, from, book, &target, &from_session, &hash,
-    ).await;
+    let age_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
-        owner_service.transfer(
-            from, book, from, &target, &digest, &age_token,
-        ).await,
+        owner_service
+            .transfer(from, book, from, &target, &digest, &age_token,)
+            .await,
         Err(AuthorError::Forbidden),
     );
-    pg(&url, &format!("UPDATE users SET adult_enabled=TRUE WHERE id={to}"));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={to}"),
+    );
     let layer: i64 = pg(
         &url,
         &format!(
             "INSERT INTO commerce_layers(owner_user_id,title)
              VALUES({from},'S030 history {unique}') RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let version: i64 = pg(
         &url,
         &format!(
             "INSERT INTO commerce_layer_versions(layer_id,version_no)
              VALUES({layer},1) RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     pg(
-        &url, &format!(
-            "UPDATE commerce_layers SET current_version_id={version} WHERE id={layer}"
-        ),
+        &url,
+        &format!("UPDATE commerce_layers SET current_version_id={version} WHERE id={layer}"),
     );
     pg(
-        &url, &format!(
+        &url,
+        &format!(
             "INSERT INTO commerce_layer_version_books(layer_version_id,book_id)
              VALUES({version},{book})"
         ),
     );
-    let layer_token = transfer_token(
-        &accounts, from, book, &target, &from_session, &hash,
-    ).await;
+    let layer_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
-        owner_service.transfer(
-            from, book, from, &target, &digest, &layer_token,
-        ).await,
+        owner_service
+            .transfer(from, book, from, &target, &digest, &layer_token,)
+            .await,
         Err(AuthorError::Conflict),
     );
-    let revoked_token = transfer_token(
-        &accounts, from, book, &target, &from_session, &hash,
-    ).await;
+    let revoked_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     pg(
-        &url, &format!(
+        &url,
+        &format!(
             "UPDATE sessions SET revoked_at=now()
              WHERE token_hash=decode('{}','hex')",
             hex::encode(digest),
         ),
     );
     assert_eq!(
-        owner_service.transfer(
-            from, book, from, &target, &digest, &revoked_token,
-        ).await,
+        owner_service
+            .transfer(from, book, from, &target, &digest, &revoked_token,)
+            .await,
         Err(AuthorError::Forbidden),
     );
     assert_eq!(
-        pg(&url,&format!("SELECT owner_user_id FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
         from.to_string(),
     );
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id={book}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id={book}")
+        ),
         "0",
     );
 }
@@ -342,19 +430,31 @@ fn request(method: &str, path: &str, cookie: &str, origin: &str, form: &str) -> 
 }
 
 async fn send(
-    app: &Router, method: &str, path: &str,
-    cookie: &str, origin: &str, form: &str,
+    app: &Router,
+    method: &str,
+    path: &str,
+    cookie: &str,
+    origin: &str,
+    form: &str,
 ) -> axum::response::Response {
-    app.clone().oneshot(request(method,path,cookie,origin,form))
-        .await.unwrap()
+    app.clone()
+        .oneshot(request(method, path, cookie, origin, form))
+        .await
+        .unwrap()
 }
 
 fn csrf_cookie(reply: &axum::response::Response) -> String {
-    reply.headers().get_all(header::SET_COOKIE).iter()
+    reply
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
         .filter_map(|v| v.to_str().ok())
         .find(|v| v.starts_with("tor-dev-csrf="))
         .expect("CSRF cookie")
-        .split(';').next().unwrap().to_owned()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
 }
 
 async fn text(reply: axum::response::Response) -> String {
@@ -364,7 +464,11 @@ async fn text(reply: axum::response::Response) -> String {
 
 fn csrf_from(html: &str) -> &str {
     html.split("name=\"csrf_token\" value=\"")
-        .nth(1).unwrap().split('"').next().unwrap()
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -378,13 +482,19 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
     let hash = hash_password(PASSWORD).unwrap();
     let recipient_name = format!("S030HttpRecipient{unique}");
     let (from, from_token) = user(
-        &accounts, &format!("s030-http-owner-{unique}@example.invalid"),
-        &format!("S030HttpOwner{unique}"), &hash,
-    ).await;
+        &accounts,
+        &format!("s030-http-owner-{unique}@example.invalid"),
+        &format!("S030HttpOwner{unique}"),
+        &hash,
+    )
+    .await;
     let (to, to_token) = user(
-        &accounts, &format!("s030-http-recipient-{unique}@example.invalid"),
-        &recipient_name, &hash,
-    ).await;
+        &accounts,
+        &format!("s030-http-recipient-{unique}@example.invalid"),
+        &recipient_name,
+        &hash,
+    )
+    .await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -392,23 +502,31 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
              VALUES('ci:s030:{unique}:http','ru','S030 HTTP','draft',{from})
              RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool), accounts, false, ORIGIN.to_owned(),
+        catalog,
+        PgReader::new(pool),
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
     let owner_cookie = format!("tor-dev-session={from_token}");
     let foreign_cookie = format!("tor-dev-session={to_token}");
     let path = format!("/me/books/{book}/settings/ownership");
-    let initial = send(&app,"GET",&path,&owner_cookie,ORIGIN,"").await;
-    assert_eq!(initial.status(),StatusCode::OK);
-    assert_eq!(initial.headers()[header::CACHE_CONTROL],"no-store");
+    let initial = send(&app, "GET", &path, &owner_cookie, ORIGIN, "").await;
+    assert_eq!(initial.status(), StatusCode::OK);
+    assert_eq!(initial.headers()[header::CACHE_CONTROL], "no-store");
     let csrf_pair = csrf_cookie(&initial);
     let initial_html = text(initial).await;
     let csrf = csrf_from(&initial_html);
     assert!(initial_html.contains("share_"));
     let owner_auth = format!("{owner_cookie}; {csrf_pair}");
     assert_eq!(
-        send(&app,"GET",&path,&foreign_cookie,ORIGIN,"").await.status(),
+        send(&app, "GET", &path, &foreign_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
     );
     let transfer_path = format!("{path}/transfer");
@@ -416,39 +534,57 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
         "csrf_token={csrf}&expected_owner_id={from}&target_display_name={recipient_name}&account_password={PASSWORD}"
     );
     assert_eq!(
-        send(&app,"POST",&transfer_path,&owner_cookie,ORIGIN,&form)
-            .await.status(),
+        send(&app, "POST", &transfer_path, &owner_cookie, ORIGIN, &form)
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
         "missing CSRF cookie",
     );
     assert_eq!(
-        send(&app,"POST",&transfer_path,&owner_auth,"https://evil.example",&form)
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &transfer_path,
+            &owner_auth,
+            "https://evil.example",
+            &form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "wrong Origin",
     );
     assert_eq!(
-        send(&app,"POST",&transfer_path,&owner_auth,ORIGIN,
-             &form.replace(PASSWORD,"incorrect-password")).await.status(),
+        send(
+            &app,
+            "POST",
+            &transfer_path,
+            &owner_auth,
+            ORIGIN,
+            &form.replace(PASSWORD, "incorrect-password")
+        )
+        .await
+        .status(),
         StatusCode::UNAUTHORIZED,
         "incorrect account password must reject transfer",
     );
-    let transferred = send(
-        &app,"POST",&transfer_path,&owner_auth,ORIGIN,&form,
-    ).await;
-    assert_eq!(transferred.status(),StatusCode::SEE_OTHER);
+    let transferred = send(&app, "POST", &transfer_path, &owner_auth, ORIGIN, &form).await;
+    assert_eq!(transferred.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        pg(&url,&format!("SELECT owner_user_id FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
         to.to_string(),
     );
     assert_eq!(
-        send(&app,"GET",&path,&owner_auth,ORIGIN,"").await.status(),
+        send(&app, "GET", &path, &owner_auth, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
     );
-    let recipient_page = send(
-        &app,"GET",&path,&foreign_cookie,ORIGIN,"",
-    ).await;
-    assert_eq!(recipient_page.status(),StatusCode::OK);
+    let recipient_page = send(&app, "GET", &path, &foreign_cookie, ORIGIN, "").await;
+    assert_eq!(recipient_page.status(), StatusCode::OK);
     let to_csrf_cookie = csrf_cookie(&recipient_page);
     let recipient_html = text(recipient_page).await;
     let to_csrf = csrf_from(&recipient_html);
@@ -459,27 +595,40 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
         "csrf_token={to_csrf}&expected_revision=1&share_{from}=40&share_{to}=60&reason=After+transfer&account_password={PASSWORD}"
     );
     assert_eq!(
-        send(&app,"POST",&shares_path,&owner_auth,ORIGIN,&finance_form)
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &shares_path,
+            &owner_auth,
+            ORIGIN,
+            &finance_form
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "former owner cannot change creator economics",
     );
     assert_eq!(
-        send(&app,"POST",&shares_path,&to_auth,ORIGIN,&finance_form)
-            .await.status(),
+        send(&app, "POST", &shares_path, &to_auth, ORIGIN, &finance_form)
+            .await
+            .status(),
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT current_revision FROM revenue_share_states WHERE book_id={book}"
-        )),
+        pg(
+            &url,
+            &format!("SELECT current_revision FROM revenue_share_states WHERE book_id={book}")
+        ),
         "2",
     );
     assert_eq!(
-        pg(&url,&format!(
-            "SELECT share_percent FROM revenue_share_assignments
+        pg(
+            &url,
+            &format!(
+                "SELECT share_percent FROM revenue_share_assignments
              WHERE book_id={book} AND revision=1 AND user_id={from}"
-        )),
+            )
+        ),
         "100",
         "historical shares must not change",
     );

@@ -191,11 +191,7 @@ async fn fresh_password(
         .ok_or(StatusCode::UNAUTHORIZED)
 }
 
-async fn page(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-) -> Response {
+async fn page(State(state): State<AuthState>, Path(id): Path<i64>, headers: HeaderMap) -> Response {
     let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(StatusCode::UNAUTHORIZED) => return private_response(Redirect::to("/login"), &[]),
