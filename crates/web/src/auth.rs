@@ -113,6 +113,8 @@ mod settings_routes;
 mod support_bundle;
 mod sync_actions;
 mod teams;
+mod telegram_recovery;
+mod telegram_request;
 mod text_issues;
 mod types;
 use types::*;
@@ -212,6 +214,8 @@ fn router_inner(
         && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        telegram_enabled: std::env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1"),
+        telegram_bot_username: std::env::var("TOR_TELEGRAM_BOT_USERNAME").ok(),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
         notification_preferences: PgNotificationPreferences::new(pool.clone()),
@@ -590,11 +594,6 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    // session_security::logout enforces same-origin and CSRF itself.
-    session_security::logout(State(state), headers, Form(form)).await
+async fn logout(state: State<AuthState>, headers: HeaderMap, form: Form<LogoutForm>) -> Response {
+    session_security::logout(state, headers, form).await
 }

@@ -1,0 +1,401 @@
+//! A/S004: optional Telegram identity binding and recovery proofs.
+//! Public bot messages never carry TOR identity, password hash or session tokens.
+use super::{telegram_recovery::TelegramPollerFence, PgAccounts};
+use crate::services::security::session_token_digest;
+
+pub struct TelegramLinkState {
+    pub linked_user_id: Option<i64>,
+    pub candidate_user_id: Option<i64>,
+}
+
+impl PgAccounts {
+    pub async fn probe_telegram_recovery(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT user_id FROM account_telegram_bindings LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        sqlx::query("SELECT source FROM password_reset_tokens LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        sqlx::query("SELECT id FROM account_telegram_binding_events LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        sqlx::query("SELECT id FROM account_telegram_recovery_requests LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        sqlx::query("SELECT bot_id FROM account_telegram_poller_leases LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn telegram_link_state(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+    ) -> Result<TelegramLinkState, sqlx::Error> {
+        let linked_user_id = sqlx::query_scalar(
+            "SELECT telegram_user_id FROM account_telegram_bindings WHERE user_id=$1",
+        )
+        .bind(user_id)
+        .fetch_optional(self.pool())
+        .await?;
+        let candidate_user_id = sqlx::query_scalar(
+            "SELECT candidate_telegram_user_id FROM account_telegram_link_intents
+             WHERE user_id=$1 AND session_digest=$2 AND expires_at>now()",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(self.pool())
+        .await?
+        .flatten();
+        Ok(TelegramLinkState {
+            linked_user_id,
+            candidate_user_id,
+        })
+    }
+
+    /// Password step-up happens in the bounded web worker before this call.
+    /// The database rechecks the exact credential and live initiating session.
+    pub async fn begin_telegram_link(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+        expected_hash: &str,
+        nonce_digest: &[u8; 32],
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if current.as_deref() != Some(expected_hash) {
+            return Ok(false);
+        }
+        let active: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions WHERE user_id=$1 AND token_hash=$2
+             AND revoked_at IS NULL AND expires_at>now() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if active.is_none() {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO account_telegram_link_intents
+             (user_id,token_hash,session_digest,credential_fingerprint)
+             VALUES($1,$2,$3,$4)
+             ON CONFLICT(user_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,
+             session_digest=EXCLUDED.session_digest,
+             credential_fingerprint=EXCLUDED.credential_fingerprint,
+             candidate_telegram_user_id=NULL,candidate_private_chat_id=NULL,
+             created_at=now(),expires_at=now()+INTERVAL '5 minutes'",
+        )
+        .bind(user_id)
+        .bind(nonce_digest.as_slice())
+        .bind(session_digest.as_slice())
+        .bind(session_token_digest(expected_hash).as_slice())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// The browser owner must confirm the proposed Telegram candidate.
+    /// Bot-driven link claims are permitted only under the exact live poller
+    /// lease generation, checked in the same row-locked SQL statement.
+    pub async fn claim_telegram_link_fenced(
+        &self,
+        fence: TelegramPollerFence<'_>,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        if fence.bot_id <= 0 || fence.lease_epoch <= 0 {
+            return Ok(None);
+        }
+        let (active, claimed): (bool, bool) = sqlx::query_as(
+            "WITH active_lease AS MATERIALIZED (
+               SELECT bot_id FROM account_telegram_poller_leases
+               WHERE bot_id=$1 AND owner_digest=$2 AND lease_epoch=$3
+                 AND expires_at>clock_timestamp()
+               FOR SHARE
+             ), claimed AS (
+               UPDATE account_telegram_link_intents AS i
+               SET candidate_telegram_user_id=$5,candidate_private_chat_id=$6
+               WHERE i.token_hash=$4 AND i.expires_at>now()
+                 AND $5>0 AND $5=$6
+                 AND EXISTS(SELECT 1 FROM active_lease)
+                 AND (i.candidate_telegram_user_id IS NULL OR i.candidate_telegram_user_id=$5)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM account_telegram_bindings b
+                   WHERE b.telegram_user_id=$5 AND b.user_id<>i.user_id
+                 )
+               RETURNING i.user_id
+             )
+             SELECT EXISTS(SELECT 1 FROM active_lease),
+                    EXISTS(SELECT 1 FROM claimed)",
+        )
+        .bind(fence.bot_id)
+        .bind(fence.owner_digest.as_slice())
+        .bind(fence.lease_epoch)
+        .bind(nonce_digest.as_slice())
+        .bind(telegram_user_id)
+        .bind(private_chat_id)
+        .fetch_one(self.pool())
+        .await?;
+        Ok(active.then_some(claimed))
+    }
+
+    /// Confirm the candidate and atomically replace any old Telegram binding
+    /// and recovery codes. The plaintext backup codes are returned only by web.
+    pub async fn finish_telegram_link(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+        code_hashes: &[[u8; 32]; 8],
+    ) -> Result<Option<i64>, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(current) = current else {
+            return Ok(None);
+        };
+        let active: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions WHERE user_id=$1 AND token_hash=$2
+             AND revoked_at IS NULL AND expires_at>now() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if active.is_none() {
+            return Ok(None);
+        }
+        let pending: Option<(Option<i64>, Option<i64>, Vec<u8>)> = sqlx::query_as(
+            "SELECT candidate_telegram_user_id,candidate_private_chat_id,
+                    credential_fingerprint
+             FROM account_telegram_link_intents
+             WHERE user_id=$1 AND session_digest=$2 AND expires_at>now() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((Some(candidate), Some(chat), fingerprint)) = pending else {
+            return Ok(None);
+        };
+        if candidate != chat || fingerprint != session_token_digest(&current) {
+            return Ok(None);
+        }
+        sqlx::query("DELETE FROM account_telegram_bindings WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO account_telegram_bindings(user_id,telegram_user_id,private_chat_id)
+             VALUES($1,$2,$3)",
+        )
+        .bind(user_id)
+        .bind(candidate)
+        .bind(chat)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM account_recovery_codes WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        for digest in code_hashes {
+            sqlx::query("INSERT INTO account_recovery_codes(user_id,code_hash) VALUES($1,$2)")
+                .bind(user_id)
+                .bind(digest.as_slice())
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query("DELETE FROM account_telegram_link_intents WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE account_telegram_recovery_requests SET status='denied'
+             WHERE user_id=$1 AND status IN ('pending','approved')",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE password_reset_tokens SET consumed_at=now()
+             WHERE user_id=$1 AND source IN ('telegram','backup')
+               AND consumed_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO account_telegram_binding_events
+             (user_id,telegram_user_id,action) VALUES($1,$2,'linked')",
+        )
+        .bind(user_id)
+        .bind(candidate)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Some(candidate))
+    }
+
+    /// Independently verified current password is checked again against the live
+    /// credential under a row lock, as well as the initiating live session.
+    /// A successful unlink atomically revokes Telegram/backup reset proofs and codes.
+    pub async fn unlink_telegram(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+        expected_hash: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users
+             WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if current.as_deref() != Some(expected_hash) {
+            return Ok(false);
+        }
+        let active: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions
+             WHERE user_id=$1 AND token_hash=$2
+               AND revoked_at IS NULL AND expires_at>now() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if active.is_none() {
+            return Ok(false);
+        }
+        let deleted: Option<i64> = sqlx::query_scalar(
+            "DELETE FROM account_telegram_bindings WHERE user_id=$1
+             RETURNING telegram_user_id",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(telegram_id) = deleted else {
+            return Ok(false);
+        };
+        sqlx::query("DELETE FROM account_telegram_link_intents WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE account_telegram_recovery_requests SET status='denied'
+             WHERE user_id=$1 AND status IN ('pending','approved')",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("DELETE FROM account_recovery_codes WHERE user_id=$1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE password_reset_tokens SET consumed_at=now()
+             WHERE user_id=$1 AND source IN ('telegram','backup')
+               AND consumed_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO account_telegram_binding_events
+             (user_id,telegram_user_id,action) VALUES($1,$2,'unlinked')",
+        )
+        .bind(user_id)
+        .bind(telegram_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn consume_backup_code(
+        &self,
+        normalized_email: &str,
+        code_digest: &[u8; 32],
+        reset_digest: &[u8; 32],
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        let account: Option<(i64, String)> = sqlx::query_as(
+            "SELECT u.id,u.password_hash FROM users u WHERE u.email_normalized=$1
+             AND u.account_state='active'
+             AND NOT EXISTS (SELECT 1 FROM account_roles r
+                             WHERE r.user_id=u.id AND r.is_active)
+               AND NOT EXISTS (SELECT 1 FROM books b WHERE b.owner_user_id=u.id)
+               AND NOT EXISTS (SELECT 1 FROM book_members bm
+                               WHERE bm.user_id=u.id AND bm.is_active)
+             FOR UPDATE OF u",
+        )
+        .bind(normalized_email)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((user_id, hash)) = account else {
+            return Ok(false);
+        };
+        let consumed: Option<i64> = sqlx::query_scalar(
+            "UPDATE account_recovery_codes SET consumed_at=now()
+             WHERE user_id=$1 AND code_hash=$2 AND consumed_at IS NULL
+             RETURNING user_id",
+        )
+        .bind(user_id)
+        .bind(code_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if consumed.is_none() {
+            return Ok(false);
+        }
+        sqlx::query(
+            "UPDATE password_reset_tokens SET consumed_at=now()
+             WHERE user_id=$1 AND consumed_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO password_reset_tokens
+             (token_hash,user_id,credential_fingerprint,source,expires_at)
+             VALUES($1,$2,$3,'backup',now()+INTERVAL '10 minutes')",
+        )
+        .bind(reset_digest.as_slice())
+        .bind(user_id)
+        .bind(session_token_digest(&hash).as_slice())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Skip already-acknowledged Telegram updates after a poller restart.
+    /// Telegram retains updates for at most 24 hours; receipts live 2 days.
+    pub async fn telegram_update_seen(&self, update_id: i64) -> Result<bool, sqlx::Error> {
+        if update_id < 0 {
+            return Ok(true);
+        }
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_telegram_bot_updates WHERE update_id=$1)",
+        )
+        .bind(update_id)
+        .fetch_one(self.pool())
+        .await
+    }
+}

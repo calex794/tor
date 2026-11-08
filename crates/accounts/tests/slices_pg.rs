@@ -1,6 +1,7 @@
 //! Active line A acceptance against an isolated restricted PostgreSQL account.
 use std::num::NonZeroU32;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tor_accounts::repositories::telegram_recovery::TelegramPollerFence;
 use tor_accounts::{
     repositories::{authority::AuthorityError, profile::ProfileError, PgAccounts},
     services::{profile::ProfileUpdate, security::session_token_digest},
@@ -28,6 +29,46 @@ async fn fixture(label: &str) -> (PgAccounts, i64, [u8; 32]) {
         .await
         .unwrap();
     (accounts, user, digest)
+}
+
+// Integration fixtures exercise the same fenced claim used by the live bot.
+trait TestTelegramLink {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error>;
+}
+
+impl TestTelegramLink for PgAccounts {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let bot_id = 9_000_000_000 + telegram_user_id;
+        let owner = session_token_digest(&format!("tg-fixture-owner-{bot_id}"));
+        let epoch = self
+            .claim_telegram_poller(bot_id, &owner)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let fenced = self
+            .claim_telegram_link_fenced(
+                TelegramPollerFence {
+                    bot_id,
+                    owner_digest: &owner,
+                    lease_epoch: epoch,
+                },
+                nonce_digest,
+                telegram_user_id,
+                private_chat_id,
+            )
+            .await;
+        assert!(self.release_telegram_poller(bot_id, &owner, epoch).await?);
+        fenced.map(|value| value.unwrap_or(false))
+    }
 }
 
 #[tokio::test]
@@ -483,3 +524,456 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
             .unwrap();
     assert_eq!(events, vec!["granted", "revoked"]);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_pairing_requires_live_session_and_owner_confirmation() {
+    let (accounts, alice, session) = fixture("tg-link-alice").await;
+    let (_, bob, other_session) = fixture("tg-link-bob").await;
+    let nonce = session_token_digest(&format!("tg-bind-{alice}"));
+    assert!(!accounts
+        .begin_telegram_link(alice, &other_session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .begin_telegram_link(alice, &session, "$argon2id$wrong", &nonce)
+        .await
+        .unwrap());
+    assert!(accounts
+        .begin_telegram_link(alice, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    let tg_id = 7_000_000 + alice;
+    assert!(!accounts
+        .claim_telegram_link(&nonce, tg_id, tg_id + 1)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .claim_telegram_link(&[0_u8; 32], tg_id, tg_id)
+        .await
+        .unwrap());
+    assert!(accounts
+        .claim_telegram_link(&nonce, tg_id, tg_id)
+        .await
+        .unwrap());
+    let state = accounts.telegram_link_state(alice, &session).await.unwrap();
+    assert_eq!(state.candidate_user_id, Some(tg_id));
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("tg-backup-{alice}-{i}")));
+    assert!(accounts
+        .finish_telegram_link(alice, &other_session, &codes)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        accounts
+            .finish_telegram_link(alice, &session, &codes)
+            .await
+            .unwrap(),
+        Some(tg_id)
+    );
+    assert_eq!(
+        accounts
+            .telegram_link_state(alice, &session)
+            .await
+            .unwrap()
+            .linked_user_id,
+        Some(tg_id)
+    );
+    assert!(accounts
+        .finish_telegram_link(alice, &session, &codes)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(!accounts
+        .claim_telegram_link(&nonce, tg_id, tg_id)
+        .await
+        .unwrap());
+    let other_nonce = session_token_digest(&format!("tg-bind-bob-{bob}"));
+    assert!(accounts
+        .begin_telegram_link(bob, &other_session, "$argon2id$fixture", &other_nonce)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .claim_telegram_link(&other_nonce, tg_id, tg_id)
+        .await
+        .unwrap());
+    let bot_id = 10_000_000_000 + tg_id;
+    let poll_owner = session_token_digest(&format!("tg-receipt-owner-{tg_id}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &poll_owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!accounts.telegram_update_seen(tg_id).await.unwrap());
+    assert_eq!(
+        accounts
+            .acknowledge_telegram_update_fenced(bot_id, &poll_owner, epoch, tg_id)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    assert!(accounts.telegram_update_seen(tg_id).await.unwrap());
+    assert_eq!(
+        accounts
+            .acknowledge_telegram_update_fenced(bot_id, &poll_owner, epoch, tg_id)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert!(accounts
+        .release_telegram_poller(bot_id, &poll_owner, epoch)
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
+    let (accounts, user, session) = fixture("tg-reset").await;
+    let tg_id = 8_000_000 + user;
+    let nonce = session_token_digest(&format!("tg-bind-reset-{user}"));
+    assert!(accounts
+        .begin_telegram_link(user, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    assert!(accounts
+        .claim_telegram_link(&nonce, tg_id, tg_id)
+        .await
+        .unwrap());
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("tg-code-{user}-{i}")));
+    assert_eq!(
+        accounts
+            .finish_telegram_link(user, &session, &codes)
+            .await
+            .unwrap(),
+        Some(tg_id)
+    );
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    let browser = session_token_digest(&format!("tg-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &browser, "Abc_12")
+        .await
+        .unwrap();
+    let view = accounts
+        .browser_telegram_recovery(&browser)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.match_code, "Abc_12");
+    assert_eq!(view.status, "pending");
+    let pending = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap();
+    let request_id = pending
+        .iter()
+        .find(|x| x.private_chat_id == tg_id)
+        .unwrap()
+        .id;
+    let bot_id = 2_000_000_000 + user;
+    let owner = session_token_digest(&format!("tg-callback-lease-{user}"));
+    let wrong_owner = session_token_digest(&format!("tg-callback-foreign-{user}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &owner)
+        .await
+        .unwrap()
+        .unwrap();
+    let fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &owner,
+        lease_epoch: epoch,
+    };
+    let foreign_fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &wrong_owner,
+        lease_epoch: epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(foreign_fence, request_id, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id + 1, tg_id, true)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id + 1, true)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    let proof = session_token_digest(&format!("tg-reset-proof-{user}"));
+    assert!(!accounts
+        .exchange_browser_telegram_approval(&[0_u8; 32], &proof)
+        .await
+        .unwrap());
+    assert!(accounts
+        .exchange_browser_telegram_approval(&browser, &proof)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .exchange_browser_telegram_approval(&browser, &[1_u8; 32])
+        .await
+        .unwrap());
+    // A new, still-pending request is a real authorization target: the old
+    // worker must fail the lease check even before any idempotency guard.
+    let takeover_browser = session_token_digest(&format!("tg-takeover-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &takeover_browser, "New_12")
+        .await
+        .unwrap();
+    let takeover_request = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|item| item.private_chat_id == tg_id && item.match_code == "New_12")
+        .unwrap()
+        .id;
+    assert!(accounts
+        .release_telegram_poller(bot_id, &owner, epoch)
+        .await
+        .unwrap());
+    let next_epoch = accounts
+        .claim_telegram_poller(bot_id, &wrong_owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(next_epoch > epoch);
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, takeover_request, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        None,
+    );
+    let successor_fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &wrong_owner,
+        lease_epoch: next_epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(successor_fence, takeover_request, tg_id, tg_id, true)
+            .await
+            .unwrap(),
+        Some(true),
+    );
+    assert_eq!(
+        accounts
+            .live_reset_password_hash_allowed(&proof, false, false)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts
+            .live_reset_password_hash_allowed(&proof, false, true)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("$argon2id$fixture")
+    );
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'author')")
+        .bind(user)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    assert!(accounts
+        .live_reset_password_hash_allowed(&proof, false, true)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(!accounts
+        .consume_password_reset_allowed(&proof, "$argon2id$denied", false, true)
+        .await
+        .unwrap());
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='author'")
+        .bind(user)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    assert!(accounts
+        .consume_password_reset_allowed(&proof, "$argon2id$changed", false, true)
+        .await
+        .unwrap());
+    assert_eq!(accounts.active_session_user(&session).await.unwrap(), None);
+    assert!(!accounts
+        .consume_password_reset_allowed(&proof, "$argon2id$repeat", false, true)
+        .await
+        .unwrap());
+    let backup_token = session_token_digest(&format!("backup-reset-{user}"));
+    let (a, b) = tokio::join!(
+        accounts.consume_backup_code(&email, &codes[0], &backup_token),
+        accounts.consume_backup_code(&email, &codes[0], &backup_token)
+    );
+    assert_ne!(a.unwrap(), b.unwrap(), "backup code cannot be replayed");
+    assert!(accounts
+        .live_reset_password_hash_allowed(&backup_token, false, true)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        accounts
+            .live_reset_password_hash_allowed(&backup_token, false, false)
+            .await
+            .unwrap(),
+        None
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_proofs() {
+    let (accounts, user, session) = fixture("tg-unlink").await;
+    let (_, stranger, stranger_session) = fixture("tg-unlink-other").await;
+    let nonce = session_token_digest(&format!("tg-unlink-link-{user}"));
+    let telegram_id = 10_000_000 + user;
+    assert!(accounts
+        .begin_telegram_link(user, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    assert!(accounts
+        .claim_telegram_link(&nonce, telegram_id, telegram_id)
+        .await
+        .unwrap());
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("unlink-backup-{user}-{i}")));
+    assert_eq!(
+        accounts
+            .finish_telegram_link(user, &session, &codes)
+            .await
+            .unwrap(),
+        Some(telegram_id)
+    );
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    let proof = session_token_digest(&format!("telegram-preunlink-{user}"));
+    let browser = session_token_digest(&format!("telegram-unlink-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &browser, "Unl_42")
+        .await
+        .unwrap();
+    let pending = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap();
+    let request_id = pending
+        .iter()
+        .find(|x| x.private_chat_id == telegram_id)
+        .unwrap()
+        .id;
+    let bot_id = 4_000_000_000 + user;
+    let lease_owner = session_token_digest(&format!("tg-unlink-poll-owner-{user}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &lease_owner)
+        .await
+        .unwrap()
+        .unwrap();
+    let fence = TelegramPollerFence {
+        bot_id,
+        owner_digest: &lease_owner,
+        lease_epoch: epoch,
+    };
+    assert_eq!(
+        accounts
+            .decide_telegram_recovery_fenced(fence, request_id, telegram_id, telegram_id, true)
+            .await
+            .unwrap(),
+        Some(true),
+    );
+    assert!(accounts
+        .exchange_browser_telegram_approval(&browser, &proof)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &stranger_session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &session, "$argon2id$wrong")
+        .await
+        .unwrap());
+    assert!(accounts
+        .unlink_telegram(user, &session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts
+            .telegram_link_state(user, &session)
+            .await
+            .unwrap()
+            .linked_user_id,
+        None
+    );
+    let unlinked_browser = session_token_digest(&format!("unlinked-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &unlinked_browser, "Unl_43")
+        .await
+        .unwrap();
+    assert!(!accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap()
+        .iter()
+        .any(|x| x.private_chat_id == telegram_id));
+    assert_eq!(
+        accounts
+            .live_reset_password_hash_allowed(&proof, false, true)
+            .await
+            .unwrap(),
+        None
+    );
+    let backup = session_token_digest(&format!("after-unlink-{user}"));
+    assert!(!accounts
+        .consume_backup_code(&email, &codes[0], &backup)
+        .await
+        .unwrap());
+    let audit: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM account_telegram_binding_events
+         WHERE user_id=$1 ORDER BY id",
+    )
+    .bind(user)
+    .fetch_all(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(audit, vec!["linked", "unlinked"]);
+    assert_ne!(user, stranger);
+}
+
+#[path = "slices_pg/telegram_poller_tests.rs"]
+mod telegram_poller_tests;

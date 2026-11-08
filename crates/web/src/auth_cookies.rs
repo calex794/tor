@@ -83,6 +83,28 @@ impl CookiePolicy {
         self.cookie(self.session_name(), token, SESSION_AGE, "Strict")
     }
 
+    /// This cookie binds a recovery request to its initiating browser.
+    /// It never contains a reset token or the account's identifying email.
+    fn telegram_recovery_name(&self) -> &'static str {
+        if self.secure {
+            "__Host-tor-tg-recover"
+        } else {
+            "tor-dev-tg-recover"
+        }
+    }
+
+    pub(crate) fn telegram_recovery_token(&self, headers: &HeaderMap) -> Option<String> {
+        cookie_value(headers, self.telegram_recovery_name()).filter(|token| valid_token(token))
+    }
+
+    pub(crate) fn telegram_recovery_cookie(&self, token: &str) -> String {
+        self.cookie(self.telegram_recovery_name(), token, 5 * 60, "Strict")
+    }
+
+    pub(crate) fn clear_telegram_recovery_cookie(&self) -> String {
+        self.cookie(self.telegram_recovery_name(), "", 0, "Strict")
+    }
+
     pub(crate) fn cleared_cookies(&self) -> [String; 2] {
         [
             self.cookie(self.session_name(), "", 0, "Strict"),

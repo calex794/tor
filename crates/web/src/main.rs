@@ -269,6 +269,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None;
     let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
+    let mut pending_telegram_bot: Option<(PgAccounts, String)> = None;
+
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -334,6 +336,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
                 pending_security_retention = Some(accounts.clone());
+                if env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1") {
+                    pending_telegram_bot = Some((accounts.clone(), origin.clone()));
+                }
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -504,6 +509,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app
     };
     let listener = tokio::net::TcpListener::bind(address).await?;
+    let _telegram_bot_worker =
+        tor_web::telegram_bot::start_from_pending(pending_telegram_bot).await;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
     let _cover_worker = if let Some((catalog, storage)) = pending_cover_worker {
@@ -580,6 +587,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await;
+
     if let Some(handle) = account_retention {
         handle.abort();
         let _ = handle.await;

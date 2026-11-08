@@ -535,6 +535,7 @@ jobs:
           cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test telegram_recovery_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1

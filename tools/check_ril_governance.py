@@ -193,7 +193,7 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return root / "__unsupported_nested_handler__"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
-        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security", "telegram_recovery", "telegram_request"}
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
@@ -301,7 +301,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if (entry["source"] == "crates/web/src/auth.rs"
             and (entry["method"], entry["template"], entry["handler"])
             == ("POST", "/logout", "logout")
-            and "session_security::logout(State(state), headers, Form(form)).await" in body):
+            and ("session_security::logout(State(state), headers, Form(form)).await" in body
+                 or "session_security::logout(state, headers, form).await" in body)):
         sibling = ROOT / "crates/web/src/auth/session_security.rs"
         caller = _functions(sibling.read_text(encoding="utf-8")).get("logout", "")
         if ("state.cookies.same_origin(&headers)" in caller
@@ -801,7 +802,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing independent administrator role guard")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
-                   ("POST", "/reset-password", "password_reset::confirm")}
+                   ("POST", "/reset-password", "password_reset::confirm"),
+                   ("POST", "/recover/backup", "telegram_recovery::backup_submit"),
+                   ("POST", "/recover/telegram", "telegram_request::request"),
+                   ("POST", "/recover/telegram/complete", "telegram_request::complete")}
         if (entry["method"], entry["template"], entry["handler"]) not in allowed:
             errors.append(f"{label}: recovery exception is not allowed here")
         if ("login_limiter::limit(" not in evidence

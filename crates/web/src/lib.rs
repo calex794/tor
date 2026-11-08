@@ -76,6 +76,7 @@ mod password_jobs;
 pub mod ranking_consumer;
 pub mod referral_consumer;
 mod ril;
+pub mod telegram_bot;
 mod worker_health;
 #[derive(Clone)]
 struct AppState {

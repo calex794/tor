@@ -559,4 +559,8 @@ mod notification_settings;
 pub use notification_settings::delivery_preferences_page;
 
 mod password_reset;
-pub use password_reset::{reset_confirm_form, reset_request_form};
+pub use password_reset::{
+    reset_confirm_form, reset_request_form, reset_request_form_with_telegram,
+};
+pub(crate) mod telegram_recovery;
+pub(crate) mod telegram_request;

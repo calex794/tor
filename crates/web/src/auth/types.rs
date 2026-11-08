@@ -18,6 +18,8 @@ pub(super) async fn session_user(
 
 #[derive(Clone)]
 pub(super) struct AuthState {
+    pub(super) telegram_enabled: bool,
+    pub(super) telegram_bot_username: Option<String>,
     pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,

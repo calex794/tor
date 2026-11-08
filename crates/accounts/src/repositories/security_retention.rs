@@ -59,6 +59,57 @@ impl PgAccounts {
         )
         .execute(self.pool())
         .await?;
+        // Telegram uses a separate, explicitly migrated schema. Existing
+        // account retention MUST still work while its feature flag is off and
+        // this additive migration has not been applied to an existing DB.
+        let telegram_schema_present: bool = sqlx::query_scalar(
+            "SELECT to_regclass('account_telegram_recovery_requests') IS NOT NULL",
+        )
+        .fetch_one(self.pool())
+        .await?;
+        if telegram_schema_present {
+            sqlx::query(
+                "WITH batch AS (
+                    SELECT user_id FROM account_telegram_link_intents
+                    WHERE expires_at<now()-INTERVAL '1 hour'
+                    ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+                 )
+                 DELETE FROM account_telegram_link_intents i USING batch b WHERE i.user_id=b.user_id",
+            )
+            .execute(self.pool())
+            .await?;
+            sqlx::query(
+                "WITH batch AS (
+                    SELECT update_id FROM account_telegram_bot_updates
+                    WHERE received_at<now()-INTERVAL '2 days'
+                    ORDER BY received_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+                 )
+                 DELETE FROM account_telegram_bot_updates u USING batch b WHERE u.update_id=b.update_id",
+            )
+            .execute(self.pool())
+            .await?;
+            sqlx::query(
+                "WITH batch AS (
+                   SELECT id FROM account_telegram_binding_events
+                   WHERE created_at<now()-INTERVAL '90 days'
+                   ORDER BY created_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+                 )
+                 DELETE FROM account_telegram_binding_events e USING batch b WHERE e.id=b.id",
+            )
+            .execute(self.pool())
+            .await?;
+            sqlx::query(
+                "WITH batch AS (
+                   SELECT id FROM account_telegram_recovery_requests
+                   WHERE expires_at<now()-INTERVAL '1 hour'
+                   ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+                 )
+                 DELETE FROM account_telegram_recovery_requests t
+                 USING batch b WHERE t.id=b.id",
+            )
+            .execute(self.pool())
+            .await?;
+        }
         Ok(())
     }
 }
