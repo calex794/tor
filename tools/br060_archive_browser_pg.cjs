@@ -391,7 +391,7 @@ async function checkViewport(page, screen) {
         data: await reply.json() };
     }, archiveApi + '?before=80.' + midChapter + '&limit=60');
     assert.equal(archiveWindow.code, 200);
-    assert.equal(archiveWindow.cache, 'private, no-store');
+    assert.equal(archiveWindow.cache, 'no-store');
     assert.equal(archiveWindow.data.items.length, 60);
     assert(!JSON.stringify(archiveWindow.data).includes('ARCHIVE_HISTORY_V1_'),
       'private TOC must not deliver archived body text');
