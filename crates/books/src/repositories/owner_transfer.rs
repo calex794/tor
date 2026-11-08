@@ -326,6 +326,6 @@ mod tests {
 
 mod verified;
 pub use verified::{
-    owner_transfer_payload_digest, BookContributor, BookOwnershipSettings, OwnerTransferPrecondition,
-    PgOwnerTransfer,
+    owner_transfer_payload_digest, BookContributor, BookOwnershipSettings,
+    OwnerTransferPrecondition, PgOwnerTransfer,
 };

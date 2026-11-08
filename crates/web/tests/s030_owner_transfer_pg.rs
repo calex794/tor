@@ -492,7 +492,14 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let age_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
         owner_service
-            .transfer(from, book, expected_owner(from, book), &target, &digest, &age_token,)
+            .transfer(
+                from,
+                book,
+                expected_owner(from, book),
+                &target,
+                &digest,
+                &age_token,
+            )
             .await,
         Err(AuthorError::Forbidden),
     );
@@ -532,7 +539,14 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let layer_token = transfer_token(&accounts, from, book, &target, &from_session, &hash).await;
     assert_eq!(
         owner_service
-            .transfer(from, book, expected_owner(from, book), &target, &digest, &layer_token,)
+            .transfer(
+                from,
+                book,
+                expected_owner(from, book),
+                &target,
+                &digest,
+                &layer_token,
+            )
             .await,
         Err(AuthorError::Conflict),
     );
@@ -547,7 +561,14 @@ async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     );
     assert_eq!(
         owner_service
-            .transfer(from, book, expected_owner(from, book), &target, &digest, &revoked_token,)
+            .transfer(
+                from,
+                book,
+                expected_owner(from, book),
+                &target,
+                &digest,
+                &revoked_token,
+            )
             .await,
         Err(AuthorError::Forbidden),
     );
@@ -822,8 +843,22 @@ async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
     let digest = session_token_digest(&session);
     let service = PgOwnerTransfer::new(pool);
     let (first, second) = tokio::join!(
-        service.transfer(owner, book, expected_owner(owner, book), &recipient_name, &digest, &token),
-        service.transfer(owner, book, expected_owner(owner, book), &recipient_name, &digest, &token),
+        service.transfer(
+            owner,
+            book,
+            expected_owner(owner, book),
+            &recipient_name,
+            &digest,
+            &token
+        ),
+        service.transfer(
+            owner,
+            book,
+            expected_owner(owner, book),
+            &recipient_name,
+            &digest,
+            &token
+        ),
     );
     assert_eq!(
         [first, second]

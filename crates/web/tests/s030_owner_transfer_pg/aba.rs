@@ -44,15 +44,8 @@ async fn s030_pg_stale_step_up_cannot_survive_owner_aba_cycle() {
     .parse()
     .unwrap();
     let first_epoch = ownership_revision(book);
-    let stale_token = transfer_token(
-        &accounts,
-        first,
-        book,
-        &second_name,
-        &first_session,
-        &hash,
-    )
-    .await;
+    let stale_token =
+        transfer_token(&accounts, first, book, &second_name, &first_session, &hash).await;
     let fresh_token = transfer_token(
         &accounts,
         first,
@@ -74,15 +67,8 @@ async fn s030_pg_stale_step_up_cannot_survive_owner_aba_cycle() {
         )
         .await
         .unwrap();
-    let second_token = transfer_token(
-        &accounts,
-        second,
-        book,
-        &first_name,
-        &second_session,
-        &hash,
-    )
-    .await;
+    let second_token =
+        transfer_token(&accounts, second, book, &first_name, &second_session, &hash).await;
     service
         .transfer(
             second,
