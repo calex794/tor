@@ -26,7 +26,7 @@ pub use chapter_schedule::DueReleaseOutcome;
 mod legacy_title_guard;
 mod mail_aliases;
 mod origin_metadata;
-pub use origin_metadata::ManagedOriginMetadata;
+pub use origin_metadata::{ManagedOriginMetadata, OriginFields};
 mod owned_book_hash;
 mod owned_chapter_pages;
 mod registration_links;

@@ -1,7 +1,10 @@
 //! S020: per-book active membership for origin metadata, optimistic revision, visibility isolation.
 use sqlx::PgPool;
-use tor_books::repositories::{book_members::PgBookMembers, postgres::PgAuthoring};
-use tor_books::services::authoring::AuthorError;
+use tor_books::repositories::{
+    book_members::PgBookMembers,
+    postgres::{OriginFields, PgAuthoring},
+};
+use tor_books::services::authoring::{AuthorError, DiscoveryFields};
 use tor_contracts::access::BookRole;
 
 #[tokio::test]
@@ -223,6 +226,115 @@ async fn s020_book_member_origin_metadata_preserves_access_and_publication() {
         .await
         .unwrap()
         .is_none());
+
+    // One full S020 settings submission writes discovery fields and origin
+    // metadata in the same optimistic transaction. Old author/source, paid
+    // and publication invariants remain outside this edit.
+    let discovery_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,owner_user_id,
+                           visibility,access_level,author_name,genres,tags,fandoms)
+         VALUES($1,'ru',$2,$3,'draft','basic','Старый автор',
+                ARRAY['фэнтези']::TEXT[],ARRAY[]::TEXT[],ARRAY[]::TEXT[])
+         RETURNING id",
+    )
+    .bind(format!("s020:discovery:{marker}"))
+    .bind(format!("Темы книги {marker}"))
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let start = books
+        .manageable_origin_metadata(owner, discovery_book)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(start.author_name, "Старый автор");
+    assert_eq!(start.genres, vec!["фэнтези"]);
+    assert_eq!(
+        books
+            .update_origin_and_discovery(
+                owner,
+                discovery_book,
+                start.revision,
+                OriginFields {
+                    language: "ZH",
+                    year: "2024",
+                    section: "novels/chinese",
+                },
+                DiscoveryFields {
+                    author_name: "  Новый автор ",
+                    genres: "Фэнтези, фантастика, фэнтези",
+                    tags: "Магия, Романтика",
+                    fandoms: "Наруто",
+                },
+            )
+            .await,
+        Ok(start.revision + 1),
+    );
+    let saved = books
+        .manageable_origin_metadata(owner, discovery_book)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.author_name, "Новый автор");
+    assert_eq!(saved.genres, vec!["фэнтези", "фантастика"]);
+    assert_eq!(saved.tags, vec!["магия", "романтика"]);
+    assert_eq!(saved.fandoms, vec!["наруто"]);
+    assert_eq!(saved.original_language, "zh");
+    assert_eq!(saved.release_year, Some(2024));
+    assert_eq!(saved.catalog_section, "novels/chinese");
+    assert_eq!(
+        books
+            .update_origin_and_discovery(
+                owner,
+                discovery_book,
+                start.revision,
+                OriginFields {
+                    language: "en",
+                    year: "2023",
+                    section: "novels/english",
+                },
+                DiscoveryFields {
+                    author_name: "stale",
+                    genres: "",
+                    tags: "",
+                    fandoms: "",
+                },
+            )
+            .await,
+        Err(AuthorError::Conflict),
+    );
+    assert_eq!(
+        books
+            .update_origin_and_discovery(
+                outsider,
+                discovery_book,
+                saved.revision,
+                OriginFields {
+                    language: "en",
+                    year: "2023",
+                    section: "novels/english",
+                },
+                DiscoveryFields {
+                    author_name: "forged",
+                    genres: "",
+                    tags: "",
+                    fandoms: "",
+                },
+            )
+            .await,
+        Err(AuthorError::Missing),
+    );
+    let (visibility, access, author): (String, String, String) =
+        sqlx::query_as("SELECT visibility,access_level,author_name FROM books WHERE id=$1")
+            .bind(discovery_book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (visibility.as_str(), access.as_str(), author.as_str()),
+        ("draft", "basic", "Новый автор")
+    );
 
     pool.close().await;
 }
