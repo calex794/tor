@@ -711,3 +711,89 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
         "historical shares must not change",
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
+    let url = database();
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let hash = hash_password(PASSWORD).unwrap();
+    let unique = stamp();
+    let recipient_name = format!("S030RaceRecipient{unique}");
+    let (owner, session) = user(
+        &accounts,
+        &format!("s030-race-owner-{unique}@example.invalid"),
+        &format!("S030RaceOwner{unique}"),
+        &hash,
+    )
+    .await;
+    let (recipient, _) = user(
+        &accounts,
+        &format!("s030-race-recipient-{unique}@example.invalid"),
+        &recipient_name,
+        &hash,
+    )
+    .await;
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s030:{unique}:race','ru','S030 concurrent transfer','draft',{owner},'basic')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let token = transfer_token(&accounts, owner, book, &recipient_name, &session, &hash).await;
+    let digest = session_token_digest(&session);
+    let service = PgOwnerTransfer::new(pool);
+    let (first, second) = tokio::join!(
+        service.transfer(owner, book, owner, &recipient_name, &digest, &token),
+        service.transfer(owner, book, owner, &recipient_name, &digest, &token),
+    );
+    assert_eq!(
+        [first, second].iter().filter(|result| result.is_ok()).count(),
+        1,
+        "only one concurrent HTTP-equivalent transfer may commit",
+    );
+    assert_eq!(
+        [first, second]
+            .iter()
+            .filter(|result| **result == Err(AuthorError::Forbidden))
+            .count(),
+        1,
+        "the same password proof cannot authorize a second transfer",
+    );
+    assert_eq!(
+        pg(&url, &format!("SELECT owner_user_id FROM books WHERE id={book}")),
+        recipient.to_string(),
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM book_members
+                 WHERE book_id={book} AND role='owner' AND is_active"
+            ),
+        ),
+        "1",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id={book}"),
+        ),
+        "1",
+        "a racing duplicate must not append another audit event",
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT current_revision FROM revenue_share_states WHERE book_id={book}"),
+        ),
+        "1",
+        "ownership transfer must not implicitly change the revenue split",
+    );
+}
