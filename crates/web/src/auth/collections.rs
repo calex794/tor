@@ -106,7 +106,7 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             "/collections/{id}/comments/{comment_id}/delete",
             post(remove_comment),
         )
-        .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(DefaultBodyLimit::max(32 * 1024))
         .with_state(state)
 }
 async fn viewer(s: &CollectionState, h: &HeaderMap) -> Result<Option<i64>, StatusCode> {

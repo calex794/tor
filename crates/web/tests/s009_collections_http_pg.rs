@@ -400,6 +400,26 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         StatusCode::SEE_OTHER
     );
 
+    // Percent-encoded supplementary Unicode also fits the 2000-char policy.
+    let emoji_html = html(send(&app, "GET", &path, &other_cookies, "").await).await;
+    let emoji_key = field(&emoji_html, "request_key");
+    let emoji_form = format!(
+        "body={}&request_key={emoji_key}&csrf_token={other_csrf}",
+        "%F0%9F%98%80".repeat(1500)
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &emoji_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+
     pg(&format!(
         "UPDATE books SET visibility='draft' WHERE id={book}"
     ));

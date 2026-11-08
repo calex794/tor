@@ -22,3 +22,6 @@ CREATE TABLE social_book_collection_comments (
 CREATE INDEX social_book_collection_comments_visible
     ON social_book_collection_comments(collection_id, id DESC)
     WHERE deleted_at IS NULL;
+-- The per-account comment cap must not scan all comments as traffic grows.
+CREATE INDEX social_book_collection_comments_author_recent
+    ON social_book_collection_comments(author_user_id, created_at DESC);
