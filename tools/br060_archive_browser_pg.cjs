@@ -382,8 +382,10 @@ async function checkViewport(page, screen) {
     assert.match(await middleToc.getAttribute('data-archive-toc-before'), /^\d+\.\d+$/);
     assert.match(await middleToc.getAttribute('data-archive-toc-after'), /^\d+\.\d+$/);
     assert.equal(await middleToc.locator('.archive-toc__row--current').count(), 1);
-    assert((await middleToc.locator('.archive-toc__row--current').innerText())
-      .includes('Глава 80.'));
+    const currentArchiveTitle = await middleToc
+      .locator('.archive-toc__row--current .archive-toc__title').textContent();
+    assert(currentArchiveTitle?.includes('Глава 80.'),
+      'archived current row mismatch: ' + JSON.stringify(currentArchiveTitle));
     const archiveApi = '/api/v1/me/library/saved/' + midChapter + '/toc/window';
     const archiveWindow = await fresh.evaluate(async url => {
       const reply = await fetch(url, { credentials: 'same-origin' });
