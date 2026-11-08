@@ -142,8 +142,8 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:s030:{unique}:team','ru','S030 transfer','draft',{from}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s030:{unique}:team','ru','S030 transfer','draft',{from},'basic') RETURNING id"
         ),
     )
     .parse()
@@ -576,8 +576,8 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:s030:{unique}:http','ru','S030 HTTP','draft',{from})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s030:{unique}:http','ru','S030 HTTP','draft',{from},'basic')
              RETURNING id"
         ),
     )
