@@ -44,6 +44,23 @@ impl PgBookShares {
         Self { pool }
     }
 
+    /// A share link may be offered only for a currently publicly eligible book.
+    pub async fn public_book_title(&self, book_id: i64) -> Result<String, BookShareError> {
+        if book_id <= 0 {
+            return Err(BookShareError::NotFound);
+        }
+        let title: Option<String> = sqlx::query_scalar(
+            "SELECT title FROM books
+             WHERE id=$1 AND visibility='public' AND visibility_status='active'
+               AND lifecycle_status='active' AND access_level='basic'
+               AND NOT is_deleted AND NOT admin_hold",
+        )
+        .bind(book_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        title.ok_or(BookShareError::NotFound)
+    }
+
     pub async fn friends(&self, actor: i64) -> Result<Vec<FriendChoice>, BookShareError> {
         if actor <= 0 {
             return Err(BookShareError::Invalid);
@@ -95,6 +112,14 @@ impl PgBookShares {
         }
         let mut tx = self.pool.begin().await?;
         pair_lock(&mut tx, sender, recipient).await.map_err(|_| BookShareError::Unavailable)?;
+        // Serialize sends to the same recipient, regardless of sender.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(hashtextextended('tor-bookshare-recipient:' ||
+                $1::BIGINT::TEXT,0))",
+        )
+        .bind(recipient)
+        .execute(&mut *tx)
+        .await?;
         // Sender row lock serializes rate limit checks across all their sends.
         let active_sender: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
@@ -263,6 +288,20 @@ impl PgBookShares {
             return Err(BookShareError::Invalid);
         }
         let mut tx=self.pool.begin().await?;
+        // Read for pair-lock identity, then revalidate under the row lock.
+        let sender: i64 = sqlx::query_scalar(
+            "SELECT sender_user_id FROM social_book_shares
+             WHERE id=$1 AND recipient_user_id=$2",
+        )
+        .bind(share_id)
+        .bind(recipient)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(BookShareError::NotFound)?;
+        if action=="mute" {
+            pair_lock(&mut tx, recipient, sender)
+                .await.map_err(|_| BookShareError::Unavailable)?;
+        }
         let row=sqlx::query(
             "SELECT sender_user_id,state FROM social_book_shares
              WHERE id=$1 AND recipient_user_id=$2 FOR UPDATE",
