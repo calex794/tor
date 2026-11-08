@@ -484,7 +484,10 @@ fn router_inner(
     if state.layer_reader_enabled {
         app = app
             .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
-            .route("/api/v1/reader/layer/{chapter_id}/toc/window", get(layer_toc::page));
+            .route(
+                "/api/v1/reader/layer/{chapter_id}/toc/window",
+                get(layer_toc::page),
+            );
     }
     if state.reader_s3_origin.is_some() {
         app = app
