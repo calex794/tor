@@ -238,11 +238,6 @@ async fn detail(
     }
 }
 
-fn valid_write(s: &TeamState, headers: &HeaderMap, csrf: Option<&str>) -> bool {
-    s.cookies.same_origin(headers)
-        && s.cookies.valid_csrf(headers, csrf.unwrap_or(""))
-}
-
 /// Owner can share this one-time URL out of band; do not put bearer tokens in a DB or logs.
 async fn invite(
     State(s): State<TeamState>,
@@ -250,7 +245,9 @@ async fn invite(
     headers: HeaderMap,
     Form(form): Form<InviteForm>,
 ) -> Response {
-    if !valid_write(&s, &headers, form.csrf_token.as_deref()) {
+    if !s.cookies.same_origin(&headers)
+        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
     let owner = match actor(&s, &headers).await {
@@ -305,31 +302,44 @@ async fn invite_page(
     ), &cookies)
 }
 
+
 async fn accept(
     State(s): State<TeamState>,
     Path(token): Path<String>,
     headers: HeaderMap,
     Form(form): Form<DecisionForm>,
 ) -> Response {
-    decide(s, token, headers, form, true).await
-}
-async fn decline(
-    State(s): State<TeamState>,
-    Path(token): Path<String>,
-    headers: HeaderMap,
-    Form(form): Form<DecisionForm>,
-) -> Response {
-    decide(s, token, headers, form, false).await
-}
-async fn decide(s: TeamState, token: String, headers: HeaderMap, form: DecisionForm, yes: bool) -> Response {
-    if !valid_write(&s, &headers, form.csrf_token.as_deref()) {
+    if !s.cookies.same_origin(&headers)
+        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
     let recipient = match actor(&s, &headers).await {
         Ok(id) => id,
         Err(status) => return session_failure(status),
     };
-    match s.invites.decide(recipient, &token, yes).await {
+    match s.invites.decide(recipient, &token, true).await {
+        Ok(_) => private_response(Redirect::to("/me/teams"), &[]),
+        Err(error) => team_error(error),
+    }
+}
+
+async fn decline(
+    State(s): State<TeamState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<DecisionForm>,
+) -> Response {
+    if !s.cookies.same_origin(&headers)
+        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return private_response(StatusCode::FORBIDDEN, &[]);
+    }
+    let recipient = match actor(&s, &headers).await {
+        Ok(id) => id,
+        Err(status) => return session_failure(status),
+    };
+    match s.invites.decide(recipient, &token, false).await {
         Ok(_) => private_response(Redirect::to("/me/teams"), &[]),
         Err(error) => team_error(error),
     }
