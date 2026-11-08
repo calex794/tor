@@ -16,7 +16,6 @@ DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
 # Reduce these counts as pages adopt services/schemas; router wiring is exempt.
 WEB_PAGE_REPOSITORY_BASELINE = {
     "auth/mail_pages.rs": 1,
-    "author_chapter_pages.rs": 1,
     "book_error_pages.rs": 1,
     "pages.rs": 4,
     "pages/account.rs": 3,

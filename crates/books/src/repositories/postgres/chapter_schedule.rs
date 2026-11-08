@@ -1,13 +1,8 @@
 //! S058: durable first-release scheduling. No reader visibility until B-06 commit.
 use super::PgAuthoring;
-use crate::services::authoring::AuthorError;
+use crate::{schemas::ScheduledChapter, services::authoring::AuthorError};
 use sqlx::Row;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScheduledChapter {
-    pub scheduled_utc: String,
-    pub status: String,
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DueReleaseOutcome {
     Published,

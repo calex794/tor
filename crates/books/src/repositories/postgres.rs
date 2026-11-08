@@ -21,7 +21,9 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
-pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
+pub use chapter_schedule::DueReleaseOutcome;
+// Compatibility for existing callers; new HTML pages consume tor_books::schemas.
+pub use crate::schemas::ScheduledChapter;
 mod legacy_title_guard;
 mod mail_aliases;
 mod origin_metadata;
