@@ -301,7 +301,7 @@ fn archive_toc_markup(
               <ol class=\"archive-toc__list\">{rows}</ol>
             </div>
             <footer class=\"archive-toc__foot\">
-              <span data-archive-toc-status role="status" aria-live="polite"></span>
+              <span data-archive-toc-status role=\"status\" aria-live=\"polite\"></span>
               {next_link}
               <a href=\"/me/library/{}/saved\">Полный архив книги</a>
             </footer>
