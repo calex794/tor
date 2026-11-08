@@ -1,6 +1,6 @@
 //! S020: active Book member origin metadata edits, independent of publication and access.
 use super::PgAuthoring;
-use crate::services::authoring::AuthorError;
+use crate::services::authoring::{normalize_discovery_fields, AuthorError, DiscoveryFields};
 use sqlx::Row;
 
 pub struct ManagedOriginMetadata {
@@ -8,6 +8,10 @@ pub struct ManagedOriginMetadata {
     pub original_language: String,
     pub release_year: Option<i32>,
     pub catalog_section: String,
+    pub author_name: String,
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub fandoms: Vec<String>,
     pub revision: i64,
 }
 
@@ -63,8 +67,10 @@ impl PgAuthoring {
         }
         let row = sqlx::query(
             "SELECT b.title, b.original_language, b.release_year,
-                    b.catalog_section, b.origin_metadata_revision
+                    b.catalog_section, b.origin_metadata_revision,
+                    b.author_name,b.genres,b.tags,b.fandoms
              FROM books b WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS (
                  SELECT 1 FROM book_members m WHERE m.book_id=b.id
                    AND m.user_id=$2 AND m.is_active
@@ -89,6 +95,12 @@ impl PgAuthoring {
                 catalog_section: row
                     .try_get("catalog_section")
                     .map_err(|_| AuthorError::Unavailable)?,
+                author_name: row
+                    .try_get("author_name")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                genres: row.try_get("genres").map_err(|_| AuthorError::Unavailable)?,
+                tags: row.try_get("tags").map_err(|_| AuthorError::Unavailable)?,
+                fandoms: row.try_get("fandoms").map_err(|_| AuthorError::Unavailable)?,
                 revision: row
                     .try_get("origin_metadata_revision")
                     .map_err(|_| AuthorError::Unavailable)?,
@@ -97,6 +109,7 @@ impl PgAuthoring {
         .transpose()
     }
 
+    /// Existing origin-only callers keep the original form contract.
     pub async fn update_origin_metadata(
         &self,
         actor: i64,
@@ -106,6 +119,41 @@ impl PgAuthoring {
         raw_year: &str,
         raw_section: &str,
     ) -> Result<i64, AuthorError> {
+        self.update_origin_metadata_inner(
+            actor, book_id, expected_revision, raw_language, raw_year, raw_section, None,
+        )
+        .await
+    }
+
+    /// Full S020 settings submission changes origin and discovery labels together.
+    /// No change to age, publication, source identity or existing purchases.
+    pub async fn update_origin_and_discovery(
+        &self,
+        actor: i64,
+        book_id: i64,
+        expected_revision: i64,
+        raw_language: &str,
+        raw_year: &str,
+        raw_section: &str,
+        discovery: DiscoveryFields<'_>,
+    ) -> Result<i64, AuthorError> {
+        self.update_origin_metadata_inner(
+            actor, book_id, expected_revision, raw_language, raw_year, raw_section,
+            Some(discovery),
+        )
+        .await
+    }
+
+    async fn update_origin_metadata_inner(
+        &self,
+        actor: i64,
+        book_id: i64,
+        expected_revision: i64,
+        raw_language: &str,
+        raw_year: &str,
+        raw_section: &str,
+        discovery: Option<DiscoveryFields<'_>>,
+    ) -> Result<i64, AuthorError> {
         if actor <= 0 || book_id <= 0 {
             return Err(AuthorError::Missing);
         }
@@ -114,16 +162,18 @@ impl PgAuthoring {
         }
         let (language, year, section) =
             validate_origin_metadata(raw_language, raw_year, raw_section)?;
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-        // Same Book -> BookMember lock order as collaborator revocation and S020
-        // related/title/status writes. No stale access check before the write.
+        let discovery = discovery.map(normalize_discovery_fields).transpose()?;
+        let author_name = discovery.as_ref().map(|data| data.author_name.clone());
+        let genres = discovery.as_ref().map(|data| data.genres.clone());
+        let tags = discovery.as_ref().map(|data| data.tags.clone());
+        let fandoms = discovery.as_ref().map(|data| data.fandoms.clone());
+
+        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        // Serialize with Book/member revocation and the old origin-only editor.
         let revision: Option<i64> = sqlx::query_scalar(
             "SELECT b.origin_metadata_revision FROM books b
              WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
              FOR UPDATE OF b",
         )
         .bind(book_id)
@@ -139,7 +189,11 @@ impl PgAuthoring {
         let updated: Option<i64> = sqlx::query_scalar(
             "UPDATE books
              SET original_language=$2, release_year=$3, catalog_section=$4,
-                 origin_metadata_revision=$5
+                 origin_metadata_revision=$5,
+                 author_name=COALESCE($7::TEXT, author_name),
+                 genres=COALESCE($8::TEXT[], genres),
+                 tags=COALESCE($9::TEXT[], tags),
+                 fandoms=COALESCE($10::TEXT[], fandoms)
              WHERE id=$1 AND origin_metadata_revision=$6
              RETURNING origin_metadata_revision",
         )
@@ -149,6 +203,10 @@ impl PgAuthoring {
         .bind(&section)
         .bind(next_revision)
         .bind(expected_revision)
+        .bind(author_name)
+        .bind(genres)
+        .bind(tags)
+        .bind(fandoms)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
@@ -158,6 +216,7 @@ impl PgAuthoring {
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(next_revision)
     }
+
 }
 
 #[cfg(test)]
