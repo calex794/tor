@@ -196,8 +196,85 @@ impl PgAccounts {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        sqlx::query(
+            "UPDATE password_reset_tokens SET consumed_at=now()
+             WHERE user_id=$1 AND source IN ('telegram','backup')
+               AND consumed_at IS NULL",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO account_telegram_binding_events
+             (user_id,telegram_user_id,action) VALUES($1,$2,'linked')",
+        )
+        .bind(user_id)
+        .bind(candidate)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(Some(candidate))
+    }
+
+    /// Independently verified current password is checked again against the live
+    /// credential under a row lock, as well as the initiating live session.
+    /// A successful unlink atomically revokes Telegram/backup reset proofs and codes.
+    pub async fn unlink_telegram(
+        &self,
+        user_id: i64,
+        session_digest: &[u8; 32],
+        expected_hash: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users
+             WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if current.as_deref() != Some(expected_hash) {
+            return Ok(false);
+        }
+        let active: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions
+             WHERE user_id=$1 AND token_hash=$2
+               AND revoked_at IS NULL AND expires_at>now() FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await?;
+        if active.is_none() {
+            return Ok(false);
+        }
+        let deleted: Option<i64> = sqlx::query_scalar(
+            "DELETE FROM account_telegram_bindings WHERE user_id=$1
+             RETURNING telegram_user_id",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(telegram_id) = deleted else {
+            return Ok(false);
+        };
+        sqlx::query("DELETE FROM account_telegram_link_intents WHERE user_id=$1")
+            .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM account_recovery_codes WHERE user_id=$1")
+            .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "UPDATE password_reset_tokens SET consumed_at=now()
+             WHERE user_id=$1 AND source IN ('telegram','backup')
+               AND consumed_at IS NULL",
+        )
+        .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query(
+            "INSERT INTO account_telegram_binding_events
+             (user_id,telegram_user_id,action) VALUES($1,$2,'unlinked')",
+        )
+        .bind(user_id).bind(telegram_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// A Telegram identity is proof only for ordinary, active accounts.

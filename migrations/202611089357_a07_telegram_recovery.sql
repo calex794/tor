@@ -41,3 +41,17 @@ CREATE TABLE account_telegram_bot_updates (
     received_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX account_telegram_bot_updates_expiry ON account_telegram_bot_updates(received_at);
+
+
+-- Private audit. Never persist reset secrets, session tokens, or usernames.
+CREATE TABLE account_telegram_binding_events (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL CHECK (telegram_user_id > 0),
+    action TEXT NOT NULL CHECK (action IN ('linked', 'unlinked')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX account_telegram_binding_events_by_user
+    ON account_telegram_binding_events(user_id, created_at DESC);
+CREATE INDEX account_telegram_binding_events_expiry
+    ON account_telegram_binding_events(created_at);

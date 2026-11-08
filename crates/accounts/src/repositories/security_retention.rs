@@ -79,6 +79,16 @@ impl PgAccounts {
         )
         .execute(self.pool())
         .await?;
+        sqlx::query(
+            "WITH batch AS (
+               SELECT id FROM account_telegram_binding_events
+               WHERE created_at<now()-INTERVAL '90 days'
+               ORDER BY created_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM account_telegram_binding_events e USING batch b WHERE e.id=b.id",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }
