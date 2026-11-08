@@ -2304,6 +2304,27 @@
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "telegram_recovery::unlink",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/recover/telegram",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "telegram_request::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/recover/telegram",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "telegram_request::request",
+      "policy": "recovery"
+    },
+    {
+      "method": "POST",
+      "template": "/recover/telegram/complete",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "telegram_request::complete",
+      "policy": "recovery"
     }
   ]
 }
