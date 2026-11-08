@@ -333,6 +333,11 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/teams/{id}/members/{member_id}/remove"), "POST") => Some(318),
         (Some("/me/teams/{id}/analytics"), "GET") => Some(319),
         (Some("/me/teams/{id}/analytics.csv"), "GET") => Some(320),
+        (Some("/me/security/telegram"), "GET") => Some(321),
+        (Some("/me/security/telegram/begin"), "POST") => Some(322),
+        (Some("/me/security/telegram/confirm"), "POST") => Some(323),
+        (Some("/recover/backup"), "GET") => Some(324),
+        (Some("/recover/backup"), "POST") => Some(325),
         _ => None,
     };
     index

@@ -331,6 +331,11 @@ static ROUTES: [RouteRegistration; 321] = [
     RouteRegistration::new("/me/teams/{id}/members/{member_id}/remove", "POST", "/me/", Prefix, Page, Dashboard, Write), // 318
     RouteRegistration::new("/me/teams/{id}/analytics", "GET", "/me/", Prefix, Page, Dashboard, Read), // 319
     RouteRegistration::new("/me/teams/{id}/analytics.csv", "GET", "/me/", Prefix, Page, Dashboard, Read), // 320
+    RouteRegistration::new("/me/security/telegram", "GET", "/me/", Exact, Page, Auth, Read), // 321
+    RouteRegistration::new("/me/security/telegram/begin", "POST", "/me/", Exact, Page, Auth, Write), // 322
+    RouteRegistration::new("/me/security/telegram/confirm", "POST", "/me/", Exact, Page, Auth, Write), // 323
+    RouteRegistration::new("/recover/backup", "GET", "/recover/", Exact, Page, Auth, Read), // 324
+    RouteRegistration::new("/recover/backup", "POST", "/recover/", Exact, Page, Auth, Write), // 325
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
