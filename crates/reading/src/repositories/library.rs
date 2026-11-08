@@ -511,6 +511,7 @@ impl PgLibrary {
         let (comparison, order) = match side {
             SavedArchiveTocSide::Before => ("<", "DESC"),
             SavedArchiveTocSide::After => (">", "ASC"),
+            SavedArchiveTocSide::AtOrAfter => (">=", "ASC"),
         };
         // The two SQL fragments come exclusively from a Rust enum, not URL input.
         let statement = format!(
