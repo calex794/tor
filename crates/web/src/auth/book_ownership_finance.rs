@@ -263,7 +263,8 @@ async fn transfer(
             id,
             form.expected_owner_id,
             &form.target_display_name,
-            (&digest, &token),
+            &digest,
+            &token,
         )
         .await
     {
