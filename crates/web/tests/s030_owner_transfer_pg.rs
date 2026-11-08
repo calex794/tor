@@ -41,7 +41,10 @@ const PASSWORD: &str = "S030SecureTransferPassword2026";
 fn pg(url: &str, query: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
-        .env("PGOPTIONS", "-c lock_timeout=15000 -c statement_timeout=60000")
+        .env(
+            "PGOPTIONS",
+            "-c lock_timeout=15000 -c statement_timeout=60000",
+        )
         .args([
             "-X",
             "-A",
