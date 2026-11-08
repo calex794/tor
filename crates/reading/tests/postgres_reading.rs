@@ -175,7 +175,10 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
     use tor_reading::services::toc::{TocCursor, TocWindowPosition};
     let around = reader
         .public_toc_window_for_session(
-            book_id as u64, TocWindowPosition::Around(8_000_250), 99, None,
+            book_id as u64,
+            TocWindowPosition::Around(8_000_250),
+            99,
+            None,
         )
         .await
         .unwrap()
@@ -184,11 +187,18 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
     assert_eq!(around.chapters.len(), 99);
     assert_eq!(around.chapters.first().unwrap().number, 201);
     assert_eq!(around.chapters.last().unwrap().number, 299);
-    assert!(around.chapters.iter().any(|chapter| chapter.id == 8_000_250 && chapter.is_paid));
+    assert!(around
+        .chapters
+        .iter()
+        .any(|chapter| chapter.id == 8_000_250 && chapter.is_paid));
     assert_eq!(around.before_cursor.as_deref(), Some("201.8000201"));
     assert_eq!(around.after_cursor.as_deref(), Some("299.8000299"));
 
-    let mut collected = around.chapters.iter().map(|chapter| chapter.number).collect::<Vec<_>>();
+    let mut collected = around
+        .chapters
+        .iter()
+        .map(|chapter| chapter.number)
+        .collect::<Vec<_>>();
     let mut before = around.before_cursor.clone();
     while let Some(raw) = before.take() {
         let page = reader
@@ -202,7 +212,11 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
             .unwrap()
             .unwrap();
         assert!(page.chapters.len() <= 60);
-        let mut older = page.chapters.iter().map(|chapter| chapter.number).collect::<Vec<_>>();
+        let mut older = page
+            .chapters
+            .iter()
+            .map(|chapter| chapter.number)
+            .collect::<Vec<_>>();
         older.append(&mut collected);
         collected = older;
         before = page.before_cursor;
@@ -226,24 +240,37 @@ async fn toc_501_chapters_keyset_pages_without_gaps() {
     for hidden in [8_000_502, 999_999_999] {
         assert!(reader
             .public_toc_window_for_session(
-                book_id as u64, TocWindowPosition::Around(hidden), 99, None,
+                book_id as u64,
+                TocWindowPosition::Around(hidden),
+                99,
+                None,
             )
             .await
             .unwrap()
             .is_none());
     }
     assert_eq!(
-        reader.public_toc_window_for_session(
-            book_id as u64, TocWindowPosition::Around(8_000_250), 101, None,
-        ).await.err(),
+        reader
+            .public_toc_window_for_session(
+                book_id as u64,
+                TocWindowPosition::Around(8_000_250),
+                101,
+                None,
+            )
+            .await
+            .err(),
         Some(tor_reading::services::ReadingError::InvalidPage)
     );
     assert_eq!(
-        reader.public_toc_window_for_session(
-            book_id as u64,
-            TocWindowPosition::After(TocCursor::parse("249.8000250").unwrap()),
-            60, None,
-        ).await.err(),
+        reader
+            .public_toc_window_for_session(
+                book_id as u64,
+                TocWindowPosition::After(TocCursor::parse("249.8000250").unwrap()),
+                60,
+                None,
+            )
+            .await
+            .err(),
         Some(tor_reading::services::ReadingError::InvalidPage),
         "a forged number/id cursor cannot select unrelated chapters"
     );
