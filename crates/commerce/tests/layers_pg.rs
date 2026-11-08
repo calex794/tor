@@ -166,8 +166,8 @@ async fn d_05_removed_books_are_accumulated_across_continuous_renewals() {
         .await
         .unwrap();
     let new_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:d05:second:version','ru','Second own','public',$1) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:d05:second:version','ru','Second own','public',$1,'basic') RETURNING id",
     )
     .bind(owner)
     .fetch_one(&pool)
