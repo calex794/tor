@@ -596,17 +596,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 operation
                 and re.search(r"\bactor\s*\(\s*&s\s*,\s*&headers\s*\)", body)
                 and re.search(r"\.for_owner\s*\(\s*actor\s*\)", body)
-                and re.search(rf"\bowner\.{operation}\s*\(", body)
+                and re.search(rf"\bowner\s*\.\s*{operation}\s*\(", body)
                 and ".active_session_user(&session_token_digest(&token))" in identity
                 and "StatusCode::UNAUTHORIZED" in identity
                 and "check_actor(actor)?" in service
                 and "repository: &self.repository" in service
                 and "actor," in service
                 and ".list_owned(self.actor)" in service
-                and ".create(self.actor, &name, &description)" in service
+                and re.search(r"\.create\s*\(\s*self\.actor\s*,\s*&name\s*,\s*&description\s*\)", service)
                 and ".owned(self.actor, id)" in service
             )
-        elif entry["source"] == "crates/web/src/auth/book_stars.rs":
+        elif (entry["source"] == "crates/web/src/auth.rs"
+              and (entry["method"], entry["template"], entry["handler"]) in {
+                  ("GET", "/me/books/{id}/rate", "book_stars::page"),
+                  ("POST", "/me/books/{id}/rate", "book_stars::submit"),
+              }):
             # F-05: an actor-bound service delegates to the same live PG checks.
             # Validate the concrete service implementation, not its name alone.
             required = {"page": "page", "submit": "save"}
