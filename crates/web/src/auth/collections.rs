@@ -86,7 +86,12 @@ async fn viewer(s: &CollectionState, h: &HeaderMap) -> Result<Option<i64>, Statu
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 async fn actor(s: &CollectionState, h: &HeaderMap) -> Result<i64, StatusCode> {
-    viewer(s, h).await?.ok_or(StatusCode::UNAUTHORIZED)
+    let raw = s.cookies.session_token(h).ok_or(StatusCode::UNAUTHORIZED)?;
+    s.accounts
+        .active_session_user(&session_token_digest(&raw))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 fn status(error: CollectionError) -> StatusCode {
     match error {
@@ -110,7 +115,7 @@ fn page(title: &str, body: &str, cookies: &[String]) -> Response {
     );
     response
 }
-fn csrf_allowed(s: &CollectionState, h: &HeaderMap, csrf: &str) -> bool {
+fn form_allowed(s: &CollectionState, h: &HeaderMap, csrf: &str) -> bool {
     s.cookies.same_origin(h) && s.cookies.valid_csrf(h, csrf)
 }
 async fn index(State(s): State<CollectionState>, h: HeaderMap) -> Response {
@@ -217,16 +222,16 @@ async fn create(
     h: HeaderMap,
     Form(f): Form<CreateForm>,
 ) -> Response {
-    if !csrf_allowed(&s, &h, &f.csrf_token) {
+    if !form_allowed(&s, &h, &f.csrf_token) {
         return denied(StatusCode::FORBIDDEN);
     }
-    let a = match actor(&s, &h).await {
-        Ok(a) => a,
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
         Err(e) => return denied(e),
     };
     match s
         .collections
-        .create(a, &f.title, &f.visibility, &f.request_key)
+        .create(actor, &f.title, &f.visibility, &f.request_key)
         .await
     {
         Ok(c) => private_response(Redirect::to(&format!("/collections/{}", c.id)), &[]),
@@ -239,16 +244,16 @@ async fn edit(
     h: HeaderMap,
     Form(f): Form<EditForm>,
 ) -> Response {
-    if !csrf_allowed(&s, &h, &f.csrf_token) {
+    if !form_allowed(&s, &h, &f.csrf_token) {
         return denied(StatusCode::FORBIDDEN);
     }
-    let a = match actor(&s, &h).await {
-        Ok(a) => a,
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
         Err(e) => return denied(e),
     };
     match s
         .collections
-        .edit(a, id, f.expected_revision, &f.title, &f.visibility)
+        .update_metadata_if_current(actor, id, f.expected_revision, &f.title, &f.visibility)
         .await
     {
         Ok(_) => private_response(Redirect::to(&format!("/collections/{id}")), &[]),
@@ -261,16 +266,16 @@ async fn add_book(
     h: HeaderMap,
     Form(f): Form<BookForm>,
 ) -> Response {
-    if !csrf_allowed(&s, &h, &f.csrf_token) {
+    if !form_allowed(&s, &h, &f.csrf_token) {
         return denied(StatusCode::FORBIDDEN);
     }
-    let a = match actor(&s, &h).await {
-        Ok(a) => a,
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
         Err(e) => return denied(e),
     };
     match s
         .collections
-        .add_book(a, id, f.expected_revision, f.book_id)
+        .add_book(actor, id, f.expected_revision, f.book_id)
         .await
     {
         Ok(_) => private_response(Redirect::to(&format!("/collections/{id}")), &[]),
@@ -283,16 +288,16 @@ async fn remove_book(
     h: HeaderMap,
     Form(f): Form<ActionForm>,
 ) -> Response {
-    if !csrf_allowed(&s, &h, &f.csrf_token) {
+    if !form_allowed(&s, &h, &f.csrf_token) {
         return denied(StatusCode::FORBIDDEN);
     }
-    let a = match actor(&s, &h).await {
-        Ok(a) => a,
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
         Err(e) => return denied(e),
     };
     match s
         .collections
-        .remove_book(a, id, f.expected_revision, book_id)
+        .remove_book_if_current(actor, id, f.expected_revision, book_id)
         .await
     {
         Ok(_) => private_response(Redirect::to(&format!("/collections/{id}")), &[]),
@@ -305,14 +310,14 @@ async fn delete(
     h: HeaderMap,
     Form(f): Form<ActionForm>,
 ) -> Response {
-    if !csrf_allowed(&s, &h, &f.csrf_token) {
+    if !form_allowed(&s, &h, &f.csrf_token) {
         return denied(StatusCode::FORBIDDEN);
     }
-    let a = match actor(&s, &h).await {
-        Ok(a) => a,
+    let actor = match actor(&s, &h).await {
+        Ok(actor) => actor,
         Err(e) => return denied(e),
     };
-    match s.collections.delete(a, id, f.expected_revision).await {
+    match s.collections.delete_owned_collection(actor, id, f.expected_revision).await {
         Ok(_) => private_response(Redirect::to("/collections"), &[]),
         Err(e) => failed(e),
     }
