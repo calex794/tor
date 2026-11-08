@@ -42,27 +42,27 @@ async fn load(
     headers: &HeaderMap,
     team_id: i64,
     query: &ReportQuery,
-) -> Result<(TeamAnalyticsReport, i64), Response> {
+) -> Result<(TeamAnalyticsReport, i64), Box<Response>> {
     let token = state
         .cookies
         .session_token(headers)
-        .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
+        .ok_or_else(|| Box::new(private_response(Redirect::to("/login"), &[])))?;
     let actor = state
         .accounts
         .active_session_user(&session_token_digest(&token))
         .await
-        .map_err(|_| private_response(StatusCode::SERVICE_UNAVAILABLE, &[]))?
-        .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
-    let period = TeamPeriod::parse(query.period.as_deref()).map_err(team_error)?;
+        .map_err(|_| Box::new(private_response(StatusCode::SERVICE_UNAVAILABLE, &[])))?
+        .ok_or_else(|| Box::new(private_response(Redirect::to("/login"), &[])))?;
+    let period = TeamPeriod::parse(query.period.as_deref()).map_err(|error| Box::new(team_error(error)))?;
     let report = PgTeamAnalytics::new(state.accounts.pool().clone())
         .report(
             actor,
             team_id,
-            selected_book_id(query).map_err(team_error)?,
+            selected_book_id(query).map_err(|error| Box::new(team_error(error)))?,
             period,
         )
         .await
-        .map_err(team_error)?;
+        .map_err(|error| Box::new(team_error(error)))?;
     Ok((report, actor))
 }
 
@@ -78,7 +78,7 @@ pub(super) async fn page(
 ) -> Response {
     let (report, actor_id) = match load(&state, &headers, team_id, &query).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let mut body = format!(
         "<section class=\"section\"><div class=\"container\"><h1>Аналитика команды: {}</h1>\
@@ -224,7 +224,7 @@ pub(super) async fn export(
 ) -> Response {
     let (report, _) = match load(&state, &headers, team_id, &query).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let mut response = private_response(Html(csv(&report)), &[]);
     response.headers_mut().insert(
