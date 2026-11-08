@@ -11,14 +11,20 @@ use axum::{
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Write};
-use tor_accounts::services::security::{
-    session_token_digest, verify_password_for_step_up, VerifiedPassword,
+use tor_accounts::{
+    repositories::{
+        book_step_up::{BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
+        step_up::StepUpIssueError,
+    },
+    services::security::{
+        session_token_digest, verify_password_for_step_up, VerifiedPassword,
+    },
 };
 use tor_books::{
     domain::shares::{RevenueShareError, ShareAssignment},
     repositories::{
-        owner_transfer::{BookOwnershipSettings, PgOwnerTransfer},
-        revenue_shares::PgRevenueShares,
+        owner_transfer::{BookOwnershipSettings, PgOwnerTransfer, owner_transfer_payload_digest},
+        revenue_shares::{PgRevenueShares, revenue_share_payload_digest},
     },
     services::authoring::AuthorError,
 };
@@ -144,6 +150,15 @@ fn share_error(error: RevenueShareError) -> StatusCode {
     }
 }
 
+fn issue_error(error: StepUpIssueError) -> StatusCode {
+    match error {
+        StepUpIssueError::InvalidIntent => StatusCode::BAD_REQUEST,
+        StepUpIssueError::Forbidden => StatusCode::FORBIDDEN,
+        StepUpIssueError::StepUpRequired => StatusCode::UNAUTHORIZED,
+        StepUpIssueError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
 async fn fresh_password(
     state: &AuthState,
     actor: i64,
@@ -221,10 +236,20 @@ pub(super) async fn transfer(
         Ok(proof) => proof,
         Err(status) => return deny(status),
     };
+    let payload = owner_transfer_payload_digest(
+        actor, id, form.expected_owner_id, &form.target_display_name,
+    );
+    let token = match state.accounts.issue_book_mutation_step_up(
+        actor, &digest, &proof, id, form.expected_owner_id,
+        BOOK_TRANSFER_SCOPE, &payload,
+    ).await {
+        Ok(token) => token,
+        Err(error) => return deny(issue_error(error)),
+    };
     match PgOwnerTransfer::new(state.accounts.pool().clone())
         .transfer(
             actor, id, form.expected_owner_id, &form.target_display_name,
-            &digest, &proof,
+            &digest, &token,
         ).await
     {
         Ok(()) => {
@@ -292,9 +317,22 @@ pub(super) async fn save_shares(
         Ok(proof) => proof,
         Err(status) => return deny(status),
     };
+    let payload = match revenue_share_payload_digest(
+        actor, id, expected_revision, &assignments, reason,
+    ) {
+        Ok(payload) => payload,
+        Err(error) => return deny(share_error(error)),
+    };
+    let token = match state.accounts.issue_book_mutation_step_up(
+        actor, &digest, &proof, id, expected_revision,
+        BOOK_SHARES_SCOPE, &payload,
+    ).await {
+        Ok(token) => token,
+        Err(error) => return deny(issue_error(error)),
+    };
     match PgRevenueShares::new(state.accounts.pool().clone())
         .replace_schedule_verified(
-            actor, id, expected_revision, &assignments, reason, &digest, &proof,
+            actor, id, expected_revision, &assignments, reason, &digest, &token,
         ).await
     {
         Ok(_) => {
