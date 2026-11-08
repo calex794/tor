@@ -35,8 +35,8 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     let owner_id = lookup.active_session_user(&session_token_digest(owner.split_once('=').unwrap().1)).await.unwrap().unwrap();
     let foreign_id = lookup.active_session_user(&session_token_digest(foreign.split_once('=').unwrap().1)).await.unwrap().unwrap();
     let team_page = send(&app, "GET", "/me/teams", &owner, "").await;
+    let cookie_csrf = cookie(&team_page, "tor-dev-csrf=");
     let token = csrf_from_page(&body(team_page).await);
-    let cookie_csrf = cookie(&send(&app, "GET", "/me/teams", &owner, "").await, "tor-dev-csrf=");
     let owner_cookies = format!("{owner}; {cookie_csrf}");
     let created = send(&app, "POST", "/me/teams", &owner_cookies, &format!("name=Stats{stamp}&csrf_token={token}")).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
