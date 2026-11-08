@@ -89,7 +89,7 @@ pub fn reader_with_public_discussions(
     chapter_id: Option<u64>,
     csrf: Option<&str>,
     issue_feedback: Option<&str>,
-    comments: Option<&tor_discussions::repositories::public_chapter_comments::ChapterCommentPage>,
+    comments: Option<&tor_discussions::services::public_chapter_comments::ChapterCommentPage>,
     comment_feedback: Option<&str>,
 ) -> Html<String> {
     let previous = chapter
