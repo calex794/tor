@@ -433,7 +433,10 @@ pub(super) async fn submit_withdrawal(
     let back = format!("/moderation/books/{book_id}/cover-history");
     if book_id <= 0 || form.expected_slot_revision <= 0 || reason.is_empty() || reason.len() > 2000
     {
-        return super::moderation_books::decision_error(StatusCode::BAD_REQUEST, "/moderation/covers");
+        return super::moderation_books::decision_error(
+            StatusCode::BAD_REQUEST,
+            "/moderation/covers",
+        );
     }
     let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
         Ok(value) => value,
@@ -457,7 +460,9 @@ pub(super) async fn submit_withdrawal(
         .await
     {
         Ok(()) => private_response(Redirect::to(&back), &[]),
-        Err(error) => super::moderation_books::decision_error(error_code(error), "/moderation/covers"),
+        Err(error) => {
+            super::moderation_books::decision_error(error_code(error), "/moderation/covers")
+        }
     }
 }
 
