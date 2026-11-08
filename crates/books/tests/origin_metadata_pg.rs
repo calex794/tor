@@ -1,6 +1,9 @@
 //! S020: per-book active membership for origin metadata, optimistic revision, visibility isolation.
 use sqlx::PgPool;
-use tor_books::repositories::{book_members::PgBookMembers, postgres::{OriginFields, PgAuthoring}};
+use tor_books::repositories::{
+    book_members::PgBookMembers,
+    postgres::{OriginFields, PgAuthoring},
+};
 use tor_books::services::authoring::{AuthorError, DiscoveryFields};
 use tor_contracts::access::BookRole;
 
