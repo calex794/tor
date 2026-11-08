@@ -53,6 +53,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/books/{id}/toc/window",
+      "source": "crates/web/src/lib.rs",
+      "handler": "toc_window_http::book_toc_window",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/chapters/{id}/read",
       "source": "crates/web/src/lib.rs",
       "handler": "denied_reader_api",
