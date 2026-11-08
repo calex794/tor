@@ -1705,6 +1705,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/reader/layer/{chapter_id}/toc/window",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "layer_toc::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/assets/newboo-layer-reader.mjs",
       "source": "crates/web/src/lib.rs",
       "handler": "layer_reader_assets::script",

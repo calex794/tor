@@ -260,6 +260,33 @@ async function checkViewport(page, screen) {
       document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1'
     );
     await checkViewport(reader, 'desktop-before-save');
+    const archiveToc = reader.locator('[data-archive-toc]');
+    assert.equal(await archiveToc.count(), 1, 'private archive TOC missing');
+    assert.equal(await archiveToc.locator('.archive-toc__row--current').count(), 1);
+    assert.equal(await archiveToc.locator('a[aria-current="page"]').count(), 1);
+    assert.equal(await archiveToc.locator('a[href*="purchase_id="]').count(), 0,
+      'no direct purchase was made, so archive cannot invent a paid link');
+    await archiveToc.locator('summary').click();
+    assert(await archiveToc.evaluate(el => el.open), 'archive TOC did not open');
+    const desktopModal = await archiveToc.locator('[data-archive-toc-modal]')
+      .evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top,
+          bottom: rect.bottom, width: innerWidth, height: innerHeight,
+          columns: getComputedStyle(el.querySelector('.archive-toc__list'))
+            .gridTemplateColumns.split(' ').length };
+      });
+    assert(desktopModal.left >= 0 && desktopModal.top >= 0 &&
+      desktopModal.right <= desktopModal.width + 1 &&
+      desktopModal.bottom <= desktopModal.height + 1 &&
+      desktopModal.columns === 3, 'desktop archive modal must be viewport-fixed and 3-column');
+    await archiveToc.locator('[data-archive-toc-close]').click();
+    assert(!(await archiveToc.evaluate(el => el.open)), 'archive TOC close failed');
+    assert(await archiveToc.locator('summary')
+      .evaluate(el => el === document.activeElement), 'archive focus was not restored');
+    await archiveToc.locator('summary').click();
+    await reader.keyboard.press('Escape');
+    assert(!(await archiveToc.evaluate(el => el.open)), 'Escape did not close archive TOC');
 
     const savedResponse = reader.waitForResponse(response =>
       response.url() === base + '/api/v1/me/progress/archived-free' &&
@@ -307,6 +334,23 @@ async function checkViewport(page, screen) {
     assert(scroll > 100, 'fresh mobile login did not restore saved text position');
     assert(await fresh.locator('#saved-resume').count() === 1);
     await checkViewport(fresh, 'mobile-after-login');
+    const mobileToc = fresh.locator('[data-archive-toc]');
+    await mobileToc.locator('summary').click();
+    const mobileModal = await mobileToc.locator('[data-archive-toc-modal]')
+      .evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, bottom: rect.bottom,
+          width: innerWidth, height: innerHeight,
+          columns: getComputedStyle(el.querySelector('.archive-toc__list'))
+            .gridTemplateColumns.split(' ').length };
+      });
+    assert(mobileModal.left >= 0 && mobileModal.right <= mobileModal.width + 1 &&
+      Math.abs(mobileModal.bottom - mobileModal.height) <= 2 &&
+      mobileModal.columns === 1, 'mobile archive TOC must be a 1-column bottom sheet');
+    await mobileToc.locator('[data-archive-toc-close]').click();
+    const positionAfterToc = await fresh.evaluate(() => window.scrollY);
+    assert(Math.abs(positionAfterToc - scroll) < 12,
+      'opening archive TOC must not replace the pinned reading scroll position');
     assert(!(await fresh.content()).includes('BR060_UNPINNED_FREE_V2'));
 
     // Another signed-in user has neither a Book shelf item nor the old V1.

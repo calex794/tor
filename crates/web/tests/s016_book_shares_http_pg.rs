@@ -387,3 +387,179 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
         "0"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s016_http_age_tiers_require_live_rights_and_hide_revoked_shares() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool());
+    let reader = PgReader::new(catalog.pool());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+    );
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sender = signup(
+        &app,
+        &format!("share-age-s-{stamp}@example.invalid"),
+        "AgeSender",
+    )
+    .await;
+    let receiver = signup(
+        &app,
+        &format!("share-age-r-{stamp}@example.invalid"),
+        "AgeReceiver",
+    )
+    .await;
+    let sender_id: i64 = pg(&format!(
+        "SELECT id FROM users WHERE email_normalized='share-age-s-{stamp}@example.invalid'"
+    ))
+    .parse()
+    .unwrap();
+    let recipient_id: i64 = pg(&format!(
+        "SELECT id FROM users WHERE email_normalized='share-age-r-{stamp}@example.invalid'"
+    ))
+    .parse()
+    .unwrap();
+    pg(&format!(
+        "INSERT INTO social_friendships(user_low,user_high,requester_id,status,action_user_id,accepted_at)
+         VALUES({},{},{sender_id},'accepted',{recipient_id},clock_timestamp())",
+        sender_id.min(recipient_id),
+        sender_id.max(recipient_id)
+    ));
+    let basic: i64 = pg(&format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+         VALUES('ci:share-age-basic:{stamp}','ru','BasicShare{stamp}','public','basic',{sender_id})
+         RETURNING id"
+    ))
+    .parse()
+    .unwrap();
+    let adult: i64 = pg(&format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+         VALUES('ci:share-age-adult:{stamp}','ru','AdultShare{stamp}','public','adult',{sender_id})
+         RETURNING id"
+    ))
+    .parse()
+    .unwrap();
+    let pro: i64 = pg(&format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
+         VALUES('ci:share-age-pro:{stamp}','ru','ProShare{stamp}','public','pro_adult',{sender_id})
+         RETURNING id"
+    ))
+    .parse()
+    .unwrap();
+    let adult_path = format!("/books/{adult}/share");
+    let pro_path = format!("/books/{pro}/share");
+    assert_eq!(
+        send(&app, "GET", &adult_path, &sender, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        send(&app, "GET", &pro_path, &sender, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    // Obtain a live CSRF pair from a permissible Basic page.
+    let initial = send(&app, "GET", &format!("/books/{basic}/share"), &sender, "").await;
+    assert_eq!(initial.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&initial, "tor-dev-csrf=");
+    let csrf = field(&html(initial).await, "csrf_token");
+    let sender_cookies = format!("{sender}; {csrf_cookie}");
+    let adult_form = format!(
+        "recipient_user_id={recipient_id}&message=AgeBook&command_key={}&csrf_token={csrf}",
+        "a".repeat(43)
+    );
+    assert_eq!(
+        send(&app, "POST", &adult_path, &sender_cookies, &adult_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    // A sender's 18+ permission does not authorize the recipient.
+    pg(&format!(
+        "UPDATE users SET adult_enabled=TRUE WHERE id={sender_id}"
+    ));
+    assert_eq!(
+        send(&app, "GET", &adult_path, &sender_cookies, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(&app, "POST", &adult_path, &sender_cookies, &adult_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(&format!(
+        "UPDATE users SET adult_enabled=TRUE WHERE id={recipient_id}"
+    ));
+    assert_eq!(
+        send(&app, "POST", &adult_path, &sender_cookies, &adult_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(
+        html(send(&app, "GET", "/library/shared", &receiver, "").await)
+            .await
+            .contains(&format!("AdultShare{stamp}"))
+    );
+    pg(&format!(
+        "UPDATE users SET adult_enabled=FALSE WHERE id={recipient_id}"
+    ));
+    assert!(
+        !html(send(&app, "GET", "/library/shared", &receiver, "").await)
+            .await
+            .contains(&format!("AdultShare{stamp}"))
+    );
+    // A current, server-issued 21+ grant is required on both accounts.
+    pg(&format!(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES({sender_id},'pro_adult','moderation',TRUE),
+               ({recipient_id},'pro_adult','moderation',TRUE)"
+    ));
+    assert_eq!(
+        send(&app, "GET", &pro_path, &sender_cookies, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let pro_form = format!(
+        "recipient_user_id={recipient_id}&message=ProBook&command_key={}&csrf_token={csrf}",
+        "b".repeat(43)
+    );
+    assert_eq!(
+        send(&app, "POST", &pro_path, &sender_cookies, &pro_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(
+        html(send(&app, "GET", "/library/shared", &receiver, "").await)
+            .await
+            .contains(&format!("ProShare{stamp}"))
+    );
+    pg(&format!(
+        "UPDATE user_level_grants SET is_active=FALSE
+         WHERE user_id={recipient_id} AND level='pro_adult'"
+    ));
+    assert!(
+        !html(send(&app, "GET", "/library/shared", &receiver, "").await)
+            .await
+            .contains(&format!("ProShare{stamp}"))
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT COUNT(*) FROM library_purchased_chapters WHERE user_id={recipient_id}"
+        )),
+        "0"
+    );
+}

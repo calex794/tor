@@ -2,6 +2,7 @@
 //! chapter edition. Book-level Layer membership is never an S3 grant.
 //! The publisher (B) and private object signer (G) independently verify
 //! the exact returned version before any encrypted bytes are released.
+pub mod toc;
 use super::entitlements::PgDirectEntitlements;
 use async_trait::async_trait;
 use sqlx::PgPool;

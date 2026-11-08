@@ -103,9 +103,8 @@ impl PgNotifications {
         super::chapter_notifications::fanout(&self.pool, limit).await
     }
 
-    /// Consume only this feature's events. Row-level SKIP LOCKED and the
-    /// source-event unique key make competing workers/restarts idempotent.
-    /// No external message or notification is sent before the DB receipt.
+    /// Consume only this feature's events. SKIP LOCKED and unique receipts
+    /// make retries idempotent; no external messages are sent before commit.
     pub async fn deliver_pending(&self, limit: u16) -> Result<usize, MailError> {
         if !(1..=100).contains(&limit) {
             return Err(MailError::Invalid);
@@ -121,6 +120,7 @@ impl PgNotifications {
                  FROM outbox_events e
                  WHERE e.delivered_at IS NULL AND e.dead_at IS NULL
                    AND e.next_attempt_at<=clock_timestamp()
+                   AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
                    AND e.required_consumers @> ARRAY['user_notifications']::text[]
                    AND e.event_type IN
                      ('social.mail.created','social.friendship.requested',
