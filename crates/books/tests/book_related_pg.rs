@@ -492,12 +492,14 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .await
     .unwrap();
     assert_eq!(historical_links, 1, "do not delete old relations");
-    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public',
-         ordinary_deleted_at=NULL WHERE id=$1")
-        .bind(b)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='in_progress',visibility='public',
+         ordinary_deleted_at=NULL WHERE id=$1",
+    )
+    .bind(b)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert!(PgCatalog::new(pool.clone())
         .public_related_books(a)
         .await
@@ -537,12 +539,14 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .await
         .unwrap()
         .is_empty());
-    sqlx::query("UPDATE books SET lifecycle_status='in_progress',visibility='public',
-         ordinary_deleted_at=NULL WHERE id=$1")
-        .bind(a)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='in_progress',visibility='public',
+         ordinary_deleted_at=NULL WHERE id=$1",
+    )
+    .bind(a)
+    .execute(&pool)
+    .await
+    .unwrap();
     let still_linked: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM book_related_links
          WHERE smaller_book_id=$1 AND larger_book_id=$2",
