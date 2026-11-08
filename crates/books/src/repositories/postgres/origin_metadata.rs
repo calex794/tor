@@ -3,6 +3,13 @@ use super::PgAuthoring;
 use crate::services::authoring::{normalize_discovery_fields, AuthorError, DiscoveryFields};
 use sqlx::Row;
 
+/// The origin part of an S020 edit, grouped to keep database commands bounded.
+pub struct OriginFields<'a> {
+    pub language: &'a str,
+    pub year: &'a str,
+    pub section: &'a str,
+}
+
 pub struct ManagedOriginMetadata {
     pub title: String,
     pub original_language: String,
@@ -127,9 +134,11 @@ impl PgAuthoring {
             actor,
             book_id,
             expected_revision,
-            raw_language,
-            raw_year,
-            raw_section,
+            OriginFields {
+                language: raw_language,
+                year: raw_year,
+                section: raw_section,
+            },
             None,
         )
         .await
@@ -142,21 +151,11 @@ impl PgAuthoring {
         actor: i64,
         book_id: i64,
         expected_revision: i64,
-        raw_language: &str,
-        raw_year: &str,
-        raw_section: &str,
+        origin: OriginFields<'_>,
         discovery: DiscoveryFields<'_>,
     ) -> Result<i64, AuthorError> {
-        self.update_origin_metadata_inner(
-            actor,
-            book_id,
-            expected_revision,
-            raw_language,
-            raw_year,
-            raw_section,
-            Some(discovery),
-        )
-        .await
+        self.update_origin_metadata_inner(actor, book_id, expected_revision, origin, Some(discovery))
+            .await
     }
 
     async fn update_origin_metadata_inner(
@@ -164,9 +163,7 @@ impl PgAuthoring {
         actor: i64,
         book_id: i64,
         expected_revision: i64,
-        raw_language: &str,
-        raw_year: &str,
-        raw_section: &str,
+        origin: OriginFields<'_>,
         discovery: Option<DiscoveryFields<'_>>,
     ) -> Result<i64, AuthorError> {
         if actor <= 0 || book_id <= 0 {
@@ -176,7 +173,7 @@ impl PgAuthoring {
             return Err(AuthorError::Invalid);
         }
         let (language, year, section) =
-            validate_origin_metadata(raw_language, raw_year, raw_section)?;
+            validate_origin_metadata(origin.language, origin.year, origin.section)?;
         let discovery = discovery.map(normalize_discovery_fields).transpose()?;
         let author_name = discovery.as_ref().map(|data| data.author_name.clone());
         let genres = discovery.as_ref().map(|data| data.genres.clone());
