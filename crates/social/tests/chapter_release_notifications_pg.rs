@@ -15,6 +15,7 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    align_disposable_users_sequence(&pool).await;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -288,6 +289,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
         .await
         .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
+    align_disposable_users_sequence(&pool).await;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -600,4 +602,23 @@ async fn g08_count_children(pool: &PgPool, chapter: i64) -> i64 {
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+/// Prior disposable integration fixtures insert explicit user IDs without
+/// advancing the serial sequence. Only synchronize within /tor_ci while
+/// holding this suite's advisory lock; never reset a live sequence backwards.
+async fn align_disposable_users_sequence(pool: &PgPool) {
+    sqlx::query(
+        "SELECT setval(
+             pg_get_serial_sequence('users','id')::regclass,
+             GREATEST(
+                 COALESCE((SELECT MAX(id) FROM users), 1::bigint),
+                 nextval(pg_get_serial_sequence('users','id')::regclass)
+             ),
+             true
+         )",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
 }
