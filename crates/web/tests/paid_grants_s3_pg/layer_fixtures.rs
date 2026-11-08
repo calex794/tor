@@ -353,6 +353,37 @@ pub(super) async fn assert_layer_s3_grants(
         );
     }
 
+    // Hidden and pending-moderation Books must close the real HTTP shell.
+    // Use GET, not repeated signing, to respect the 12/min grant rate limit.
+    for moderation in ["hidden", "pending_moderation"] {
+        pg(
+            url,
+            &format!("UPDATE books SET visibility_status='{moderation}' WHERE id={book}"),
+        );
+        let denied = private_get(app, &layer_page, Some(cookie)).await;
+        assert_eq!(
+            denied.status(),
+            StatusCode::NOT_FOUND,
+            "Layer shell must close on {moderation} Book"
+        );
+        assert!(
+            to_bytes(denied.into_body(), 8192)
+                .await
+                .unwrap()
+                .is_empty(),
+            "hidden Layer shell must not leak text or metadata"
+        );
+    }
+    pg(
+        url,
+        &format!("UPDATE books SET visibility_status='active' WHERE id={book}"),
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::OK,
+        "restored moderation state must preserve existing paid Layer term"
+    );
+
     pg(
         url,
         &format!(
