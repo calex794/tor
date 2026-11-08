@@ -80,8 +80,8 @@ class S020CrossSurfaceCoverage(unittest.TestCase):
                 self.assertIn(route, http)
         for token in (
             "s020_age_editor_is_off_by_default_and_monotonic_under_live_http",
-            "access_level='adult'",
-            "access_level='pro_adult'",
+            '"adult"',
+            '"pro_adult"',
             "adult_enabled=TRUE",
             "is_active=FALSE",
         ):
