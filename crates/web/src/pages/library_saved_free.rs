@@ -191,11 +191,19 @@ fn archive_toc_markup(
     for item in &page.items {
         let current = item.chapter_id == chapter.chapter_id;
         found_current |= current;
-        let current_class = if current { " archive-toc__row--current" } else { "" };
+        let current_class = if current {
+            " archive-toc__row--current"
+        } else {
+            ""
+        };
         let title = escape_html(&item.chapter_title);
         let mut choices = String::new();
         if let Some(version) = item.saved_free_version_no {
-            let current_attr = if current { " aria-current=\"page\"" } else { "" };
+            let current_attr = if current {
+                " aria-current=\"page\""
+            } else {
+                ""
+            };
             write!(
                 choices,
                 "<a href=\"/me/library/saved/{}\"{current_attr}>Закреплённая бесплатная V{version}</a>",
@@ -212,8 +220,12 @@ fn archive_toc_markup(
                 )
                 .expect("private paid TOC link");
             } else {
-                write!(choices, "<span>Купленная V{} — недоступно</span>", paid.version_no)
-                    .expect("disabled paid TOC");
+                write!(
+                    choices,
+                    "<span>Купленная V{} — недоступно</span>",
+                    paid.version_no
+                )
+                .expect("disabled paid TOC");
             }
         }
         write!(
@@ -388,23 +400,35 @@ mod tests {
             SavedArchiveChapter, SavedArchivePage, SavedPurchasedEdition,
         };
         let saved = SavedFreeChapter {
-            book_id: 123, book_title: "Book".into(),
-            chapter_id: 38, chapter_no: 1805,
+            book_id: 123,
+            book_title: "Book".into(),
+            chapter_id: 38,
+            chapter_no: 1805,
             chapter_title: "<unsafe> & original".into(),
-            version_id: 10, version_no: 1, body_markdown: "Archive V1".into(),
-            ordinary_deleted: true, saved_place: None,
+            version_id: 10,
+            version_no: 1,
+            body_markdown: "Archive V1".into(),
+            ordinary_deleted: true,
+            saved_place: None,
         };
         let page = SavedArchivePage {
             items: vec![
                 SavedArchiveChapter {
-                    chapter_id: 38, chapter_no: 1805,
+                    chapter_id: 38,
+                    chapter_no: 1805,
                     chapter_title: "<unsafe> & original".into(),
                     saved_free_version_no: Some(1),
-                    purchased: Some(SavedPurchasedEdition { purchase_id: 901, version_no: 2 }),
+                    purchased: Some(SavedPurchasedEdition {
+                        purchase_id: 901,
+                        version_no: 2,
+                    }),
                 },
                 SavedArchiveChapter {
-                    chapter_id: 39, chapter_no: 1806, chapter_title: "Next".into(),
-                    saved_free_version_no: Some(1), purchased: None,
+                    chapter_id: 39,
+                    chapter_no: 1806,
+                    chapter_title: "Next".into(),
+                    saved_free_version_no: Some(1),
+                    purchased: None,
                 },
             ],
             next_cursor: Some(1806),
@@ -422,9 +446,14 @@ mod tests {
         let unavailable = saved_free_reader_with_toc(&saved, "csrf", &page, false).0;
         assert!(!unavailable.contains("/read/paid/38?purchase_id=901"));
         assert!(unavailable.contains("Купленная V2 — недоступно"));
-        let ordinary = saved_free_reader(&SavedFreeChapter {
-            ordinary_deleted: false, ..saved
-        }, "csrf").0;
+        let ordinary = saved_free_reader(
+            &SavedFreeChapter {
+                ordinary_deleted: false,
+                ..saved
+            },
+            "csrf",
+        )
+        .0;
         assert!(!ordinary.contains("data-archive-toc-modal"));
     }
 
