@@ -380,6 +380,26 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         .await
         .contains("&lt;script&gt;"));
 
+    // Two thousand Unicode characters must fit the bounded URL-encoded form.
+    let next_html = html(send(&app, "GET", &path, &other_cookies, "").await).await;
+    let fresh_key = field(&next_html, "request_key");
+    let russian_form = format!(
+        "body={}&request_key={fresh_key}&csrf_token={other_csrf}",
+        "%D0%96".repeat(1500)
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &russian_form
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+
     pg(&format!(
         "UPDATE books SET visibility='draft' WHERE id={book}"
     ));

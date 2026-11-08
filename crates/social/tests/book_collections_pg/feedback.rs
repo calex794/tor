@@ -139,3 +139,33 @@ async fn e_07_concurrent_identical_comment_is_inserted_once() {
         1
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn e_07_comment_rate_limit_preserves_identical_replays() {
+    let (pool, owner, reader, _, _, _) = fixture().await;
+    let collections = PgBookCollections::new(pool.clone());
+    let feedback = PgCollectionFeedback::new(pool);
+    let col = collections
+        .create(owner, "Rate limits", "public", &key(921))
+        .await
+        .unwrap();
+    let first = feedback
+        .add_comment(reader, col.id, "First", &key(922))
+        .await
+        .unwrap();
+    for i in 0..4 {
+        feedback
+            .add_comment(reader, col.id, &format!("Body {i}"), &key(923 + i))
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        feedback.add_comment(reader, col.id, "Sixth", &key(930)).await,
+        Err(CollectionError::RateLimited)
+    );
+    assert_eq!(
+        feedback.add_comment(reader, col.id, "First", &key(922)).await.unwrap(),
+        first
+    );
+}

@@ -152,6 +152,39 @@ impl PgCollectionFeedback {
         let mut tx = self.pool.begin().await?;
         Self::check_actor(&mut tx, actor).await?;
         Self::lock_public(&mut tx, collection_id).await?;
+        // Serialize this actor's writes against other comment submissions.
+        // Replays must succeed even when the account reaches the posting cap.
+        let prior = sqlx::query(
+            "SELECT id,body,deleted_at FROM social_book_collection_comments
+             WHERE collection_id=$1 AND author_user_id=$2 AND request_key=$3",
+        )
+        .bind(collection_id)
+        .bind(actor)
+        .bind(request_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(row) = prior {
+            let prior_body: String = row.try_get("body")?;
+            let deleted_at: Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>> =
+                row.try_get("deleted_at")?;
+            if deleted_at.is_some() || prior_body != trimmed {
+                return Err(CollectionError::Conflict);
+            }
+            let existing_id: i64 = row.try_get("id")?;
+            tx.commit().await?;
+            return Ok(existing_id);
+        }
+        let recent: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::BIGINT FROM social_book_collection_comments
+             WHERE author_user_id=$1
+               AND created_at > clock_timestamp() - INTERVAL '1 minute'",
+        )
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        if recent >= 5 {
+            return Err(CollectionError::RateLimited);
+        }
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO social_book_collection_comments
              (collection_id,author_user_id,body,request_key) VALUES($1,$2,$3,$4)
@@ -227,7 +260,7 @@ impl PgCollectionFeedback {
         actor: i64,
     ) -> Result<(), CollectionError> {
         let active: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
+            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
         )
         .bind(actor)
         .fetch_optional(&mut **tx)

@@ -106,7 +106,7 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             "/collections/{id}/comments/{comment_id}/delete",
             post(remove_comment),
         )
-        .layer(DefaultBodyLimit::max(8 * 1024))
+        .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(state)
 }
 async fn viewer(s: &CollectionState, h: &HeaderMap) -> Result<Option<i64>, StatusCode> {
@@ -131,6 +131,7 @@ fn status(error: CollectionError) -> StatusCode {
         CollectionError::Invalid => StatusCode::BAD_REQUEST,
         CollectionError::NotFound => StatusCode::NOT_FOUND,
         CollectionError::Conflict => StatusCode::CONFLICT,
+        CollectionError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         CollectionError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
