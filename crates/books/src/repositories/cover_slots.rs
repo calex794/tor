@@ -12,7 +12,7 @@ impl PgCoverSlots {
     }
 
     pub async fn current_slot(&self, book_id: i64) -> Result<Option<(i64, i64)>, sqlx::Error> {
-        let row = sqlx::query("SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1 AND NOT is_withdrawn")
+        let row = sqlx::query("SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1")
             .bind(book_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -254,7 +254,7 @@ impl PgCoverSlots {
             .collect::<Result<Vec<_>, _>>()?;
         let rows: Vec<i64> = sqlx::query_scalar(
             "SELECT b.id FROM books b
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
              WHERE b.id=ANY($1::bigint[])
