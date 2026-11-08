@@ -242,7 +242,10 @@ async fn s016_sender_quota_and_moderation_visibility_hold() {
         .unwrap();
     for n in 100..110 {
         assert!(
-            shares.send(sender, receiver, book, "", &key(n)).await.is_ok(),
+            shares
+                .send(sender, receiver, book, "", &key(n))
+                .await
+                .is_ok(),
             "first ten sends should be accepted"
         );
     }
