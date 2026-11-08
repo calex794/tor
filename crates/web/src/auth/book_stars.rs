@@ -52,12 +52,7 @@ fn rating_field(book_id: i64, kind: &str, label: &str, current: Option<i16>, csr
     )
 }
 
-fn form_page(
-    book_id: i64,
-    view: &RatingPage,
-    csrf: &str,
-    cookies: &[String],
-) -> Response {
+fn form_page(book_id: i64, view: &RatingPage, csrf: &str, cookies: &[String]) -> Response {
     let title = pages::escape_html(&view.title);
     let body = if view.eligible {
         format!(

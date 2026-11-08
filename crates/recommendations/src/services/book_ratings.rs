@@ -1,7 +1,7 @@
 //! A-04/F-05: session-scoped reading and saving of two independent ratings.
 #![forbid(unsafe_code)]
-use crate::repositories::{PgBookStars, StarKind};
 pub use crate::repositories::StarRatingError;
+use crate::repositories::{PgBookStars, StarKind};
 
 /// HTTP view data does not expose PostgreSQL repository records.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,11 +79,7 @@ impl ActorRatings<'_> {
 
     /// No read-side eligibility flag is trusted: the PG UPSERT checks active
     /// account, Book visibility, age rights and completed chapter again.
-    pub async fn save(
-        &self,
-        book_id: i64,
-        rating: ValidatedRating,
-    ) -> Result<(), StarRatingError> {
+    pub async fn save(&self, book_id: i64, rating: ValidatedRating) -> Result<(), StarRatingError> {
         self.repository
             .set_rating(self.actor, book_id, rating.kind, rating.score)
             .await

@@ -49,7 +49,9 @@ impl OwnedTeamService<'_> {
         // Service handles input rules; the PG adapter independently rechecks
         // the active owner in the same transaction as INSERT.
         let (name, description) = validate_team(name, description)?;
-        self.repository.create(self.actor, &name, &description).await
+        self.repository
+            .create(self.actor, &name, &description)
+            .await
     }
 
     pub async fn get(&self, id: i64) -> Result<TranslationTeam, TeamError> {

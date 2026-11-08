@@ -584,17 +584,45 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "session_actor(&digest)" in evidence
             )
         elif entry["source"] == "crates/web/src/auth/teams.rs":
-            # S026: owner-only Team methods and verified A session. Unlike
-            # book_members, Team ownership grants no canonical Book rights.
-            required = {"index": "list_owned", "create": "create", "detail": "owned"}
+            # A-04: the verified session actor is bound to one Team service.
+            # Check the reviewed service source as well as each HTTP caller:
+            # calling an unbound generic method cannot satisfy owner proof.
+            required = {"index": "list", "create": "create", "detail": "get"}
             operation = required.get(entry["handler"])
             identity = functions.get("actor", "")
+            service = _production((ROOT / "crates/books/src/services/translation_teams.rs")
+                                  .read_text(encoding="utf-8"))
             scoped = bool(
                 operation
-                and re.search(rf"\.{operation}\s*\(\s*actor\s*(?:,|\))", body)
                 and re.search(r"\bactor\s*\(\s*&s\s*,\s*&headers\s*\)", body)
+                and re.search(r"\.for_owner\s*\(\s*actor\s*\)", body)
+                and re.search(rf"\bowner\.{operation}\s*\(", body)
                 and ".active_session_user(&session_token_digest(&token))" in identity
                 and "StatusCode::UNAUTHORIZED" in identity
+                and "check_actor(actor)?" in service
+                and "repository: &self.repository" in service
+                and "actor," in service
+                and ".list_owned(self.actor)" in service
+                and ".create(self.actor, &name, &description)" in service
+                and ".owned(self.actor, id)" in service
+            )
+        elif entry["source"] == "crates/web/src/auth/book_stars.rs":
+            # F-05: an actor-bound service delegates to the same live PG checks.
+            # Validate the concrete service implementation, not its name alone.
+            required = {"page": "page", "submit": "save"}
+            operation = required.get(entry["handler"])
+            service = _production((ROOT / "crates/recommendations/src/services/book_ratings.rs")
+                                  .read_text(encoding="utf-8"))
+            scoped = bool(
+                operation
+                and re.search(r"\bsession_user\s*\(\s*&state\s*,\s*&headers\s*\)", body)
+                and re.search(r"\.for_actor\s*\(\s*actor\s*\)", body)
+                and re.search(rf"\bratings\.{operation}\s*\(\s*book_id", body)
+                and "actor," in service
+                and "visible_summary_for_actor(book_id, Some(self.actor))" in service
+                and ".own_ratings(self.actor, book_id)" in service
+                and ".eligible(self.actor, book_id)" in service
+                and ".set_rating(self.actor, book_id, rating.kind, rating.score)" in service
             )
         elif paid_comment_binding:
             # Exact canonical E repository operation with caller-bound actor,
