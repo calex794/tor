@@ -99,7 +99,11 @@ async fn library_has_book(app: &Router, cookie: &str, book: i64) -> bool {
     let (status, body) = page(app, "/api/v1/me/library", cookie).await;
     assert_eq!(status, StatusCode::OK);
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-    json["items"].as_array().unwrap().iter().any(|item| item["book_id"] == book.to_string())
+    json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["book_id"] == book.to_string())
 }
 
 async fn submit(
@@ -282,10 +286,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     assert_eq!(get(&app, &toc_path, "").await, StatusCode::OK);
     // An authorized reader must be able to follow the Book page's
     // "Add to library" link; this personal prompt is never anonymous data.
-    assert_eq!(
-        get(&app, &library_prompt, "").await,
-        StatusCode::SEE_OTHER
-    );
+    assert_eq!(get(&app, &library_prompt, "").await, StatusCode::SEE_OTHER);
     for candidate in [&library_prompt, &discussion, &room] {
         assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
     }
@@ -369,7 +370,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     // Revocation is live across private bookmarks and social metadata,
     // not just the public reader or the paid preview.
     for candidate in [&library_prompt, &discussion, &room] {
-        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
     let (denied, denied_html) = page(&app, &free_path, "").await;
@@ -454,7 +458,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     // An 18+ account is not automatically entitled to 21+ chapter text,
     // public metadata, paid previews, TOC or its old saved bookmark.
     for candidate in [&library_prompt, &discussion, &room] {
-        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
     for candidate in [&public, &toc_path, &free_path, &paid_path] {
@@ -503,7 +510,10 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         .1
         .contains(&free_marker));
     for candidate in [&library_prompt, &discussion, &room] {
-        assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(&app, candidate, &stranger_cookie).await,
+            StatusCode::NOT_FOUND
+        );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
     // Revocation closes reader access; the signed-in Book settings permission
