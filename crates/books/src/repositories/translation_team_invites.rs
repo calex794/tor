@@ -99,6 +99,41 @@ impl PgTeamInvites {
         })
     }
 
+    /// Only teams already joined by this active account; this grants no Book ACL.
+    pub async fn joined(&self, actor: i64) -> Result<Vec<(i64, String)>, TeamError> {
+        if actor <= 0 { return Err(TeamError::Missing); }
+        let rows = sqlx::query(
+            "SELECT t.id,t.name FROM translation_team_members m
+             JOIN translation_teams t ON t.id=m.team_id
+             JOIN users owner ON owner.id=t.owner_user_id
+             JOIN users participant ON participant.id=m.user_id
+             WHERE m.user_id=$1 AND owner.account_state='active'
+               AND participant.account_state='active'
+             ORDER BY m.joined_at DESC LIMIT 100")
+            .bind(actor).fetch_all(&self.pool).await.map_err(db_error)?;
+        rows.into_iter().map(|row| {
+            Ok((
+                row.try_get("id").map_err(|_| TeamError::Unavailable)?,
+                row.try_get("name").map_err(|_| TeamError::Unavailable)?,
+            ))
+        }).collect()
+    }
+
+    pub async fn member_team(&self, actor: i64, team_id: i64) -> Result<String, TeamError> {
+        if actor <= 0 || team_id <= 0 { return Err(TeamError::Missing); }
+        let name = sqlx::query_scalar(
+            "SELECT t.name FROM translation_team_members m
+             JOIN translation_teams t ON t.id=m.team_id
+             JOIN users owner ON owner.id=t.owner_user_id
+             JOIN users participant ON participant.id=m.user_id
+             WHERE m.team_id=$1 AND m.user_id=$2
+               AND owner.account_state='active' AND participant.account_state='active'")
+            .bind(team_id).bind(actor)
+            .fetch_optional(&self.pool).await.map_err(db_error)?
+            .ok_or(TeamError::Missing)?;
+        Ok(name)
+    }
+
     /// Concurrent accept/decline serialize on the exact invite row.
     /// Repeated acceptance by the original recipient is idempotent.
     pub async fn decide(&self, actor: i64, token: &str, accept: bool)
