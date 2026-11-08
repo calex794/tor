@@ -352,6 +352,11 @@ mod tests {
     use super::*;
     use tor_accounts::services::security::generate_session_token;
 
+    #[tokio::test]
+    async fn a_07_no_postgres_bot_worker_never_blocks_site_startup() {
+        assert!(start_from_pending(None).await.is_none());
+    }
+
     #[test]
     fn a_07_bot_api_callback_update_decodes_expected_telegram_id_and_private_chat() {
         let wire = r#"{"ok":true,"result":[{
