@@ -63,10 +63,19 @@ async fn seeded(repo: &PgRanking, uid: i64, ids: &[i64; 3]) -> RankingSnapshot {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn f_05_pg_s020_ranked_titles_recheck_age_without_erasing_history() {
     let (repo, pool, uid, ids) = fixture("s020-age-rank").await;
-    repo.apply(uid, 0, RankingCommand::StartVerified(ids[0]))
+    let first = repo
+        .apply(uid, 0, RankingCommand::StartVerified(ids[0]))
         .await
         .unwrap();
+    repo.apply(
+        uid,
+        first.snapshot.revision,
+        RankingCommand::StartVerified(ids[1]),
+    )
+    .await
+    .unwrap();
     let history = repo.snapshot(uid).await.unwrap();
+    let question = history.next_question().unwrap().unwrap();
     assert_eq!(repo.visible_ranks(uid).await.unwrap().len(), 1);
 
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
@@ -75,6 +84,21 @@ async fn f_05_pg_s020_ranked_titles_recheck_age_without_erasing_history() {
         .await
         .unwrap();
     assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    assert_eq!(
+        repo.apply(
+            uid,
+            history.revision,
+            RankingCommand::Answer {
+                expected_state_version: question.state_version,
+                comparison_id: question.comparison_id.clone(),
+                outcome: Outcome::AWins,
+            },
+        )
+        .await
+        .unwrap_err(),
+        RankingStoreError::Conflict,
+        "a saved comparison must not bypass live Book age rights"
+    );
     sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
         .bind(uid)
         .execute(&pool)
@@ -88,6 +112,21 @@ async fn f_05_pg_s020_ranked_titles_recheck_age_without_erasing_history() {
         .await
         .unwrap();
     assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    assert_eq!(
+        repo.apply(
+            uid,
+            history.revision,
+            RankingCommand::Answer {
+                expected_state_version: question.state_version,
+                comparison_id: question.comparison_id.clone(),
+                outcome: Outcome::AWins,
+            },
+        )
+        .await
+        .unwrap_err(),
+        RankingStoreError::Conflict,
+        "a saved comparison must not bypass live Book age rights"
+    );
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
@@ -112,12 +151,42 @@ async fn f_05_pg_s020_ranked_titles_recheck_age_without_erasing_history() {
     .await
     .unwrap();
     assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    assert_eq!(
+        repo.apply(
+            uid,
+            history.revision,
+            RankingCommand::Answer {
+                expected_state_version: question.state_version,
+                comparison_id: question.comparison_id.clone(),
+                outcome: Outcome::AWins,
+            },
+        )
+        .await
+        .unwrap_err(),
+        RankingStoreError::Conflict,
+        "a saved comparison must not bypass live Book age rights"
+    );
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(ids[0])
         .execute(&pool)
         .await
         .unwrap();
     assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    assert_eq!(
+        repo.apply(
+            uid,
+            history.revision,
+            RankingCommand::Answer {
+                expected_state_version: question.state_version,
+                comparison_id: question.comparison_id.clone(),
+                outcome: Outcome::AWins,
+            },
+        )
+        .await
+        .unwrap_err(),
+        RankingStoreError::Conflict,
+        "a saved comparison must not bypass live Book age rights"
+    );
     assert_eq!(
         repo.snapshot(uid).await.unwrap(),
         history,
