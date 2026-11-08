@@ -62,7 +62,11 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     let foreign = signup(&app, &format!("s029-foreign-{stamp}@example.invalid")).await;
     let member_email = format!("s029-member-{stamp}@example.invalid");
     let member = signup(&app, &member_email).await;
-    let site_moderator = signup(&app, &format!("s029-site-moderator-{stamp}@example.invalid")).await;
+    let site_moderator = signup(
+        &app,
+        &format!("s029-site-moderator-{stamp}@example.invalid"),
+    )
+    .await;
     let owner_id = lookup
         .active_session_user(&session_token_digest(owner.split_once('=').unwrap().1))
         .await
@@ -81,7 +85,9 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     // Synthetic role bootstrap is confined to disposable tor_ci; the approval
     // itself goes through the real reviewed moderation HTTP endpoint.
     let moderator_id = lookup
-        .active_session_user(&session_token_digest(site_moderator.split_once('=').unwrap().1))
+        .active_session_user(&session_token_digest(
+            site_moderator.split_once('=').unwrap().1,
+        ))
         .await
         .unwrap()
         .unwrap();
@@ -183,9 +189,7 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
             "POST",
             &format!("/moderation/books/{own_book_id}/registration"),
             &reviewer_cookies,
-            &format!(
-                "csrf_token={reviewer_csrf}&expected_revision=1&action=approve&confirmed=yes"
-            ),
+            &format!("csrf_token={reviewer_csrf}&expected_revision=1&action=approve&confirmed=yes"),
         )
         .await
         .status(),
