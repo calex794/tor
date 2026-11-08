@@ -10,7 +10,7 @@ pub fn my_library_with_updates(
     purchased_available: bool,
     checkout_enabled: bool,
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
-    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
 ) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     my_library_inner(
@@ -32,7 +32,7 @@ pub fn my_library_with_updates_and_layers(
     availability: (bool, bool),
     checkout_enabled: bool,
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
-    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
 ) -> Html<String> {
     let (purchased_available, layers_available) = availability;
     if !layers_available {
@@ -68,7 +68,7 @@ pub fn my_library_with_updates_and_layers_and_purchased_only(
     checkout_enabled: bool,
     updates_and_owned: (
         &tor_reading::repositories::follow_updates::FollowedReleasePage,
-        &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+        &[tor_commerce::services::reader_views::ReadablePurchaseLink],
     ),
     purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
 ) -> Html<String> {
@@ -252,7 +252,7 @@ fn update_cards(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     checkout_enabled: bool,
     paid_reader_available: bool,
-    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
     csrf: &str,
 ) -> String {
     let mut body = String::new();
@@ -415,12 +415,10 @@ mod update_tests {
         let disabled = update_cards(&page, false, true, &[], "csrf-token");
         assert!(!disabled.contains("/me/books/9/buy-chapters"));
         assert!(disabled.contains("/reader/12"));
-        let owned = [
-            tor_commerce::repositories::entitlements::ReadablePurchaseLink {
-                chapter_id: 12,
-                purchase_id: 77,
-            },
-        ];
+        let owned = [tor_commerce::services::reader_views::ReadablePurchaseLink {
+            chapter_id: 12,
+            purchase_id: 77,
+        }];
         let purchased = update_cards(&page, true, true, &owned, "csrf-token");
         assert!(purchased.contains("/read/paid/12?purchase_id=77"));
         assert!(!purchased.contains("/me/books/9/buy-chapters"));
