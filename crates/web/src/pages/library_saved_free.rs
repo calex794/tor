@@ -307,8 +307,7 @@ fn archive_toc_markup(
             </footer>
           </div>
         </details>",
-        chapter.book_id,
-        chapter.chapter_id
+        chapter.book_id, chapter.chapter_id
     )
 }
 
