@@ -128,7 +128,11 @@ pub(super) async fn page(
     render_team_page("Аналитика команды", &body, &[])
 }
 
-fn write_row(body: &mut String, title: &str, numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers) {
+fn write_row(
+    body: &mut String,
+    title: &str,
+    numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers,
+) {
     let _ = write!(
         body,
         "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>\
@@ -145,7 +149,10 @@ fn write_row(body: &mut String, title: &str, numbers: &tor_books::repositories::
 }
 
 fn csv_text(raw: &str) -> String {
-    let value = if matches!(raw.trim_start().chars().next(), Some('=' | '+' | '-' | '@' | '\t' | '\r')) {
+    let value = if matches!(
+        raw.trim_start().chars().next(),
+        Some('=' | '+' | '-' | '@' | '\t' | '\r')
+    ) {
         format!("'{raw}")
     } else {
         raw.to_owned()
@@ -157,24 +164,28 @@ fn csv(report: &TeamAnalyticsReport) -> String {
     let mut content = String::from(
         "\u{feff}row_type;period_from_utc;period_to_utc;book_id;title;opens;anonymous_opens;first_chapter_opens;new_registered_readers;chapter_purchases;gross_minor;thanks\r\n",
     );
-    let mut line = |kind: &str, id: Option<i64>, name: &str, values: &tor_books::repositories::translation_team_analytics::TeamNumbers| {
-        let _ = write!(
-            content,
-            "{};{};{};{};{};{};{};{};{};{};{};{}\r\n",
-            csv_text(kind),
-            report.date_from,
-            report.date_to,
-            id.map(|x| x.to_string()).unwrap_or_default(),
-            csv_text(name),
-            values.opens,
-            values.anonymous_opens,
-            values.first_chapter_opens,
-            values.new_registered_readers,
-            values.purchases,
-            values.gross_minor,
-            values.thanks
-        );
-    };
+    let mut line =
+        |kind: &str,
+         id: Option<i64>,
+         name: &str,
+         values: &tor_books::repositories::translation_team_analytics::TeamNumbers| {
+            let _ = write!(
+                content,
+                "{};{};{};{};{};{};{};{};{};{};{};{}\r\n",
+                csv_text(kind),
+                report.date_from,
+                report.date_to,
+                id.map(|x| x.to_string()).unwrap_or_default(),
+                csv_text(name),
+                values.opens,
+                values.anonymous_opens,
+                values.first_chapter_opens,
+                values.new_registered_readers,
+                values.purchases,
+                values.gross_minor,
+                values.thanks
+            );
+        };
     line("total", None, &report.team_name, &report.totals);
     for book in &report.rows {
         line("book", Some(book.id), &book.title, &book.numbers);
@@ -216,6 +227,9 @@ mod tests {
         assert_eq!(csv_text("=SUM(A1)"), "\"'=SUM(A1)\"");
         assert_eq!(csv_text("  +evil"), "\"'  +evil\"");
         assert_eq!(csv_text("Hello \"Team\""), "\"Hello \"\"Team\"\"\"");
-        assert_eq!(TeamPeriod::parse(Some("1d")).unwrap_err(), tor_books::services::translation_teams::TeamError::Invalid);
+        assert_eq!(
+            TeamPeriod::parse(Some("1d")).unwrap_err(),
+            tor_books::services::translation_teams::TeamError::Invalid
+        );
     }
 }

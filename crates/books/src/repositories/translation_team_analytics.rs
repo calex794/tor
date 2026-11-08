@@ -49,8 +49,12 @@ impl TeamNumbers {
     fn add(&mut self, other: &Self) {
         self.opens = self.opens.saturating_add(other.opens);
         self.anonymous_opens = self.anonymous_opens.saturating_add(other.anonymous_opens);
-        self.first_chapter_opens = self.first_chapter_opens.saturating_add(other.first_chapter_opens);
-        self.new_registered_readers = self.new_registered_readers.saturating_add(other.new_registered_readers);
+        self.first_chapter_opens = self
+            .first_chapter_opens
+            .saturating_add(other.first_chapter_opens);
+        self.new_registered_readers = self
+            .new_registered_readers
+            .saturating_add(other.new_registered_readers);
         self.purchases = self.purchases.saturating_add(other.purchases);
         self.gross_minor = self.gross_minor.saturating_add(other.gross_minor);
         self.thanks = self.thanks.saturating_add(other.thanks);
@@ -190,7 +194,9 @@ impl PgTeamAnalytics {
         let mut date_from = String::new();
         let mut date_to = String::new();
         for row in rows {
-            date_from = row.try_get("from_day").map_err(|_| TeamError::Unavailable)?;
+            date_from = row
+                .try_get("from_day")
+                .map_err(|_| TeamError::Unavailable)?;
             date_to = row.try_get("to_day").map_err(|_| TeamError::Unavailable)?;
             let book_id: Option<i64> = row.try_get("id").map_err(|_| TeamError::Unavailable)?;
             let Some(id) = book_id else {
@@ -198,10 +204,16 @@ impl PgTeamAnalytics {
             };
             let numbers = TeamNumbers {
                 opens: row.try_get("opens").map_err(|_| TeamError::Unavailable)?,
-                anonymous_opens: row.try_get("anonymous").map_err(|_| TeamError::Unavailable)?,
+                anonymous_opens: row
+                    .try_get("anonymous")
+                    .map_err(|_| TeamError::Unavailable)?,
                 first_chapter_opens: row.try_get("firsts").map_err(|_| TeamError::Unavailable)?,
-                new_registered_readers: row.try_get("newcomers").map_err(|_| TeamError::Unavailable)?,
-                purchases: row.try_get("purchases").map_err(|_| TeamError::Unavailable)?,
+                new_registered_readers: row
+                    .try_get("newcomers")
+                    .map_err(|_| TeamError::Unavailable)?,
+                purchases: row
+                    .try_get("purchases")
+                    .map_err(|_| TeamError::Unavailable)?,
                 gross_minor: row.try_get("gross").map_err(|_| TeamError::Unavailable)?,
                 thanks: row.try_get("thanks").map_err(|_| TeamError::Unavailable)?,
             };

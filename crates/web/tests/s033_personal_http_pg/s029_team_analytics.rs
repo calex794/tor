@@ -2,13 +2,13 @@
 use super::{body, cookie, csrf_from_page, send, signup, ORIGIN};
 use axum::http::{header, StatusCode};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
     services::authoring::new_book,
 };
 use tor_reading::repositories::PgReader;
-use tor_accounts::services::security::generate_session_token;
 
 #[tokio::test]
 #[ignore = "disposable migrated PostgreSQL tor_ci"]
@@ -32,21 +32,61 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         .as_nanos();
     let owner = signup(&app, &format!("s029-owner-{stamp}@example.invalid")).await;
     let foreign = signup(&app, &format!("s029-foreign-{stamp}@example.invalid")).await;
-    let owner_id = lookup.active_session_user(&session_token_digest(owner.split_once('=').unwrap().1)).await.unwrap().unwrap();
-    let foreign_id = lookup.active_session_user(&session_token_digest(foreign.split_once('=').unwrap().1)).await.unwrap().unwrap();
+    let owner_id = lookup
+        .active_session_user(&session_token_digest(owner.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
+    let foreign_id = lookup
+        .active_session_user(&session_token_digest(foreign.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
     let team_page = send(&app, "GET", "/me/teams", &owner, "").await;
     let cookie_csrf = cookie(&team_page, "tor-dev-csrf=");
     let token = csrf_from_page(&body(team_page).await);
     let owner_cookies = format!("{owner}; {cookie_csrf}");
-    let created = send(&app, "POST", "/me/teams", &owner_cookies, &format!("name=Stats{stamp}&csrf_token={token}")).await;
+    let created = send(
+        &app,
+        "POST",
+        "/me/teams",
+        &owner_cookies,
+        &format!("name=Stats{stamp}&csrf_token={token}"),
+    )
+    .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    let team = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let team = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     let authoring = PgAuthoring::new(pool.clone());
-    let mine = new_book(&format!("s029:owner:{stamp}"), "ru", &format!("A Book {stamp}"), &generate_session_token()).unwrap();
+    let mine = new_book(
+        &format!("s029:owner:{stamp}"),
+        "ru",
+        &format!("A Book {stamp}"),
+        &generate_session_token(),
+    )
+    .unwrap();
     let own_book_id = authoring.create_owned_book(owner_id, &mine).await.unwrap();
-    let theirs = new_book(&format!("s029:foreign:{stamp}"), "ru", &format!("Z Book {stamp}"), &generate_session_token()).unwrap();
-    let other_book_id = authoring.create_owned_book(foreign_id, &theirs).await.unwrap();
-    let linked = send(&app, "POST", &format!("{team}/books"), &owner_cookies, &format!("book_id={own_book_id}&csrf_token={token}")).await;
+    let theirs = new_book(
+        &format!("s029:foreign:{stamp}"),
+        "ru",
+        &format!("Z Book {stamp}"),
+        &generate_session_token(),
+    )
+    .unwrap();
+    let other_book_id = authoring
+        .create_owned_book(foreign_id, &theirs)
+        .await
+        .unwrap();
+    let linked = send(
+        &app,
+        "POST",
+        &format!("{team}/books"),
+        &owner_cookies,
+        &format!("book_id={own_book_id}&csrf_token={token}"),
+    )
+    .await;
     assert_eq!(linked.status(), StatusCode::SEE_OTHER);
     let scoped = format!("{team}/analytics?period=7d&book_id={own_book_id}");
     let html = body(send(&app, "GET", &scoped, &owner, "").await).await;
@@ -56,7 +96,10 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     let csv_path = format!("{team}/analytics.csv?period=7d&book_id={own_book_id}");
     let csv_response = send(&app, "GET", &csv_path, &owner, "").await;
     assert_eq!(csv_response.status(), StatusCode::OK);
-    assert_eq!(csv_response.headers()[header::CONTENT_TYPE], "text/csv; charset=utf-8");
+    assert_eq!(
+        csv_response.headers()[header::CONTENT_TYPE],
+        "text/csv; charset=utf-8"
+    );
     assert_eq!(csv_response.headers()[header::CACHE_CONTROL], "no-store");
     let csv = body(csv_response).await;
     assert!(csv.contains(&format!("A Book {stamp}")));
@@ -65,17 +108,36 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     assert!(!csv.contains(&format!(";{other_book_id};")));
     assert_eq!(csv.lines().count(), 3, "header, total, one linked book");
     for route in [&scoped, &csv_path] {
-        assert_eq!(send(&app, "GET", route, &foreign, "").await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            send(&app, "GET", route, &foreign, "").await.status(),
+            StatusCode::NOT_FOUND
+        );
     }
     for route in [
         format!("{team}/analytics?period=30d&book_id={other_book_id}"),
         format!("{team}/analytics.csv?period=30d&book_id={other_book_id}"),
     ] {
-        assert_eq!(send(&app, "GET", &route, &owner, "").await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            send(&app, "GET", &route, &owner, "").await.status(),
+            StatusCode::NOT_FOUND
+        );
     }
     assert_eq!(
-        send(&app, "GET", &format!("{team}/analytics?period=200d"), &owner, "").await.status(),
+        send(
+            &app,
+            "GET",
+            &format!("{team}/analytics?period=200d"),
+            &owner,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
-    assert_eq!(send(&app, "GET", &format!("{team}/analytics.csv"), "", "").await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        send(&app, "GET", &format!("{team}/analytics.csv"), "", "")
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
 }
