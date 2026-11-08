@@ -83,7 +83,9 @@ pub(super) async fn page(
             "<option value=\"{period}\"{selected}>{period}</option>"
         );
     }
-    body.push_str("</select></label><label>Книга <select name=\"book_id\"><option value=\"\">Все</option>");
+    body.push_str(
+        "</select></label><label>Книга <select name=\"book_id\"><option value=\"\">Все</option>",
+    );
     let view = match state.books.view(actor_id, team_id).await {
         Ok(view) => view,
         Err(error) => return team_error(error),
