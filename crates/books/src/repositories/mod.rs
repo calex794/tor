@@ -22,6 +22,7 @@ pub mod paid_assets;
 pub mod paid_storage;
 pub mod postgres;
 pub mod revenue_shares;
+pub(crate) mod book_step_up;
 pub mod shadow;
 pub use postgres::PgCatalog;
 pub use shadow::PgShadowCatalog;

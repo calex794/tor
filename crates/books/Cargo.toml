@@ -13,7 +13,6 @@ roxmltree = "0.21.1"
 encoding_rs = "0.8"
 sqlx.workspace = true
 tor-contracts = { path = "../contracts" }
-tor-accounts = { path = "../accounts" }
 
 [dev-dependencies]
 tokio.workspace = true
