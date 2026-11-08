@@ -145,3 +145,4 @@ pub mod zip_import;
 
 pub mod book_registration;
 pub mod title_suggestions;
+pub mod translation_teams;

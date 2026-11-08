@@ -14,12 +14,15 @@ use axum::{
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_books::repositories::translation_teams::{PgTranslationTeams, TeamError, TranslationTeam};
+use tor_books::{
+    repositories::translation_teams::PgTranslationTeams,
+    services::translation_teams::{TeamError, TeamService, TranslationTeam},
+};
 
 #[derive(Clone)]
 struct TeamState {
     accounts: PgAccounts,
-    teams: PgTranslationTeams,
+    teams: TeamService,
     cookies: CookiePolicy,
 }
 
@@ -33,7 +36,7 @@ struct TeamForm {
 
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let state = TeamState {
-        teams: PgTranslationTeams::new(accounts.pool().clone()),
+        teams: TeamService::new(PgTranslationTeams::new(accounts.pool().clone())),
         accounts,
         cookies,
     };
@@ -125,7 +128,11 @@ async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
         Ok(id) => id,
         Err(status) => return session_failure(status),
     };
-    let teams = match s.teams.list_owned(actor).await {
+    let owner = match s.teams.for_owner(actor) {
+        Ok(owner) => owner,
+        Err(error) => return team_error(error),
+    };
+    let teams = match owner.list().await {
         Ok(teams) => teams,
         Err(error) => return team_error(error),
     };
@@ -149,9 +156,12 @@ async fn create(
         Ok(id) => id,
         Err(status) => return session_failure(status),
     };
-    match s
-        .teams
-        .create(actor, &form.name, form.description.as_deref().unwrap_or(""))
+    let owner = match s.teams.for_owner(actor) {
+        Ok(owner) => owner,
+        Err(error) => return team_error(error),
+    };
+    match owner
+        .create(&form.name, form.description.as_deref().unwrap_or(""))
         .await
     {
         Ok(team) => private_response(Redirect::to(&format!("/me/teams/{}", team.id)), &[]),
@@ -168,7 +178,11 @@ async fn detail(
         Ok(id) => id,
         Err(status) => return session_failure(status),
     };
-    match s.teams.owned(actor, team_id).await {
+    let owner = match s.teams.for_owner(actor) {
+        Ok(owner) => owner,
+        Err(error) => return team_error(error),
+    };
+    match owner.get(team_id).await {
         Ok(team) => page("Команда", &detail_html(&team), &[]),
         Err(error) => team_error(error),
     }
