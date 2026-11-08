@@ -67,7 +67,9 @@ async fn load(
     Ok((report, actor))
 }
 
-fn gross_by_currency(numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers) -> String {
+fn gross_by_currency(
+    numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers,
+) -> String {
     if numbers.gross_by_currency_minor.is_empty() {
         return "—".to_owned();
     }

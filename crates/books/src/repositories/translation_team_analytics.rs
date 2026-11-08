@@ -59,7 +59,10 @@ impl TeamNumbers {
             .saturating_add(other.new_registered_readers);
         self.purchases = self.purchases.saturating_add(other.purchases);
         for (currency, amount) in &other.gross_by_currency_minor {
-            let aggregate = self.gross_by_currency_minor.entry(currency.clone()).or_default();
+            let aggregate = self
+                .gross_by_currency_minor
+                .entry(currency.clone())
+                .or_default();
             *aggregate = aggregate.saturating_add(*amount);
         }
         self.thanks = self.thanks.saturating_add(other.thanks);
@@ -241,7 +244,10 @@ impl PgTeamAnalytics {
                 purchases: row
                     .try_get("purchases")
                     .map_err(|_| TeamError::Unavailable)?,
-                gross_by_currency_minor: parse_currency_totals(row.try_get("gross_by_currency").map_err(|_| TeamError::Unavailable)?)?,
+                gross_by_currency_minor: parse_currency_totals(
+                    row.try_get("gross_by_currency")
+                        .map_err(|_| TeamError::Unavailable)?,
+                )?,
                 thanks: row.try_get("thanks").map_err(|_| TeamError::Unavailable)?,
             };
             totals.add(&numbers);
