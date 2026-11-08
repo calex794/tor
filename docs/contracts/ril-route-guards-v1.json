@@ -2043,7 +2043,7 @@
       "method": "POST",
       "template": "/moderation/books/{id}/cover-withdraw",
       "source": "crates/web/src/auth/moderation_covers.rs",
-      "handler": "withdraw::submit",
+      "handler": "submit_withdrawal",
       "policy": "scoped"
     },
     {
