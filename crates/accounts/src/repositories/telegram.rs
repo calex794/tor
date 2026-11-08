@@ -9,6 +9,16 @@ pub struct TelegramLinkState {
 }
 
 impl PgAccounts {
+    pub async fn probe_telegram_recovery(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("SELECT user_id FROM account_telegram_bindings LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        sqlx::query("SELECT source FROM password_reset_tokens LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
+        Ok(())
+    }
+
     pub async fn telegram_link_state(
         &self,
         user_id: i64,
