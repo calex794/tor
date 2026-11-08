@@ -103,11 +103,23 @@ mod tests {
     #[test]
     fn a_07_bot_identity_must_match_both_token_number_and_declared_username() {
         let cfg = config();
-        assert!(valid_identity(&cfg, &identity(123456, Some("torrecoverybot"), true)));
-        assert!(!valid_identity(&cfg, &identity(123457, Some("TorRecoveryBot"), true)));
-        assert!(!valid_identity(&cfg, &identity(123456, Some("UnrelatedBot"), true)));
+        assert!(valid_identity(
+            &cfg,
+            &identity(123456, Some("torrecoverybot"), true)
+        ));
+        assert!(!valid_identity(
+            &cfg,
+            &identity(123457, Some("TorRecoveryBot"), true)
+        ));
+        assert!(!valid_identity(
+            &cfg,
+            &identity(123456, Some("UnrelatedBot"), true)
+        ));
         assert!(!valid_identity(&cfg, &identity(123456, None, true)));
-        assert!(!valid_identity(&cfg, &identity(123456, Some("TorRecoveryBot"), false)));
+        assert!(!valid_identity(
+            &cfg,
+            &identity(123456, Some("TorRecoveryBot"), false)
+        ));
     }
 
     #[test]
@@ -122,7 +134,8 @@ mod tests {
     fn a_07_bot_identity_and_webhook_api_responses_parse_without_logging_secrets() {
         let good: ApiEnvelope<BotIdentity> = serde_json::from_str(
             r#"{"ok":true,"result":{"id":123456,"is_bot":true,"username":"TorRecoveryBot"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(good.ok && good.result.is_some());
         let missing: ApiEnvelope<BotIdentity> =
             serde_json::from_str(r#"{"ok":false,"description":"unauthorized"}"#).unwrap();
