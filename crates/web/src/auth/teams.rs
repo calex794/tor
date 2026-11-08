@@ -27,6 +27,8 @@ use tor_books::{
 };
 
 #[derive(Clone)]
+mod analytics;
+
 struct TeamState {
     accounts: PgAccounts,
     teams: TeamService,
@@ -73,6 +75,8 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/me/teams", get(index).post(create))
         .route("/me/teams/{id}", get(detail))
+        .route("/me/teams/{id}/analytics", get(analytics::page))
+        .route("/me/teams/{id}/analytics.csv", get(analytics::export))
         .route("/me/teams/{id}/books", get(books_page).post(add_book))
         .route("/me/teams/{id}/books/{book_id}/remove", post(remove_book))
         .route(

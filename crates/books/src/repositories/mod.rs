@@ -8,6 +8,7 @@ pub mod cover_slots;
 pub mod cover_source_cleanup;
 pub mod personal_books;
 pub mod recommendation_policy;
+pub mod translation_team_analytics;
 pub mod translation_team_books;
 pub mod translation_team_invites;
 pub mod translation_teams;
