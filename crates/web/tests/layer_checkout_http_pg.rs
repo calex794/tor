@@ -181,8 +181,8 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     let book = scalar(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:d05:http:{owner}','ru','D05 HTTP book','public',{owner})
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:d05:http:{owner}','ru','D05 HTTP book','public',{owner},'basic')
              RETURNING id"
         ),
     );
