@@ -64,7 +64,7 @@ impl PgLayerChapterEntitlements {
 
     /// Keyset page around a D-authorized Layer chapter. An arbitrary cursor
     /// can move within its book but never grant access to another chapter.
-    pub async fn toc_window(
+    pub async fn layer_toc_window(
         &self,
         actor: PositiveId,
         chapter_id: PositiveId,
