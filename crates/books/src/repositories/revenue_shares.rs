@@ -142,6 +142,7 @@ impl PgRevenueShares {
             "SELECT b.id FROM books b
              WHERE b.id=$1 AND b.owner_user_id=$2
                AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS (
                  SELECT 1 FROM book_members m
                  WHERE m.book_id=b.id AND m.user_id=$2
