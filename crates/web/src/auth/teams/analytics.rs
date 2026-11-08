@@ -67,8 +67,16 @@ async fn load(
     Ok((report, actor))
 }
 
-fn currency(minor: i64) -> String {
-    format!("{}.{:02}", minor / 100, minor.rem_euclid(100))
+fn gross_by_currency(numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers) -> String {
+    if numbers.gross_by_currency_minor.is_empty() {
+        return "—".to_owned();
+    }
+    numbers
+        .gross_by_currency_minor
+        .iter()
+        .map(|(currency, minor)| format!("{currency}:{minor}"))
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 pub(super) async fn page(
@@ -86,7 +94,9 @@ pub(super) async fn page(
          <p>Период UTC: {} — {} ({} дней)</p>\
          <p>Открытия глав не доказывают прочтение. Новые зарегистрированные \
          читатели учитываются при первом открытии книги, не все активные \
-         уникальные за период. Сумма по книгам может учитывать человека несколько раз.</p>\
+         уникальные за период. Сумма по книгам может учитывать человека несколько раз. \
+         Покупки — исторические валовые суммы в минимальных единицах \
+         исходной валюты, без вычета возвратов; валюты никогда не складываются.</p>\
          <form method=\"get\" action=\"/me/teams/{team_id}/analytics\">\
          <label>Период <select name=\"period\">",
         escape_html(&report.team_name),
@@ -142,7 +152,7 @@ pub(super) async fn page(
     body.push_str(
         "<table><thead><tr><th>Книга</th><th>Открытия</th><th>Анонимные открытия</th>\
          <th>Первые открытия глав</th><th>Новые зарегистрированные читатели</th>\
-         <th>Покупки</th><th>Выручка (₽)</th><th>Спасибо</th></tr></thead><tbody>",
+         <th>Покупки</th><th>Валовые суммы по валютам (мин. ед.)</th><th>Спасибо</th></tr></thead><tbody>",
     );
     write_row(&mut body, "Итого", &report.totals);
     for book in &report.rows {
@@ -167,7 +177,7 @@ fn write_row(
         numbers.first_chapter_opens,
         numbers.new_registered_readers,
         numbers.purchases,
-        currency(numbers.gross_minor),
+        escape_html(&gross_by_currency(numbers)),
         numbers.thanks
     );
 }
@@ -186,7 +196,7 @@ fn csv_text(raw: &str) -> String {
 
 fn csv(report: &TeamAnalyticsReport) -> String {
     let mut content = String::from(
-        "\u{feff}row_type;period_from_utc;period_to_utc;book_id;title;opens;anonymous_opens;first_chapter_opens;new_registered_readers;chapter_purchases;gross_minor;thanks\r\n",
+        "\u{feff}row_type;period_from_utc;period_to_utc;book_id;title;opens;anonymous_opens;first_chapter_opens;new_registered_readers;chapter_purchases;gross_by_currency_minor;thanks\r\n",
     );
     let mut line =
         |kind: &str,
@@ -206,7 +216,7 @@ fn csv(report: &TeamAnalyticsReport) -> String {
                 values.first_chapter_opens,
                 values.new_registered_readers,
                 values.purchases,
-                values.gross_minor,
+                csv_text(&gross_by_currency(values)),
                 values.thanks
             );
         };
