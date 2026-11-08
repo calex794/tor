@@ -1,6 +1,10 @@
 //! S016/S017. Direct book recommendations never grant ownership or chapter access.
 use super::mail::{blocked, pair_lock};
 use sqlx::{PgPool, Row};
+use tor_accounts::{
+    domain::access_level::EffectiveUserTier,
+    repositories::access_levels::verified_effective_user_tier,
+};
 
 #[derive(Clone)]
 pub struct PgBookShares {
@@ -39,23 +43,46 @@ pub struct ReceivedBookShare {
     pub message: String,
 }
 
+// This must also match the actual public reader policy. A live pro_adult grant
+// does not independently turn on the adult opt-in flag for an 18+ Book.
+fn tier_allows(book_level: &str, user_tier: EffectiveUserTier, adult_enabled: bool) -> bool {
+    match book_level {
+        "basic" => true,
+        "adult" => adult_enabled && user_tier >= EffectiveUserTier::Adult,
+        "pro_adult" => user_tier == EffectiveUserTier::ProAdult,
+        _ => false,
+    }
+}
+
 impl PgBookShares {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
-    /// A share link may be offered only for a currently publicly eligible book.
-    pub async fn public_book_title(&self, book_id: i64) -> Result<String, BookShareError> {
-        if book_id <= 0 {
+    /// Do not expose age-protected Book titles to an ineligible sender.
+    /// Match the live session-bound /books/{id} read model, not a client tier.
+    pub async fn public_book_title(
+        &self,
+        book_id: i64,
+        viewer_id: i64,
+    ) -> Result<String, BookShareError> {
+        if book_id <= 0 || viewer_id <= 0 {
             return Err(BookShareError::NotFound);
         }
         let title: Option<String> = sqlx::query_scalar(
-            "SELECT title FROM books
-             WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND access_level='basic'
-               AND NOT is_deleted AND NOT admin_hold",
+            "SELECT b.title FROM books b
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus')
+               AND NOT b.is_deleted AND NOT b.admin_hold
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS(
+                     SELECT 1 FROM user_level_grants g
+                     WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active)))",
         )
         .bind(book_id)
+        .bind(viewer_id)
         .fetch_optional(&self.pool)
         .await?;
         title.ok_or(BookShareError::NotFound)
@@ -125,17 +152,35 @@ impl PgBookShares {
         pair_lock(&mut tx, sender, recipient)
             .await
             .map_err(|_| BookShareError::Unavailable)?;
+        // Match B's Book-first age transition lock order. A tier/grant changes
+        // cannot race a share across this transaction's Book lock.
+        let book_level: Option<String> = sqlx::query_scalar(
+            "SELECT access_level FROM books
+             WHERE id=$1 AND visibility='public' AND visibility_status='active'
+               AND lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus')
+               AND NOT is_deleted AND NOT admin_hold FOR SHARE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let book_level = book_level.ok_or(BookShareError::NotFound)?;
+        let mut sender_adult = false;
+        let mut recipient_adult = false;
         // Both account rows guard sender and recipient quotas. Acquiring them
         // by user ID avoids A->B, B->C, C->A deadlock cycles.
         for user_id in [sender.min(recipient), sender.max(recipient)] {
-            let active: Option<i64> = sqlx::query_scalar(
-                "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+            let active: Option<(i64, bool)> = sqlx::query_as(
+                "SELECT id,adult_enabled FROM users
+                 WHERE id=$1 AND account_state='active' FOR UPDATE",
             )
             .bind(user_id)
             .fetch_optional(&mut *tx)
             .await?;
-            if active.is_none() {
-                return Err(BookShareError::NotFound);
+            let (_, adult_enabled) = active.ok_or(BookShareError::NotFound)?;
+            if user_id == sender {
+                sender_adult = adult_enabled;
+            } else {
+                recipient_adult = adult_enabled;
             }
         }
         let old = sqlx::query(
@@ -185,18 +230,17 @@ impl PgBookShares {
         if muted {
             return Err(BookShareError::Forbidden);
         }
-        // Basic-only is the conservative first step. Do not expose paid,
-        // adult, pending_deletion, ordinary_deleted or admin-held books.
-        let eligible: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books
-             WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND access_level='basic'
-               AND NOT is_deleted AND NOT admin_hold FOR SHARE",
-        )
-        .bind(book_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if eligible.is_none() {
+        // A verifies effective tiers from the locked account and live grant
+        // rows. The 18+ opt-in requirement also mirrors the public reader.
+        let sender_tier = verified_effective_user_tier(&mut tx, sender)
+            .await?
+            .ok_or(BookShareError::NotFound)?;
+        let recipient_tier = verified_effective_user_tier(&mut tx, recipient)
+            .await?
+            .ok_or(BookShareError::NotFound)?;
+        if !tier_allows(&book_level, sender_tier, sender_adult)
+            || !tier_allows(&book_level, recipient_tier, recipient_adult)
+        {
             return Err(BookShareError::NotFound);
         }
         let sent_last_hour: i64 = sqlx::query_scalar(
@@ -242,10 +286,16 @@ impl PgBookShares {
              FROM social_book_shares s
              JOIN books b ON b.id=s.book_id
              JOIN users u ON u.id=s.sender_user_id
+             JOIN users recipient ON recipient.id=$1 AND recipient.account_state='active'
              WHERE s.recipient_user_id=$1 AND s.state='delivered'
                AND b.visibility='public' AND b.visibility_status='active'
-               AND b.lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND b.access_level='basic'
+               AND b.lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus')
                AND NOT b.is_deleted AND NOT b.admin_hold
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND recipient.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS(
+                     SELECT 1 FROM user_level_grants g
+                     WHERE g.user_id=recipient.id AND g.level='pro_adult' AND g.is_active)))
                AND NOT EXISTS(
                   SELECT 1 FROM social_user_blocks bl
                   WHERE (bl.blocker_id=$1 AND bl.blocked_id=s.sender_user_id)
