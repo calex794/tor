@@ -161,11 +161,16 @@ async fn e_07_comment_rate_limit_preserves_identical_replays() {
             .unwrap();
     }
     assert_eq!(
-        feedback.add_comment(reader, col.id, "Sixth", &key(930)).await,
+        feedback
+            .add_comment(reader, col.id, "Sixth", &key(930))
+            .await,
         Err(CollectionError::RateLimited)
     );
     assert_eq!(
-        feedback.add_comment(reader, col.id, "First", &key(922)).await.unwrap(),
+        feedback
+            .add_comment(reader, col.id, "First", &key(922))
+            .await
+            .unwrap(),
         first
     );
 }
