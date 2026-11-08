@@ -5,7 +5,35 @@
 //! D checkout holds FOR SHARE on the Book through settlement.
 use crate::domain::shares::{validate_schedule, RevenueShareError, ShareAssignment};
 use sqlx::PgPool;
-use tor_accounts::services::security::VerifiedPassword;
+use sha2::{Digest, Sha256};
+use super::book_step_up::consume_book_step_up;
+
+const SHARES_SCOPE: &str = "book.revenue.shares.v1";
+
+/// Stable digest of the full, canonical 100% financial revision. An A-issued
+/// proof is bound to the precise schedule and reason, not merely the Book.
+pub fn revenue_share_payload_digest(
+    actor: i64,
+    book: i64,
+    revision: i64,
+    assignments: &[ShareAssignment],
+    reason: &str,
+) -> Result<[u8; 32], RevenueShareError> {
+    let shares = validate_schedule(assignments)?;
+    let mut digest = Sha256::new();
+    digest.update(SHARES_SCOPE.as_bytes());
+    digest.update(actor.to_be_bytes());
+    digest.update(book.to_be_bytes());
+    digest.update(revision.to_be_bytes());
+    digest.update((reason.len() as u64).to_be_bytes());
+    digest.update(reason.as_bytes());
+    digest.update((shares.len() as u64).to_be_bytes());
+    for row in &shares {
+        digest.update(row.user_id.to_be_bytes());
+        digest.update(row.share_percent.to_be_bytes());
+    }
+    Ok(digest.finalize().into())
+}
 
 #[derive(Clone)]
 pub struct PgRevenueShares {
@@ -27,11 +55,11 @@ impl PgRevenueShares {
         assignments: &[ShareAssignment],
         reason: &str,
         session_digest: &[u8; 32],
-        proof: &VerifiedPassword,
+        step_up_token: &str,
     ) -> Result<i64, RevenueShareError> {
         self.replace_schedule_inner(
             actor_id, book_id, expected_revision, assignments, reason,
-            Some((session_digest, proof)),
+            Some((session_digest, step_up_token)),
         ).await
     }
 
@@ -55,7 +83,7 @@ impl PgRevenueShares {
         expected_revision: i64,
         assignments: &[ShareAssignment],
         reason: &str,
-        proof: Option<(&[u8; 32], &VerifiedPassword)>,
+        proof: Option<(&[u8; 32], &str)>,
     ) -> Result<i64, RevenueShareError> {
         let shares = validate_schedule(assignments)?;
         if actor_id <= 0
@@ -73,34 +101,17 @@ impl PgRevenueShares {
             .await
             .map_err(|_| RevenueShareError::Unavailable)?;
 
-        if let Some((session_digest, verified_password)) = proof {
-            if !verified_password.is_fresh() {
-                return Err(RevenueShareError::Forbidden);
-            }
-            // A's rotation also locks users before sessions. Recheck the
-            // account and cookie while locks are held until the share commit.
-            let hash: Option<String> = sqlx::query_scalar(
-                "SELECT password_hash FROM users
-                 WHERE id=$1 AND account_state='active' FOR SHARE",
+        if let Some((session_digest, step_up_token)) = proof {
+            let payload = revenue_share_payload_digest(
+                actor_id, book_id, expected_revision, &shares, reason,
+            )?;
+            if !consume_book_step_up(
+                &mut tx, actor_id, session_digest, step_up_token,
+                book_id, expected_revision, SHARES_SCOPE, &payload,
             )
-            .bind(actor_id)
-            .fetch_optional(&mut *tx)
             .await
-            .map_err(|_| RevenueShareError::Unavailable)?;
-            if !hash.as_deref().is_some_and(|v| verified_password.matches_hash(v)) {
-                return Err(RevenueShareError::Forbidden);
-            }
-            let live: Option<i64> = sqlx::query_scalar(
-                "SELECT user_id FROM sessions
-                 WHERE user_id=$1 AND token_hash=$2
-                   AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE",
-            )
-            .bind(actor_id)
-            .bind(session_digest.as_slice())
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|_| RevenueShareError::Unavailable)?;
-            if live != Some(actor_id) || !verified_password.is_fresh() {
+            .map_err(|_| RevenueShareError::Unavailable)?
+            {
                 return Err(RevenueShareError::Forbidden);
             }
         }
