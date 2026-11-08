@@ -345,8 +345,8 @@ fn book_detail_body(
         .replace(
             "<!--BOOK_SHARE_ACTION-->",
             &format!(
-                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a><a class=\"ui-button ui-button--ghost\" href=\"/books/{}/report\">Пожаловаться</a>",
-                book.id, book.id
+                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a>",
+                book.id
             ),
         )
         .replace(
@@ -402,7 +402,9 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 mod library;
 pub use library::my_library_with_updates_and_layers_and_purchased_only;
 mod library_saved_free;
-pub use library_saved_free::{saved_archive_list, saved_free_reader, saved_free_reader_with_toc};
+pub use library_saved_free::{
+    saved_archive_list, saved_free_reader, saved_free_reader_with_paginated_toc,
+};
 
 pub async fn stylesheet() -> impl IntoResponse {
     (

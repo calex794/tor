@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 349)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 347)  # Includes the S033 personal routes.
+        self.assertEqual(report["route_bindings"], 346)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 344)  # Includes the S033 personal routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -142,20 +142,6 @@ class RilExposureTests(unittest.TestCase):
             "handler": "admin_reports::queue", "policy": "admin_share_reports",
         })
         path.write_text(json.dumps(data), encoding="utf-8")
-        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
-
-    def test_s049_book_admin_exception_is_exact_not_a_prefix_grant(self):
-        self.assertEqual(check_repository(self.root), [])
-        target = self.root / "docs/contracts/ril-route-guards-v1.json"
-        data = json.loads(target.read_text(encoding="utf-8"))
-        data["routes"].append({
-            "method": "GET",
-            "template": "/admin/book-reports/export",
-            "source": "crates/web/src/auth/book_shares.rs",
-            "handler": "content_reports::queue",
-            "policy": "admin_book_reports",
-        })
-        target.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
     def test_expected_https_nginx_server_is_safe(self):

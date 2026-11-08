@@ -7,15 +7,21 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
-use serde::Deserialize;
-use tor_reading::{domain::renderer::valid_reader_length, services::library::LibraryError};
+use serde::{Deserialize, Serialize};
+use tor_reading::{
+    domain::renderer::valid_reader_length,
+    services::library::{
+        LibraryError, SavedArchivePage, SavedArchiveTocCursor, SavedArchiveTocSide,
+    },
+};
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/me/library/{id}/saved", get(list))
         .route("/me/library/saved/{id}", get(read))
+        .route("/api/v1/me/library/saved/{id}/toc/window", get(toc_window))
         .route("/assets/newboo-archive-progress.js", get(progress_script))
         .route(
             "/api/v1/me/progress/archived-free",
@@ -108,22 +114,71 @@ pub(super) async fn read(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let html = if saved.ordinary_deleted {
-        // Start near the open chapter rather than scanning a 2000-chapter
-        // archive from chapter 1. Every returned link is still actor-scoped.
-        let start = i64::from(saved.chapter_no).saturating_sub(25);
-        let after = (start > 0).then_some(start);
-        let window = match state
+        // Fetch real actor-scoped pinned and purchased editions around this
+        // exact chapter, including gaps and duplicated imported chapter numbers.
+        let cursor = SavedArchiveTocCursor {
+            chapter_no: saved.chapter_no,
+            chapter_id: saved.chapter_id,
+        };
+        let previous = match state
             .bookmarks
-            .saved_archive_chapters(actor, saved.book_id, 50, after, &session_digest)
+            .saved_archive_toc_window(
+                actor,
+                saved.book_id,
+                25,
+                cursor,
+                SavedArchiveTocSide::Before,
+                &session_digest,
+            )
             .await
         {
-            Ok(window) => window,
+            Ok(page) => page,
             Err(LibraryError::Invalid | LibraryError::NotFound) => {
-                return deny(StatusCode::NOT_FOUND);
+                return deny(StatusCode::NOT_FOUND)
             }
             Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         };
-        pages::saved_free_reader_with_toc(&saved, &csrf, &window, state.paid_reader_available)
+        let following = match state
+            .bookmarks
+            .saved_archive_toc_window(
+                actor,
+                saved.book_id,
+                25,
+                cursor,
+                SavedArchiveTocSide::AtOrAfter,
+                &session_digest,
+            )
+            .await
+        {
+            Ok(page) => page,
+            Err(LibraryError::Invalid | LibraryError::NotFound) => {
+                return deny(StatusCode::NOT_FOUND)
+            }
+            Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        // A concurrent pin removal must not turn an old chapter page into a
+        // general archive-enumeration session.
+        if !following
+            .items
+            .first()
+            .is_some_and(|item| item.chapter_id == saved.chapter_id)
+        {
+            return deny(StatusCode::NOT_FOUND);
+        }
+        let mut items = previous.items;
+        items.extend(following.items);
+        let page = SavedArchivePage {
+            items,
+            next_cursor: None,
+        };
+        pages::saved_free_reader_with_paginated_toc(
+            &saved,
+            &csrf,
+            &page,
+            state.paid_reader_available,
+            previous.next_cursor.as_deref(),
+            following.next_cursor.as_deref(),
+        )
     } else {
         pages::saved_free_reader(&saved, &csrf)
     };
@@ -139,4 +194,111 @@ pub(super) async fn read(
         .headers_mut()
         .insert("content-security-policy", csp.parse().expect("static CSP"));
     response
+}
+
+#[derive(Deserialize)]
+pub(super) struct ArchiveTocQuery {
+    before: Option<String>,
+    after: Option<String>,
+    limit: Option<u16>,
+}
+
+#[derive(Serialize)]
+struct ArchiveTocPurchased {
+    purchase_id: String,
+    version_no: i32,
+}
+
+#[derive(Serialize)]
+struct ArchiveTocItem {
+    chapter_id: String,
+    chapter_no: i32,
+    title: String,
+    saved_free_version_no: Option<i32>,
+    purchased: Option<ArchiveTocPurchased>,
+}
+
+#[derive(Serialize)]
+struct ArchiveTocResponse {
+    items: Vec<ArchiveTocItem>,
+    next_cursor: Option<String>,
+}
+
+/// Only readers with a live private saved-free pin for a *finalized* deleted
+/// book can page that book's actor-owned archive. Never expose paid text.
+pub(super) async fn toc_window(
+    State(state): State<AuthState>,
+    Path(chapter_id): Path<i64>,
+    Query(query): Query<ArchiveTocQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let (cursor, side) = match (query.before.as_deref(), query.after.as_deref()) {
+        (Some(raw), None) => (
+            SavedArchiveTocCursor::parse(raw),
+            SavedArchiveTocSide::Before,
+        ),
+        (None, Some(raw)) => (
+            SavedArchiveTocCursor::parse(raw),
+            SavedArchiveTocSide::After,
+        ),
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
+    let Some(cursor) = cursor else {
+        return deny(StatusCode::BAD_REQUEST);
+    };
+    let limit = query.limit.unwrap_or(60);
+    if !(1..=60).contains(&limit) {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let saved = match state
+        .bookmarks
+        .pinned_free_chapter(actor, chapter_id, &digest)
+        .await
+    {
+        Ok(Some(saved)) if saved.ordinary_deleted => saved,
+        Ok(_) | Err(LibraryError::Invalid | LibraryError::NotFound) => {
+            return deny(StatusCode::NOT_FOUND)
+        }
+        Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let page = match state
+        .bookmarks
+        .saved_archive_toc_window(actor, saved.book_id, limit, cursor, side, &digest)
+        .await
+    {
+        Ok(page) => page,
+        Err(LibraryError::Invalid) => return deny(StatusCode::BAD_REQUEST),
+        Err(LibraryError::NotFound) => return deny(StatusCode::NOT_FOUND),
+        Err(LibraryError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let items = page
+        .items
+        .into_iter()
+        .map(|chapter| ArchiveTocItem {
+            chapter_id: chapter.chapter_id.to_string(),
+            chapter_no: chapter.chapter_no,
+            title: chapter.chapter_title,
+            saved_free_version_no: chapter.saved_free_version_no,
+            purchased: chapter.purchased.map(|edition| ArchiveTocPurchased {
+                purchase_id: edition.purchase_id.to_string(),
+                version_no: edition.version_no,
+            }),
+        })
+        .collect();
+    private_response(
+        Json(ArchiveTocResponse {
+            items,
+            next_cursor: page.next_cursor,
+        }),
+        &[],
+    )
 }

@@ -7,6 +7,7 @@ use crate::services::library::{
 };
 use crate::services::progress::ReadingPlace;
 use sqlx::{PgPool, Row};
+mod toc_window;
 
 #[derive(Clone)]
 pub struct PgLibrary {

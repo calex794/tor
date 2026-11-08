@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -54,7 +54,7 @@ SCOPE_CALLS = {
     "visible_summary", "set_like",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
-    "pinned_free_chapter", "pinned_free_chapters", "saved_archive_chapters", "purchased_only_books",
+    "pinned_free_chapter", "pinned_free_chapters", "saved_archive_chapters", "saved_archive_toc_window", "purchased_only_books",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases", "mixed_book_toc_window", "layer_toc_window",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
@@ -203,8 +203,6 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
                 else root / "__unsupported_layer_handler__")
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "admin_reports":
         return source.parent / "book_share_reports.rs"
-    if source == root / "crates/web/src/auth/book_shares.rs" and module == "content_reports":
-        return source.parent / "book_content_reports.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -352,60 +350,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         # Only this reviewed sibling router may delegate the live cookie to
         # a PG transaction that verifies an administrator role under lock.
         evidence += "\n" + functions.get("session_digest", "")
-    s049_book_user = {
-        ("GET", "/books/{id}/report", "content_reports::form"): "reportable_title",
-        ("POST", "/books/{id}/report", "content_reports::submit"): "submit",
-    }
-    s049_book_admin = {
-        ("GET", "/admin/book-reports", "content_reports::queue"): "pending",
-        ("POST", "/admin/book-reports/{report_id}/decision", "content_reports::decide"): "decide",
-    }
-    is_s049_book = (
-        entry["source"] == "crates/web/src/auth/book_shares.rs"
-        and admin_key in (s049_book_user | s049_book_admin)
-    )
-    audited_s049_book_admin = (
-        policy == "admin_book_reports"
-        and entry["source"] == "crates/web/src/auth/book_shares.rs"
-        and admin_key in s049_book_admin
-    )
-    if is_s049_book:
-        evidence += "\n" + functions.get("session_user", "")
-        evidence += "\n" + functions.get("store", "")
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
-            audited_admin or audited_support or audited_refund or approved_refund
-            or audited_s049 or audited_s049_book_admin):
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund or audited_s049):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
-    if policy == "admin_book_reports":
-        repo = _production((ROOT / "crates/social/src/repositories/book_content_reports.rs")
-                           .read_text(encoding="utf-8"))
-        operation = s049_book_admin.get(admin_key) if audited_s049_book_admin else None
-        required_repo = (
-            "r.role='administrator' AND r.is_active",
-            "s.revoked_at IS NULL",
-            "s.expires_at>now()",
-            "u.account_state='active'",
-            "FOR SHARE OF s,u,r",
-            "administrator(&mut tx, session_digest).await?",
-        )
-        guarded = bool(
-            operation
-            and "PgBookContentReports::new" in evidence
-            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
-            and "session_user(&s, &headers)" in evidence
-            and ".active_session_user(&digest)" in evidence
-            and all(marker in repo for marker in required_repo)
-        )
-        if operation == "decide":
-            guarded = guarded and all(marker in evidence for marker in (
-                "s.cookies.same_origin(&headers)",
-                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
-            )) and all(marker in repo for marker in (
-                "FOR UPDATE", "INSERT INTO social_book_content_review_events",
-                "UPDATE social_book_content_reports SET state=$2",
-            ))
-        if not guarded:
-            errors.append(f"{label}: S049 Book administrator review lacks session-bound role, audit or CSRF")
     if policy == "admin_share_reports":
         repo = _production((ROOT / "crates/social/src/repositories/book_share_reports.rs")
                            .read_text(encoding="utf-8"))
@@ -654,20 +600,6 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
-            )
-        elif is_s049_book and admin_key in s049_book_user:
-            operation = s049_book_user[admin_key]
-            repo = _production((ROOT / "crates/social/src/repositories/book_content_reports.rs")
-                               .read_text(encoding="utf-8"))
-            scoped = bool(
-                policy == "scoped"
-                and "session_user(&s, &headers)" in evidence
-                and ".active_session_user(&digest)" in evidence
-                and re.search(rf"\.{operation}\s*\(\s*&digest\s*,", evidence)
-                and "b.visibility='public'" in repo
-                and "user_level_grants" in repo
-                and "b.visibility_status='active'" in repo
-                and "NOT b.admin_hold" in repo
             )
         elif entry["source"] == "crates/web/src/auth/moderation_covers.rs":
             cover_ops = {"page": "pending_with_wait_age", "preview": "preview",

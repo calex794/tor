@@ -355,10 +355,11 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/reader/layer/{chapter_id}/toc/window"), "GET") => Some(340),
         (Some("/admin/recommendation-reports"), "GET") => Some(341),
         (Some("/admin/recommendation-reports/{share_id}/decision"), "POST") => Some(342),
-        (Some("/books/{id}/report"), "GET") => Some(343),
-        (Some("/books/{id}/report"), "POST") => Some(344),
-        (Some("/admin/book-reports"), "GET") => Some(345),
-        (Some("/admin/book-reports/{report_id}/decision"), "POST") => Some(346),
+        (Some("/api/v1/me/library/saved/{id}/toc/window"), "GET") => Some(343),
+        (Some("/books/{id}/report"), "GET") => Some(344),
+        (Some("/books/{id}/report"), "POST") => Some(345),
+        (Some("/admin/book-reports"), "GET") => Some(346),
+        (Some("/admin/book-reports/{report_id}/decision"), "POST") => Some(347),
         _ => None,
     };
     index
