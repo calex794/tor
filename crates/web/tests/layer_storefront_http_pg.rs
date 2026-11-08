@@ -542,11 +542,13 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
-    assert!(tor_commerce::repositories::layer_storefront::purchased_terms(buyer, &pool)
-        .await
-        .unwrap()
-        .iter()
-        .any(|term| term.first_readable_chapter == Some(chapter)));
+    assert!(
+        tor_commerce::repositories::layer_storefront::purchased_terms(buyer, &pool)
+            .await
+            .unwrap()
+            .iter()
+            .any(|term| term.first_readable_chapter == Some(chapter))
+    );
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
@@ -575,11 +577,13 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(html(get(&app, &path, Some(&buyer_token)).await)
         .await
         .contains(book_title));
-    assert!(tor_commerce::repositories::layer_storefront::purchased_terms(buyer, &pool)
-        .await
-        .unwrap()
-        .iter()
-        .any(|term| term.first_readable_chapter == Some(chapter)));
+    assert!(
+        tor_commerce::repositories::layer_storefront::purchased_terms(buyer, &pool)
+            .await
+            .unwrap()
+            .iter()
+            .any(|term| term.first_readable_chapter == Some(chapter))
+    );
 
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(buyer)
@@ -595,7 +599,11 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(revoked_terms
         .iter()
         .all(|term| term.first_readable_chapter.is_none()));
-    assert_eq!(revoked_terms.len(), 2, "revoking age must retain paid terms");
+    assert_eq!(
+        revoked_terms.len(),
+        2,
+        "revoking age must retain paid terms"
+    );
 
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(book)
