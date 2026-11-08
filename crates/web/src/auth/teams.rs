@@ -26,9 +26,9 @@ use tor_books::{
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
 
-#[derive(Clone)]
 mod analytics;
 
+#[derive(Clone)]
 struct TeamState {
     accounts: PgAccounts,
     teams: TeamService,

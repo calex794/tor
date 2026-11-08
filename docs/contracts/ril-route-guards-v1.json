@@ -2248,6 +2248,20 @@
       "source": "crates/web/src/auth/teams.rs",
       "handler": "remove_member",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams/{id}/analytics",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "analytics::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams/{id}/analytics.csv",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "analytics::export",
+      "policy": "session"
     }
   ]
 }

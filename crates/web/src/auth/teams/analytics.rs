@@ -1,10 +1,10 @@
 //! S029: Team analytics HTML and CSV share the same filtered PostgreSQL read model.
-use super::{actor, page, session_failure, team_error, TeamState};
+use super::{actor, page as render_team_page, session_failure, team_error, TeamState};
 use crate::auth_cookies::private_response;
 use crate::pages::escape_html;
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue},
     response::{Html, Response},
 };
 use serde::Deserialize;
@@ -118,7 +118,7 @@ pub(super) async fn page(
         write_row(&mut body, &book.title, &book.numbers);
     }
     body.push_str("</tbody></table></div></section>");
-    page("Аналитика команды", &body, &[])
+    render_team_page("Аналитика команды", &body, &[])
 }
 
 fn write_row(body: &mut String, title: &str, numbers: &tor_books::repositories::translation_team_analytics::TeamNumbers) {

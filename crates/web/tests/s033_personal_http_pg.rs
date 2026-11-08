@@ -256,3 +256,6 @@ mod s027_teams;
 
 #[path = "s033_personal_http_pg/s028_team_books.rs"]
 mod s028_team_books;
+
+#[path = "s033_personal_http_pg/s029_team_analytics.rs"]
+mod s029_team_analytics;
