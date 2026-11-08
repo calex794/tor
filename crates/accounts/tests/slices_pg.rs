@@ -649,14 +649,15 @@ async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
         .await
         .unwrap());
     let backup_token = session_token_digest(&format!("backup-reset-{user}"));
+    let nonexistent_email = format!("tg-reset-unknown-{user}@example.invalid");
     let (_, other_backup) = tokio::join!(
         accounts.consume_backup_code(
-            &format!("tg-reset-unknown-{user}@example.invalid"),
+            &nonexistent_email,
             &codes[0],
             &backup_token
         ),
         accounts.consume_backup_code(
-            &format!("tg-reset-unknown-{user}@example.invalid"),
+            &nonexistent_email,
             &codes[0],
             &backup_token
         )
