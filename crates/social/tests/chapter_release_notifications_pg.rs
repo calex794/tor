@@ -31,7 +31,7 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         "library-only",
     ] {
         let user: i64 = sqlx::query_scalar(
-            "INSERT INTO users(id,email_normalized,display_name,password_hash)
+            "INSERT INTO users(id,email_normalized,display_name,password_hash) OVERRIDING SYSTEM VALUE
              VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                     $1,$2,'$argon2id$test') RETURNING id",
         )
@@ -298,7 +298,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
         .unwrap()
         .as_nanos();
     let author: i64 = sqlx::query_scalar(
-        "INSERT INTO users(id,email_normalized,display_name,password_hash)
+        "INSERT INTO users(id,email_normalized,display_name,password_hash) OVERRIDING SYSTEM VALUE
          VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                 $1,'G08 chapter author','$argon2id$test') RETURNING id",
     )
@@ -324,7 +324,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
            SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint) AS base
            FROM users
          )
-         INSERT INTO users(id,email_normalized,display_name,password_hash)
+         INSERT INTO users(id,email_normalized,display_name,password_hash) OVERRIDING SYSTEM VALUE
          SELECT id_base.base + gs.n,
                 $1::text || '-' || gs.n::text || '@example.invalid',
                 'G08 reader ' || gs.n::text,'$argon2id$test'
@@ -416,7 +416,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     .await
     .unwrap();
     let late: i64 = sqlx::query_scalar(
-        "INSERT INTO users(id,email_normalized,display_name,password_hash)
+        "INSERT INTO users(id,email_normalized,display_name,password_hash) OVERRIDING SYSTEM VALUE
          VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                 $1,'Late reader','$argon2id$test') RETURNING id",
     )
