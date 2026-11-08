@@ -314,8 +314,9 @@ async fn a_07_browser_receives_reset_only_after_linked_telegram_approval() {
         .unwrap()
         .to_owned();
     let waiting_html = html(started).await;
-    let match_code = &waiting_html[waiting_html.find("Код сверки: <strong>").unwrap() + 20
-        ..waiting_html.find("Код сверки: <strong>").unwrap() + 26];
+    let marker = "Код сверки: <strong>";
+    let start = waiting_html.find(marker).unwrap() + marker.len();
+    let match_code = &waiting_html[start..start + 6];
     assert_eq!(match_code.len(), 6);
     assert!(!waiting_html.contains("/reset-password#"));
     let cookies = format!("{csrf_cookie}; {browser_cookie}");
