@@ -222,8 +222,8 @@ pub(super) async fn export(
     Query(query): Query<ReportQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let report = match load(&state, &headers, team_id, &query).await {
-        Ok(report) => report,
+    let (report, _) = match load(&state, &headers, team_id, &query).await {
+        Ok(value) => value,
         Err(response) => return response,
     };
     let mut response = private_response(Html(csv(&report)), &[]);
