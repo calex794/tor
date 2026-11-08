@@ -55,6 +55,7 @@ impl PgAuthoring {
         let title: Option<String> = sqlx::query_scalar(
             "SELECT b.title FROM books b WHERE b.id=$1
                AND NOT b.is_deleted AND NOT b.admin_hold
+               AND b.lifecycle_status<>'ordinary_deleted'
                AND EXISTS (
                  SELECT 1 FROM book_members m
                  WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
@@ -78,6 +79,7 @@ impl PgAuthoring {
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE $1 IN (link.smaller_book_id, link.larger_book_id)
                AND target.visibility='public' AND target.visibility_status='active'
+               AND target.lifecycle_status<>'ordinary_deleted'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 100",
         )
@@ -119,7 +121,7 @@ impl PgAuthoring {
             "SELECT id, title FROM books
              WHERE id<>$1
                AND visibility='public' AND visibility_status='active'
-               AND lifecycle_status<>'pending_deletion'
+               AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND NOT admin_hold AND NOT is_deleted
                AND book_registration_legacy_title_key(title)=$2
              ORDER BY id LIMIT 20",
@@ -177,8 +179,13 @@ impl PgAuthoring {
             let deleted: bool = row
                 .try_get("is_deleted")
                 .map_err(|_| AuthorError::Unavailable)?;
+            let lifecycle: String = row
+                .try_get("lifecycle_status")
+                .map_err(|_| AuthorError::Unavailable)?;
             if id == book_id {
-                source_ok = !held && !deleted;
+                // Pending deletion retains member management, but a completed
+                // ordinary deletion is a read-only tombstone for past buyers.
+                source_ok = lifecycle != "ordinary_deleted" && !held && !deleted;
             } else if id == target_id {
                 let visibility: String = row
                     .try_get("visibility")
@@ -186,12 +193,9 @@ impl PgAuthoring {
                 let moderation: String = row
                     .try_get("visibility_status")
                     .map_err(|_| AuthorError::Unavailable)?;
-                let lifecycle: String = row
-                    .try_get("lifecycle_status")
-                    .map_err(|_| AuthorError::Unavailable)?;
                 target_ok = visibility == "public"
                     && moderation == "active"
-                    && lifecycle != "pending_deletion"
+                    && !matches!(lifecycle.as_str(), "pending_deletion" | "ordinary_deleted")
                     && !held
                     && !deleted;
             }
@@ -231,6 +235,7 @@ impl PgAuthoring {
         let allowed: Option<i64> = sqlx::query_scalar(
             "SELECT b.id FROM books b WHERE b.id=$1
                AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.lifecycle_status<>'ordinary_deleted'
              FOR UPDATE OF b",
         )
         .bind(book_id)
@@ -278,10 +283,10 @@ impl PgCatalog {
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE source.id=$1
                AND source.visibility='public' AND source.visibility_status='active'
-               AND source.lifecycle_status<>'pending_deletion'
+               AND source.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND NOT source.admin_hold AND NOT source.is_deleted
                AND target.visibility='public' AND target.visibility_status='active' AND target.access_level='basic'
-               AND target.lifecycle_status<>'pending_deletion'
+               AND target.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 12",
         )

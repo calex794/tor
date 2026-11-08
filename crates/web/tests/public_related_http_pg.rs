@@ -166,6 +166,51 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert_eq!(back_status, StatusCode::OK, "{back}");
     assert!(back.contains(&format!("href=\"/books/{source}\"")));
 
+    // A completed ordinary deletion is a frozen tombstone, not a public
+    // recommendation target. Historical links stay stored for old rights.
+    sql(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft',
+             ordinary_deleted_at=clock_timestamp() WHERE id={target}"
+        ),
+    );
+    let (status, ordinary_target) = page(app.clone(), source).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!ordinary_target.contains(&format!("href=\"/books/{target}\"")));
+    assert!(!ordinary_target.contains(&format!("Том {stamp}")));
+    sql(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='in_progress',visibility='public',
+             ordinary_deleted_at=NULL WHERE id={target}"
+        ),
+    );
+    assert!(page(app.clone(), source)
+        .await
+        .1
+        .contains(&format!("href=\"/books/{target}\"")));
+
+    sql(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft',
+             ordinary_deleted_at=clock_timestamp() WHERE id={source}"
+        ),
+    );
+    // Do not assert source direct-read status: a saved purchase can still
+    // have a separate historical-reader entitlement.
+    let (reverse_status, ordinary_source) = page(app.clone(), target).await;
+    assert_eq!(reverse_status, StatusCode::OK);
+    assert!(!ordinary_source.contains(&format!("href=\"/books/{source}\"")));
+    sql(
+        &url,
+        &format!(
+            "UPDATE books SET lifecycle_status='in_progress',visibility='public',
+             ordinary_deleted_at=NULL WHERE id={source}"
+        ),
+    );
+
     let (unlinked_status, unlinked_page) = page(app.clone(), unlinked).await;
     assert_eq!(unlinked_status, StatusCode::OK);
     assert!(!unlinked_page.contains("Связанные книги"));
