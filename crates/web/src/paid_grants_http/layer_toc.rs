@@ -2,9 +2,7 @@
 //! This endpoint issues no purchases, text, private keys or storage grants.
 use super::*;
 use serde::Serialize;
-use tor_commerce::{
-    services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide},
-};
+use tor_commerce::services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide};
 
 #[derive(Deserialize)]
 pub(super) struct LayerTocQuery {
@@ -39,15 +37,16 @@ pub(super) async fn page(
     let Some(token) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
-    let actor = match state.accounts
-        .active_session_user(&session_token_digest(&token)).await {
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+    {
         Ok(Some(id)) => id,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (Some(chapter_id), Ok(actor_id)) =
-        (positive(&raw_chapter), PositiveId::new(actor))
-    else {
+    let (Some(chapter_id), Ok(actor_id)) = (positive(&raw_chapter), PositiveId::new(actor)) else {
         return deny(StatusCode::NOT_FOUND);
     };
     let (cursor, side) = match (query.before.as_deref(), query.after.as_deref()) {
@@ -63,19 +62,32 @@ pub(super) async fn page(
         return deny(StatusCode::BAD_REQUEST);
     }
     // Re-check the concrete current Layer chapter, not a book-level flag.
-    let window = match state.layer
-        .layer_toc_window(actor_id, chapter_id, cursor, side, limit).await {
+    let window = match state
+        .layer
+        .layer_toc_window(actor_id, chapter_id, cursor, side, limit)
+        .await
+    {
         Ok(page) => page,
         Err(error) => return deny(status(error)),
     };
-    let items = window.chapters.into_iter().map(|chapter| Item {
-        chapter_id: chapter.chapter_id.to_string(),
-        chapter_no: chapter.chapter_no,
-        title: chapter.title,
-        access_level: match chapter.access {
-            LayerTocAccess::Subscription => "layer",
-            LayerTocAccess::PublicFree => "free",
-        },
-    }).collect();
-    private_response(Json(Page { items, next_cursor: window.next_cursor }), &[])
+    let items = window
+        .chapters
+        .into_iter()
+        .map(|chapter| Item {
+            chapter_id: chapter.chapter_id.to_string(),
+            chapter_no: chapter.chapter_no,
+            title: chapter.title,
+            access_level: match chapter.access {
+                LayerTocAccess::Subscription => "layer",
+                LayerTocAccess::PublicFree => "free",
+            },
+        })
+        .collect();
+    private_response(
+        Json(Page {
+            items,
+            next_cursor: window.next_cursor,
+        }),
+        &[],
+    )
 }
