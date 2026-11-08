@@ -17,11 +17,15 @@ pub(super) async fn check(
         StatusCode::UNAUTHORIZED,
     );
     assert_eq!(
-        read_page(browser, &route, Some(author_cookie)).await.status(),
+        read_page(browser, &route, Some(author_cookie))
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        read_page(without_browser, &route, Some(buyer_cookie)).await.status(),
+        read_page(without_browser, &route, Some(buyer_cookie))
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
         "the paid TOC route is not enabled on API-only routers",
     );
@@ -29,10 +33,16 @@ pub(super) async fn check(
     assert_eq!(reply.status(), StatusCode::OK);
     assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
     let raw = to_bytes(reply.into_body(), 32_768).await.unwrap();
-    assert!(!raw.windows(BODY.len()).any(|chunk| chunk == BODY.as_bytes()));
+    assert!(!raw
+        .windows(BODY.len())
+        .any(|chunk| chunk == BODY.as_bytes()));
     assert!(!raw.windows(7).any(|chunk| chunk == b"dek_b64u"));
     let body: Value = serde_json::from_slice(&raw).unwrap();
-    assert_eq!(body["items"], json!([]), "one-chapter anchor has no successors");
+    assert_eq!(
+        body["items"],
+        json!([]),
+        "one-chapter anchor has no successors"
+    );
     assert_eq!(body["next_cursor"], Value::Null);
     for bad in [
         format!("/api/v1/reader/chapters/{chapter}/toc/window?purchase_id={purchase}"),
@@ -49,7 +59,9 @@ pub(super) async fn check(
         "/api/v1/reader/chapters/{chapter}/toc/window?purchase_id={purchase}&after=2.{chapter}",
     );
     assert_eq!(
-        read_page(browser, &forged, Some(buyer_cookie)).await.status(),
+        read_page(browser, &forged, Some(buyer_cookie))
+            .await
+            .status(),
         StatusCode::UNPROCESSABLE_ENTITY,
         "the cursor must refer to a chapter in its actual visible ordering",
     );
