@@ -98,9 +98,13 @@ impl PgAuthoring {
                 author_name: row
                     .try_get("author_name")
                     .map_err(|_| AuthorError::Unavailable)?,
-                genres: row.try_get("genres").map_err(|_| AuthorError::Unavailable)?,
+                genres: row
+                    .try_get("genres")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 tags: row.try_get("tags").map_err(|_| AuthorError::Unavailable)?,
-                fandoms: row.try_get("fandoms").map_err(|_| AuthorError::Unavailable)?,
+                fandoms: row
+                    .try_get("fandoms")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 revision: row
                     .try_get("origin_metadata_revision")
                     .map_err(|_| AuthorError::Unavailable)?,
@@ -120,7 +124,13 @@ impl PgAuthoring {
         raw_section: &str,
     ) -> Result<i64, AuthorError> {
         self.update_origin_metadata_inner(
-            actor, book_id, expected_revision, raw_language, raw_year, raw_section, None,
+            actor,
+            book_id,
+            expected_revision,
+            raw_language,
+            raw_year,
+            raw_section,
+            None,
         )
         .await
     }
@@ -138,7 +148,12 @@ impl PgAuthoring {
         discovery: DiscoveryFields<'_>,
     ) -> Result<i64, AuthorError> {
         self.update_origin_metadata_inner(
-            actor, book_id, expected_revision, raw_language, raw_year, raw_section,
+            actor,
+            book_id,
+            expected_revision,
+            raw_language,
+            raw_year,
+            raw_section,
             Some(discovery),
         )
         .await
@@ -168,7 +183,11 @@ impl PgAuthoring {
         let tags = discovery.as_ref().map(|data| data.tags.clone());
         let fandoms = discovery.as_ref().map(|data| data.fandoms.clone());
 
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         // Serialize with Book/member revocation and the old origin-only editor.
         let revision: Option<i64> = sqlx::query_scalar(
             "SELECT b.origin_metadata_revision FROM books b
@@ -216,7 +235,6 @@ impl PgAuthoring {
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(next_revision)
     }
-
 }
 
 #[cfg(test)]
