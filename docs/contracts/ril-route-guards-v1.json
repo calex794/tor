@@ -2297,6 +2297,13 @@
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "telegram_recovery::backup_submit",
       "policy": "recovery"
+    },
+    {
+      "method": "POST",
+      "template": "/me/security/telegram/unlink",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "telegram_recovery::unlink",
+      "policy": "session"
     }
   ]
 }

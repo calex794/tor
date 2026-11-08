@@ -338,6 +338,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/security/telegram/confirm"), "POST") => Some(323),
         (Some("/recover/backup"), "GET") => Some(324),
         (Some("/recover/backup"), "POST") => Some(325),
+        (Some("/me/security/telegram/unlink"), "POST") => Some(326),
         _ => None,
     };
     index
