@@ -1,7 +1,7 @@
 //! S016/S017 disposable PostgreSQL acceptance. No production credentials.
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tor_social::repositories::book_shares::{BookShareError, PgBookShares};
 
 async fn fixture() -> (PgPool, i64, i64, i64, i64, i64, i64) {
@@ -203,5 +203,61 @@ async fn s016_block_and_parallel_replay_fail_closed() {
             .send(sender, receiver, book, "Blocked", &key(12))
             .await,
         Err(BookShareError::Forbidden)
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s016_parallel_circle_sends_lock_users_in_one_order() {
+    let (pool, a, b, c, book, _, _) = fixture().await;
+    friends(&pool, a, b).await;
+    friends(&pool, b, c).await;
+    friends(&pool, c, a).await;
+    let shares = PgBookShares::new(pool);
+    let keys = [key(71), key(72), key(73)];
+    let result = tokio::time::timeout(Duration::from_secs(20), async {
+        tokio::join!(
+            shares.send(a, b, book, "AB", &keys[0]),
+            shares.send(b, c, book, "BC", &keys[1]),
+            shares.send(c, a, book, "CA", &keys[2])
+        )
+    })
+    .await
+    .expect("three-way delivery must not deadlock");
+    assert!(result.0.is_ok(), "A->B: {:?}", result.0);
+    assert!(result.1.is_ok(), "B->C: {:?}", result.1);
+    assert!(result.2.is_ok(), "C->A: {:?}", result.2);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s016_sender_quota_and_moderation_visibility_hold() {
+    let (pool, sender, receiver, _, book, _, _) = fixture().await;
+    friends(&pool, sender, receiver).await;
+    let shares = PgBookShares::new(pool.clone());
+    sqlx::query("UPDATE books SET lifecycle_status='completed' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for n in 100..110 {
+        assert!(
+            shares.send(sender, receiver, book, "", &key(n)).await.is_ok(),
+            "first ten sends should be accepted"
+        );
+    }
+    assert_eq!(
+        shares.send(sender, receiver, book, "", &key(110)).await,
+        Err(BookShareError::RateLimited)
+    );
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(shares.inbox(receiver).await.unwrap().is_empty());
+    assert_eq!(
+        shares.send(sender, receiver, book, "", &key(111)).await,
+        Err(BookShareError::NotFound)
     );
 }

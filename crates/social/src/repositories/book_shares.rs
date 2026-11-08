@@ -125,23 +125,18 @@ impl PgBookShares {
         pair_lock(&mut tx, sender, recipient)
             .await
             .map_err(|_| BookShareError::Unavailable)?;
-        // Serialize sends to the same recipient, regardless of sender.
-        sqlx::query(
-            "SELECT pg_advisory_xact_lock(hashtextextended('tor-bookshare-recipient:' ||
-                $1::BIGINT::TEXT,0))",
-        )
-        .bind(recipient)
-        .execute(&mut *tx)
-        .await?;
-        // Sender row lock serializes rate limit checks across all their sends.
-        let active_sender: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
-        )
-        .bind(sender)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if active_sender.is_none() {
-            return Err(BookShareError::NotFound);
+        // Both account rows guard sender and recipient quotas. Acquiring them
+        // by user ID avoids A->B, B->C, C->A deadlock cycles.
+        for user_id in [sender.min(recipient), sender.max(recipient)] {
+            let active: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+            )
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if active.is_none() {
+                return Err(BookShareError::NotFound);
+            }
         }
         let old = sqlx::query(
             "SELECT id,recipient_user_id,book_id,message FROM social_book_shares
@@ -161,15 +156,6 @@ impl PgBookShares {
             let id: i64 = row.try_get("id")?;
             tx.commit().await?;
             return Ok(id);
-        }
-        let active_recipient: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
-        )
-        .bind(recipient)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if active_recipient.is_none() {
-            return Err(BookShareError::NotFound);
         }
         if blocked(&mut tx, sender, recipient)
             .await
