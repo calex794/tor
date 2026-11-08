@@ -68,7 +68,7 @@ pub(super) async fn callback(
     accounts: &PgAccounts,
     _config: &BotConfig,
     cb: BotCallback,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), &'static str> {
     let Some(message) = cb.message else {
         return Ok(());
     };
@@ -83,7 +83,7 @@ pub(super) async fn callback(
     let changed = if let Some((id, approve)) = action {
         accounts
             .decide_telegram_recovery(id, cb.from.id, message.chat.id, approve)
-            .await?
+            .await.map_err(|_| "Telegram storage unavailable")?
     } else {
         false
     };
