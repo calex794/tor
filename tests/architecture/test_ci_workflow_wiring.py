@@ -93,7 +93,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 96)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 97)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
