@@ -126,7 +126,7 @@
       void load("after");
     }
   };
-  const hide = () => { root.open = false; };
+  const hide = () => { root.open = false; summary.focus(); };
   const focusable = () => [close, ...modal.querySelectorAll("a[href]")];
   root.addEventListener("toggle", () => {
     if (root.open) {
