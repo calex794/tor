@@ -652,3 +652,267 @@ impl PgOwnerTransfer {
         tx.commit().await.map_err(|_| AuthorError::Unavailable)
     }
 }
+
+
+#[cfg(test)]
+mod verified_transfer_tests {
+    use super::*;
+    use crate::domain::shares::ShareAssignment;
+    use crate::repositories::{
+        revenue_shares::PgRevenueShares, translation_team_books::PgTeamBooks,
+    };
+    use tor_accounts::services::security::{
+        hash_password, session_token_digest, verify_password_for_step_up,
+    };
+
+    async fn user(pool: &PgPool, key: &str, name: &str, hash: &str) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO users(email_normalized,display_name,password_hash)
+             VALUES($1,$2,$3) RETURNING id",
+        )
+        .bind(format!("s030-{key}@tor-ci.example"))
+        .bind(name)
+        .bind(hash)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn book(pool: &PgPool, key: &str, owner: i64, level: &str) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO books(source_identity,target_language,title,
+                               visibility,owner_user_id,access_level)
+             VALUES($1,'ru','S030 transfer fixture','draft',$2,$3)
+             RETURNING id",
+        )
+        .bind(format!("ci:s030:{key}:{owner}"))
+        .bind(owner)
+        .bind(level)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn session(pool: &PgPool, actor: i64, label: &str) -> [u8; 32] {
+        let digest = session_token_digest(label);
+        sqlx::query(
+            "INSERT INTO sessions(token_hash,user_id,expires_at)
+             VALUES($1,$2,now()+INTERVAL '1 hour')",
+        )
+        .bind(digest.as_slice())
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
+        digest
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated tor_ci PostgreSQL"]
+    async fn s030_pg_transfer_preserves_team_share_revisions_and_one_owner() {
+        let url = std::env::var("TEST_DATABASE_URL").unwrap();
+        assert!(url.contains("127.0.0.1:5432") && url.ends_with("/tor_ci"));
+        let pool = PgPool::connect(&url).await.unwrap();
+        let password = "S030OwnerTransferStrongPassword";
+        let hash = hash_password(password).unwrap();
+        let from = user(&pool, "good-owner", "S030 good owner", &hash).await;
+        let to = user(&pool, "good-recipient", "S030 good recipient", &hash).await;
+        let digest = session(&pool, from, "s030-good-owner-session").await;
+        let to_digest = session(&pool, to, "s030-good-recipient-session").await;
+        let book_id = book(&pool, "good", from, "basic").await;
+        let team: i64 = sqlx::query_scalar(
+            "INSERT INTO translation_teams(owner_user_id,name)
+             VALUES($1,'S030 transfer continuity') RETURNING id",
+        )
+        .bind(from)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let invite = session_token_digest("s030-team-invite-accepted");
+        sqlx::query(
+            "INSERT INTO translation_team_invites
+             (token_digest,team_id,invitee_user_id,inviter_user_id,status,decided_at)
+             VALUES($1,$2,$3,$4,'accepted',now())",
+        )
+        .bind(invite.as_slice())
+        .bind(team)
+        .bind(to)
+        .bind(from)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO translation_team_members(team_id,user_id,invite_digest)
+             VALUES($1,$2,$3)",
+        )
+        .bind(team)
+        .bind(to)
+        .bind(invite.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO translation_team_books(team_id,book_id,added_by_user_id)
+             VALUES($1,$2,$3)",
+        )
+        .bind(team)
+        .bind(book_id)
+        .bind(from)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let repo = PgOwnerTransfer::new(pool.clone());
+        let proof = verify_password_for_step_up(password, &hash).unwrap();
+        repo.transfer(from, book_id, from, "S030 good recipient", &digest, &proof)
+            .await
+            .unwrap();
+        let current_owner: i64 = sqlx::query_scalar(
+            "SELECT owner_user_id FROM books WHERE id=$1",
+        )
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(current_owner, to);
+        let active_owners: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM book_members
+             WHERE book_id=$1 AND role='owner' AND is_active",
+        )
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(active_owners, 1);
+        let recorded: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM book_owner_transfer_events
+             WHERE book_id=$1 AND previous_owner_user_id=$2
+               AND new_owner_user_id=$3 AND share_revision=1",
+        )
+        .bind(book_id)
+        .bind(from)
+        .bind(to)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(recorded, 1);
+        let team_view = PgTeamBooks::new(pool.clone()).view(to, team).await.unwrap();
+        assert!(team_view.linked.iter().any(|v| v.id == book_id));
+        assert!(repo.settings(from, book_id).await.unwrap().is_none());
+        assert!(repo.settings(to, book_id).await.unwrap().is_some());
+        let duplicate = verify_password_for_step_up(password, &hash).unwrap();
+        assert_eq!(
+            repo.transfer(from, book_id, from, "S030 good recipient", &digest, &duplicate).await,
+            Err(AuthorError::Conflict),
+        );
+        let shares = PgRevenueShares::new(pool.clone());
+        let to_proof = verify_password_for_step_up(password, &hash).unwrap();
+        let next = shares.replace_schedule_verified(
+            to, book_id, 1,
+            &[
+                ShareAssignment { user_id: from, share_percent: 65 },
+                ShareAssignment { user_id: to, share_percent: 35 },
+            ],
+            "new owner revision", &to_digest, &to_proof,
+        ).await.unwrap();
+        assert_eq!(next, 2);
+        let previous: i16 = sqlx::query_scalar(
+            "SELECT share_percent FROM revenue_share_assignments
+             WHERE book_id=$1 AND revision=1 AND user_id=$2",
+        )
+        .bind(book_id)
+        .bind(from)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(previous, 100, "historic owner share must not be rewritten");
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated tor_ci PostgreSQL"]
+    async fn s030_pg_denies_low_tier_historical_layer_and_revoked_session() {
+        let url = std::env::var("TEST_DATABASE_URL").unwrap();
+        assert!(url.contains("127.0.0.1:5432") && url.ends_with("/tor_ci"));
+        let pool = PgPool::connect(&url).await.unwrap();
+        let password = "S030OwnerTransferDeniedPassword";
+        let hash = hash_password(password).unwrap();
+        let from = user(&pool, "deny-owner", "S030 deny owner", &hash).await;
+        let to = user(&pool, "deny-recipient", "S030 deny recipient", &hash).await;
+        let digest = session(&pool, from, "s030-denied-owner-session").await;
+        let book_id = book(&pool, "deny-adult", from, "adult").await;
+        let repo = PgOwnerTransfer::new(pool.clone());
+        let low_tier = verify_password_for_step_up(password, &hash).unwrap();
+        assert_eq!(
+            repo.transfer(from, book_id, from, "S030 deny recipient", &digest, &low_tier).await,
+            Err(AuthorError::Forbidden),
+        );
+        sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+            .bind(to)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let layer: i64 = sqlx::query_scalar(
+            "INSERT INTO commerce_layers(owner_user_id,title)
+             VALUES($1,'S030 historical layer') RETURNING id",
+        )
+        .bind(from)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let version: i64 = sqlx::query_scalar(
+            "INSERT INTO commerce_layer_versions(layer_id,version_no)
+             VALUES($1,1) RETURNING id",
+        )
+        .bind(layer)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE commerce_layers SET current_version_id=$2 WHERE id=$1")
+            .bind(layer)
+            .bind(version)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO commerce_layer_version_books(layer_version_id,book_id)
+             VALUES($1,$2)",
+        )
+        .bind(version)
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let layer_block = verify_password_for_step_up(password, &hash).unwrap();
+        assert_eq!(
+            repo.transfer(from, book_id, from, "S030 deny recipient", &digest, &layer_block).await,
+            Err(AuthorError::Conflict),
+        );
+        sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
+            .bind(digest.as_slice())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let revoked = verify_password_for_step_up(password, &hash).unwrap();
+        assert_eq!(
+            repo.transfer(from, book_id, from, "S030 deny recipient", &digest, &revoked).await,
+            Err(AuthorError::Forbidden),
+        );
+        let current_owner: i64 = sqlx::query_scalar(
+            "SELECT owner_user_id FROM books WHERE id=$1",
+        )
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(current_owner, from);
+        let events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id=$1",
+        )
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(events, 0);
+        pool.close().await;
+    }
+}
