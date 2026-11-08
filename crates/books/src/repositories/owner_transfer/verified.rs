@@ -80,6 +80,7 @@ impl PgOwnerTransfer {
              LEFT JOIN revenue_share_states s ON s.book_id=b.id
              WHERE b.id=$1 AND b.owner_user_id=$2
                AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS(SELECT 1 FROM book_members m
                           WHERE m.book_id=b.id AND m.user_id=$2
                             AND m.is_active AND m.role='owner')
