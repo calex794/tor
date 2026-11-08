@@ -598,8 +598,8 @@ async fn a_07_telegram_pairing_requires_live_session_and_owner_confirmation() {
         .claim_telegram_link(&other_nonce, tg_id, tg_id)
         .await
         .unwrap());
-    let bot_id = 10_000_000_000 + user;
-    let poll_owner = session_token_digest(&format!("tg-receipt-owner-{user}"));
+    let bot_id = 10_000_000_000 + tg_id;
+    let poll_owner = session_token_digest(&format!("tg-receipt-owner-{tg_id}"));
     let epoch = accounts
         .claim_telegram_poller(bot_id, &poll_owner)
         .await
