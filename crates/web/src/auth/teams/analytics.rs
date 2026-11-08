@@ -53,7 +53,8 @@ async fn load(
         .await
         .map_err(|_| Box::new(private_response(StatusCode::SERVICE_UNAVAILABLE, &[])))?
         .ok_or_else(|| Box::new(private_response(Redirect::to("/login"), &[])))?;
-    let period = TeamPeriod::parse(query.period.as_deref()).map_err(|error| Box::new(team_error(error)))?;
+    let period =
+        TeamPeriod::parse(query.period.as_deref()).map_err(|error| Box::new(team_error(error)))?;
     let report = PgTeamAnalytics::new(state.accounts.pool().clone())
         .report(
             actor,
