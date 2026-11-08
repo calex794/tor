@@ -2,8 +2,8 @@
 use super::{body, cookie, csrf_from_page, send, signup, ORIGIN};
 use axum::http::{header, StatusCode};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_accounts::repositories::PgAccounts;
-use tor_books::repositories::PgCatalog;
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_books::repositories::{translation_team_invites::PgTeamInvites, PgCatalog};
 use tor_reading::repositories::PgReader;
 
 fn token_from_html(html: &str) -> String {
@@ -24,6 +24,7 @@ async fn s027_recipient_only_invites_idempotence_and_no_book_permissions() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
+    let verified_accounts = accounts.clone();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -131,20 +132,21 @@ async fn s027_recipient_only_invites_idempotence_and_no_book_permissions() {
     );
     let list = body(send(&app, "GET", "/me/teams", &recipient, "").await).await;
     assert!(list.contains(&team_path));
-    let member_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM translation_team_members WHERE team_id=$1")
-            .bind(
-                team_path
-                    .rsplit('/')
-                    .next()
-                    .unwrap()
-                    .parse::<i64>()
-                    .unwrap(),
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(member_count, 1);
+    let recipient_digest = session_token_digest(recipient.split_once('=').unwrap().1);
+    let recipient_id = verified_accounts
+        .active_session_user(&recipient_digest)
+        .await
+        .unwrap()
+        .unwrap();
+    let joined = PgTeamInvites::new(pool.clone())
+        .joined(recipient_id)
+        .await
+        .unwrap();
+    assert_eq!(joined.len(), 1);
+    assert_eq!(
+        joined[0].0,
+        team_path.rsplit('/').next().unwrap().parse::<i64>().unwrap()
+    );
     assert_eq!(
         send(&app, "GET", &team_path, &stranger, "").await.status(),
         StatusCode::NOT_FOUND
