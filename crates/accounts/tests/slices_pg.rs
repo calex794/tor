@@ -1,11 +1,11 @@
 //! Active line A acceptance against an isolated restricted PostgreSQL account.
 use std::num::NonZeroU32;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tor_accounts::repositories::telegram_recovery::TelegramPollerFence;
 use tor_accounts::{
     repositories::{authority::AuthorityError, profile::ProfileError, PgAccounts},
     services::{profile::ProfileUpdate, security::session_token_digest},
 };
-use tor_accounts::repositories::telegram_recovery::TelegramPollerFence;
 use tor_contracts::auth::{AccountRole, UserId};
 
 async fn fixture(label: &str) -> (PgAccounts, i64, [u8; 32]) {
