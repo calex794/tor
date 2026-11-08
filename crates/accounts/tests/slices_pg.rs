@@ -483,3 +483,112 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
             .unwrap();
     assert_eq!(events, vec!["granted", "revoked"]);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_pairing_requires_live_session_and_owner_confirmation() {
+    let (accounts, alice, session) = fixture("tg-link-alice").await;
+    let (_, bob, other_session) = fixture("tg-link-bob").await;
+    let nonce = session_token_digest(&format!("tg-bind-{alice}"));
+    assert!(!accounts
+        .begin_telegram_link(alice, &other_session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .begin_telegram_link(alice, &session, "$argon2id$wrong", &nonce)
+        .await
+        .unwrap());
+    assert!(accounts
+        .begin_telegram_link(alice, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    let tg_id = 7_000_000 + alice;
+    assert!(!accounts.claim_telegram_link(&nonce, tg_id, tg_id + 1).await.unwrap());
+    assert!(!accounts.claim_telegram_link(&[0_u8; 32], tg_id, tg_id).await.unwrap());
+    assert!(accounts.claim_telegram_link(&nonce, tg_id, tg_id).await.unwrap());
+    let state = accounts.telegram_link_state(alice, &session).await.unwrap();
+    assert_eq!(state.candidate_user_id, Some(tg_id));
+    let codes: [[u8; 32]; 8] = std::array::from_fn(|i| {
+        session_token_digest(&format!("tg-backup-{alice}-{i}"))
+    });
+    assert!(accounts.finish_telegram_link(alice, &other_session, &codes)
+        .await.unwrap().is_none());
+    assert_eq!(accounts.finish_telegram_link(alice, &session, &codes)
+        .await.unwrap(), Some(tg_id));
+    assert_eq!(accounts.telegram_link_state(alice, &session).await.unwrap().linked_user_id, Some(tg_id));
+    assert!(accounts.finish_telegram_link(alice, &session, &codes)
+        .await.unwrap().is_none());
+    assert!(!accounts.claim_telegram_link(&nonce, tg_id, tg_id).await.unwrap());
+    let other_nonce = session_token_digest(&format!("tg-bind-bob-{bob}"));
+    assert!(accounts.begin_telegram_link(bob, &other_session, "$argon2id$fixture", &other_nonce)
+        .await.unwrap());
+    assert!(!accounts.claim_telegram_link(&other_nonce, tg_id, tg_id).await.unwrap());
+    assert!(accounts.mark_telegram_update(tg_id).await.unwrap());
+    assert!(!accounts.mark_telegram_update(tg_id).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
+    let (accounts, user, session) = fixture("tg-reset").await;
+    let tg_id = 8_000_000 + user;
+    let link_nonce = session_token_digest(&format!("tg-link-reset-{user}"));
+    assert!(accounts.begin_telegram_link(user, &session, "$argon2id$fixture", &link_nonce).await.unwrap());
+    assert!(accounts.claim_telegram_link(&link_nonce, tg_id, tg_id).await.unwrap());
+    let codes: [[u8; 32]; 8] = std::array::from_fn(|i| {
+        session_token_digest(&format!("tg-code-{user}-{i}"))
+    });
+    assert_eq!(accounts.finish_telegram_link(user, &session, &codes).await.unwrap(), Some(tg_id));
+    let proof = session_token_digest(&format!("tg-reset-proof-{user}"));
+    assert!(!accounts.issue_telegram_reset(tg_id, tg_id + 1, &proof).await.unwrap());
+    assert!(accounts.issue_telegram_reset(tg_id, tg_id, &proof).await.unwrap());
+    assert_eq!(
+        accounts.live_reset_password_hash_allowed(&proof, false, false)
+            .await.unwrap(), None
+    );
+    assert_eq!(
+        accounts.live_reset_password_hash_allowed(&proof, false, true)
+            .await.unwrap().as_deref(), Some("$argon2id$fixture")
+    );
+    assert!(!accounts.consume_password_reset_allowed(&proof, "$argon2id$denied", false, false)
+        .await.unwrap());
+    // Promoting an existing reader after issuing a Telegram proof must revoke
+    // eligibility at both lookup and atomic consumption.
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'author')")
+        .bind(user).execute(accounts.pool()).await.unwrap();
+    assert_eq!(
+        accounts.live_reset_password_hash_allowed(&proof, false, true)
+            .await.unwrap(), None
+    );
+    assert!(!accounts.consume_password_reset_allowed(&proof, "$argon2id$denied", false, true)
+        .await.unwrap());
+    assert!(!accounts.issue_telegram_reset(tg_id, tg_id, &[1_u8; 32]).await.unwrap());
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='author'")
+        .bind(user).execute(accounts.pool()).await.unwrap();
+    assert!(accounts.consume_password_reset_allowed(&proof, "$argon2id$changed", false, true)
+        .await.unwrap());
+    assert_eq!(accounts.active_session_user(&session).await.unwrap(), None);
+    assert!(!accounts.consume_password_reset_allowed(&proof, "$argon2id$repeat", false, true)
+        .await.unwrap());
+    let backup_token = session_token_digest(&format!("backup-reset-{user}"));
+    let (_, other_backup) = tokio::join!(
+        accounts.consume_backup_code(
+            &format!("tg-reset-unknown-{user}@example.invalid"), &codes[0], &backup_token
+        ),
+        accounts.consume_backup_code(
+            &format!("tg-reset-unknown-{user}@example.invalid"), &codes[0], &backup_token
+        )
+    );
+    assert!(!other_backup.unwrap());
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user).fetch_one(accounts.pool()).await.unwrap();
+    let (a,b) = tokio::join!(
+        accounts.consume_backup_code(&email, &codes[0], &backup_token),
+        accounts.consume_backup_code(&email, &codes[0], &backup_token)
+    );
+    assert_ne!(a.unwrap(), b.unwrap(), "one backup proof cannot be replayed");
+    assert!(accounts.live_reset_password_hash_allowed(&backup_token, false, true)
+        .await.unwrap().is_some());
+    assert_eq!(accounts.live_reset_password_hash_allowed(&backup_token, false, false)
+        .await.unwrap(), None);
+}
