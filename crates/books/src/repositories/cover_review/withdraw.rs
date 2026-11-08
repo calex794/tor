@@ -12,7 +12,11 @@ impl PgCoverReview {
         if book_id <= 0 {
             return Err(CoverReviewError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         live_site_moderator(&mut tx, session).await?;
         let current: Option<i64> = sqlx::query_scalar(
             "SELECT s.revision FROM book_cover_slots s
@@ -23,7 +27,9 @@ impl PgCoverReview {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         Ok(current)
     }
 
@@ -53,7 +59,9 @@ impl PgCoverReview {
             .await
             .map_err(|_| CoverReviewError::Unavailable)?
             .ok_or(CoverReviewError::Missing)?;
-        let owner: i64 = book.try_get("owner_user_id").map_err(|_| CoverReviewError::Unavailable)?;
+        let owner: i64 = book
+            .try_get("owner_user_id")
+            .map_err(|_| CoverReviewError::Unavailable)?;
         if moderator == owner {
             return Err(CoverReviewError::Denied);
         }
@@ -66,9 +74,15 @@ impl PgCoverReview {
         .await
         .map_err(|_| CoverReviewError::Unavailable)?
         .ok_or(CoverReviewError::Missing)?;
-        let revision: i64 = current.try_get("revision").map_err(|_| CoverReviewError::Unavailable)?;
-        let job_id: i64 = current.try_get("job_id").map_err(|_| CoverReviewError::Unavailable)?;
-        let withdrawn: bool = current.try_get("is_withdrawn").map_err(|_| CoverReviewError::Unavailable)?;
+        let revision: i64 = current
+            .try_get("revision")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let job_id: i64 = current
+            .try_get("job_id")
+            .map_err(|_| CoverReviewError::Unavailable)?;
+        let withdrawn: bool = current
+            .try_get("is_withdrawn")
+            .map_err(|_| CoverReviewError::Unavailable)?;
         if withdrawn || revision != expected_revision {
             return Err(CoverReviewError::Stale);
         }
@@ -108,8 +122,9 @@ impl PgCoverReview {
         .execute(&mut *tx)
         .await
         .map_err(|_| CoverReviewError::Unavailable)?;
-        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| CoverReviewError::Unavailable)?;
         Ok(())
     }
-
 }
