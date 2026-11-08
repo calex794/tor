@@ -79,4 +79,39 @@ impl PgAccounts {
         .await?;
         Ok(changed.is_some())
     }
+    /// The receipt and the lease-generation check share a locked SQL statement.
+    /// None means lost lease; Some(false) means an existing receipt.
+    pub async fn acknowledge_telegram_update_fenced(
+        &self,
+        bot_id: i64,
+        owner: &[u8; 32],
+        epoch: i64,
+        update_id: i64,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        if bot_id <= 0 || epoch <= 0 || update_id < 0 {
+            return Ok(None);
+        }
+        let (active, inserted): (bool, bool) = sqlx::query_as(
+            "WITH active_lease AS MATERIALIZED (
+               SELECT bot_id FROM account_telegram_poller_leases
+               WHERE bot_id=$1 AND owner_digest=$2 AND lease_epoch=$3
+                 AND expires_at>clock_timestamp()
+               FOR SHARE
+             ), receipt AS (
+               INSERT INTO account_telegram_bot_updates(update_id)
+               SELECT $4 FROM active_lease
+               ON CONFLICT(update_id) DO NOTHING RETURNING update_id
+             )
+             SELECT EXISTS(SELECT 1 FROM active_lease),
+                    EXISTS(SELECT 1 FROM receipt)",
+        )
+        .bind(bot_id)
+        .bind(owner.as_slice())
+        .bind(epoch)
+        .bind(update_id)
+        .fetch_one(self.pool())
+        .await?;
+        Ok(active.then_some(inserted))
+    }
+
 }

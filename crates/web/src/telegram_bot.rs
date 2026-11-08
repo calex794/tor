@@ -384,7 +384,7 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, l
             // handled or the polling offset advances. Otherwise a process
             // crash or a temporary PostgreSQL failure loses the approval.
             if let Some(callback) = update.callback_query {
-                if recovery::callback(client, &answer, accounts, cfg, callback)
+                if recovery::callback(client, &answer, accounts, cfg, lease, callback)
                     .await
                     .is_err()
                 {
@@ -395,11 +395,19 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, l
             if let Some(message) = update.message {
                 process_message(client, &send, accounts, cfg, message).await;
             }
-            match accounts.mark_telegram_update(update.update_id).await {
-                Ok(_) => {
+            match accounts
+                .acknowledge_telegram_update_fenced(
+                    lease.bot_id,
+                    &lease.owner,
+                    lease.epoch,
+                    update.update_id,
+                )
+                .await
+            {
+                Ok(Some(_)) => {
                     offset = offset.max(update.update_id.saturating_add(1));
                 }
-                Err(_) => {
+                Ok(None) | Err(_) => {
                     storage_failure = true;
                     break;
                 }

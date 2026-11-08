@@ -81,6 +81,7 @@ pub(super) async fn callback(
     answer_endpoint: &str,
     accounts: &PgAccounts,
     _config: &BotConfig,
+    lease: &PollLease,
     cb: BotCallback,
 ) -> Result<(), &'static str> {
     let Some(message) = cb.message else {
@@ -96,9 +97,18 @@ pub(super) async fn callback(
     let action = cb.data.as_deref().and_then(decode_callback);
     let changed = if let Some((id, approve)) = action {
         accounts
-            .decide_telegram_recovery(id, cb.from.id, message.chat.id, approve)
+            .decide_telegram_recovery_fenced(
+                lease.bot_id,
+                &lease.owner,
+                lease.epoch,
+                id,
+                cb.from.id,
+                message.chat.id,
+                approve,
+            )
             .await
             .map_err(|_| "Telegram storage unavailable")?
+            .ok_or("Telegram polling lease lost")?
     } else {
         false
     };

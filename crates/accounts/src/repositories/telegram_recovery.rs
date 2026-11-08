@@ -177,6 +177,63 @@ impl PgAccounts {
         Ok(changed.is_some())
     }
 
+
+    /// A stale owner cannot approve a callback after takeover: the active
+    /// lease is row-locked inside the same SQL statement as the update.
+    /// None means lost lease; Some(false) means no eligible pending request.
+    pub async fn decide_telegram_recovery_fenced(
+        &self,
+        bot_id: i64,
+        owner: &[u8; 32],
+        epoch: i64,
+        request_id: i64,
+        telegram_user_id: i64,
+        private_chat_id: i64,
+        approve: bool,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        if bot_id <= 0 || epoch <= 0 {
+            return Ok(None);
+        }
+        let action = if approve { "approved" } else { "denied" };
+        let (active, changed): (bool, bool) = sqlx::query_as(
+            "WITH active_lease AS MATERIALIZED (
+               SELECT bot_id FROM account_telegram_poller_leases
+               WHERE bot_id=$1 AND owner_digest=$2 AND lease_epoch=$3
+                 AND expires_at>clock_timestamp()
+               FOR SHARE
+             ), changed AS (
+               UPDATE account_telegram_recovery_requests r SET status=$7
+               WHERE r.id=$4 AND r.telegram_user_id=$5 AND r.private_chat_id=$6
+                 AND $4>0 AND $5>0 AND $6=$5
+                 AND r.status='pending' AND r.expires_at>now()
+                 AND EXISTS(SELECT 1 FROM active_lease)
+                 AND EXISTS(
+                   SELECT 1 FROM account_telegram_bindings b JOIN users u ON u.id=b.user_id
+                   WHERE b.user_id=r.user_id AND b.telegram_user_id=$5
+                     AND b.private_chat_id=$6 AND u.account_state='active'
+                 )
+                 AND NOT EXISTS(SELECT 1 FROM account_roles roles
+                                WHERE roles.user_id=r.user_id AND roles.is_active)
+                 AND NOT EXISTS(SELECT 1 FROM books bk WHERE bk.owner_user_id=r.user_id)
+                 AND NOT EXISTS(SELECT 1 FROM book_members bm
+                                WHERE bm.user_id=r.user_id AND bm.is_active)
+               RETURNING r.id
+             )
+             SELECT EXISTS(SELECT 1 FROM active_lease),
+                    EXISTS(SELECT 1 FROM changed)",
+        )
+        .bind(bot_id)
+        .bind(owner.as_slice())
+        .bind(epoch)
+        .bind(request_id)
+        .bind(telegram_user_id)
+        .bind(private_chat_id)
+        .bind(action)
+        .fetch_one(self.pool())
+        .await?;
+        Ok(active.then_some(changed))
+    }
+
     /// An approved Telegram callback still cannot change a password. Only the
     /// originating browser may exchange its proof for a single-use reset token.
     /// Lock order follows A: user -> recovery request -> reset tokens.
