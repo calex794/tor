@@ -261,7 +261,9 @@ async fn invite(
     Form(form): Form<InviteForm>,
 ) -> Response {
     if !s.cookies.same_origin(&headers)
-        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -322,13 +324,17 @@ async fn invite_page(
     } else {
         format!("<p>Приглашение: {}</p>", escape_html(&invite.state))
     };
-    page("Приглашение в команду", &format!(
-        "<section class=\"section\"><div class=\"container\">\
+    page(
+        "Приглашение в команду",
+        &format!(
+            "<section class=\"section\"><div class=\"container\">\
          <h1>Приглашение в команду {}</h1>{}</div></section>",
-        escape_html(&invite.team_name), content
-    ), &cookies)
+            escape_html(&invite.team_name),
+            content
+        ),
+        &cookies,
+    )
 }
-
 
 async fn accept(
     State(s): State<TeamState>,
@@ -337,7 +343,9 @@ async fn accept(
     Form(form): Form<DecisionForm>,
 ) -> Response {
     if !s.cookies.same_origin(&headers)
-        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -358,7 +366,9 @@ async fn decline(
     Form(form): Form<DecisionForm>,
 ) -> Response {
     if !s.cookies.same_origin(&headers)
-        || !s.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !s
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
