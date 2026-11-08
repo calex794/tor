@@ -161,17 +161,23 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         allow(chapter, published_v1),
         "pending deletion unlists a Book without deleting an already paid Layer term"
     );
-    sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        decision(&resolver, buyer, chapter, None).await,
-        EntitlementDecision::Denied {
-            reason: DenialReason::Hidden
-        }
-    );
+    // Moderation is independent from the author's public/draft flag.
+    // A paid Layer term cannot bypass any non-active Book moderation state.
+    for moderation in ["hidden", "pending_moderation", "blocked"] {
+        sqlx::query("UPDATE books SET visibility_status=$1 WHERE id=$2")
+            .bind(moderation)
+            .bind(book)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            decision(&resolver, buyer, chapter, None).await,
+            EntitlementDecision::Denied {
+                reason: DenialReason::Hidden
+            },
+            "Layer cannot read Book in {moderation} moderation state"
+        );
+    }
     sqlx::query(
         "UPDATE books SET visibility_status='active',lifecycle_status='in_progress' WHERE id=$1",
     )
