@@ -10,8 +10,8 @@ pub(super) async fn verify(
     card: &PublicCoverObject,
     session_digest: &[u8; 32],
     app: &axum::Router,
-    job: i64,
 ) {
+    let job = slots.current_slot(BOOK_ID).await.unwrap().unwrap().0;
     // A withdrawn approved variant cannot be used by same-origin or CDN,
     // but the immutable private original remains for audit.
     reviews
