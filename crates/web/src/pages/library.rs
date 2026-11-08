@@ -415,12 +415,10 @@ mod update_tests {
         let disabled = update_cards(&page, false, true, &[], "csrf-token");
         assert!(!disabled.contains("/me/books/9/buy-chapters"));
         assert!(disabled.contains("/reader/12"));
-        let owned = [
-            tor_commerce::services::reader_views::ReadablePurchaseLink {
-                chapter_id: 12,
-                purchase_id: 77,
-            },
-        ];
+        let owned = [tor_commerce::services::reader_views::ReadablePurchaseLink {
+            chapter_id: 12,
+            purchase_id: 77,
+        }];
         let purchased = update_cards(&page, true, true, &owned, "csrf-token");
         assert!(purchased.contains("/read/paid/12?purchase_id=77"));
         assert!(!purchased.contains("/me/books/9/buy-chapters"));
