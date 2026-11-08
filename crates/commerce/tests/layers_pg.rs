@@ -423,6 +423,100 @@ async fn d_05_expired_term_and_wrong_owner_are_denied() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_s020_checkout_rejects_age_ineligible_layer_without_debit() {
+    let (pool, repo, owner, buyer, book) = setup("s020-age-checkout").await;
+    let (layer, version, offer_id) = offer(&repo, owner, book, 200, false).await;
+
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first = cmd(buyer, layer, offer_id, version, 200, 'A');
+    assert_eq!(repo.buy(&first).await, Err(LayerError::Inaccessible));
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, 1500, "denied checkout must not debit the wallet");
+
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.buy(&first).await.unwrap().balance_after_minor, 1300);
+
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second = cmd(buyer, layer, offer_id, version, 200, 'B');
+    assert_eq!(repo.buy(&second).await, Err(LayerError::Inaccessible));
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(buyer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(repo.buy(&second).await.unwrap().balance_after_minor, 1100);
+
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer_id, version, 200, 'C'))
+            .await,
+        Err(LayerError::Inaccessible)
+    );
+    sqlx::query("UPDATE user_level_grants SET is_active=TRUE WHERE user_id=$1")
+        .bind(buyer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer_id, version, 200, 'C'))
+            .await,
+        Err(LayerError::Inaccessible)
+    );
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, 1100, "rejected attempts must not change money");
+    let purchased: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1 AND layer_id=$2",
+    )
+    .bind(buyer)
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(purchased, 2, "rejections must not create Layer terms");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_storefront_block_does_not_revoke_paid_reading_but_book_hold_does() {
     let (pool, repo, owner, buyer, book) = setup("storefront-block").await;
     let (layer, version, offer_id) = offer(&repo, owner, book, 200, false).await;
