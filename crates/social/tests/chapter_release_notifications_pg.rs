@@ -14,6 +14,8 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .execute(&mut lock)
         .await
         .unwrap();
+    // Fixture IDs use a disposable high range rather than setval(), which
+    // the least-privileged tor_app role is correctly forbidden to call.
     let pool = PgPool::connect(&url).await.unwrap();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -30,7 +32,7 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     ] {
         let user: i64 = sqlx::query_scalar(
             "INSERT INTO users(id,email_normalized,display_name,password_hash)
-             VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+             VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                     $1,$2,'$argon2id$test') RETURNING id",
         )
         .bind(format!("s058-release-{role}-{nonce}@example.invalid"))
@@ -288,6 +290,8 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
         .execute(&mut lock)
         .await
         .unwrap();
+    // Fixture IDs use a disposable high range rather than setval(), which
+    // the least-privileged tor_app role is correctly forbidden to call.
     let pool = PgPool::connect(&url).await.unwrap();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -295,7 +299,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
         .as_nanos();
     let author: i64 = sqlx::query_scalar(
         "INSERT INTO users(id,email_normalized,display_name,password_hash)
-         VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+         VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                 $1,'G08 chapter author','$argon2id$test') RETURNING id",
     )
     .bind(format!("g08-author-{nonce}@example.invalid"))
@@ -316,7 +320,10 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     // A single SQL set avoids 501 sequential app-side creates and makes the
     // >2-page acceptance fast enough for the normal PostgreSQL CI lane.
     let mut readers: Vec<i64> = sqlx::query_scalar(
-        "WITH id_base AS (SELECT COALESCE(MAX(id),0) AS base FROM users)
+        "WITH id_base AS (
+           SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint) AS base
+           FROM users
+         )
          INSERT INTO users(id,email_normalized,display_name,password_hash)
          SELECT id_base.base + gs.n,
                 $1::text || '-' || gs.n::text || '@example.invalid',
@@ -410,7 +417,7 @@ async fn g_08_501_recipients_resume_without_duplicates_and_respect_leases() {
     .unwrap();
     let late: i64 = sqlx::query_scalar(
         "INSERT INTO users(id,email_normalized,display_name,password_hash)
-         VALUES((SELECT COALESCE(MAX(id),0)+1 FROM users),
+         VALUES((SELECT GREATEST(COALESCE(MAX(id),0),1000000000000::bigint)+1 FROM users),
                 $1,'Late reader','$argon2id$test') RETURNING id",
     )
     .bind(format!("ci-g08-late-{nonce}@example.invalid"))
