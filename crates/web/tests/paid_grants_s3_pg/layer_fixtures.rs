@@ -51,9 +51,7 @@ pub(super) async fn assert_layer_s3_grants(
         ),
     );
     let layer_page = format!("/read/layer/{chapter}");
-    let toc_page = format!(
-        "/api/v1/reader/layer/{chapter}/toc/window?after=1.{chapter}&limit=36",
-    );
+    let toc_page = format!("/api/v1/reader/layer/{chapter}/toc/window?after=1.{chapter}&limit=36",);
     assert_eq!(
         private_get(app, &toc_page, None).await.status(),
         StatusCode::UNAUTHORIZED,
@@ -145,11 +143,13 @@ pub(super) async fn assert_layer_s3_grants(
     assert!(!toc_body.to_string().contains(MARKDOWN));
     assert!(!toc_body.to_string().contains("purchase_id"));
     assert!(!toc_body.to_string().contains("dek_b64u"));
-    let invalid_cursor = format!(
-        "/api/v1/reader/layer/{chapter}/toc/window?after=2.{chapter}",
+    let invalid_cursor = format!("/api/v1/reader/layer/{chapter}/toc/window?after=2.{chapter}",);
+    assert_eq!(
+        private_get(app, &invalid_cursor, Some(cookie))
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
     );
-    assert_eq!(private_get(app, &invalid_cursor, Some(cookie)).await.status(),
-        StatusCode::UNPROCESSABLE_ENTITY);
 
     let mixed = post_grant(
         app,
@@ -231,8 +231,11 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(age_denied.status(), StatusCode::NOT_FOUND);
-    assert_eq!(private_get(app, &toc_page, Some(cookie)).await.status(),
-        StatusCode::NOT_FOUND, "age changes immediately close Layer navigation");
+    assert_eq!(
+        private_get(app, &toc_page, Some(cookie)).await.status(),
+        StatusCode::NOT_FOUND,
+        "age changes immediately close Layer navigation"
+    );
     assert_eq!(age_denied.headers()[header::CACHE_CONTROL], "no-store");
     assert!(
         to_bytes(age_denied.into_body(), 8192)
@@ -410,8 +413,11 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::FORBIDDEN,
         "revoked Layer must never receive a fresh browser reader shell"
     );
-    assert_eq!(private_get(app, &toc_page, Some(cookie)).await.status(),
-        StatusCode::FORBIDDEN, "revoked Layer cannot enumerate purchased chapters");
+    assert_eq!(
+        private_get(app, &toc_page, Some(cookie)).await.status(),
+        StatusCode::FORBIDDEN,
+        "revoked Layer cannot enumerate purchased chapters"
+    );
     let revoked_image =
         layer_asset_grant(app, chapter, cookie, csrf, r#"{"source":"layer"}"#).await;
     assert_eq!(revoked_image.status(), StatusCode::FORBIDDEN);
