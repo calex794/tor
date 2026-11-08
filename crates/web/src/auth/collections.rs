@@ -317,7 +317,11 @@ async fn delete(
         Ok(actor) => actor,
         Err(e) => return denied(e),
     };
-    match s.collections.delete_owned_collection(actor, id, f.expected_revision).await {
+    match s
+        .collections
+        .delete_owned_collection(actor, id, f.expected_revision)
+        .await
+    {
         Ok(_) => private_response(Redirect::to("/collections"), &[]),
         Err(e) => failed(e),
     }
