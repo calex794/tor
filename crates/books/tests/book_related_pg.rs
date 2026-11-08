@@ -448,8 +448,10 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     // available for older purchases; neither source nor target may be
     // rediscovered or newly relinked. Pending-deletion member management
     // remains covered separately above and must not be conflated with this.
-    sqlx::query("UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1")
-        .bind(b)
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
+    )
+    .bind(b)
         .execute(&pool)
         .await
         .unwrap();
@@ -503,8 +505,10 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
 
     // A completed deletion of the source freezes member settings and link
     // writes even though is_deleted stays FALSE for immutable entitlements.
-    sqlx::query("UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1")
-        .bind(a)
+    sqlx::query(
+        "UPDATE books SET lifecycle_status='ordinary_deleted',visibility='draft' WHERE id=$1",
+    )
+    .bind(a)
         .execute(&pool)
         .await
         .unwrap();
