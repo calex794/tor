@@ -3,7 +3,8 @@
 //! ownership change is serialized behind the same Book row.
 use super::{swap_owner_in_verified_transaction, TrustedTransferPermit};
 use crate::repositories::{
-    book_step_up::consume_book_step_up, owner_transfer_tier::verified_book_tier,
+    book_step_up::{consume_book_step_up, BookStepUpScope},
+    owner_transfer_tier::verified_book_tier,
 };
 use crate::services::authoring::AuthorError;
 use crate::services::owner_transfer_policy::{
@@ -187,8 +188,7 @@ impl PgOwnerTransfer {
             step_up_token,
             book_id,
             expected_owner,
-            OWNER_TRANSFER_SCOPE,
-            &payload,
+            BookStepUpScope { name: OWNER_TRANSFER_SCOPE, payload_digest: &payload },
         )
         .await
         .map_err(|_| AuthorError::Unavailable)?

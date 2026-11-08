@@ -8,6 +8,12 @@ use crate::services::security::{generate_session_token, session_token_digest, Ve
 pub const BOOK_TRANSFER_SCOPE: &str = "book.owner.transfer.v1";
 pub const BOOK_SHARES_SCOPE: &str = "book.revenue.shares.v1";
 
+/// A-owned scope and exact payload fingerprint bound to the fresh password proof.
+pub struct BookStepUpScope<'a> {
+    pub name: &'a str,
+    pub payload_digest: &'a [u8; 32],
+}
+
 impl PgAccounts {
     pub async fn issue_book_mutation_step_up(
         &self,
@@ -16,13 +22,12 @@ impl PgAccounts {
         verified_password: &VerifiedPassword,
         book_id: i64,
         revision: i64,
-        scope: &str,
-        payload_digest: &[u8; 32],
+        scope: BookStepUpScope<'_>,
     ) -> Result<String, StepUpIssueError> {
         if actor <= 0
             || book_id <= 0
             || revision <= 0
-            || !matches!(scope, BOOK_TRANSFER_SCOPE | BOOK_SHARES_SCOPE)
+            || !matches!(scope.name, BOOK_TRANSFER_SCOPE | BOOK_SHARES_SCOPE)
         {
             return Err(StepUpIssueError::InvalidIntent);
         }
@@ -75,10 +80,10 @@ impl PgAccounts {
         .bind(session_digest.as_slice())
         .bind(actor)
         .bind(digest.as_slice())
-        .bind(scope)
+        .bind(scope.name)
         .bind(book_id)
         .bind(revision)
-        .bind(payload_digest.as_slice())
+        .bind(scope.payload_digest.as_slice())
         .execute(&mut *tx)
         .await
         .map_err(|_| StepUpIssueError::Unavailable)?;

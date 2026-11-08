@@ -13,7 +13,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, fmt::Write};
 use tor_accounts::{
     repositories::{
-        book_step_up::{BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
+        book_step_up::{BookStepUpScope, BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
         step_up::StepUpIssueError,
     },
     services::security::{session_token_digest, verify_password_for_step_up, VerifiedPassword},
@@ -247,8 +247,7 @@ async fn transfer(
             &proof,
             id,
             form.expected_owner_id,
-            BOOK_TRANSFER_SCOPE,
-            &payload,
+            BookStepUpScope { name: BOOK_TRANSFER_SCOPE, payload_digest: &payload },
         )
         .await
     {
@@ -261,8 +260,7 @@ async fn transfer(
             id,
             form.expected_owner_id,
             &form.target_display_name,
-            &digest,
-            &token,
+            (&digest, &token),
         )
         .await
     {
@@ -354,8 +352,7 @@ async fn save_shares(
             &proof,
             id,
             expected_revision,
-            BOOK_SHARES_SCOPE,
-            &payload,
+            BookStepUpScope { name: BOOK_SHARES_SCOPE, payload_digest: &payload },
         )
         .await
     {

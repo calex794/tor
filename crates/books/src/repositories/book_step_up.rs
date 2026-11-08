@@ -3,6 +3,11 @@
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 
+pub(crate) struct BookStepUpScope<'a> {
+    pub name: &'a str,
+    pub payload_digest: &'a [u8; 32],
+}
+
 pub(crate) async fn consume_book_step_up(
     tx: &mut Transaction<'_, Postgres>,
     actor: i64,
@@ -10,13 +15,12 @@ pub(crate) async fn consume_book_step_up(
     token: &str,
     book: i64,
     revision: i64,
-    scope: &str,
-    payload_digest: &[u8; 32],
+    scope: BookStepUpScope<'_>,
 ) -> Result<bool, sqlx::Error> {
     if actor <= 0
         || book <= 0
         || revision <= 0
-        || !matches!(scope, "book.owner.transfer.v1" | "book.revenue.shares.v1")
+        || !matches!(scope.name, "book.owner.transfer.v1" | "book.revenue.shares.v1")
         || token.len() != 43
         || !token
             .bytes()
@@ -49,10 +53,10 @@ pub(crate) async fn consume_book_step_up(
     .bind(actor)
     .bind(session_digest.as_slice())
     .bind(hash.as_slice())
-    .bind(scope)
+    .bind(scope.name)
     .bind(book)
     .bind(revision)
-    .bind(payload_digest.as_slice())
+    .bind(scope.payload_digest.as_slice())
     .fetch_optional(&mut **tx)
     .await?;
     if valid != Some(true) {

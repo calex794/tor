@@ -13,7 +13,7 @@ use std::{
 };
 use tor_accounts::{
     repositories::{
-        book_step_up::{BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
+        book_step_up::{BookStepUpScope, BOOK_SHARES_SCOPE, BOOK_TRANSFER_SCOPE},
         PgAccounts,
     },
     services::security::{
@@ -106,8 +106,7 @@ async fn transfer_token(
             &verified,
             book,
             actor,
-            BOOK_TRANSFER_SCOPE,
-            &payload,
+            BookStepUpScope { name: BOOK_TRANSFER_SCOPE, payload_digest: &payload },
         )
         .await
         .unwrap()
@@ -260,8 +259,7 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
             &verified,
             book,
             1,
-            BOOK_SHARES_SCOPE,
-            &digest,
+            BookStepUpScope { name: BOOK_SHARES_SCOPE, payload_digest: &digest },
         )
         .await
         .unwrap();
@@ -273,8 +271,7 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
             1,
             &assignments,
             reason,
-            &session_token_digest(&to_session),
-            &share_token,
+            (&session_token_digest(&to_session), &share_token),
         )
         .await
         .unwrap();

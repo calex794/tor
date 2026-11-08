@@ -3,7 +3,7 @@
 //! Shares are distinct from Book role/ACL and from D's actual earnings.
 //! The Book FOR UPDATE lock is the same lock held by S030 owner transfer;
 //! D checkout holds FOR SHARE on the Book through settlement.
-use super::book_step_up::consume_book_step_up;
+use super::book_step_up::{consume_book_step_up, BookStepUpScope};
 use crate::domain::shares::{validate_schedule, RevenueShareError, ShareAssignment};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -54,8 +54,7 @@ impl PgRevenueShares {
         expected_revision: i64,
         assignments: &[ShareAssignment],
         reason: &str,
-        session_digest: &[u8; 32],
-        step_up_token: &str,
+        confirmation: (&[u8; 32], &str),
     ) -> Result<i64, RevenueShareError> {
         self.replace_schedule_inner(
             actor_id,
@@ -63,7 +62,7 @@ impl PgRevenueShares {
             expected_revision,
             assignments,
             reason,
-            Some((session_digest, step_up_token)),
+            Some(confirmation),
         )
         .await
     }
@@ -127,8 +126,7 @@ impl PgRevenueShares {
                 step_up_token,
                 book_id,
                 expected_revision,
-                SHARES_SCOPE,
-                &payload,
+                BookStepUpScope { name: SHARES_SCOPE, payload_digest: &payload },
             )
             .await
             .map_err(|_| RevenueShareError::Unavailable)?
