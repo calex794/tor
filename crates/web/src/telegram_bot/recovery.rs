@@ -1,5 +1,5 @@
 //! Telegram Bot API approval UI: comparison code only, no password reset secrets.
-use super::{BotCallback, BotConfig};
+use super::{BotCallback, BotConfig, PollLease};
 use reqwest::Client;
 use serde_json::json;
 use tor_accounts::repositories::PgAccounts;
@@ -18,11 +18,19 @@ fn decode_callback(data: &str) -> Option<(i64, bool)> {
     (request_id > 0).then_some((request_id, approve))
 }
 
-pub(super) async fn dispatch(client: &Client, send_endpoint: &str, accounts: &PgAccounts) {
+pub(super) async fn dispatch(
+    client: &Client,
+    send_endpoint: &str,
+    accounts: &PgAccounts,
+    lease: &PollLease,
+) -> bool {
     let Ok(queued) = accounts.pending_telegram_recovery_notifications().await else {
-        return;
+        return false;
     };
     for request in queued {
+        if !lease.renew(accounts).await {
+            return false;
+        }
         let text = format!(
             "TOR: запрошена смена пароля.\nКод сверки: {}.\n\
              Сверьте его с кодом на странице TOR. Действует 5 минут.\n\
@@ -57,9 +65,12 @@ pub(super) async fn dispatch(client: &Client, send_endpoint: &str, accounts: &Pg
             _ => false,
         };
         if delivered {
-            let _ = accounts.mark_telegram_recovery_notified(request.id).await;
+            if accounts.mark_telegram_recovery_notified(request.id).await.is_err() {
+                return false;
+            }
         }
     }
+    true
 }
 
 pub(super) async fn callback(
