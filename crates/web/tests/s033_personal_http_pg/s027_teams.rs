@@ -156,7 +156,10 @@ async fn s027_recipient_only_invites_idempotence_and_no_book_permissions() {
         "Team membership grants no Book ownership or paid entitlement"
     );
     assert_eq!(
-        send(&app,"POST",&invite_path,&owner_cookies,&invite_form).await.status(),
-        StatusCode::CONFLICT, "a member cannot be invited again"
+        send(&app, "POST", &invite_path, &owner_cookies, &invite_form)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "a member cannot be invited again"
     );
 }
