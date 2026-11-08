@@ -1985,6 +1985,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/me/library/saved/{id}/toc/window",
+      "source": "crates/web/src/auth/saved_free_chapters.rs",
+      "handler": "toc_window",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/settings/delete",
       "source": "crates/web/src/auth/book_ordinary_deletion.rs",
       "handler": "page",
