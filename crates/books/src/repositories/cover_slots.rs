@@ -12,7 +12,7 @@ impl PgCoverSlots {
     }
 
     pub async fn current_slot(&self, book_id: i64) -> Result<Option<(i64, i64)>, sqlx::Error> {
-        let row = sqlx::query("SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1")
+        let row = sqlx::query("SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1 AND NOT is_withdrawn")
             .bind(book_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -34,6 +34,7 @@ impl PgCoverSlots {
         sqlx::query_scalar(
             "SELECT CASE WHEN j.status='done' THEN
                  CASE
+                   WHEN r.state='approved' AND s.is_withdrawn THEN 'moderation_withdrawn'
                    WHEN r.state='approved' THEN 'moderation_approved'
                    WHEN r.state='rejected' THEN 'moderation_rejected'
                    WHEN r.state='superseded' THEN 'moderation_superseded'
@@ -183,7 +184,7 @@ impl PgCoverSlots {
         let row = sqlx::query(
             "SELECT v.storage_key,v.content_sha256,v.size_bytes,s.revision
              FROM books b
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=$2
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active' AND b.lifecycle_status<>'pending_deletion' AND b.access_level='basic'
