@@ -26,10 +26,11 @@ async fn fixture(name: &str) -> (PgRanking, PgPool, i64, [i64; 3]) {
     let mut ids = [0_i64; 3];
     for (index, id) in ids.iter_mut().enumerate() {
         *id = sqlx::query_scalar(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES($1,'ru',$2,'public')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES($1,'ru',$2,'public','basic')
              ON CONFLICT(source_identity,target_language)
-             DO UPDATE SET title=EXCLUDED.title,visibility='public' RETURNING id",
+             DO UPDATE SET title=EXCLUDED.title,visibility='public',
+               access_level='basic' RETURNING id",
         )
         .bind(format!("ci:f05:ranking:{name}:{index}"))
         .bind(format!("Книга {index}"))
@@ -56,6 +57,73 @@ async fn seeded(repo: &PgRanking, uid: i64, ids: &[i64; 3]) -> RankingSnapshot {
         .unwrap();
     assert_eq!(second.status, Some(AnswerStatus::Placing));
     second.snapshot
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_05_pg_s020_ranked_titles_recheck_age_without_erasing_history() {
+    let (repo, pool, uid, ids) = fixture("s020-age-rank").await;
+    repo.apply(uid, 0, RankingCommand::StartVerified(ids[0]))
+        .await
+        .unwrap();
+    let history = repo.snapshot(uid).await.unwrap();
+    assert_eq!(repo.visible_ranks(uid).await.unwrap().len(), 1);
+
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.visible_ranks(uid).await.unwrap().len(), 1);
+
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.visible_ranks(uid).await.unwrap().len(), 1);
+
+    sqlx::query(
+        "UPDATE user_level_grants SET is_active=FALSE
+         WHERE user_id=$1 AND level='pro_adult'",
+    )
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.visible_ranks(uid).await.unwrap().is_empty());
+    assert_eq!(
+        repo.snapshot(uid).await.unwrap(),
+        history,
+        "age denial must not destroy the reader's existing ranking"
+    );
+    pool.close().await;
 }
 
 #[tokio::test]
