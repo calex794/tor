@@ -105,7 +105,11 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     .await
     .unwrap();
     let outbox = PgOutbox::new(pool.clone());
-    let first = outbox.claim_next_for_consumer("G07Test", "g07-target").await.unwrap().unwrap();
+    let first = outbox
+        .claim_next_for_consumer("G07Test", "g07-target")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(first.id, event_id);
     sqlx::query(
         "UPDATE outbox_events SET lease_until=now()-interval '1 second'
@@ -115,7 +119,11 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     .execute(&pool)
     .await
     .unwrap();
-    let second = outbox.claim_next_for_consumer("G07Test", "g07-target").await.unwrap().unwrap();
+    let second = outbox
+        .claim_next_for_consumer("G07Test", "g07-target")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(second.id, event_id);
     assert_eq!(second.lease_epoch, first.lease_epoch + 1);
     assert_eq!(
@@ -158,7 +166,11 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
     .unwrap();
 
     let outbox = PgOutbox::new(pool.clone());
-    let first = outbox.claim_next_for_consumer("G07RetryTest", "g07-one").await.unwrap().unwrap();
+    let first = outbox
+        .claim_next_for_consumer("G07RetryTest", "g07-one")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(first.id, event_id);
     assert!(!outbox
         .acknowledge(&event_id, first.lease_epoch, "g07-one")
@@ -205,7 +217,11 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
     .execute(&pool)
     .await
     .unwrap();
-    let second = outbox.claim_next_for_consumer("G07RetryTest", "g07-two").await.unwrap().unwrap();
+    let second = outbox
+        .claim_next_for_consumer("G07RetryTest", "g07-two")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(second.id, event_id);
     assert_eq!(second.lease_epoch, first.lease_epoch + 1);
     assert!(outbox
@@ -242,7 +258,11 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let first = outbox.claim_next_for_consumer("G07DeadTest", "g07-failed").await.unwrap().unwrap();
+    let first = outbox
+        .claim_next_for_consumer("G07DeadTest", "g07-failed")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(first.id, first_id);
     assert_eq!(
         outbox
@@ -269,7 +289,11 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let last = outbox.claim_next_for_consumer("G07LastTest", "g07-last").await.unwrap().unwrap();
+    let last = outbox
+        .claim_next_for_consumer("G07LastTest", "g07-last")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(last.id, last_id);
     assert_eq!(
         outbox
