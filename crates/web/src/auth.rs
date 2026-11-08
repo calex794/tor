@@ -282,10 +282,7 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
-        .route(
-            "/mail/groups",
-            get(group_mail::index).post(group_mail::create),
-        )
+        .route("/mail/groups", get(group_mail::index).post(group_mail::create))
         .route("/mail/groups/{id}", get(group_mail::detail))
         .route(
             "/mail/groups/{id}/messages",
@@ -298,10 +295,7 @@ fn router_inner(
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))
         .route("/books/{id}/room/leave", post(book_rooms::leave))
-        .route(
-            "/api/v1/me/messages",
-            get(mail_api::get).post(mail_api::post),
-        )
+        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
@@ -314,16 +308,10 @@ fn router_inner(
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
-        .route(
-            "/me/replies/{id}/read-state",
-            post(reply_read_state::submit),
-        )
+        .route("/me/replies/{id}/read-state", post(reply_read_state::submit))
         .route("/me/library", get(library_page::my_library))
         .merge(saved_free_chapters::router())
-        .route(
-            "/me/updates/{id}/read-state",
-            post(follow_read_state::submit),
-        )
+        .route("/me/updates/{id}/read-state", post(follow_read_state::submit))
         .route("/me/rankings", get(rankings::page))
         .route(
             "/books/{id}/like",
