@@ -101,9 +101,18 @@ impl PgRanking {
         }
         let rows = sqlx::query(
             "SELECT b.id,b.title,r.tier,r.comparisons_count
-             FROM user_book_rank AS r JOIN books AS b ON b.id=r.book_id
+             FROM user_book_rank AS r
+             JOIN books AS b ON b.id=r.book_id
+             JOIN users AS u ON u.id=r.user_id AND u.account_state='active'
              WHERE r.user_id=$1
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND u.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants AS age
+                   WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active
+                 )))
              ORDER BY r.tier ASC,b.id::text ASC LIMIT 500",
         )
         .bind(user_id)
@@ -179,15 +188,27 @@ impl PgRanking {
             let question = before
                 .next_question()?
                 .ok_or(RankingStoreError::Exhausted)?;
-            // Lock both visible book rows until commit: revocation cannot race
-            // with an accepted comparison on a hidden/held/deleted book.
+            // Lock both Book rows and the actor's age facts in the same
+            // transaction as the comparison write. A stale form cannot answer
+            // a pair after 18+/21+ revocation, even if the ranking is retained.
             let allowed: Vec<i64> = sqlx::query_scalar(
-                "SELECT id FROM books WHERE id IN ($1,$2)
-                 AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
-                 FOR SHARE",
+                "SELECT b.id FROM books AS b
+                 JOIN users AS u ON u.id=$3 AND u.account_state='active'
+                 WHERE b.id IN ($1,$2)
+                   AND b.visibility='public' AND b.visibility_status='active'
+                   AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND (b.access_level='basic'
+                     OR (b.access_level='adult' AND u.adult_enabled)
+                     OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants AS age
+                       WHERE age.user_id=u.id AND age.level='pro_adult'
+                         AND age.is_active FOR SHARE OF age
+                     )))
+                 FOR SHARE OF b,u",
             )
             .bind(question.book_a_id)
             .bind(question.book_b_id)
+            .bind(user_id)
             .fetch_all(&mut *tx)
             .await?;
             if allowed.len() != 2 {

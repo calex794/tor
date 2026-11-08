@@ -16,6 +16,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tor_recommendations::repositories::{PgRanking, RankingCommand};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -100,6 +101,18 @@ async fn library_has_book(app: &Router, cookie: &str, book: i64) -> bool {
     assert_eq!(status, StatusCode::OK);
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     json["items"].as_array().unwrap().iter().any(|item| {
+        item["book_id"]
+            .as_str()
+            .and_then(|raw| raw.parse::<i64>().ok())
+            == Some(book)
+    })
+}
+
+async fn ranking_has_book(app: &Router, cookie: &str, book: i64) -> bool {
+    let (status, body) = page(app, "/api/v1/me/rankings", cookie).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    json["ranked_books"].as_array().unwrap().iter().any(|item| {
         item["book_id"]
             .as_str()
             .and_then(|raw| raw.parse::<i64>().ok())
@@ -221,6 +234,18 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
             ),
         );
     }
+    // A second BASIC book keeps a real unfinished F-05 pair while this
+    // previously ranked Book is promoted through 18+/21+.
+    let rank_peer: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,owner_user_id,visibility,access_level)
+             VALUES('ci:s020:age:rank-peer:{marker}','ru','S020 ranking peer', {owner}, 'public', 'basic')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
     let free_path = format!("/reader/{free}");
     let paid_path = format!("/reader/{paid}");
     let toc_path = format!("/api/v1/books/{book}/toc");
@@ -277,6 +302,20 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
     );
     std::env::remove_var("TOR_S020_ACCESS_EDITOR_ENABLED");
 
+    let ranking = PgRanking::new(pool.clone());
+    let ranked = ranking
+        .apply(outsider, 0, RankingCommand::StartVerified(book))
+        .await
+        .unwrap();
+    ranking
+        .apply(
+            outsider,
+            ranked.snapshot.revision,
+            RankingCommand::StartVerified(rank_peer),
+        )
+        .await
+        .unwrap();
+
     assert_eq!(get(&app, &path, "").await, StatusCode::SEE_OTHER);
     assert_eq!(get(&app, &path, &owner_cookie).await, StatusCode::OK);
     assert_eq!(
@@ -296,6 +335,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         StatusCode::SEE_OTHER
     );
     assert!(library_has_book(&app, &stranger_cookie, book).await);
+    assert!(ranking_has_book(&app, &stranger_cookie, book).await);
     let (free_status, free_html) = page(&app, &free_path, "").await;
     assert_eq!(free_status, StatusCode::OK);
     assert!(free_html.contains(&free_marker));
@@ -377,6 +417,11 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
+    assert!(!ranking_has_book(&app, &stranger_cookie, book).await);
+    let (rank_code, rank_body) = page(&app, "/api/v1/me/rankings", &stranger_cookie).await;
+    assert_eq!(rank_code, StatusCode::OK);
+    assert!(rank_body.contains("\"state\":\"restricted\""));
+    assert!(!rank_body.contains("S020 guarded Book"));
     let (denied, denied_html) = page(&app, &free_path, "").await;
     assert_eq!(denied, StatusCode::NOT_FOUND);
     assert!(!denied_html.contains(&free_marker));
@@ -399,6 +444,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
     }
     assert!(library_has_book(&app, &stranger_cookie, book).await);
+    assert!(ranking_has_book(&app, &stranger_cookie, book).await);
     assert_eq!(
         submit(
             &app,
@@ -465,6 +511,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
+    assert!(!ranking_has_book(&app, &stranger_cookie, book).await);
     for candidate in [&public, &toc_path, &free_path, &paid_path] {
         assert_eq!(
             get(&app, candidate, &stranger_cookie).await,
@@ -493,6 +540,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         assert_eq!(get(&app, candidate, &stranger_cookie).await, StatusCode::OK);
     }
     assert!(library_has_book(&app, &stranger_cookie, book).await);
+    assert!(ranking_has_book(&app, &stranger_cookie, book).await);
     pg(
         &url,
         &format!(
@@ -517,6 +565,7 @@ async fn s020_age_editor_is_off_by_default_and_monotonic_under_live_http() {
         );
     }
     assert!(!library_has_book(&app, &stranger_cookie, book).await);
+    assert!(!ranking_has_book(&app, &stranger_cookie, book).await);
     // Revocation closes reader access; the signed-in Book settings permission
     // is independent of reader age eligibility.
     pg(
