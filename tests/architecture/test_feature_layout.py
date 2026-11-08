@@ -130,6 +130,22 @@ class FeatureLayoutTests(unittest.TestCase):
         self.put(path, "use tor_reading::repositories::DeliveryMode;\n")
         self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
 
+    def test_public_reader_uses_service_comment_view(self):
+        self.scaffold()
+        path = "crates/web/src/pages/reader_free.rs"
+        self.put(path, "use tor_discussions::services::public_chapter_comments::ChapterCommentPage;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_discussions::repositories::public_chapter_comments::ChapterCommentPage;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_public_comment_page_uses_service_view_in_render_and_tests(self):
+        self.scaffold()
+        path = "crates/web/src/pages/reader_free_comments.rs"
+        self.put(path, "use tor_discussions::services::public_chapter_comments::{ChapterComment, ChapterCommentPage};\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_discussions::repositories::public_chapter_comments::ChapterCommentPage;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
     def test_web_router_may_wire_repository(self):
         self.scaffold()
         self.put("crates/web/src/router.rs", "use tor_books::repositories::PgCatalog;\n")
