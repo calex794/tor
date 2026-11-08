@@ -81,7 +81,7 @@ SCOPE_CALLS = {
     "moderation_registration_queue_filtered", "moderation_registration_queue_with_access_level",
     "moderation_registration_queue_with_wait_age",
     "moderate_book_registration", "private_book_registration_approver",
-    "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
+    "mailbox", "messages", "send", "send_html", "send_to_peer", "start", "inbox", "receiver_action",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
 OWNER_CALLS = {
