@@ -190,7 +190,8 @@ impl PollLease {
 }
 
 async fn supervise(client: Client, accounts: PgAccounts, cfg: BotConfig) {
-    let Some(bot_id) = cfg.token
+    let Some(bot_id) = cfg
+        .token
         .split_once(':')
         .and_then(|(id, _)| id.parse::<i64>().ok())
         .filter(|id| *id > 0)
@@ -215,7 +216,11 @@ async fn supervise(client: Client, accounts: PgAccounts, cfg: BotConfig) {
             continue;
         }
         let lease = match accounts.claim_telegram_poller(bot_id, &owner).await {
-            Ok(Some(epoch)) => PollLease { bot_id, owner, epoch },
+            Ok(Some(epoch)) => PollLease {
+                bot_id,
+                owner,
+                epoch,
+            },
             Ok(None) => {
                 // Another TOR replica currently owns this bot's updates.
                 tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
@@ -318,7 +323,8 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, l
     let mut offset = 0_i64;
     let mut consecutive_failures = 0_u8;
     loop {
-        if !lease.renew(accounts).await || !recovery::dispatch(client, &send, accounts, lease).await {
+        if !lease.renew(accounts).await || !recovery::dispatch(client, &send, accounts, lease).await
+        {
             return;
         }
         // A long-poll is permitted only while this DB-fenced lease is live.

@@ -836,23 +836,40 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
         (&owner_b, &owner_a, b.unwrap())
     };
     assert!(!accounts
-        .renew_telegram_poller(bot_id, loser, epoch).await.unwrap());
+        .renew_telegram_poller(bot_id, loser, epoch)
+        .await
+        .unwrap());
     assert!(accounts
-        .renew_telegram_poller(bot_id, winner, epoch).await.unwrap());
+        .renew_telegram_poller(bot_id, winner, epoch)
+        .await
+        .unwrap());
     assert!(!accounts
-        .release_telegram_poller(bot_id, loser, epoch).await.unwrap());
+        .release_telegram_poller(bot_id, loser, epoch)
+        .await
+        .unwrap());
     assert!(accounts
-        .release_telegram_poller(bot_id, winner, epoch).await.unwrap());
+        .release_telegram_poller(bot_id, winner, epoch)
+        .await
+        .unwrap());
 
-    let next = accounts.claim_telegram_poller(bot_id, loser)
-        .await.unwrap().unwrap();
+    let next = accounts
+        .claim_telegram_poller(bot_id, loser)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(next > epoch, "lease generations must never reset");
     assert!(!accounts
-        .renew_telegram_poller(bot_id, winner, epoch).await.unwrap());
+        .renew_telegram_poller(bot_id, winner, epoch)
+        .await
+        .unwrap());
     assert!(!accounts
-        .release_telegram_poller(bot_id, winner, epoch).await.unwrap());
+        .release_telegram_poller(bot_id, winner, epoch)
+        .await
+        .unwrap());
     assert!(accounts
-        .renew_telegram_poller(bot_id, loser, next).await.unwrap());
+        .renew_telegram_poller(bot_id, loser, next)
+        .await
+        .unwrap());
 
     // Simulate a crashed/paused worker expiring. A stale renewal must fail.
     sqlx::query(
@@ -862,16 +879,28 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
     )
     .bind(bot_id)
     .execute(accounts.pool())
-    .await.unwrap();
+    .await
+    .unwrap();
     assert!(!accounts
-        .renew_telegram_poller(bot_id, loser, next).await.unwrap());
-    let recovered = accounts.claim_telegram_poller(bot_id, winner)
-        .await.unwrap().unwrap();
+        .renew_telegram_poller(bot_id, loser, next)
+        .await
+        .unwrap());
+    let recovered = accounts
+        .claim_telegram_poller(bot_id, winner)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(recovered > next);
     assert!(!accounts
-        .release_telegram_poller(bot_id, loser, next).await.unwrap());
+        .release_telegram_poller(bot_id, loser, next)
+        .await
+        .unwrap());
     assert!(accounts
-        .renew_telegram_poller(bot_id, winner, recovered).await.unwrap());
+        .renew_telegram_poller(bot_id, winner, recovered)
+        .await
+        .unwrap());
     assert!(accounts
-        .release_telegram_poller(bot_id, winner, recovered).await.unwrap());
+        .release_telegram_poller(bot_id, winner, recovered)
+        .await
+        .unwrap());
 }
