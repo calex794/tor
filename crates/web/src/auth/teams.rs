@@ -26,6 +26,8 @@ use tor_books::{
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
 
+mod analytics;
+
 #[derive(Clone)]
 struct TeamState {
     accounts: PgAccounts,
@@ -73,6 +75,8 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/me/teams", get(index).post(create))
         .route("/me/teams/{id}", get(detail))
+        .route("/me/teams/{id}/analytics", get(analytics::page))
+        .route("/me/teams/{id}/analytics.csv", get(analytics::export))
         .route("/me/teams/{id}/books", get(books_page).post(add_book))
         .route("/me/teams/{id}/books/{book_id}/remove", post(remove_book))
         .route(
@@ -163,11 +167,13 @@ fn detail_html(team: &TranslationTeam, csrf: &str) -> String {
          <button class=\"button\" type=\"submit\">Создать приглашение</button></form>\
          <p>Ссылка появляется один раз. Передайте её приглашённому самостоятельно.</p>\
          <p><a href=\"/me/teams/{}/books\">Книги команды</a></p>\
+         <p><a href=\"/me/teams/{}/analytics\">Аналитика команды</a></p>\
          <p><a href=\"/me/teams\">Все команды</a></p></div></section>",
         escape_html(&team.name),
         escape_html(&team.description),
         team.id,
         escape_html(csrf),
+        team.id,
         team.id
     )
 }
@@ -293,8 +299,10 @@ async fn detail(
                     "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
                  <p>Вы участник команды. Права на книги назначаются отдельно.</p>\
                  <a href=\"/me/teams/{}/books\">Книги команды</a>\
+                 <a href=\"/me/teams/{}/analytics\">Аналитика команды</a>\
                  <a href=\"/me/teams\">Все команды</a></div></section>",
                     escape_html(&name),
+                    team_id,
                     team_id
                 ),
                 &[],
