@@ -170,7 +170,7 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     // recommendation target. Historical links stay stored for old rights.
     sql(
         &url,
-        &format!("UPDATE books SET lifecycle_status='ordinary_deleted' WHERE id={target}"),
+        &format!("UPDATE books SET lifecycle_status='ordinary_deleted', visibility='draft' WHERE id={target}"),
     );
     let (status, ordinary_target) = page(app.clone(), source).await;
     assert_eq!(status, StatusCode::OK);
@@ -178,7 +178,7 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert!(!ordinary_target.contains(&format!("Том {stamp}")));
     sql(
         &url,
-        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={target}"),
+        &format!("UPDATE books SET lifecycle_status='in_progress', visibility='public' WHERE id={target}"),
     );
     assert!(page(app.clone(), source)
         .await
@@ -187,7 +187,7 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
 
     sql(
         &url,
-        &format!("UPDATE books SET lifecycle_status='ordinary_deleted' WHERE id={source}"),
+        &format!("UPDATE books SET lifecycle_status='ordinary_deleted', visibility='draft' WHERE id={source}"),
     );
     // Do not assert source direct-read status: a saved purchase can still
     // have a separate historical-reader entitlement.
@@ -196,7 +196,7 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert!(!ordinary_source.contains(&format!("href=\"/books/{source}\"")));
     sql(
         &url,
-        &format!("UPDATE books SET lifecycle_status='in_progress' WHERE id={source}"),
+        &format!("UPDATE books SET lifecycle_status='in_progress', visibility='public' WHERE id={source}"),
     );
 
     let (unlinked_status, unlinked_page) = page(app.clone(), unlinked).await;
