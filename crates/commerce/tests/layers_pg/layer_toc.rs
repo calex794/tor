@@ -3,10 +3,9 @@
 use super::*;
 use tor_commerce::{
     repositories::layer_entitlements::{
-        toc::{LayerTocAccess, LayerTocAnchor},
         PgLayerChapterEntitlements,
     },
-    services::reader_views::{MixedTocCursor, MixedTocSide},
+    services::reader_views::{LayerTocAccess, LayerTocAnchor, MixedTocCursor, MixedTocSide},
 };
 use tor_contracts::paid_delivery::DeliveryError;
 

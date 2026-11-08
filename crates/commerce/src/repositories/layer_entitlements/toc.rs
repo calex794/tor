@@ -2,36 +2,10 @@
 //! Every paid chapter is independently authorized by the same Layer policy
 //! that gates its encrypted delivery, rather than by book membership alone.
 use super::*;
-use crate::services::reader_views::{MixedTocCursor, MixedTocSide};
+use crate::services::reader_views::{
+    LayerTocAccess, LayerTocAnchor, LayerTocChapter, LayerTocWindow, MixedTocCursor, MixedTocSide,
+};
 use sqlx::Row;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LayerTocAnchor {
-    pub chapter_id: i64,
-    pub chapter_no: i32,
-    pub chapter_title: String,
-    pub book_title: String,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LayerTocAccess {
-    Subscription,
-    PublicFree,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LayerTocChapter {
-    pub chapter_id: i64,
-    pub chapter_no: i32,
-    pub title: String,
-    pub access: LayerTocAccess,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LayerTocWindow {
-    pub chapters: Vec<LayerTocChapter>,
-    pub next_cursor: Option<String>,
-}
 
 impl PgLayerChapterEntitlements {
     /// Resolve the actual chapter number and names only after live D Layer

@@ -2,7 +2,7 @@
 //! Only metadata authorized by the Layer repository reaches this HTML.
 use crate::pages::escape_html;
 use axum::response::Html;
-use tor_commerce::repositories::layer_entitlements::toc::LayerTocAnchor;
+use tor_commerce::services::reader_views::LayerTocAnchor;
 
 pub fn layer_reader_shell(
     anchor: &LayerTocAnchor,

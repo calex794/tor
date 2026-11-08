@@ -3,8 +3,7 @@
 use super::*;
 use serde::Serialize;
 use tor_commerce::{
-    repositories::layer_entitlements::toc::LayerTocAccess,
-    services::reader_views::{MixedTocCursor, MixedTocSide},
+    services::reader_views::{LayerTocAccess, MixedTocCursor, MixedTocSide},
 };
 
 #[derive(Deserialize)]
