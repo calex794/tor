@@ -449,9 +449,9 @@ async fn books_page(
         Err(error) => return team_error(error),
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
-    let mut html = format!(
+    let mut html = String::from(
         "<section class=\"section\"><div class=\"container\"><h1>Книги команды</h1>\
-         <p>Это список проектов. Он не открывает главы и не меняет владельца книги.</p><ul>"
+         <p>Это список проектов. Он не открывает главы и не меняет владельца книги.</p><ul>",
     );
     for book in &view.linked {
         write!(html, "<li>{} (#{})", escape_html(&book.title), book.id).expect("HTML");
