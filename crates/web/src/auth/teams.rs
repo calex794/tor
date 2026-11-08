@@ -15,7 +15,7 @@ use serde::Deserialize;
 use std::fmt::Write;
 use tor_accounts::{repositories::PgAccounts, services::security::{session_token_digest, generate_session_token}};
 use tor_books::{
-    repositories::translation_teams::PgTranslationTeams,
+    repositories::{translation_teams::PgTranslationTeams, translation_team_invites::PgTeamInvites},
     services::translation_teams::{TeamError, TeamService, TranslationTeam},
 };
 
@@ -23,6 +23,7 @@ use tor_books::{
 struct TeamState {
     accounts: PgAccounts,
     teams: TeamService,
+    invites: PgTeamInvites,
     cookies: CookiePolicy,
 }
 
@@ -49,6 +50,7 @@ struct DecisionForm {
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let state = TeamState {
         teams: TeamService::new(PgTranslationTeams::new(accounts.pool().clone())),
+        invites: PgTeamInvites::new(accounts.pool().clone()),
         accounts,
         cookies,
     };
@@ -131,13 +133,12 @@ fn list_html(teams: &[TranslationTeam], csrf: &str) -> String {
 fn detail_html(team: &TranslationTeam, csrf: &str) -> String {
     format!(
         "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
-         <p>{}</p><p>Вы владелец команды. Приглашения и книги будут доступны \
-         после отдельной проверки прав.</p>\
+         <p>{}</p><p>Вы владелец команды. Членство не даёт прав на книги.</p>\
          <h2>Пригласить участника</h2>\
-         <form method="post" action="/me/teams/{}/invites">\
-         <label>Электронная почта<input name="recipient_email" type="email" required maxlength="320"></label>\
-         <input type="hidden" name="csrf_token" value="{}">\
-         <button class="button" type="submit">Создать приглашение</button></form>\
+         <form method=\"post\" action=\"/me/teams/{}/invites\">\
+         <label>Электронная почта<input name=\"recipient_email\" type=\"email\" required maxlength=\"320\"></label>\
+         <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+         <button class=\"button\" type=\"submit\">Создать приглашение</button></form>\
          <p>Ссылка появляется один раз. Передайте её приглашённому самостоятельно.</p>\
          <p><a href=\"/me/teams\">Все команды</a></p></div></section>",
         escape_html(&team.name),
