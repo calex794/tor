@@ -114,15 +114,20 @@ impl PgAccounts {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, private_chat_id, match_code)| TelegramRecoveryDispatch {
-                id,
-                private_chat_id,
-                match_code,
-            })
+            .map(
+                |(id, private_chat_id, match_code)| TelegramRecoveryDispatch {
+                    id,
+                    private_chat_id,
+                    match_code,
+                },
+            )
             .collect())
     }
 
-    pub async fn mark_telegram_recovery_notified(&self, request_id: i64) -> Result<(), sqlx::Error> {
+    pub async fn mark_telegram_recovery_notified(
+        &self,
+        request_id: i64,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE account_telegram_recovery_requests SET notified_at=now()
              WHERE id=$1 AND status='pending' AND expires_at>now()

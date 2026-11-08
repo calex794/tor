@@ -1,9 +1,6 @@
 //! A/S004: browser-initiated Telegram challenge and browser-only reset exchange.
 use super::{login_limiter, AuthState};
-use crate::{
-    auth_cookies::private_response,
-    pages,
-};
+use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{ConnectInfo, Form, State},
     http::{HeaderMap, StatusCode},
@@ -47,11 +44,9 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         None
     };
     let content = match view {
-        Some(request) => pages::telegram_request::challenge(
-            &csrf,
-            &request.match_code,
-            &request.status,
-        ),
+        Some(request) => {
+            pages::telegram_request::challenge(&csrf, &request.match_code, &request.status)
+        }
         None => pages::telegram_request::begin_form(&csrf),
     };
     private_response(content, &cookies)
@@ -127,14 +122,8 @@ pub(super) async fn complete(
     let Some(browser_secret) = state.cookies.telegram_recovery_token(&headers) else {
         return private_response(StatusCode::CONFLICT, &[]);
     };
-    if let Err(status) = login_limiter::limit(
-        &state,
-        "telegram-complete",
-        &browser_secret,
-        &headers,
-        peer,
-    )
-    .await
+    if let Err(status) =
+        login_limiter::limit(&state, "telegram-complete", &browser_secret, &headers, peer).await
     {
         return private_response(status, &[]);
     }

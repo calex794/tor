@@ -377,6 +377,4 @@ impl PgAccounts {
         .await?;
         Ok(receipt.is_some())
     }
-
-
 }
