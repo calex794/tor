@@ -65,7 +65,7 @@ pub(super) async fn page(
     }
     // Re-check the concrete current Layer chapter, not a book-level flag.
     let window = match state.layer
-        .toc_window(actor_id, chapter_id, cursor, side, limit).await {
+        .layer_toc_window(actor_id, chapter_id, cursor, side, limit).await {
         Ok(page) => page,
         Err(error) => return deny(status(error)),
     };
