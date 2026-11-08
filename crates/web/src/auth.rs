@@ -427,7 +427,7 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(session_security::logout))
+        .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -590,4 +590,7 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+}
+async fn logout(state: State<AuthState>, headers: HeaderMap, form: Form<LogoutForm>) -> Response {
+    session_security::logout(state, headers, form).await
 }

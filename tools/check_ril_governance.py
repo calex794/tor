@@ -300,7 +300,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if (entry["source"] == "crates/web/src/auth.rs"
             and (entry["method"], entry["template"], entry["handler"])
             == ("POST", "/logout", "logout")
-            and "session_security::logout(State(state), headers, Form(form)).await" in body):
+            and ("session_security::logout(State(state), headers, Form(form)).await" in body
+                 or "session_security::logout(state, headers, form).await" in body)):
         sibling = ROOT / "crates/web/src/auth/session_security.rs"
         caller = _functions(sibling.read_text(encoding="utf-8")).get("logout", "")
         if ("state.cookies.same_origin(&headers)" in caller
