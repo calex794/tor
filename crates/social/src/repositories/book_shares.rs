@@ -1,10 +1,6 @@
 //! S016/S017. Direct book recommendations never grant ownership or chapter access.
 use super::mail::{blocked, pair_lock};
 use sqlx::{PgPool, Row};
-use tor_accounts::{
-    domain::access_level::EffectiveUserTier,
-    repositories::access_levels::verified_effective_user_tier,
-};
 
 #[derive(Clone)]
 pub struct PgBookShares {
@@ -43,13 +39,13 @@ pub struct ReceivedBookShare {
     pub message: String,
 }
 
-// This must also match the actual public reader policy. A live pro_adult grant
-// does not independently turn on the adult opt-in flag for an 18+ Book.
-fn tier_allows(book_level: &str, user_tier: EffectiveUserTier, adult_enabled: bool) -> bool {
+// Match the live public reader. An active 21+ grant does not independently
+// enable the separate 18+ opt-in. This function never grants reading rights.
+fn tier_allows(book_level: &str, adult_enabled: bool, pro_adult_grant: bool) -> bool {
     match book_level {
         "basic" => true,
-        "adult" => adult_enabled && user_tier >= EffectiveUserTier::Adult,
-        "pro_adult" => user_tier == EffectiveUserTier::ProAdult,
+        "adult" => adult_enabled,
+        "pro_adult" => pro_adult_grant,
         _ => false,
     }
 }
@@ -230,16 +226,27 @@ impl PgBookShares {
         if muted {
             return Err(BookShareError::Forbidden);
         }
-        // A verifies effective tiers from the locked account and live grant
-        // rows. The 18+ opt-in requirement also mirrors the public reader.
-        let sender_tier = verified_effective_user_tier(&mut tx, sender)
-            .await?
-            .ok_or(BookShareError::NotFound)?;
-        let recipient_tier = verified_effective_user_tier(&mut tx, recipient)
-            .await?
-            .ok_or(BookShareError::NotFound)?;
-        if !tier_allows(&book_level, sender_tier, sender_adult)
-            || !tier_allows(&book_level, recipient_tier, recipient_adult)
+        // Age facts come from A-owned tables, never the browser. Lock live
+        // grants until commit, so moderation revocation cannot race delivery.
+        // Lock in canonical user-ID order just like the account quota rows.
+        let mut sender_pro_adult = false;
+        let mut recipient_pro_adult = false;
+        for user_id in [sender.min(recipient), sender.max(recipient)] {
+            let grant: Option<i64> = sqlx::query_scalar(
+                "SELECT user_id FROM user_level_grants
+                 WHERE user_id=$1 AND level='pro_adult' AND is_active FOR SHARE",
+            )
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if user_id == sender {
+                sender_pro_adult = grant.is_some();
+            } else {
+                recipient_pro_adult = grant.is_some();
+            }
+        }
+        if !tier_allows(&book_level, sender_adult, sender_pro_adult)
+            || !tier_allows(&book_level, recipient_adult, recipient_pro_adult)
         {
             return Err(BookShareError::NotFound);
         }
