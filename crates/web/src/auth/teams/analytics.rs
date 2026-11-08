@@ -21,7 +21,9 @@ pub(super) struct ReportQuery {
     book_id: Option<String>,
 }
 
-fn selected_book_id(query: &ReportQuery) -> Result<Option<i64>, tor_books::services::translation_teams::TeamError> {
+fn selected_book_id(
+    query: &ReportQuery,
+) -> Result<Option<i64>, tor_books::services::translation_teams::TeamError> {
     use tor_books::services::translation_teams::TeamError;
     match query.book_id.as_deref() {
         None | Some("") => Ok(None),
@@ -53,7 +55,12 @@ async fn load(
         .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
     let period = TeamPeriod::parse(query.period.as_deref()).map_err(team_error)?;
     let report = PgTeamAnalytics::new(state.accounts.pool().clone())
-        .report(actor, team_id, selected_book_id(query).map_err(team_error)?, period)
+        .report(
+            actor,
+            team_id,
+            selected_book_id(query).map_err(team_error)?,
+            period,
+        )
         .await
         .map_err(team_error)?;
     Ok((report, actor))
@@ -244,13 +251,15 @@ mod tests {
             selected_book_id(&ReportQuery {
                 period: None,
                 book_id: Some(String::new()),
-            }).unwrap(),
+            })
+            .unwrap(),
             None
         );
         assert!(selected_book_id(&ReportQuery {
             period: None,
             book_id: Some("-1".to_owned()),
-        }).is_err());
+        })
+        .is_err());
         assert_eq!(csv_text("=SUM(A1)"), "\"'=SUM(A1)\"");
         assert_eq!(csv_text("  +evil"), "\"'  +evil\"");
         assert_eq!(csv_text("Hello \"Team\""), "\"Hello \"\"Team\"\"\"");
