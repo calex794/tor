@@ -30,8 +30,7 @@ const VISIBLE_CHAPTERS: &str = "\
                     AND ag.is_active))) \
       ))";
 
-const CHAPTER_FIELDS: &str =
-    "SELECT c.id, c.chapter_no, c.title, c.access_level, c.price_amount ";
+const CHAPTER_FIELDS: &str = "SELECT c.id, c.chapter_no, c.title, c.access_level, c.price_amount ";
 
 fn chapter_from_row(row: PgRow) -> Result<PublicChapterLink, ReadingError> {
     Ok(PublicChapterLink {
@@ -119,18 +118,20 @@ impl PgReader {
             TocWindowPosition::Around(id) => {
                 i64::try_from(id).map_err(|_| ReadingError::InvalidPage)?
             }
-            TocWindowPosition::Before(cursor) | TocWindowPosition::After(cursor) => cursor.chapter_id,
+            TocWindowPosition::Before(cursor) | TocWindowPosition::After(cursor) => {
+                cursor.chapter_id
+            }
         };
         if anchor_id <= 0 {
             return Err(ReadingError::InvalidPage);
         }
-        let Some(anchor_chapter) = self.visible_toc_anchor(book_id, anchor_id, digest).await? else {
+        let Some(anchor_chapter) = self.visible_toc_anchor(book_id, anchor_id, digest).await?
+        else {
             return Ok(None);
         };
         let anchor = TocCursor {
             chapter_no: anchor_chapter.number,
-            chapter_id: i64::try_from(anchor_chapter.id)
-                .map_err(|_| ReadingError::Unavailable)?,
+            chapter_id: i64::try_from(anchor_chapter.id).map_err(|_| ReadingError::Unavailable)?,
         };
         if let TocWindowPosition::Before(cursor) | TocWindowPosition::After(cursor) = position {
             if cursor != anchor {
@@ -152,8 +153,7 @@ impl PgReader {
                 older.extend(newer);
                 // Counts only published, visible metadata for an eligible book.
                 // The initial request needs the count; subsequent pages do not.
-                let statement =
-                    format!("SELECT COUNT(*) {}", VISIBLE_CHAPTERS.replace("$3", "$2"));
+                let statement = format!("SELECT COUNT(*) {}", VISIBLE_CHAPTERS.replace("$3", "$2"));
                 let total: i64 = sqlx::query_scalar(&statement)
                     .bind(book_id)
                     .bind(digest.map(|value| value.as_slice()))
