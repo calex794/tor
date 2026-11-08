@@ -3,10 +3,12 @@
 //! this test never calls the external Telegram API.
 use axum::{
     body::{to_bytes, Body},
+    extract::ConnectInfo,
     http::{header, Request, StatusCode},
     Router,
 };
 use std::{
+    net::SocketAddr,
     num::NonZeroU32,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -33,6 +35,9 @@ async fn request(
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body))
         .unwrap();
+    let mut req = req;
+    req.extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41906))));
     app.clone().oneshot(req).await.unwrap()
 }
 
