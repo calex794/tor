@@ -17,6 +17,8 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_social::repositories::book_shares::{BookShareError, PgBookShares};
+#[path = "book_share_reports.rs"]
+mod admin_reports;
 
 #[derive(Clone)]
 struct ShareState {
@@ -60,6 +62,11 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route("/books/{id}/share", get(share_page).post(send))
         .route("/library/shared", get(inbox))
         .route("/library/shared/{share_id}/action", post(receiver_action))
+        .route("/admin/recommendation-reports", get(admin_reports::queue))
+        .route(
+            "/admin/recommendation-reports/{share_id}/decision",
+            post(admin_reports::decide),
+        )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(state)
 }

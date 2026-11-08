@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -201,6 +201,8 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return (source.parent / "layer_checkout_api.rs"
                 if module == "layer_checkout_api"
                 else root / "__unsupported_layer_handler__")
+    if source == root / "crates/web/src/auth/book_shares.rs" and module == "admin_reports":
+        return source.parent / "book_share_reports.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -335,8 +337,51 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
         and admin_key == ("POST", "/admin/finance/refunds/approve", "approval::submit")
     )
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund):
+    s049_report_ops = {
+        ("GET", "/admin/recommendation-reports", "admin_reports::queue"): "pending",
+        ("POST", "/admin/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
+    }
+    audited_s049 = (
+        policy == "admin_share_reports"
+        and entry["source"] == "crates/web/src/auth/book_shares.rs"
+        and admin_key in s049_report_ops
+    )
+    if audited_s049:
+        # Only this reviewed sibling router may delegate the live cookie to
+        # a PG transaction that verifies an administrator role under lock.
+        evidence += "\n" + functions.get("session_digest", "")
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund or approved_refund or audited_s049):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_share_reports":
+        repo = _production((ROOT / "crates/social/src/repositories/book_share_reports.rs")
+                           .read_text(encoding="utf-8"))
+        operation = s049_report_ops.get(admin_key) if audited_s049 else None
+        required_repo = (
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL",
+            "s.expires_at>now()",
+            "u.account_state='active'",
+            "FOR SHARE OF s,u,r",
+            "administrator(&mut tx, session_digest).await?",
+        )
+        guarded = bool(
+            operation
+            and "PgBookShareReports::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_digest(&s, &headers)" in evidence
+            and "session_token_digest(&token)" in evidence
+            and all(marker in repo for marker in required_repo)
+        )
+        if operation == "decide":
+            guarded = guarded and all(marker in evidence for marker in (
+                "s.cookies.same_origin(&headers)",
+                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "FOR UPDATE", "INSERT INTO social_book_share_report_reviews",
+                "UPDATE social_book_share_reports SET state=$2",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S049 administrator report review must retain locked role, session, CSRF and audited decision")
     if policy == "admin_refund" and not (
             audited_refund
             and "PgRefundAdminReview::new" in evidence
@@ -452,7 +497,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         else:
             evidence += "\n" + reader
     if policy in PROTECTED:
-        if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
+        if not (re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence)
+                or (audited_s049 and "session_digest(&s, &headers)" in evidence
+                    and "session_token_digest(&token)" in evidence)):
             errors.append(f"{label}: missing verified PG session guard")
         # Only the typed private reader may redirect to a specific local chapter.
         # Never allow an arbitrary dynamic redirect to satisfy a session guard.
