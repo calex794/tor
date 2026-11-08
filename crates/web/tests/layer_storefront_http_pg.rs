@@ -582,7 +582,9 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
 
     pg(
         &url,
-        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={buyer} RETURNING user_id"),
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE WHERE user_id={buyer} RETURNING user_id"
+        ),
     );
     assert!(!html(get(&app, &path, Some(&buyer_token)).await)
         .await
