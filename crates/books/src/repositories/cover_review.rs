@@ -433,6 +433,31 @@ impl PgCoverReview {
         Ok(())
     }
 
+    /// Snapshot for a moderator's confirmation form. The subsequent write
+    /// transaction independently rechecks role and expected revision.
+    pub async fn current_active(
+        &self,
+        session: &[u8; 32],
+        book_id: i64,
+    ) -> Result<Option<i64>, CoverReviewError> {
+        if book_id <= 0 {
+            return Err(CoverReviewError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(|_| CoverReviewError::Unavailable)?;
+        live_site_moderator(&mut tx, session).await?;
+        let current: Option<i64> = sqlx::query_scalar(
+            "SELECT s.revision FROM book_cover_slots s
+             JOIN books b ON b.id=s.book_id
+             WHERE b.id=$1 AND NOT s.is_withdrawn",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| CoverReviewError::Unavailable)?;
+        tx.commit().await.map_err(|_| CoverReviewError::Unavailable)?;
+        Ok(current)
+    }
+
     /// Withdraw a currently approved cover without hiding the Book or
     /// deleting its private immutable source. The slot revision remains
     /// monotonic, so stale workers and review forms cannot reattach it.
@@ -538,7 +563,13 @@ impl PgCoverReview {
                     d.outcome,d.reason,EXTRACT(EPOCH FROM d.decided_at)::bigint AS decided_unix
              FROM book_cover_review_decisions d
              JOIN users u ON u.id=d.reviewer_user_id WHERE d.book_id=$1
-             ORDER BY d.id DESC LIMIT 100",
+             UNION ALL
+             SELECT 0 AS request_id,w.job_id,w.reviewer_user_id,
+                    u.display_name AS reviewer_name,'withdrawn' AS outcome,
+                    w.reason,EXTRACT(EPOCH FROM w.decided_at)::bigint AS decided_unix
+             FROM book_cover_slot_withdrawals w
+             JOIN users u ON u.id=w.reviewer_user_id WHERE w.book_id=$1
+             ORDER BY decided_unix DESC LIMIT 100",
         )
         .bind(book_id)
         .fetch_all(&mut *tx)
