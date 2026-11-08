@@ -497,6 +497,97 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         "visible",
         "reviewing a report cannot silently moderate the comment"
     );
+    // An explicit admin decision, unlike a reviewed report, may hide this
+    // exact public Book comment. It cannot moderate an entire Book or chapter.
+    let later_key = "D".repeat(43);
+    let later_post = comment_post.replace(&comment_command, &later_key);
+    assert_eq!(
+        send(&app, "POST", &report_path, &comment_cookies, &later_post)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let next_report: i64 = pg(&format!(
+        "SELECT id FROM social_book_content_reports WHERE book_id={book}
+         AND comment_id={comment} AND reporter_user_id={reader_id} AND state='pending'"
+    ))
+    .parse()
+    .unwrap();
+    assert_ne!(next_report, comment_report);
+    let queue_html = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
+    assert!(queue_html.contains("value=\"hide_comment\""));
+    assert!(!queue_html.contains("Reported comment body"));
+    let manual_hide = format!("decision=hide_comment&note=Confirmed+abuse&csrf_token={q_csrf}");
+    let manual_path = format!("/admin/book-reports/{next_report}/decision");
+    assert_eq!(
+        send(&app, "POST", &manual_path, &admin_cookies, &manual_hide)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(&format!("SELECT visibility FROM discussion_comments WHERE id={comment}")),
+        "hidden"
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT decision || ':' || moderation_action
+             FROM social_book_content_review_events WHERE report_id={next_report}"
+        )),
+        "reviewed:hide_book_comment"
+    );
+    pg_rejected(&format!(
+        "UPDATE social_book_content_review_events SET moderation_action='none'
+         WHERE report_id={next_report}"
+    ));
+    assert_eq!(
+        send(&app, "POST", &manual_path, &admin_cookies, &manual_hide)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send(&app, "GET", &comment_path, &reader, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT visibility_status || ':' || admin_hold::text FROM books WHERE id={book}"
+        )),
+        "active:false",
+        "manual comment hide must not block Book reading"
+    );
+
+    // The same action must not be available for a complaint about the Book.
+    let book_key = "E".repeat(43);
+    let later_book = post.replace(&key, &book_key);
+    assert_eq!(
+        send(&app, "POST", &report_path, &cookies, &later_book)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let book_only_report: i64 = pg(&format!(
+        "SELECT id FROM social_book_content_reports
+         WHERE book_id={book} AND comment_id IS NULL
+           AND reporter_user_id={reader_id} AND state='pending'"
+    ))
+    .parse()
+    .unwrap();
+    let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
+    assert_eq!(
+        send(&app, "POST", &book_only_action, &admin_cookies, &manual_hide)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        pg(&format!("SELECT state FROM social_book_content_reports WHERE id={book_only_report}")),
+        "pending",
+        "invalid sanction must leave the complaint unresolved"
+    );
     // Prevent a test-only active administrator from contaminating the later
     // A-04/A-05 last-admin invariant on the same disposable PostgreSQL.
     pg(&format!(
