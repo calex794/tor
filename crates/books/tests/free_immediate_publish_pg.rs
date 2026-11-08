@@ -106,7 +106,10 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(published_outbox, 1, "one committed first-release outbox event");
+    assert_eq!(
+        published_outbox, 1,
+        "one committed first-release outbox event"
+    );
 
     let working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")

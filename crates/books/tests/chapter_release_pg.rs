@@ -63,7 +63,10 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(book_release_outbox, 1, "initial book release must emit once");
+    assert_eq!(
+        book_release_outbox, 1,
+        "initial book release must emit once"
+    );
 
     let saved_input = save_chapter(SaveChapterRequest {
         book_id: book_id as u64,
@@ -238,7 +241,10 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(published_outbox, 1, "one committed first-release outbox event");
+    assert_eq!(
+        published_outbox, 1,
+        "one committed first-release outbox event"
+    );
 
     let draft_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_working_drafts WHERE chapter_id=$1")
