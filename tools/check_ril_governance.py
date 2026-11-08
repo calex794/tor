@@ -371,6 +371,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     )
     if is_s049_book:
         evidence += "\n" + functions.get("session_user", "")
+        evidence += "\n" + functions.get("store", "")
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or approved_refund
             or audited_s049 or audited_s049_book_admin):
