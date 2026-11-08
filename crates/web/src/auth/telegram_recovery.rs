@@ -189,7 +189,9 @@ pub(super) async fn unlink(
         return private_response(StatusCode::NOT_FOUND, &[]);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -216,8 +218,10 @@ pub(super) async fn unlink(
     };
     let check = current.clone();
     let typed = form.current_password;
-    let valid = match state.password_jobs
-        .run(move || verify_password(&typed, &check)).await
+    let valid = match state
+        .password_jobs
+        .run(move || verify_password(&typed, &check))
+        .await
     {
         Ok(value) => value,
         Err(status) => return private_response(status, &[]),
@@ -225,8 +229,10 @@ pub(super) async fn unlink(
     if !valid {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
-    match state.accounts
-        .unlink_telegram(user, &session_token_digest(&token), &current).await
+    match state
+        .accounts
+        .unlink_telegram(user, &session_token_digest(&token), &current)
+        .await
     {
         Ok(true) => private_response(Redirect::to("/me/security/telegram"), &[]),
         Ok(false) => private_response(StatusCode::CONFLICT, &[]),

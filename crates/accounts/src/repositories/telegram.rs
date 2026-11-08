@@ -262,20 +262,29 @@ impl PgAccounts {
             return Ok(false);
         };
         sqlx::query("DELETE FROM account_telegram_link_intents WHERE user_id=$1")
-            .bind(user_id).execute(&mut *tx).await?;
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM account_recovery_codes WHERE user_id=$1")
-            .bind(user_id).execute(&mut *tx).await?;
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "UPDATE password_reset_tokens SET consumed_at=now()
              WHERE user_id=$1 AND source IN ('telegram','backup')
                AND consumed_at IS NULL",
         )
-        .bind(user_id).execute(&mut *tx).await?;
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query(
             "INSERT INTO account_telegram_binding_events
              (user_id,telegram_user_id,action) VALUES($1,$2,'unlinked')",
         )
-        .bind(user_id).bind(telegram_id).execute(&mut *tx).await?;
+        .bind(user_id)
+        .bind(telegram_id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(true)
     }
