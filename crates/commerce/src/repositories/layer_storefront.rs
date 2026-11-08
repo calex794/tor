@@ -77,10 +77,24 @@ pub async fn storefront(
          FROM commerce_layer_version_books vb
          JOIN books b ON b.id=vb.book_id
          WHERE vb.layer_version_id=$1 AND b.visibility='public' AND b.visibility_status='active'
+           AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
            AND NOT b.admin_hold AND NOT b.is_deleted
+           AND (
+             b.access_level='basic'
+             OR (b.access_level='adult' AND EXISTS (
+               SELECT 1 FROM users viewer WHERE viewer.id=$2
+                 AND viewer.account_state='active' AND viewer.adult_enabled
+             ))
+             OR (b.access_level='pro_adult' AND EXISTS (
+               SELECT 1 FROM users viewer JOIN user_level_grants age
+                 ON age.user_id=viewer.id AND age.level='pro_adult' AND age.is_active
+               WHERE viewer.id=$2 AND viewer.account_state='active'
+             ))
+           )
          ORDER BY b.id LIMIT 40",
     )
     .bind(version_id)
+    .bind(viewer)
     .fetch_all(pool)
     .await
     .map_err(|_| LayerError::Unavailable)?;
@@ -173,6 +187,18 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
              AND t.started_at<=now()
              AND (t.expires_at IS NULL OR t.expires_at>now())
              AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+             AND (
+               b.access_level='basic'
+               OR (b.access_level='adult' AND EXISTS (
+                 SELECT 1 FROM users viewer WHERE viewer.id=t.user_id
+                   AND viewer.account_state='active' AND viewer.adult_enabled
+               ))
+               OR (b.access_level='pro_adult' AND EXISTS (
+                 SELECT 1 FROM users viewer JOIN user_level_grants age
+                   ON age.user_id=viewer.id AND age.level='pro_adult' AND age.is_active
+                 WHERE viewer.id=t.user_id AND viewer.account_state='active'
+               ))
+             )
              AND c.visibility='public' AND c.access_level='paid'
              AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
              AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
