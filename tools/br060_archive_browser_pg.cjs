@@ -348,6 +348,9 @@ async function checkViewport(page, screen) {
       Math.abs(mobileModal.bottom - mobileModal.height) <= 2 &&
       mobileModal.columns === 1, 'mobile archive TOC must be a 1-column bottom sheet');
     await mobileToc.locator('[data-archive-toc-close]').click();
+    const positionAfterToc = await fresh.evaluate(() => window.scrollY);
+    assert(Math.abs(positionAfterToc - scroll) < 12,
+      'opening archive TOC must not replace the pinned reading scroll position');
     assert(!(await fresh.content()).includes('BR060_UNPINNED_FREE_V2'));
 
     // Another signed-in user has neither a Book shelf item nor the old V1.
