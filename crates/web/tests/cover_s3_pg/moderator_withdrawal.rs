@@ -24,7 +24,11 @@ pub(super) async fn verify(
         .await
         .unwrap()
         .is_none());
-    assert!(slots.public_card_ids(&[BOOK_ID as u64]).await.unwrap().is_empty());
+    assert!(slots
+        .public_card_ids(&[BOOK_ID as u64])
+        .await
+        .unwrap()
+        .is_empty());
     assert!(ledger
         .current_cdn_copies(&[BOOK_ID], PublicCoverKind::Main)
         .await
