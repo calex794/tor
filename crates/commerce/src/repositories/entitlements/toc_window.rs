@@ -48,27 +48,48 @@ WHERE (owned.purchase_id IS NOT NULL
 "#;
 
 fn chapter_from_row(row: PgRow) -> Result<MixedTocChapter, DeliveryError> {
-    let chapter_id: i64 = row.try_get("chapter_id").map_err(|_| DeliveryError::Unavailable)?;
-    let chapter_no: i32 = row.try_get("chapter_no").map_err(|_| DeliveryError::Unavailable)?;
-    let title: String = row.try_get("chapter_title").map_err(|_| DeliveryError::Unavailable)?;
-    let owned: Option<i64> = row.try_get("purchase_id").map_err(|_| DeliveryError::Unavailable)?;
+    let chapter_id: i64 = row
+        .try_get("chapter_id")
+        .map_err(|_| DeliveryError::Unavailable)?;
+    let chapter_no: i32 = row
+        .try_get("chapter_no")
+        .map_err(|_| DeliveryError::Unavailable)?;
+    let title: String = row
+        .try_get("chapter_title")
+        .map_err(|_| DeliveryError::Unavailable)?;
+    let owned: Option<i64> = row
+        .try_get("purchase_id")
+        .map_err(|_| DeliveryError::Unavailable)?;
     let access = if let Some(purchase_id) = owned {
         MixedTocAccess::Purchased {
             purchase_id,
-            version_id: row.try_get("version_id").map_err(|_| DeliveryError::Unavailable)?,
-            version_no: row.try_get("version_no").map_err(|_| DeliveryError::Unavailable)?,
+            version_id: row
+                .try_get("version_id")
+                .map_err(|_| DeliveryError::Unavailable)?,
+            version_no: row
+                .try_get("version_no")
+                .map_err(|_| DeliveryError::Unavailable)?,
         }
     } else {
-        let kind: String = row.try_get("access_level").map_err(|_| DeliveryError::Unavailable)?;
+        let kind: String = row
+            .try_get("access_level")
+            .map_err(|_| DeliveryError::Unavailable)?;
         if kind == "free" {
             MixedTocAccess::PublicFree
         } else {
             MixedTocAccess::Locked {
-                price_minor: row.try_get("price_amount").map_err(|_| DeliveryError::Unavailable)?,
+                price_minor: row
+                    .try_get("price_amount")
+                    .map_err(|_| DeliveryError::Unavailable)?,
             }
         }
     };
-    Ok(MixedTocChapter { chapter_id, chapter_no, title, access })
+    Ok(MixedTocChapter {
+        chapter_id,
+        chapter_no,
+        title,
+        access,
+    })
 }
 
 impl PgDirectEntitlements {
@@ -88,9 +109,14 @@ impl PgDirectEntitlements {
         }
         let validate = format!("{ELIGIBLE} AND c.chapter_no=$4 AND c.id=$5 LIMIT 1");
         let valid = sqlx::query(&validate)
-            .bind(actor.get()).bind(anchor_chapter.get()).bind(anchor_purchase.get())
-            .bind(cursor.chapter_no).bind(cursor.chapter_id)
-            .fetch_optional(&self.pool).await.map_err(|_| DeliveryError::Unavailable)?
+            .bind(actor.get())
+            .bind(anchor_chapter.get())
+            .bind(anchor_purchase.get())
+            .bind(cursor.chapter_no)
+            .bind(cursor.chapter_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?
             .is_some();
         if !valid {
             return Err(DeliveryError::Invalid);
@@ -104,13 +130,21 @@ impl PgDirectEntitlements {
              ORDER BY c.chapter_no {order}, c.id {order} LIMIT $6"
         );
         let rows = sqlx::query(&statement)
-            .bind(actor.get()).bind(anchor_chapter.get()).bind(anchor_purchase.get())
-            .bind(cursor.chapter_no).bind(cursor.chapter_id)
+            .bind(actor.get())
+            .bind(anchor_chapter.get())
+            .bind(anchor_purchase.get())
+            .bind(cursor.chapter_no)
+            .bind(cursor.chapter_id)
             .bind(i64::from(limit) + 1)
-            .fetch_all(&self.pool).await.map_err(|_| DeliveryError::Unavailable)?;
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
         let has_more = rows.len() > usize::from(limit);
-        let mut chapters = rows.into_iter().take(usize::from(limit))
-            .map(chapter_from_row).collect::<Result<Vec<_>, _>>()?;
+        let mut chapters = rows
+            .into_iter()
+            .take(usize::from(limit))
+            .map(chapter_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
         if matches!(side, MixedTocSide::Before) {
             chapters.reverse();
         }
@@ -120,11 +154,19 @@ impl PgDirectEntitlements {
             } else {
                 chapters.last()
             };
-            edge.map(|row| MixedTocCursor {
-                chapter_no: row.chapter_no,
-                chapter_id: row.chapter_id,
-            }.encode())
-        } else { None };
-        Ok(MixedTocWindow { chapters, next_cursor })
+            edge.map(|row| {
+                MixedTocCursor {
+                    chapter_no: row.chapter_no,
+                    chapter_id: row.chapter_id,
+                }
+                .encode()
+            })
+        } else {
+            None
+        };
+        Ok(MixedTocWindow {
+            chapters,
+            next_cursor,
+        })
     }
 }

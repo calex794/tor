@@ -1,9 +1,7 @@
 //! D-scoped paid table of contents. No chapter text, grants or signed URLs.
 use super::*;
 use serde::Serialize;
-use tor_commerce::services::reader_views::{
-    MixedTocAccess, MixedTocCursor, MixedTocSide,
-};
+use tor_commerce::services::reader_views::{MixedTocAccess, MixedTocCursor, MixedTocSide};
 
 #[derive(Deserialize)]
 pub(super) struct PaidTocQuery {
@@ -42,7 +40,11 @@ pub(super) async fn page(
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
-    let actor = match state.accounts.active_session_user(&session_token_digest(&session)).await {
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&session))
+        .await
+    {
         Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -67,39 +69,64 @@ pub(super) async fn page(
         return deny(StatusCode::BAD_REQUEST);
     }
     // The anchor is an actual live D grant, not a public or inferred purchase.
-    match state.entitlement.resolve_entitlement(
-        Actor { user_id: actor_id }, chapter_id, Some(purchase_id),
-    ).await {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {},
+    match state
+        .entitlement
+        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, Some(purchase_id))
+        .await
+    {
+        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
         Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
-        Ok(EntitlementDecision::Denied { reason }) => return deny(status(match reason {
-            tor_contracts::paid_delivery::DenialReason::Hidden => DeliveryError::Hidden,
-            tor_contracts::paid_delivery::DenialReason::Unknown => DeliveryError::Unavailable,
-            _ => DeliveryError::Denied,
-        })),
+        Ok(EntitlementDecision::Denied { reason }) => {
+            return deny(status(match reason {
+                tor_contracts::paid_delivery::DenialReason::Hidden => DeliveryError::Hidden,
+                tor_contracts::paid_delivery::DenialReason::Unknown => DeliveryError::Unavailable,
+                _ => DeliveryError::Denied,
+            }))
+        }
         Err(error) => return deny(status(error)),
     }
-    let window = match state.entitlement.mixed_book_toc_window(
-        actor_id, chapter_id, purchase_id, cursor, side, limit,
-    ).await {
+    let window = match state
+        .entitlement
+        .mixed_book_toc_window(actor_id, chapter_id, purchase_id, cursor, side, limit)
+        .await
+    {
         Ok(window) => window,
         Err(error) => return deny(status(error)),
     };
-    let items = window.chapters.into_iter().map(|chapter| {
-        let (access_level, purchase_id, version_no, price_minor) = match chapter.access {
-            MixedTocAccess::Purchased { purchase_id, version_no, .. } =>
-                ("purchased", Some(purchase_id.to_string()), Some(version_no), None),
-            MixedTocAccess::PublicFree => ("free", None, None, None),
-            MixedTocAccess::Locked { price_minor } =>
-                ("locked", None, None, price_minor),
-        };
-        ChapterItem {
-            chapter_id: chapter.chapter_id.to_string(),
-            chapter_no: chapter.chapter_no,
-            title: chapter.title, access_level, purchase_id, version_no, price_minor,
-        }
-    }).collect();
-    private_response(Json(WindowResponse {
-        items, next_cursor: window.next_cursor,
-    }), &[])
+    let items = window
+        .chapters
+        .into_iter()
+        .map(|chapter| {
+            let (access_level, purchase_id, version_no, price_minor) = match chapter.access {
+                MixedTocAccess::Purchased {
+                    purchase_id,
+                    version_no,
+                    ..
+                } => (
+                    "purchased",
+                    Some(purchase_id.to_string()),
+                    Some(version_no),
+                    None,
+                ),
+                MixedTocAccess::PublicFree => ("free", None, None, None),
+                MixedTocAccess::Locked { price_minor } => ("locked", None, None, price_minor),
+            };
+            ChapterItem {
+                chapter_id: chapter.chapter_id.to_string(),
+                chapter_no: chapter.chapter_no,
+                title: chapter.title,
+                access_level,
+                purchase_id,
+                version_no,
+                price_minor,
+            }
+        })
+        .collect();
+    private_response(
+        Json(WindowResponse {
+            items,
+            next_cursor: window.next_cursor,
+        }),
+        &[],
+    )
 }

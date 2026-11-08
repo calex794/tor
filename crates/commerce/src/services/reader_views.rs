@@ -72,7 +72,8 @@ pub struct MixedTocCursor {
 impl MixedTocCursor {
     pub fn parse(raw: &str) -> Option<Self> {
         let (number, id) = raw.split_once('.')?;
-        if number.starts_with('0') || id.starts_with('0')
+        if number.starts_with('0')
+            || id.starts_with('0')
             || !number.bytes().all(|ch| ch.is_ascii_digit())
             || !id.bytes().all(|ch| ch.is_ascii_digit())
         {
@@ -81,7 +82,8 @@ impl MixedTocCursor {
         let number = number.parse::<i32>().ok()?;
         let id = id.parse::<i64>().ok()?;
         (number > 0 && id > 0).then_some(Self {
-            chapter_no: number, chapter_id: id,
+            chapter_no: number,
+            chapter_id: id,
         })
     }
 
@@ -108,9 +110,13 @@ mod toc_window_tests {
     use super::MixedTocCursor;
     #[test]
     fn cursor_is_positive_canonical_pair() {
-        assert_eq!(MixedTocCursor::parse("1357.81741"), Some(MixedTocCursor {
-            chapter_no: 1357, chapter_id: 81741,
-        }));
+        assert_eq!(
+            MixedTocCursor::parse("1357.81741"),
+            Some(MixedTocCursor {
+                chapter_no: 1357,
+                chapter_id: 81741,
+            })
+        );
         for invalid in ["", "0.1", "1.0", "01.1", "-1.8", "1.x", "1.2.3", "1. 4"] {
             assert!(MixedTocCursor::parse(invalid).is_none(), "{invalid}");
         }

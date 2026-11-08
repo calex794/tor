@@ -486,7 +486,10 @@ fn router_inner(
     if state.reader_s3_origin.is_some() {
         app = app
             .route("/read/paid/{chapter_id}", get(paid_reader))
-            .route("/api/v1/reader/chapters/{chapter_id}/toc/window", get(toc_window::page))
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/toc/window",
+                get(toc_window::page),
+            )
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",
                 post(text_issues::submit).layer(DefaultBodyLimit::max(4096)),
