@@ -11,6 +11,9 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
+use tor_discussions::repositories::public_chapter_comments::{
+    CreateResult as CommentCreateResult, NewChapterComment, PgPublicChapterComments,
+};
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
@@ -58,7 +61,17 @@ async fn send(
         .method(method)
         .uri(path)
         .header(header::ORIGIN, origin)
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+        .header(
+            header::CONTENT_TYPE,
+            if method == "PUT" {
+                "application/json"
+            } else {
+                "application/x-www-form-urlencoded"
+            },
+        );
+    if method == "PUT" {
+        request = request.header("x-csrf-token", csrf);
+    }
     if let Some(session) = session {
         request = request.header(header::COOKIE, cookies(session, csrf));
     }
@@ -70,6 +83,28 @@ async fn send(
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 2_000_000).await.unwrap();
     (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+async fn assert_age_comment_page(
+    app: &Router,
+    chapter: i64,
+    session: Option<&str>,
+    csrf: &str,
+    expected: StatusCode,
+    readable: bool,
+) {
+    let (status, html) = send(
+        app,
+        "GET",
+        &format!("/reader/{chapter}"),
+        "",
+        session,
+        csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, expected, "age-gated reader HTTP status");
+    assert_eq!(html.contains("S020 age-scoped comment"), readable);
 }
 
 #[tokio::test]
@@ -93,11 +128,22 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         )
         .await
         .unwrap();
+    let reader_token = generate_session_token();
+    let reader_user = accounts
+        .register_with_session(
+            "free-browser-sync-reader@example.invalid",
+            "Free browser sync reader",
+            &password,
+            &session_token_digest(&reader_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:free-browser-save','ru','Free Browser','public',{owner}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:free-browser-save','ru','Free Browser','public',{owner},'basic') RETURNING id"
         ),
     )
     .parse()
@@ -321,5 +367,268 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         &format!("SELECT count(*) FROM chapter_versions WHERE chapter_id={chapter_id}"),
     );
     assert_eq!(version_count, "2");
+
+    // S020/#486: a signed-in reader with the current 18+/21+ permission can
+    // sync a free chapter. Anonymous public_chapter() would incorrectly 404.
+    let sync_get = format!("/api/v1/me/progress/free?chapter_id={chapter_id}");
+    let sync_put = "/api/v1/me/progress/free";
+    let current_version: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
+    )
+    .parse()
+    .unwrap();
+    // S020 E-02: the very same public-reader HTML must enforce live age
+    // rights before rendering canonical chapter comment text.
+    let comment_key = generate_session_token();
+    let comments = PgPublicChapterComments::new(pool.clone());
+    assert!(matches!(
+        comments
+            .create_free(
+                owner,
+                NewChapterComment {
+                    chapter_id,
+                    version_id: current_version,
+                    body: "S020 age-scoped comment",
+                    command_key: &comment_key,
+                    payload_hash: &[19; 32],
+                    parent_id: None,
+                    anchor: None,
+                },
+            )
+            .await,
+        CommentCreateResult::Created(_)
+    ));
+    assert_age_comment_page(&app, chapter_id, None, &csrf, StatusCode::OK, true).await;
+    let sync_body = |revision: i64, offset: i32| {
+        format!(
+            r#"{{"chapter_id":"{chapter_id}","version_id":"{current_version}","block_id":1,"char_offset":{offset},"expected_revision":{revision}}}"#
+        )
+    };
+    assert_eq!(
+        send(&app, "GET", &sync_get, "", None, &csrf, ORIGIN)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={reader_user}"),
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::OK,
+        true,
+    )
+    .await;
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::OK,
+        "an eligible adult must be able to retrieve free sync state"
+    );
+    let (status, saved) = send(
+        &app,
+        "PUT",
+        sync_put,
+        &sync_body(0, 1),
+        Some(&reader_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(saved.contains("\"revision\":1"));
+
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({reader_user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::OK,
+        true,
+    )
+    .await;
+    let (status, saved) = send(
+        &app,
+        "PUT",
+        sync_put,
+        &sync_body(1, 2),
+        Some(&reader_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(saved.contains("\"revision\":2"));
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={reader_user}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_age_comment_page(
+        &app,
+        chapter_id,
+        Some(&reader_token),
+        &csrf,
+        StatusCode::NOT_FOUND,
+        false,
+    )
+    .await;
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND,
+        "legacy NULL tier never inherits an adult session"
+    );
+
+    // NEwBOO parity: unlisting by pending_deletion does not itself revoke
+    // existing direct free-reading access. Site blocking does.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id={book}"
+        ),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility_status='blocked' WHERE id={book}"),
+    );
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &sync_get,
+            "",
+            Some(&reader_token),
+            &csrf,
+            ORIGIN,
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
     pool.close().await;
 }

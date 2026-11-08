@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 const base = 'http://127.0.0.1:3098';
 const dbUrl = process.env.APP_URL;
 const shots = process.env.TOR_SEARCH_SHOTS || 'search-shots';
@@ -57,7 +58,7 @@ async function setTaxonomy(page, label, value) {
   return true;
 }
 async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
-  const res = await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
+  const res = await page.goto(base + '/catalog', { waitUntil: 'load' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
   await page.getByLabel('Название или автор').fill(q);
   const available = [
@@ -68,13 +69,13 @@ async function search(page, { q = '', genre = '', language = '', tag = '', fando
   await page.getByLabel('Язык перевода').fill(language);
   if (available.every(Boolean)) {
     await page.getByRole('button', { name: 'Найти' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('load');
   } else {
     // Test direct GET rejection for unpublished/nonexistent taxonomy values.
     // Do not add hidden/private options to a public dropdown just for CI.
     const params = new URLSearchParams({ q, genre, language, tag, fandom });
     const direct = await page.goto(base + '/catalog?' + params, {
-      waitUntil: 'networkidle',
+      waitUntil: 'load',
     });
     assert(direct && direct.status() === 200, 'direct catalog filter HTTP failed');
   }
@@ -151,6 +152,117 @@ async function verifyOriginalBookCard(page, id, viewport) {
   await page.emulateMedia({ colorScheme: 'light' });
 }
 
+// Loop 02 V1: discovery is not successful just because a card was clicked.
+// Only a trusted, idempotent ChapterCompletedV1 counts as meaningful_read_v1.
+// Exercise guest search -> book -> public free sample, then the same reader
+// registering and completing a chapter through the real authenticated form.
+async function discoveryToMeaningfulRead(browser, viewport, width, height, bookId, filters) {
+  const context = await browser.newContext({ viewport: { width, height } });
+  try {
+    const reader = await context.newPage();
+    await search(reader, filters);
+    assert(await bookLink(reader, bookId).isVisible(),
+      viewport + ': discoverable book missing before reading');
+    await bookLink(reader, bookId).click();
+    await reader.waitForURL(base + '/books/' + bookId);
+    const start = reader.getByRole('link', { name: 'Читать доступную главу' });
+    assert(await start.isVisible(), viewport + ': missing free reading entry');
+    const href = await start.getAttribute('href');
+    assert(/^\/reader\/[1-9][0-9]*$/.test(href || ''),
+      viewport + ': free sample must link to a public chapter');
+    const chapterId = href.split('/').pop();
+    const privatePath = '/read/' + chapterId;
+    await start.click();
+    await reader.waitForURL(base + href);
+    assert(await reader.getByText('Настоящая публикация через PostgreSQL.').isVisible(),
+      viewport + ': public free sample not readable');
+    assert(await reader.getByRole('button', { name: 'Глава прочитана' }).count() === 0,
+      viewport + ': anonymous sample must not create trusted completion');
+    assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '0',
+      viewport + ': chapter GET was misclassified as meaningful reading');
+    await reader.screenshot({
+      path: path.join(shots, 'loop-02-' + viewport + '-public-sample.png'),
+      fullPage: true,
+    });
+
+    // A real guest link keeps the chapter target through login and registration.
+    const enterPrivate = reader.getByRole('link', {
+      name: 'Отметить главу прочитанной и попросить продолжение',
+    });
+    assert(await enterPrivate.isVisible(), viewport + ': guest completion CTA missing');
+    await enterPrivate.click();
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/login' &&
+        current.searchParams.get('next') === privatePath;
+    });
+    const registerLink = reader.getByRole('link', { name: 'Зарегистрироваться' });
+    assert(await registerLink.getAttribute('href') === '/register?next=' + privatePath,
+      viewport + ': registration link lost the trusted chapter destination');
+    await registerLink.click();
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/register' &&
+        current.searchParams.get('next') === privatePath;
+    });
+    const email = 'loop2.reader.' + viewport + '.' + Date.now() + '@example.test';
+    const password = 'DiscoveryReader2026Pass';
+    await reader.getByLabel('Отображаемое имя').fill('Читатель поиска');
+    await reader.getByLabel('Электронная почта').fill(email);
+    await reader.getByLabel('Пароль (12–128 символов)').fill(password);
+    await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
+    await reader.waitForURL(base + privatePath);
+    assert(await reader.getByText('Настоящая публикация через PostgreSQL.').isVisible(),
+      viewport + ': authenticated reader lost the discovered text');
+    const completed = reader.getByRole('button', { name: 'Глава прочитана' });
+    assert(await completed.isVisible(), viewport + ': no trusted completion action');
+    await Promise.all([
+      reader.waitForURL(url => {
+        const target = new URL(url);
+        return target.pathname === '/me/rankings' ||
+          (target.pathname === privatePath && target.hash === '#continuation');
+      }),
+      completed.click(),
+    ]);
+    assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '1',
+      viewport + ': discovery did not produce exactly one durable completion');
+    assert(pg("SELECT count(*) FROM outbox_events WHERE event_type='ChapterCompletedV1' " +
+      "AND dedupe_key LIKE 'chapter-completed:%:" + chapterId + "'") === '1',
+      viewport + ': meaningful read fact missing or duplicated in outbox');
+    await reader.goto(base + privatePath);
+    assert(await reader.getByText('Глава уже отмечена прочитанной.', { exact: false }).isVisible(),
+      viewport + ': completed reader state not restored');
+    assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '1',
+      viewport + ': repeat chapter GET duplicated a meaningful read');
+
+    // An existing account also retains the exact same chapter after login.
+    await reader.goto(base + '/me');
+    await reader.getByRole('button', { name: 'Выйти' }).click();
+    await reader.waitForURL(base + '/login');
+    await reader.goto(base + href);
+    await reader.getByRole('link', {
+      name: 'Отметить главу прочитанной и попросить продолжение',
+    }).click();
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/login' &&
+        current.searchParams.get('next') === privatePath;
+    });
+    await reader.getByLabel('Электронная почта').fill(email);
+    await reader.getByLabel('Пароль').fill(password);
+    await reader.getByRole('button', { name: 'Войти', exact: true }).click();
+    await reader.waitForURL(base + privatePath);
+    assert(await reader.getByText('Глава уже отмечена прочитанной.', { exact: false }).isVisible(),
+      viewport + ': reader login did not restore completed state');
+    assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '1',
+      viewport + ': reader login duplicated a completion');
+    console.log('TOR Loop 02 ' + viewport +
+      ' PASS: guest discovery -> public sample -> authenticated ChapterCompletedV1 exactly once');
+  } finally {
+    await context.close();
+  }
+}
+
 async function draftBook(page, viewport) {
   const title = 'Книга поиска F03 ' + viewport;
   await page.goto(base + '/register');
@@ -166,7 +278,7 @@ async function draftBook(page, viewport) {
   await page.getByLabel('Жанры через запятую (до 8)').fill('Фэнтези, Приключения');
   await page.getByLabel('Теги через запятую (до 8)').fill('f02tag-' + viewport);
   await page.getByLabel('Фэндомы через запятую (до 8)').fill('f02fandom-' + viewport);
-  await page.getByLabel('Язык').fill('ru');
+  await page.getByLabel('Язык', { exact: true }).fill('ru');
   await page.getByRole('button', { name: 'Создать книгу' }).click();
   await page.waitForURL(/\/me\/books\/\d+$/);
   const id = page.url().split('/').pop();
@@ -174,7 +286,8 @@ async function draftBook(page, viewport) {
 
   await page.getByRole('link', { name: 'Добавить главу' }).click();
   await page.waitForURL('**/chapters/new');
-  await page.getByLabel('Номер главы').fill('1');
+  assert(await page.getByLabel('Номер главы').inputValue() === '1',
+    viewport + ': automatic search fixture chapter number must be 1');
   await page.getByLabel('Название главы').fill('Открытая глава для поиска');
   await page.getByLabel('Текст главы').fill('Настоящая публикация через PostgreSQL.');
   await page.getByRole('button', { name: 'Сохранить главу' }).click();
@@ -204,15 +317,26 @@ async function draftBook(page, viewport) {
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
         // The searched URL can echo its explicitly supplied selection. Check
         // the unfiltered public taxonomy, not the caller's own query string.
-        await guest.goto(base + '/catalog', { waitUntil: 'networkidle' });
+        await guest.goto(base + '/catalog', { waitUntil: 'load' });
         assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 0,
           viewport + ': private tag leaked to public options');
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + id);
+        const beforeApproval = await page.goto(base + '/books/' + id);
+        assert(beforeApproval && beforeApproval.status() === 404,
+          viewport + ': author release bypassed mandatory site review');
+        await search(guest, filters);
+        assert(await bookLink(guest, id).count() === 0,
+          viewport + ': pending book leaked into public search');
+        approvePendingBookForIsolatedCi(id);
+        const approved = await page.goto(base + '/books/' + id);
+        assert(approved && approved.status() === 200,
+          viewport + ': site-approved book is not publicly visible');
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         await verifyOriginalBookCard(guest, id, viewport);
+        await discoveryToMeaningfulRead(browser, viewport, width, height, id, filters);
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
         assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 1,
           viewport + ': published tag missing from options');
@@ -235,7 +359,7 @@ async function draftBook(page, viewport) {
           viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
         // F-04: the homepage uses the same live public rows, not cached draft metadata.
-        const homeResponse = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+        const homeResponse = await guest.goto(base + '/', { waitUntil: 'load' });
         assert(homeResponse && homeResponse.status() === 200, viewport + ': homepage unavailable');
         assert(await guest.locator('.home-genre-section').count() > 0,
           viewport + ': real genre shelves missing');
@@ -247,7 +371,7 @@ async function draftBook(page, viewport) {
         for (const sort of ['title', 'author']) {
           await guest.getByLabel('Сортировка').selectOption(sort);
           await guest.getByRole('button', { name: 'Найти' }).click();
-          await guest.waitForLoadState('networkidle');
+          await guest.waitForLoadState('load');
           assert(new URL(guest.url()).searchParams.get('sort') === sort,
             viewport + ': lexical sort not applied');
           assert(await bookLink(guest, id).isVisible(),
@@ -263,7 +387,7 @@ async function draftBook(page, viewport) {
         // No public metadata-edit UI exists yet. Simulate a B-owned committed
         // genre change against the disposable database; verify live F projection.
         changeBook(id, 'genre');
-        await guest.reload({ waitUntil: 'networkidle' });
+        await guest.reload({ waitUntil: 'load' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': old genre leaked');
         const detective = { ...filters, genre: 'детектив' };
         await search(guest, detective);
@@ -274,13 +398,13 @@ async function draftBook(page, viewport) {
         for (const phase of ['hold', 'draft', 'deleted']) {
           changeBook(id, phase);
           if (phase === 'hold') {
-            const home = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+            const home = await guest.goto(base + '/', { waitUntil: 'load' });
             assert(home && home.status() === 200, viewport + ': homepage after hold unavailable');
             assert(await guest.locator('a[href="/books/' + id + '"]').count() === 0,
               viewport + ': revoked book leaked into homepage/genre shelves');
             await guest.goto(base + '/catalog?' + new URLSearchParams(detective));
           }
-          await guest.reload({ waitUntil: 'networkidle' });
+          await guest.reload({ waitUntil: 'load' });
           assert(await bookLink(guest, id).count() === 0, viewport + ': ' + phase + ' in HTML');
           assert(!(await apiHas(guest, id, detective)), viewport + ': ' + phase + ' in JSON');
           const forbidden = await guest.goto(base + '/books/' + id);

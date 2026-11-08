@@ -6,6 +6,7 @@ use sqlx::PgPool;
 pub struct InboxEntry {
     pub reply: ReceivedReply,
     pub created_at: String,
+    pub is_mention: bool,
 }
 
 #[derive(Clone)]
@@ -20,6 +21,8 @@ impl PgInbox {
 
     /// A recipient is derived only from the verified actor and the canonical parent.
     /// Every read rechecks visibility of both comments and the book; no body is read.
+    /// Pending deletion hides a Book from public discovery, not this existing
+    /// actor-scoped reply reference (NEwBOO private direct-view policy).
     pub async fn received(
         &self,
         actor_id: i64,
@@ -30,21 +33,36 @@ impl PgInbox {
         if actor_id <= 0 || limit == 0 || limit > 100 || after_id.is_some_and(|n| n <= 0) {
             return Err(ListCommentsError::Invalid);
         }
-        let rows = sqlx::query_as::<_, (i64, i64, String, bool, String)>(
+        let rows = sqlx::query_as::<_, (i64, i64, String, bool, String, bool)>(
             r#"SELECT reply.id, b.id, b.title, (seen.reply_comment_id IS NOT NULL),
                       to_char(reply.created_at AT TIME ZONE 'UTC',
-                              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                      (mention.recipient_user_id IS NOT NULL)
                FROM discussion_comments reply
-               JOIN discussion_comments parent ON parent.id=reply.parent_id
+               LEFT JOIN discussion_comments parent ON parent.id=reply.parent_id
                JOIN books b ON b.id=reply.book_id
+               JOIN users u ON u.id=$1 AND u.account_state='active'
                LEFT JOIN discussion_reply_reads seen
                  ON seen.recipient_user_id=$1 AND seen.reply_comment_id=reply.id
-               WHERE parent.author_user_id=$1 AND reply.author_user_id<>$1
-                 AND parent.book_id=reply.book_id
-                 AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
-                 AND parent.version_id IS NULL AND reply.version_id IS NULL
-                 AND parent.visibility='visible' AND reply.visibility='visible'
-                 AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               LEFT JOIN discussion_comment_mentions mention
+                 ON mention.comment_id=reply.id AND mention.recipient_user_id=$1
+               WHERE (parent.author_user_id=$1 OR mention.recipient_user_id IS NOT NULL)
+                 AND reply.author_user_id<>$1
+                 AND (parent.id IS NULL OR parent.book_id=reply.book_id)
+                 AND (parent.id IS NULL OR (parent.chapter_id IS NULL
+                       AND parent.version_id IS NULL AND parent.visibility='visible'))
+                 AND reply.chapter_id IS NULL AND reply.version_id IS NULL
+                 AND reply.visibility='visible'
+                 AND b.visibility='public' AND b.visibility_status='active'
+                 AND NOT b.admin_hold AND NOT b.is_deleted
+                 AND (b.access_level='basic'
+                      OR (b.access_level='adult' AND u.adult_enabled)
+                      OR (b.access_level='pro_adult' AND EXISTS (
+                          SELECT 1 FROM user_level_grants age
+                          WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active))
+                      OR EXISTS (
+                          SELECT 1 FROM account_roles role
+                          WHERE role.user_id=u.id AND role.role='administrator' AND role.is_active))
                  AND ($2::BIGINT IS NULL OR reply.id < $2)
                  AND ($3::BOOLEAN IS NULL OR (seen.reply_comment_id IS NOT NULL) = $3)
                ORDER BY reply.id DESC LIMIT $4"#,
@@ -59,7 +77,7 @@ impl PgInbox {
         Ok(rows
             .into_iter()
             .map(
-                |(comment_id, book_id, book_title, is_read, created_at)| InboxEntry {
+                |(comment_id, book_id, book_title, is_read, created_at, is_mention)| InboxEntry {
                     reply: ReceivedReply {
                         comment_id,
                         book_id,
@@ -67,6 +85,7 @@ impl PgInbox {
                         is_read,
                     },
                     created_at,
+                    is_mention,
                 },
             )
             .collect())

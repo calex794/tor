@@ -6,7 +6,7 @@
 //! This service is NOT wired to an HTTP route until CSRF, Origin, rate
 //! limiting, private S3 and the protected browser are verified end-to-end.
 mod assets;
-pub use assets::issue_paid_asset_grant;
+pub use assets::{issue_paid_admin_asset_grant, issue_paid_asset_grant};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};

@@ -59,10 +59,11 @@ async fn seo02_author_create_is_idempotent_and_description_is_persisted() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        repo.owned_book_description(stranger, id).await.unwrap(),
-        None
-    );
+    assert!(repo
+        .manageable_book_description(stranger, id)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.update_book_description(stranger, id, "подмена").await,
         Err(AuthorError::Missing)
@@ -78,9 +79,10 @@ async fn seo02_author_create_is_idempotent_and_description_is_persisted() {
         Ok(())
     );
     assert_eq!(
-        repo.owned_book_description(user, id)
+        repo.manageable_book_description(user, id)
             .await
             .unwrap()
+            .map(|view| view.description)
             .as_deref(),
         Some(injected)
     );
@@ -89,7 +91,11 @@ async fn seo02_author_create_is_idempotent_and_description_is_persisted() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(repo.owned_book_description(user, id).await.unwrap(), None);
+    assert!(repo
+        .manageable_book_description(user, id)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.update_book_description(user, id, "после блокировки")
             .await,

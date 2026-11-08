@@ -18,10 +18,47 @@ impl PgAccounts {
             WHERE expires_at<now()-INTERVAL '2 days' ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM password_reset_tokens t USING batch b WHERE t.token_hash=b.token_hash")
             .execute(self.pool()).await?;
+        // Separate failed-login observations have a shorter, bounded lifetime.
+        sqlx::query(
+            "WITH batch AS (
+            SELECT id FROM auth_login_observations
+            WHERE observed_at < now()-INTERVAL '7 days'
+            ORDER BY observed_at, id LIMIT 1000 FOR UPDATE SKIP LOCKED
+        )
+        DELETE FROM auth_login_observations o USING batch b WHERE o.id=b.id",
+        )
+        .execute(self.pool())
+        .await?;
         sqlx::query("WITH batch AS (SELECT key_hash FROM auth_attempts
             WHERE period_started<now()-INTERVAL '1 day' ORDER BY period_started LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM auth_attempts t USING batch b WHERE t.key_hash=b.key_hash")
             .execute(self.pool()).await?;
+        // Expired spray sources cascade-delete their distinct target set.
+        // Limit each cleanup batch and skip rows held by live login transactions.
+        sqlx::query(
+            "WITH batch AS (
+               SELECT scope,source_key FROM auth_spray_windows
+               WHERE touched_at < clock_timestamp()-INTERVAL '1 day'
+               ORDER BY touched_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM auth_spray_windows w USING batch b
+             WHERE w.scope=b.scope AND w.source_key=b.source_key",
+        )
+        .execute(self.pool())
+        .await?;
+        // AB-08: old actor windows cascade-delete their admitted command keys.
+        // Bounded batch and SKIP LOCKED preserve live writers and short locks.
+        sqlx::query(
+            "WITH batch AS (
+                 SELECT scope,actor_id FROM scoped_action_windows
+                 WHERE touched_at < clock_timestamp()-INTERVAL '1 day'
+                 ORDER BY touched_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM scoped_action_windows w USING batch b
+             WHERE w.scope=b.scope AND w.actor_id=b.actor_id",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }

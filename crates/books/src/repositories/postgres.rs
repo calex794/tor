@@ -1,13 +1,41 @@
-//! Public catalog SQLx adapter, ported from bokarust@d11b27b.
+mod book_access_level;
+pub use book_access_level::ManagedBookAccessLevel;
 mod book_description;
+pub use book_description::ManagedBookDescription;
+mod book_lifecycle;
+pub use book_lifecycle::ManagedBookLifecycle;
+mod book_ordinary_deletion;
+pub use book_ordinary_deletion::OrdinaryDeletionView;
+mod book_related;
+pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
+mod book_source_links;
+mod book_titles;
+pub use book_titles::OwnedBookTitles;
+pub use project_status::OwnedProjectStatus;
+mod project_status;
+pub use book_source_links::ManagedBookSourceLinks;
+pub mod book_delayed_schedule;
+mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_outbox;
 mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
+mod chapter_schedule;
+pub use crate::schemas::ScheduledChapter;
+pub use chapter_schedule::DueReleaseOutcome;
+mod legacy_title_guard;
+mod mail_aliases;
+mod origin_metadata;
+pub use origin_metadata::{ManagedOriginMetadata, OriginFields};
 mod owned_book_hash;
+mod owned_chapter_pages;
+mod registration_links;
+mod source_alias_guard;
+mod title_suggestions;
 use crate::{
     domain::{Book, BookKey, Visibility},
+    services::book_registration::registration_titles,
     services::{
         authoring::{
             valid_command_key, AuthorError, ChapterAccess, NewBook, OwnedBook, SaveChapter,
@@ -25,7 +53,6 @@ use sqlx::{
 use std::time::Duration;
 mod readiness;
 use readiness::{require_latest_migration, REQUIRED_MIGRATION};
-
 #[derive(Clone)]
 pub struct PgCatalog {
     pool: PgPool,
@@ -56,7 +83,6 @@ impl PgCatalog {
         catalog.probe().await?;
         Ok(catalog)
     }
-    /// Explicit pool shutdown; used to verify loss-of-readiness behavior.
     pub async fn close_for_test(&self) {
         self.pool.close().await;
     }
@@ -71,14 +97,12 @@ impl PgCatalog {
         require_latest_migration(applied)?;
         sqlx::query(
             "SELECT id, source_identity, target_language, title, visibility \
-             FROM books WHERE visibility='public' AND NOT admin_hold \
+             FROM books WHERE visibility='public' AND visibility_status='active' AND NOT admin_hold \
              AND NOT is_deleted LIMIT 0",
         )
         .execute(&self.pool)
         .await?;
-        // A stale schema can still serve catalog pages while B-06 chapter
-        // writes fail. Do not report readiness until its working table is
-        // present and readable by the restricted application role.
+        // Readiness must cover working drafts, not just the public catalog schema.
         sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
             .execute(&self.pool)
             .await?;
@@ -115,7 +139,7 @@ impl PublicBookRepository for PgCatalog {
         let limit = i64::try_from(limit).map_err(|_| CatalogError::InvalidLimit)?;
         let rows = sqlx::query(
             "SELECT id,source_identity,target_language,title,visibility \
-             FROM books WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted \
+             FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted \
              ORDER BY id ASC LIMIT $1",
         )
         .bind(limit)
@@ -131,7 +155,7 @@ impl PublicBookRepository for PgCatalog {
         };
         sqlx::query(
             "SELECT id,source_identity,target_language,title,visibility \
-             FROM books WHERE id=$1 AND visibility='public' AND NOT admin_hold AND NOT is_deleted",
+             FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -152,8 +176,7 @@ impl PgAuthoring {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-
-    /// A successful command creates exactly one private draft. Concurrent retries
+    /// Creates one private draft requiring site approval. Concurrent retries
     /// with the same payload return the original ID; changed payloads conflict.
     pub async fn create_owned_book(
         &self,
@@ -164,6 +187,7 @@ impl PgAuthoring {
             return Err(AuthorError::Forbidden);
         }
         let digest = owned_book_hash::payload_hash(book);
+        let title_claims = registration_titles(book)?;
         let mut tx = self
             .pool
             .begin()
@@ -181,7 +205,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let existing = sqlx::query(
                 "SELECT payload_hash, book_id FROM book_create_commands
@@ -204,10 +227,14 @@ impl PgAuthoring {
                 .map_err(|_| AuthorError::Unavailable)?;
             return previous_id.ok_or(AuthorError::Unavailable);
         }
-
+        let source_claims = registration_links::check(&mut tx, book).await?;
+        if legacy_title_guard::exists(&mut tx, &book.target_language, &title_claims).await? {
+            return Err(AuthorError::Conflict);
+        }
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms, description, access_level)
-             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, 'basic') RETURNING id",
+            "INSERT INTO books (source_identity, target_language, title, visibility, visibility_status, registration_requires_review, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
+                 original_title, original_language, source_url, release_year, project_status, catalog_section, alt_titles)
+             VALUES ($1, $2, $3, 'draft', 'pending_moderation', TRUE, $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
@@ -218,6 +245,13 @@ impl PgAuthoring {
         .bind(&book.tags)
         .bind(&book.fandoms)
         .bind(&book.description)
+        .bind(&book.original_title)
+        .bind(&book.original_language)
+        .bind(&book.source_url)
+        .bind(book.release_year)
+        .bind(&book.project_status)
+        .bind(&book.catalog_section)
+        .bind(&book.alt_titles)
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| match error {
@@ -226,6 +260,25 @@ impl PgAuthoring {
             }
             _ => AuthorError::Unavailable,
         })?;
+        registration_links::claim(&mut tx, book_id, &book.target_language, &source_claims).await?;
+        for normalized in &title_claims {
+            let claim = sqlx::query(
+                "INSERT INTO book_registration_titles (book_id, target_language, normalized_title)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(book_id)
+            .bind(&book.target_language)
+            .bind(normalized)
+            .execute(&mut *tx)
+            .await;
+            match claim {
+                Ok(_) => (),
+                Err(sqlx::Error::Database(ref db)) if db.code().as_deref() == Some("23505") => {
+                    return Err(AuthorError::Conflict);
+                }
+                Err(_) => return Err(AuthorError::Unavailable),
+            }
+        }
         sqlx::query(
             "UPDATE book_create_commands SET book_id=$3 WHERE user_id=$1 AND command_key=$2",
         )
@@ -289,58 +342,16 @@ impl PgAuthoring {
         }
     }
 
-    /// Show only chapters of the authenticated owner's book, bounded to 200 rows.
+    /// Legacy internal callers retain the historical 200-row bound.
     pub async fn list_owned_chapters(
         &self,
         user_id: i64,
         book_id: i64,
     ) -> Result<Vec<crate::services::authoring::OwnedChapterSummary>, AuthorError> {
-        use crate::services::authoring::OwnedChapterSummary;
-        if user_id <= 0 || book_id <= 0 {
-            return Err(AuthorError::Missing);
-        }
-        let rows = sqlx::query(
-            "SELECT c.id,c.chapter_no,c.title,c.access_level,c.visibility FROM chapters c
-             JOIN books b ON b.id=c.book_id
-             WHERE c.book_id=$1 AND b.owner_user_id=$2
-               AND NOT c.is_deleted AND NOT b.is_deleted
-               AND NOT c.admin_hold AND NOT b.admin_hold
-             ORDER BY c.chapter_no,c.id LIMIT 200",
-        )
-        .bind(book_id)
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        rows.into_iter()
-            .map(|row| {
-                let access: String = row
-                    .try_get("access_level")
-                    .map_err(|_| AuthorError::Unavailable)?;
-                let access = match access.as_str() {
-                    "free" => ChapterAccess::Free,
-                    "paid" => ChapterAccess::Paid,
-                    _ => return Err(AuthorError::Unavailable),
-                };
-                let visibility: String = row
-                    .try_get("visibility")
-                    .map_err(|_| AuthorError::Unavailable)?;
-                let published = match visibility.as_str() {
-                    "public" => true,
-                    "draft" => false,
-                    _ => return Err(AuthorError::Unavailable),
-                };
-                Ok(OwnedChapterSummary {
-                    id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    number: row
-                        .try_get("chapter_no")
-                        .map_err(|_| AuthorError::Unavailable)?,
-                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-                    access,
-                    published,
-                })
-            })
-            .collect()
+        let page = self
+            .list_owned_chapters_page_with_limit(user_id, book_id, None, 200)
+            .await?;
+        Ok(page.chapters)
     }
 
     /// Never reveal an unpublished book, including its existence, to a non-owner.
@@ -383,7 +394,7 @@ impl PgAuthoring {
             || request.book_id <= 0
             || request.chapter_id.is_some()
             || request.expected_revision != 0
-            || request.number <= 0
+            || request.number < 0
             || request.access != ChapterAccess::Free
             || request.price_amount != 0
             || !valid_command_key(&request.command_key)
@@ -394,7 +405,6 @@ impl PgAuthoring {
         {
             return Err(AuthorError::Invalid);
         }
-
         let mut hasher = Sha256::new();
         for value in [
             request.book_id.to_string(),
@@ -414,9 +424,7 @@ impl PgAuthoring {
             .begin()
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-
-        // Row lock serializes publication against deletion, owner changes and
-        // concurrent chapter creation. Unowned and missing books are identical.
+        // Book row lock serializes owner changes and competing chapter saves.
         let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
@@ -428,8 +436,7 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
-        // Adding a chapter to a public book requires a separate chapter-release
-        // workflow. Saving text must not implicitly publish it.
+        // Public-book chapters use a separate release command.
         if book_visibility != "draft" {
             return Err(AuthorError::Conflict);
         }
@@ -445,7 +452,6 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-
         if claimed.is_none() {
             let row = sqlx::query(
                 "SELECT payload_hash, chapter_id, version_id, saved_revision
@@ -478,12 +484,14 @@ impl PgAuthoring {
             });
         }
 
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",
         )
         .bind(request.book_id)
-        .bind(request.number)
+        .bind(number)
         .bind(&request.title)
         .fetch_one(&mut *tx)
         .await
@@ -573,7 +581,7 @@ impl PgAuthoring {
             .execute(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        chapter_outbox::enqueue_book_first_releases(&mut tx, book_id).await?;
+        chapter_outbox::enqueue_book_first_releases(&mut tx, book_id, actor).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)
     }
 }

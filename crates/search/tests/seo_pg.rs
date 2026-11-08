@@ -67,8 +67,8 @@ async fn f_08_seo_01_pg_publication_and_withdrawal_fail_closed() {
     assert_eq!(name, "tor_ci", "never change production data");
     let mut tx = pool.begin().await.unwrap();
     let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES ('ci:f08:seo01:temporary','ru','SEO-01 fixture','draft')
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES ('ci:f08:seo01:temporary','ru','SEO-01 fixture','draft','basic')
          RETURNING id",
     )
     .fetch_one(&mut *tx)

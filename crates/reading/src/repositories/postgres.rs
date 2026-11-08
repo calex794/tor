@@ -44,7 +44,7 @@ impl PgReader {
              JOIN chapter_publications p ON p.chapter_id = c.id \
              JOIN chapter_versions v ON v.id = p.version_id AND v.chapter_id = c.id \
              JOIN books b ON b.id = c.book_id \
-             WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted \
+             WHERE b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted \
              AND c.visibility='public' AND c.access_level='free' \
              AND NOT c.admin_hold AND NOT c.is_deleted LIMIT 0",
         )
@@ -68,9 +68,18 @@ fn positive_id(value: i64) -> Result<u64, ReadingError> {
 impl PgReader {
     /// S005: metadata for an already-public, released paid chapter.
     /// Never select version data, body text, object keys or purchases here.
+    /// Anonymous callers see only basic books; eligibility is checked in SQL.
     pub async fn public_paid_chapter_preview(
         &self,
         id: u64,
+    ) -> Result<Option<PublicPaidChapterPreview>, ReadingError> {
+        self.public_paid_chapter_preview_for_session(id, None).await
+    }
+
+    pub async fn public_paid_chapter_preview_for_session(
+        &self,
+        id: u64,
+        session_digest: Option<&[u8; 32]>,
     ) -> Result<Option<PublicPaidChapterPreview>, ReadingError> {
         let Ok(id) = i64::try_from(id) else {
             return Ok(None);
@@ -85,12 +94,23 @@ impl PgReader {
              JOIN books b ON b.id = c.book_id \
              JOIN chapter_publications p ON p.chapter_id = c.id \
              JOIN chapter_versions v ON v.id = p.version_id AND v.chapter_id = c.id \
-             WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' \
                AND c.access_level = 'paid' AND NOT c.admin_hold AND NOT c.is_deleted \
-               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
+               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
+             AND (b.access_level = 'basic' OR EXISTS ( \
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id \
+                 WHERE sess.token_hash=$2::bytea AND sess.revoked_at IS NULL \
+                   AND sess.expires_at>now() AND acct.account_state='active' \
+                   AND ((b.access_level='adult' AND acct.adult_enabled) \
+                     OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants ag \
+                        WHERE ag.user_id=acct.id AND ag.level='pro_adult' \
+                          AND ag.is_active))) \
+             ))",
         )
         .bind(id)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_db)?;
@@ -112,6 +132,17 @@ impl PgReader {
         limit: u16,
         after: Option<&str>,
     ) -> Result<Option<PublicBookPage>, ReadingError> {
+        self.public_book_page_for_session(id, limit, after, None)
+            .await
+    }
+
+    pub async fn public_book_page_for_session(
+        &self,
+        id: u64,
+        limit: u16,
+        after: Option<&str>,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<PublicBookPage>, ReadingError> {
         if limit == 0 || limit > MAX_PAGE_SIZE {
             return Err(ReadingError::InvalidPage);
         }
@@ -129,10 +160,21 @@ impl PgReader {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT id, title, target_language, author_name, genres, description FROM books \
-             WHERE id = $1 AND visibility = 'public' AND NOT admin_hold AND NOT is_deleted",
+            "SELECT b.id, b.title, b.target_language, b.author_name, b.genres, b.description FROM books b \
+             WHERE b.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
+             AND (b.access_level = 'basic' OR EXISTS ( \
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id \
+                 WHERE sess.token_hash=$2::bytea AND sess.revoked_at IS NULL \
+                   AND sess.expires_at>now() AND acct.account_state='active' \
+                   AND ((b.access_level='adult' AND acct.adult_enabled) \
+                     OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants ag \
+                        WHERE ag.user_id=acct.id AND ag.level='pro_adult' \
+                          AND ag.is_active))) \
+             ))",
         )
         .bind(id)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_db)?;
@@ -145,17 +187,28 @@ impl PgReader {
              JOIN books AS b ON b.id = c.book_id \
              JOIN chapter_publications AS p ON p.chapter_id = c.id \
              JOIN chapter_versions AS v ON v.id = p.version_id AND v.chapter_id = c.id \
-             WHERE c.book_id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.book_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
                AND (c.chapter_no, c.id) > ($2, $3) \
+             AND (b.access_level = 'basic' OR EXISTS ( \
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id \
+                 WHERE sess.token_hash=$5::bytea AND sess.revoked_at IS NULL \
+                   AND sess.expires_at>now() AND acct.account_state='active' \
+                   AND ((b.access_level='adult' AND acct.adult_enabled) \
+                     OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants ag \
+                        WHERE ag.user_id=acct.id AND ag.level='pro_adult' \
+                          AND ag.is_active))) \
+             )) \
              ORDER BY c.chapter_no, c.id LIMIT $4",
         )
         .bind(id)
         .bind(cursor.chapter_no)
         .bind(cursor.chapter_id)
         .bind(i64::from(limit) + 1)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_all(&self.pool)
         .await
         .map_err(map_db)?;
@@ -193,13 +246,12 @@ impl PgReader {
     }
 }
 
-#[async_trait]
-impl PublicReadingRepository for PgReader {
-    async fn public_book(&self, id: u64) -> Result<Option<PublicBookPage>, ReadingError> {
-        self.public_book_page(id, 100, None).await
-    }
-
-    async fn public_chapter(&self, id: u64) -> Result<Option<PublicChapterPage>, ReadingError> {
+impl PgReader {
+    pub async fn public_chapter_for_session(
+        &self,
+        id: u64,
+        session_digest: Option<&[u8; 32]>,
+    ) -> Result<Option<PublicChapterPage>, ReadingError> {
         let Ok(id) = i64::try_from(id) else {
             return Ok(None);
         };
@@ -235,12 +287,23 @@ impl PublicReadingRepository for PgReader {
                   AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
                 ORDER BY following.chapter_no, following.id LIMIT 1 \
              ) AS next_public ON TRUE \
-             WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
-               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
+               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
+             AND (b.access_level = 'basic' OR EXISTS ( \
+                 SELECT 1 FROM sessions sess JOIN users acct ON acct.id=sess.user_id \
+                 WHERE sess.token_hash=$2::bytea AND sess.revoked_at IS NULL \
+                   AND sess.expires_at>now() AND acct.account_state='active' \
+                   AND ((b.access_level='adult' AND acct.adult_enabled) \
+                     OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants ag \
+                        WHERE ag.user_id=acct.id AND ag.level='pro_adult' \
+                          AND ag.is_active))) \
+             ))",
         )
         .bind(id)
+        .bind(session_digest.map(|digest| digest.as_slice()))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_db)?;
@@ -268,3 +331,16 @@ impl PublicReadingRepository for PgReader {
         .transpose()
     }
 }
+
+#[async_trait]
+impl PublicReadingRepository for PgReader {
+    async fn public_book(&self, id: u64) -> Result<Option<PublicBookPage>, ReadingError> {
+        self.public_book_page(id, 100, None).await
+    }
+
+    async fn public_chapter(&self, id: u64) -> Result<Option<PublicChapterPage>, ReadingError> {
+        self.public_chapter_for_session(id, None).await
+    }
+}
+
+mod toc_window;

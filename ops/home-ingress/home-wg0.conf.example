@@ -1,0 +1,13 @@
+# Example only: home initiates a secure tunnel to the VPS's public IPv4.
+# No inbound site port forwarding or external PostgreSQL access is necessary.
+# Install with chmod 600 only after approval.
+[Interface]
+Address = 10.88.0.2/30
+PrivateKey = <REPLACE_WITH_HOME_PRIVATE_KEY>
+
+[Peer]
+PublicKey = <REPLACE_WITH_VPS_PUBLIC_KEY>
+AllowedIPs = 10.88.0.1/32
+Endpoint = <REPLACE_WITH_VPS_PUBLIC_IPV4>:51820
+PersistentKeepalive = 25
+# Do not add 0.0.0.0/0: home internet and S3 do not use this tunnel.

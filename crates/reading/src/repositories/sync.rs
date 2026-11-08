@@ -35,9 +35,15 @@ impl PgReadingSync {
              FROM reader_book_positions AS saved \
              JOIN chapters AS chapter ON chapter.book_id = saved.book_id AND chapter.id = $2 \
              JOIN books AS book ON book.id = chapter.book_id \
+             JOIN users AS viewer ON viewer.id=saved.user_id AND viewer.account_state='active' \
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
-             WHERE saved.user_id = $1 AND book.visibility = 'public' \
+             WHERE saved.user_id = $1 AND book.visibility = 'public' AND book.visibility_status = 'active' \
                AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND (book.access_level='basic' \
+               OR (book.access_level='adult' AND viewer.adult_enabled) \
+               OR (book.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())",
@@ -97,18 +103,25 @@ impl PgReadingSync {
             "SELECT chapter.book_id, edition.body_markdown
              FROM chapters AS chapter
              JOIN books AS book ON book.id=chapter.book_id
+             JOIN users AS viewer ON viewer.id=$3 AND viewer.account_state='active'
              JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id
              JOIN chapter_versions AS edition
                ON edition.id=publication.version_id AND edition.chapter_id=chapter.id
              WHERE chapter.id=$1 AND publication.version_id=$2
-               AND book.visibility='public' AND NOT book.admin_hold AND NOT book.is_deleted
+               AND book.visibility='public' AND book.visibility_status='active' AND NOT book.admin_hold AND NOT book.is_deleted
+               AND (book.access_level='basic'
+                    OR (book.access_level='adult' AND viewer.adult_enabled)
+                    OR (book.access_level='pro_adult' AND EXISTS (
+                        SELECT 1 FROM user_level_grants AS age_grant
+                        WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active)))
                AND chapter.visibility='public' AND chapter.access_level='free'
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
-             FOR SHARE OF chapter,book,publication,edition",
+             FOR SHARE OF chapter,book,publication,edition,viewer",
         )
         .bind(chapter_id)
         .bind(version_id)
+        .bind(actor)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| SyncError::Unavailable)?
@@ -135,11 +148,17 @@ impl PgReadingSync {
                     chapter.edit_revision, $3, $4, $5, 1 \
              FROM chapters AS chapter \
              JOIN books AS book ON book.id = chapter.book_id \
+             JOIN users AS viewer ON viewer.id=$1 AND viewer.account_state='active' \
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
              JOIN chapter_versions AS edition ON edition.id = published.version_id \
                  AND edition.chapter_id = chapter.id \
              WHERE chapter.id = $2 AND published.version_id = $3 \
-               AND book.visibility = 'public' AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND book.visibility = 'public' AND book.visibility_status = 'active' AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND (book.access_level='basic' \
+               OR (book.access_level='adult' AND viewer.adult_enabled) \
+               OR (book.access_level='pro_adult' AND EXISTS ( \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now()) \
@@ -185,6 +204,7 @@ impl PgReadingSync {
             .map(parse_receipt)
             .transpose()?
             .ok_or(SyncError::Conflict)?;
+        started::record(&mut tx, actor, book_id, chapter_id, version_id, None).await?;
         if finished {
             // One successful CAS + one unique C completion + one durable
             // outbox event. A V2 replay or a second device cannot duplicate it.
@@ -205,7 +225,7 @@ impl PgReadingSync {
                     jsonb_build_object('user_id',$1,'book_id',$2,
                         'chapter_id',$3,'version_id',$4,
                         'authority','C-verified-free-position'),
-                    ARRAY['ranking-eligibility-v1']
+                    ARRAY['ranking-eligibility-v1','achievements-v1']
                 FROM committed",
             )
             .bind(actor)
@@ -410,6 +430,17 @@ impl PgReadingSync {
             .map(parse_receipt)
             .transpose()?
             .ok_or(SyncError::Conflict)?;
+        if storage_object.is_none() {
+            started::record(
+                &mut tx,
+                actor,
+                book_id,
+                chapter_id,
+                version_id,
+                Some(purchase_id),
+            )
+            .await?;
+        }
         if finished {
             // The C cursor, completion and outbox are committed as one unit.
             // One user/book/chapter can only produce a single completion.
@@ -430,7 +461,7 @@ impl PgReadingSync {
                     jsonb_build_object('user_id',$1,'book_id',$2,
                         'chapter_id',$3,'version_id',$4,'purchase_id',$5,
                         'authority','C-verified-purchased-position'),
-                    ARRAY['ranking-eligibility-v1']
+                    ARRAY['ranking-eligibility-v1','achievements-v1']
                 FROM committed",
             )
             .bind(actor)
@@ -446,6 +477,12 @@ impl PgReadingSync {
         Ok(receipt)
     }
 }
+
+#[path = "sync_archived_free.rs"]
+mod archived_free;
+
+#[path = "sync_started.rs"]
+mod started;
 
 #[path = "sync_s3_completion.rs"]
 mod s3_completion;

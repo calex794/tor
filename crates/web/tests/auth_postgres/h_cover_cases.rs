@@ -6,9 +6,13 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     io::Cursor,
+    num::NonZeroU32,
     sync::{Arc, Mutex},
 };
-use tor_books::repositories::cover_slots::PgCoverSlots;
+use tor_accounts::services::security::{
+    generate_session_token, hash_password, session_token_digest,
+};
+use tor_books::repositories::{cover_review::PgCoverReview, cover_slots::PgCoverSlots};
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
@@ -254,15 +258,65 @@ pub(super) async fn upload_and_show(
         .unwrap();
     let pool = catalog.pool();
     let jobs = PgCoverJobs::new(pool.clone());
-    let slots = PgCoverSlots::new(pool);
+    let slots = PgCoverSlots::new(pool.clone());
+    let reviews = PgCoverReview::new(pool.clone());
     let bridge = PgBookCoverBridge::new(slots.clone());
     let worker = CoverWorker {
         jobs: &jobs,
         storage: store,
         books: &bridge,
     };
+    // Real separate active site-moderator session. The owner and worker cannot
+    // publish a processed image without an independent approved review.
+    let accounts = tor_accounts::repositories::PgAccounts::from_pool(pool.clone());
+    let reviewer_token = generate_session_token();
+    let reviewer = accounts
+        .register_with_session(
+            &format!("cover-reviewer-{book_id}@tor-ci.example"),
+            "Cover site moderator",
+            &hash_password("CoverTestReviewer2026!").unwrap(),
+            &session_token_digest(&reviewer_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let role_sql = format!(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES({reviewer},'moderator',TRUE)"
+    );
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let assigned = std::process::Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url.as_str(),
+            "--command",
+            role_sql.as_str(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        assigned.status.success(),
+        "disposable moderator role fixture failed: {}",
+        String::from_utf8_lossy(&assigned.stderr)
+    );
+    let reviewer_digest = session_token_digest(&reviewer_token);
+    let mut candidate = None;
     for _ in 0..16 {
-        if slots.current_slot(book_id).await.unwrap().is_some() {
+        if let Some(review) = reviews
+            .pending(&reviewer_digest, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|review| review.book_id == book_id)
+        {
+            candidate = Some(review);
             break;
         }
         match worker.run_one().await.unwrap() {
@@ -271,6 +325,24 @@ pub(super) async fn upload_and_show(
             }
         }
     }
+    let candidate = candidate.expect("worker must submit a private candidate");
+    assert_eq!(slots.current_slot(book_id).await.unwrap(), None);
+    assert_eq!(
+        send(
+            app,
+            request(
+                "GET",
+                &format!("/covers/{book_id}/main.webp"),
+                "",
+                "",
+                ORIGIN,
+            )
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "processed image must stay private until site approval"
+    );
     assert_eq!(
         jobs.latest_for_author(book_id, {
             // Only the owner row may provide a status: prove an arbitrary actor cannot see it.
@@ -291,7 +363,67 @@ pub(super) async fn upload_and_show(
         .as_deref(),
         Some("done")
     );
-    assert!(slots.current_slot(book_id).await.unwrap().is_some());
+    let queue = send(
+        app,
+        request(
+            "GET",
+            "/moderation/covers",
+            "",
+            &format!("tor-dev-session={reviewer_token}"),
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(queue.status(), StatusCode::OK);
+    assert_eq!(
+        queue.headers()[header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
+    );
+    let reviewer_csrf_cookie = cookie(&queue, "tor-dev-csrf=");
+    let queue_body = body_of(queue).await;
+    assert!(queue_body.contains(&format!("/moderation/covers/{}/decision", candidate.id)));
+    let reviewer_csrf = csrf_token(&queue_body).to_owned();
+    let reviewer_cookie = format!("tor-dev-session={reviewer_token}; {reviewer_csrf_cookie}");
+    let decision_path = format!("/moderation/covers/{}/decision", candidate.id);
+    let first = send(
+        app,
+        request(
+            "POST",
+            &decision_path,
+            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve"),
+            &reviewer_cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    assert!(body_of(first)
+        .await
+        .contains("Подтверждение решения по обложке"));
+    assert_eq!(
+        slots.current_slot(book_id).await.unwrap(),
+        None,
+        "first review step must not publish an unapproved image"
+    );
+    let decision = send(
+        app,
+        request(
+            "POST",
+            &decision_path,
+            &format!(
+                "csrf_token={reviewer_csrf}&expected_slot_revision=0&action=approve&confirmed=yes"
+            ),
+            &reviewer_cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(decision.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        slots.current_slot(book_id).await.unwrap(),
+        Some((candidate.job_id, 1)),
+        "only the audited moderator decision may attach the public cover"
+    );
 
     let pub_page = send(
         app,
@@ -328,7 +460,10 @@ pub(super) async fn upload_and_show(
         .await,
     )
     .await;
-    assert!(owned.contains("Обложка готова."));
+    assert!(
+        owned.contains("Обложка одобрена модератором."),
+        "owner must see the independently approved cover, not just a processed job"
+    );
     let settings = send(
         app,
         request(

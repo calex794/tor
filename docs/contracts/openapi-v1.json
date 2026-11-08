@@ -1225,6 +1225,59 @@
         "description": "Paid response never contains body_markdown, DEK or signed URL."
       }
     },
+    "/api/v1/discovery/activate": {
+      "post": {
+        "operationId": "organic_discovery_activate",
+        "summary": "Consent-gated first-party organic result activation (no GET mutation)",
+        "responses": {
+          "204": {
+            "description": "Recorded idempotent, session-bound organic click; browser navigates to canonical book link"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in Draft #387 atop REC-13; disabled by default",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ticket",
+                  "csrf_token"
+                ],
+                "properties": {
+                  "ticket": {
+                    "type": "string",
+                    "minLength": 43,
+                    "maxLength": 43
+                  },
+                  "csrf_token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reader/chapters/{chapter_id}/delivery-grants": {
       "post": {
         "operationId": "post_api_v1_reader_chapters_chapter_id_delivery_grants",
@@ -4185,6 +4238,477 @@
           }
         ]
       }
+    },
+    "/api/v1/recommendations": {
+      "get": {
+        "operationId": "rec13_api_feed",
+        "summary": "REC-13 api::feed",
+        "responses": {
+          "200": {
+            "description": "Bounded result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+      }
+    },
+    "/api/v1/recommendations/impressions": {
+      "post": {
+        "operationId": "rec13_api_impressions",
+        "summary": "REC-13 api::impressions",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "202": {
+            "description": "Claims accepted, never trusted reading"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecImpressionBatch"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/recommendations/activate": {
+      "post": {
+        "operationId": "rec13_api_activate",
+        "summary": "REC-13 api::activate",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "303": {
+            "description": "Canonical book navigation, not paid entitlement"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RecActivation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/recommendation-feedback": {
+      "get": {
+        "operationId": "rec13_api_feedback_list",
+        "summary": "REC-13 api::feedback_list",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+      },
+      "post": {
+        "operationId": "rec13_feedback",
+        "summary": "Own explicit feedback; actor from session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecFeedbackCommand"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Idempotent own revision"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Http422"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/recommendations/quality": {
+      "get": {
+        "operationId": "rec13_admin_quality",
+        "summary": "REC-13 admin::quality",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "organic"
+              ],
+              "default": "recommendation"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 180,
+              "default": 7
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/recommendations/control": {
+      "post": {
+        "operationId": "rec13_admin_control",
+        "summary": "REC-13 admin::control",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecOperatorCommand"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/tickets": {
+      "get": {
+        "operationId": "get_api_v1_support_tickets",
+        "tags": [
+          "E"
+        ],
+        "description": "Guest capability cookie or current live account session. Opening while logged in atomically claims and merges only this browser guest history. No client-supplied account/chat authority. Draft implementation, CI acceptance recorded separately.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Private support data; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportWidget"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid message"
+          },
+          "403": {
+            "description": "Guest capability consumed by another account, Origin or CSRF denial"
+          },
+          "409": {
+            "description": "JSON key reused for another payload"
+          },
+          "413": {
+            "description": "Body limit exceeded"
+          },
+          "422": {
+            "description": "Unknown fields or invalid command key"
+          },
+          "429": {
+            "description": "Per-minute action limit"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_support_tickets",
+        "tags": [
+          "E"
+        ],
+        "description": "Guest capability cookie or current live account session. Opening while logged in atomically claims and merges only this browser guest history. No client-supplied account/chat authority. Draft implementation, CI acceptance recorded separately.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Private support data; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid message"
+          },
+          "403": {
+            "description": "Guest capability consumed by another account, Origin or CSRF denial"
+          },
+          "409": {
+            "description": "JSON key reused for another payload"
+          },
+          "413": {
+            "description": "Body limit exceeded"
+          },
+          "422": {
+            "description": "Unknown fields or invalid command key"
+          },
+          "429": {
+            "description": "Per-minute action limit"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "43-character base64url no padding; JSON body must not duplicate",
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportMessageRequest"
+              }
+            }
+          }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
+      }
     }
   },
   "components": {
@@ -4729,6 +5253,18 @@
               "popularity",
               "related_books"
             ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "ticket": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "feedback_revision": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -4759,6 +5295,9 @@
               "string",
               "null"
             ]
+          },
+          "personalized": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4766,6 +5305,236 @@
           "generation_id",
           "next_cursor"
         ]
+      },
+      "RecImpressionBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ticket",
+                "visible_fraction_per_mille",
+                "continuous_visible_ms",
+                "document_visible"
+              ],
+              "properties": {
+                "ticket": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                },
+                "visible_fraction_per_mille": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "continuous_visible_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 60000
+                },
+                "document_visible": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RecFeedbackCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "book_id",
+          "choice",
+          "expected_revision"
+        ],
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "choice": {
+            "enum": [
+              "not_interested",
+              "clear"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "RecActivation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ticket",
+          "csrf_token"
+        ],
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "csrf_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      "RecOperatorCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "refresh",
+              "activate",
+              "hold",
+              "rollback"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "percent": {
+            "enum": [
+              0,
+              1,
+              5,
+              10,
+              25,
+              50,
+              100,
+              null
+            ]
+          }
+        }
+      },
+      "SupportMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "SupportMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message_id",
+          "sender_kind",
+          "body",
+          "created_at",
+          "is_own"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "sender_kind": {
+            "type": "string",
+            "enum": [
+              "guest",
+              "user",
+              "admin"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "is_own": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SupportWidget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "conversation_id",
+          "identity_notice",
+          "csrf_token",
+          "messages",
+          "has_more"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "identity_notice": {
+            "type": "string"
+          },
+          "csrf_token": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SupportMessage"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SupportReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "message"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "message": {
+            "$ref": "#/components/schemas/SupportMessage"
+          }
+        }
       }
     },
     "responses": {

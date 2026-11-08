@@ -1,0 +1,615 @@
+//! Site registration moderation has a separate review, not visibility bypass.
+use super::*;
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 tor_ci"]
+async fn initial_book_registration_requires_site_approval_and_keeps_private_reviewer() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let password = hash_password("SiteModeratorApproval2026!").unwrap();
+    let ttl = NonZeroU32::new(3600).unwrap();
+    let admin_token = generate_session_token();
+    let owner_token = generate_session_token();
+    let csrf = generate_session_token();
+    let admin = accounts
+        .register_with_session(
+            &format!("mod-reg-admin-{nonce}@example.invalid"),
+            "Site Moderator",
+            &password,
+            &session_token_digest(&admin_token),
+            ttl,
+        )
+        .await
+        .unwrap();
+    let owner = accounts
+        .register_with_session(
+            &format!("mod-reg-owner-{nonce}@example.invalid"),
+            "Book Owner",
+            &password,
+            &session_token_digest(&owner_token),
+            ttl,
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+        "INSERT INTO account_roles(user_id,role,is_active) VALUES({admin},'administrator',true)"
+    ),
+    );
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books
+             (source_identity,target_language,title,visibility,visibility_status,
+              registration_requires_review,owner_user_id,access_level)
+             VALUES('ci:mod-reg:{nonce}','ru','<script>Await review</script>',
+                    'draft','pending_moderation',true,{owner},'basic')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
+    let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
+    let queue_path = "/moderation/books/registrations";
+    let decision_path = format!("/moderation/books/{book}/registration");
+    let body = format!("csrf_token={csrf}&expected_revision=1&action=approve");
+
+    assert_eq!(
+        request(&app, "GET", queue_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", queue_path, &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "POST", &decision_path, &owner_cookie, ORIGIN, &body)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            "https://evil.invalid",
+            &body
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let queue = request(&app, "GET", queue_path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(queue.status(), StatusCode::OK);
+    assert_eq!(queue.headers()[header::CACHE_CONTROL], "no-store");
+    let content = html(queue).await;
+    assert!(content.contains("&lt;script&gt;Await review&lt;/script&gt;"));
+    assert!(!content.contains("<script>Await review</script>"));
+    assert!(content.contains("Регистрация ("));
+    assert!(content.contains(&decision_path));
+
+    // Search is scoped to all pending Book requests before LIMIT 40, not a
+    // client-side filter over the first 40 returned cards.
+    let searched = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?q={book}"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(searched.status(), StatusCode::OK);
+    assert!(html(searched).await.contains(&decision_path));
+    let missing = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?q=missing-review-title-{nonce}"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(missing.status(), StatusCode::OK);
+    assert!(!html(missing).await.contains(&decision_path));
+
+    // Age-level restriction runs in PostgreSQL, before the 40-item limit.
+    // The test Book is basic; 18+/21+ and legacy NULL must not match.
+    for (tier, should_include) in [
+        ("basic", true),
+        ("adult", false),
+        ("pro_adult", false),
+        ("legacy", false),
+    ] {
+        let result = request(
+            &app,
+            "GET",
+            &format!("{queue_path}?level={tier}"),
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await;
+        assert_eq!(result.status(), StatusCode::OK);
+        assert_eq!(
+            html(result).await.contains(&decision_path),
+            should_include,
+            "unexpected registration queue tier {tier}"
+        );
+    }
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &format!("{queue_path}?level=untrusted"),
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    // Waiting-age is not the Book's 18+/21+ content rating. The initial
+    // registration's waiting clock begins when its Book was created.
+    let new_wait = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=lt24"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(new_wait.status(), StatusCode::OK);
+    assert!(html(new_wait).await.contains(&decision_path));
+    let old_wait = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=gte72"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(old_wait.status(), StatusCode::OK);
+    assert!(!html(old_wait).await.contains(&decision_path));
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &format!("{queue_path}?wait=not-a-bucket"),
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // The on-screen 24h/72h totals are bound to a live moderator session.
+    // An ordinary Book owner must not access that aggregate through the repo.
+    let before_age = accounts
+        .moderation_queue_age_summary(&session_token_digest(&admin_token))
+        .await
+        .unwrap();
+    assert!(accounts
+        .moderation_queue_age_summary(&session_token_digest(&owner_token))
+        .await
+        .is_err());
+    pg(
+        &url,
+        &format!("UPDATE books SET created_at = now() - interval '5 days' WHERE id={book}"),
+    );
+    let after_age = accounts
+        .moderation_queue_age_summary(&session_token_digest(&admin_token))
+        .await
+        .unwrap();
+    assert!(
+        after_age.registrations.at_least_24h > before_age.registrations.at_least_24h
+            && after_age.registrations.at_least_72h > before_age.registrations.at_least_72h,
+        "old initial registration must increment both aging counters"
+    );
+    let aged = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?level=basic&wait=gte72"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(aged.status(), StatusCode::OK);
+    let aged_html = html(aged).await;
+    assert!(aged_html.contains(&decision_path));
+    assert!(aged_html.contains("Контроль времени ожидания"));
+    assert!(aged_html.contains("/moderation/covers?wait=gte72"));
+    assert!(aged_html.contains("/moderation/books/deletions?wait=gte24"));
+    let young_only = request(
+        &app,
+        "GET",
+        &format!("{queue_path}?wait=lt24"),
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(young_only.status(), StatusCode::OK);
+    assert!(!html(young_only).await.contains(&decision_path));
+
+    assert_eq!(
+        request(
+            &app, "POST", &format!("/moderation/books/{book}/visibility"),
+            &admin_cookie, ORIGIN,
+            &format!("csrf_token={csrf}&expected_status=pending_moderation&expected_revision=1&new_status=active")
+        ).await.status(),
+        StatusCode::CONFLICT,
+        "generic visibility editor cannot bypass initial registration approval"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={book}")
+        ),
+        "draft:pending_moderation"
+    );
+    // Step one only renders a private human confirmation, without mutation.
+    let confirmation = request(&app, "POST", &decision_path, &admin_cookie, ORIGIN, &body).await;
+    assert_eq!(confirmation.status(), StatusCode::OK);
+    assert_eq!(confirmation.headers()[header::CACHE_CONTROL], "no-store");
+    let confirm_html = html(confirmation).await;
+    assert!(confirm_html.contains("name=\"confirmed\" value=\"yes\""));
+    assert!(confirm_html.contains("Подтверждение решения"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility_status FROM books WHERE id={book}")
+        ),
+        "pending_moderation",
+        "first POST must not approve registration"
+    );
+    let confirmed_body = format!("{body}&confirmed=yes");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &decision_path,
+            &admin_cookie,
+            ORIGIN,
+            &confirmed_body
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "double decision must not rewrite reviewer or audit"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={book}")
+        ),
+        "draft:active",
+        "registration review must never publish the author's draft"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT reviewer_user_id FROM book_registration_decisions
+             WHERE book_id={book} AND outcome='approved'"
+            )
+        ),
+        admin.to_string()
+    );
+    let private_path = format!("/moderation/books/{book}/registration-history");
+    assert_eq!(
+        request(&app, "GET", &private_path, &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let private = html(request(&app, "GET", &private_path, &admin_cookie, ORIGIN, "").await).await;
+    assert!(private.contains("Site Moderator"));
+    assert!(private.contains(&admin.to_string()));
+    assert_eq!(
+        request(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let refused: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books
+             (source_identity,target_language,title,visibility,visibility_status,
+              registration_requires_review,owner_user_id,access_level)
+             VALUES('ci:mod-reg-rejected:{nonce}','ru','Refused','draft',
+                    'pending_moderation',true,{owner},'basic') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let rejected_path = format!("/moderation/books/{refused}/registration");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &rejected_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&expected_revision=1&action=reject")
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let reject_body =
+        format!("csrf_token={csrf}&expected_revision=1&action=reject&reason=Incorrect+book");
+    let rejected_preview = request(
+        &app,
+        "POST",
+        &rejected_path,
+        &admin_cookie,
+        ORIGIN,
+        &reject_body,
+    )
+    .await;
+    assert_eq!(rejected_preview.status(), StatusCode::OK);
+    let rejected_html = html(rejected_preview).await;
+    assert!(rejected_html.contains("Incorrect book"));
+    assert!(rejected_html.contains("name=\"confirmed\" value=\"yes\""));
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &rejected_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!("{reject_body}&confirmed=yes")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility_status FROM books WHERE id={refused}")
+        ),
+        "hidden"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+            "SELECT outcome||':'||reason FROM book_registration_decisions WHERE book_id={refused}"
+        )
+        ),
+        "rejected:Incorrect book"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_registration_decisions WHERE book_id={book}")
+        ),
+        "1"
+    );
+    // The owner learns *why* registration was rejected, not who reviewed it.
+    let refused_status_path = format!("/me/books/{refused}/registration-status");
+    assert_eq!(
+        request(&app, "GET", &refused_status_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", &refused_status_path, &admin_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "site-role alone does not grant owner-facing application data"
+    );
+    let owner_status = request(&app, "GET", &refused_status_path, &owner_cookie, ORIGIN, "").await;
+    assert_eq!(owner_status.status(), StatusCode::OK);
+    assert_eq!(owner_status.headers()[header::CACHE_CONTROL], "no-store");
+    let owner_reason = html(owner_status).await;
+    assert!(owner_reason.contains("Причина отказа"));
+    assert!(owner_reason.contains("Incorrect book"));
+    assert!(owner_reason.contains("Регистрация отклонена"));
+    assert!(owner_reason.contains("Текущая видимость книги: скрыта"));
+    assert!(!owner_reason.contains("Site Moderator"));
+    assert!(!owner_reason.contains(&format!("(#{admin})")));
+    let accepted_status = html(
+        request(
+            &app,
+            "GET",
+            &format!("/me/books/{book}/registration-status"),
+            &owner_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(accepted_status.contains("Регистрация одобрена"));
+    assert!(!accepted_status.contains("Site Moderator"));
+    // Operational visibility changes do not rewrite immutable registration
+    // approval, even if the Book is later hidden and held by site staff.
+    let status_path = format!("/me/books/{book}/registration-status");
+    let visibility_path = format!("/moderation/books/{book}/visibility");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &visibility_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!(
+                "csrf_token={csrf}&expected_status=active&expected_revision=2&new_status=hidden"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let hidden_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(hidden_status.contains("Регистрация одобрена"));
+    assert!(hidden_status.contains("Текущая видимость книги: скрыта"));
+    assert!(!hidden_status.contains("Регистрация отклонена"));
+    assert!(!hidden_status.contains("Причина отказа</h2>"));
+    assert!(!hidden_status.contains("Site Moderator"));
+
+    let hold_path = format!("/moderation/books/{book}/hold");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &hold_path,
+            &admin_cookie,
+            ORIGIN,
+            &format!("csrf_token={csrf}&expected_hold=false&new_hold=true")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let held_status =
+        html(request(&app, "GET", &status_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(held_status.contains("Регистрация одобрена"));
+    assert!(held_status.contains("Текущая видимость книги: скрыта"));
+    assert!(held_status.contains("административное удержание"));
+    assert!(!held_status.contains("Site Moderator"));
+    assert_eq!(
+        request(&app, "GET", &status_path, &admin_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_registration_decisions WHERE book_id={book}")
+        ),
+        "1",
+        "a visibility change and hold must not create new review decisions"
+    );
+    // A site moderator can browse approved/refused applications across all
+    // three queues, but neither the owner nor anonymous readers can inspect
+    // the reviewer ledger. Filters apply before the page size in PostgreSQL.
+    let reviewed_path = "/moderation/books/reviews";
+    assert_eq!(
+        request(&app, "GET", reviewed_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "GET", reviewed_path, &owner_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let reviewed = request(&app, "GET", reviewed_path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(reviewed.status(), StatusCode::OK);
+    assert_eq!(reviewed.headers()[header::CACHE_CONTROL], "no-store");
+    let reviewed_html = html(reviewed).await;
+    assert!(reviewed_html.contains("Рассмотренные заявки"));
+    assert!(reviewed_html.contains("Site Moderator"));
+    assert!(reviewed_html.contains("Incorrect book"));
+    assert!(reviewed_html.contains("&lt;script&gt;Await review&lt;/script&gt;"));
+
+    let rejected_only = html(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=registration&outcome=rejected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(rejected_only.contains("Регистрация: Отклонено"));
+    assert!(rejected_only.contains("Incorrect book"));
+    assert!(rejected_only.contains("Refused"));
+    assert!(!rejected_only.contains("&lt;script&gt;Await review&lt;/script&gt;"));
+
+    let covers_only = html(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=cover&outcome=rejected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(!covers_only.contains("Incorrect book"));
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?before=1.cover.0.2",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            "/moderation/books/reviews?kind=unexpected",
+            &admin_cookie,
+            ORIGIN,
+            "",
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    pool.close().await;
+}

@@ -3,13 +3,22 @@
   <div class="container">
     <nav class="dashboard-nav" aria-label="Разделы кабинета">
       <a class="dashboard-nav__item is-active" href="/me" aria-current="page">Обзор</a>
+      <a class="dashboard-nav__item" href="/mail">Личная почта</a>
+      <a class="dashboard-nav__item" href="/notifications">Все уведомления</a>
       <a class="dashboard-nav__item" href="/me/inbox">Обсуждения</a>
+      <a class="dashboard-nav__item" href="/me/referrals">Приглашения</a>
       <a class="dashboard-nav__item" href="/me/library">Библиотека</a>
+      <!--SWAP_NAV_LINK-->
+      <!--REFUND_NAV_LINK-->
+      <a class="dashboard-nav__item" href="/me/creators">Подписки на авторов</a>
       <a class="dashboard-nav__item" href="/me/notification-settings">Уведомления</a>
       <a class="dashboard-nav__item" href="/me/rankings">Мой рейтинг</a>
       <a class="dashboard-nav__item" href="/me/settings/password">Сменить пароль</a>
       <a class="dashboard-nav__item" href="/me/books">Книги автора</a>
-    </nav>
+      <a class="dashboard-nav__item" href="/me/teams">Команды</a>
+      <a class="dashboard-nav__item" href="/personal-books">Личные книги</a>
+          <a class="dashboard-nav__item" href="/me/security/sessions">Устройства и сеансы</a>
+</nav>
     <header class="ui-page-header me-page-header">
       <div class="ui-page-header__content">
         <p class="ui-page-header__kicker">Личный кабинет</p>
@@ -59,6 +68,14 @@
       <!--RECEIVED_REPLIES-->
     </section>
 
+    <section class="me-section" aria-labelledby="me-achievements-title">
+      <header class="ui-section-header">
+        <h2 class="ui-section-header__title" id="me-achievements-title">Достижения</h2>
+        <p class="ui-section-header__text">Личные награды за подтверждённое чтение. Видны только вам.</p>
+      </header>
+      <!--READER_ACHIEVEMENTS-->
+    </section>
+
     <section class="me-section" aria-labelledby="me-reading-title">
       <header class="ui-section-header">
         <h2 class="ui-section-header__title" id="me-reading-title">Чтение</h2>
@@ -104,7 +121,15 @@
             <p class="dashboard-tile__text">Начать новую историю в кабинете автора.</p>
           </a>
         </article>
+        <article class="dashboard-tile dashboard-tile--translator">
+          <a class="dashboard-tile__link" href="/me/teams">
+            <h3 class="dashboard-tile__title">Мои команды</h3>
+            <p class="dashboard-tile__text">Создание и просмотр переводческих команд.</p>
+          </a>
+        </article>
       </div>
     </section>
   </div>
 </section>
+
+<p><a href="/me/recommendations">Рекомендации и согласие</a></p>

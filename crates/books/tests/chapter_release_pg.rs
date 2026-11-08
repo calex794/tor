@@ -50,8 +50,20 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
         command_key: &"b".repeat(43),
     })
     .unwrap();
-    author.create_free_chapter(owner, &first).await.unwrap();
+    let first_saved = author.create_free_chapter(owner, &first).await.unwrap();
     author.release_book(owner, book_id).await.unwrap();
+    let book_release_outbox: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND payload->>'version_id'=$2::text
+           AND required_consumers @> ARRAY['chapter_release_fanout_v1']::text[]",
+    )
+    .bind(first_saved.chapter_id)
+    .bind(first_saved.version_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(book_release_outbox, 1, "initial book release must emit once");
 
     let saved_input = save_chapter(SaveChapterRequest {
         book_id: book_id as u64,
@@ -215,17 +227,19 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
             .unwrap();
     assert_eq!(event_count, 1, "only one durable first-release fact");
     let published_outbox: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM outbox_events
-         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND payload->>'version_id'=$2::text
+           AND payload->>'first_release'='true'
+           AND required_consumers @> ARRAY['chapter_release_fanout_v1']::text[]",
     )
     .bind(saved.chapter_id)
+    .bind(updated.version_id.to_string())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        published_outbox, 1,
-        "two releases enqueue one durable event"
-    );
+    assert_eq!(published_outbox, 1, "one committed first-release outbox event");
+
     let draft_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(saved.chapter_id)

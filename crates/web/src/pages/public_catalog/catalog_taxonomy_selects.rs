@@ -1,11 +1,11 @@
 //! H-10: restore NEwBOO's native taxonomy dropdowns from public-only data.
 use super::escape_html;
-use tor_search::repositories::catalog::TaxonomyOptions;
+use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 /// Replace only the three recognized, already escaped catalogue inputs.
 pub(super) fn apply(
     mut html: String,
-    options: Option<&TaxonomyOptions>,
+    options: Option<&CatalogTaxonomyView>,
     genre: Option<&str>,
     tag: Option<&str>,
     fandom: Option<&str>,
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn h_10_catalog_dropdowns_preserve_selected_options() {
-        let options = TaxonomyOptions {
+        let options = CatalogTaxonomyView {
             genres: vec!["Фэнтези".into(), "Фантастика".into()],
             tags: vec!["Попаданцы".into()],
             fandoms: vec!["Аниме".into()],
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn h_11_taxonomy_escapes_untrusted_pg_and_query_values() {
-        let options = TaxonomyOptions {
+        let options = CatalogTaxonomyView {
             genres: vec!["\" onclick=\"x".into()],
             tags: vec!["<script>x</script>".into()],
             fandoms: vec![],

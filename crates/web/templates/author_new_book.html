@@ -9,6 +9,28 @@
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
         <label for="book-title">Название книги</label>
         <input id="book-title" name="title" type="text" required maxlength="200" minlength="1">
+        <label for="book-original-title">Оригинальное название</label>
+        <input id="book-original-title" name="original_title" type="text" maxlength="200">
+        <label for="book-source">Ссылка на первоисточник</label>
+        <input id="book-source" name="source_url" type="url" maxlength="512" placeholder="https://example.org/book/123">
+        <p>Здесь укажите первоисточник на языке автора (например, китайский роман). Ссылки на переводы и каталоги добавьте ниже.</p>
+        <label for="book-extra-source-1">Дополнительная ссылка на это произведение</label>
+        <input id="book-extra-source-1" name="extra_source_1" type="url" maxlength="512" placeholder="https://tl.rulate.ru/book/123">
+        <label for="book-extra-source-2">Ещё одна ссылка (необязательно)</label>
+        <input id="book-extra-source-2" name="extra_source_2" type="url" maxlength="512" placeholder="https://other.example/book/123">
+        <p>Можно указать адреса с любых сайтов. Система проверяет точные совпадения ссылок и известные варианты адресов, но не объединяет произведения лишь по похожему названию.</p>
+        <label for="book-original-language">Язык оригинала</label>
+        <select id="book-original-language" name="original_language"><option value="">Не указан</option><option value="zh">Китайский</option><option value="ko">Корейский</option><option value="ja">Японский</option><option value="en">Английский</option><option value="ru">Русский</option><option value="vi">Вьетнамский</option></select>
+        <label for="book-release-year">Год выпуска</label>
+        <input id="book-release-year" name="release_year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
+        <label for="book-project-status">Состояние произведения</label>
+        <select id="book-project-status" name="project_status"><option value="">Не указано</option><option value="ongoing">В процессе</option><option value="completed">Завершено</option><option value="paused">Приостановлено</option><option value="planned">Запланировано</option></select>
+        <label for="book-section">Раздел каталога</label>
+        <select id="book-section" name="catalog_section"><option value="">Выбрать позже</option><option value="novels/chinese">Китайские новеллы</option><option value="novels/korean">Корейские новеллы</option><option value="novels/japanese">Японские новеллы</option><option value="novels/english">Английские новеллы</option><option value="novels/original">Авторские произведения</option><option value="fanfic/translated">Переводы фанфиков</option></select>
+        <label for="book-alt-1">Другие названия (до трёх)</label>
+        <input id="book-alt-1" name="alt_title_1" type="text" maxlength="200">
+        <input name="alt_title_2" type="text" maxlength="200" aria-label="Второе альтернативное название">
+        <input name="alt_title_3" type="text" maxlength="200" aria-label="Третье альтернативное название">
         <label for="book-author">Автор произведения (необязательно)</label>
         <input id="book-author" name="author_name" type="text" maxlength="160">
         <label for="book-description">Аннотация книги (до 4000 символов)</label>
@@ -21,8 +43,10 @@
         <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
         <label for="book-language">Язык</label>
         <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
+        <section id="book-title-suggestions" role="status" aria-live="polite" aria-label="Похожие книги"></section>
         <button class="button" type="submit">Создать книгу</button>
       </form>
+      <script src="/assets/book-title-suggestions.js" defer></script>
       <p class="auth-card__footer"><a href="/me/books">Вернуться к моим книгам</a></p>
     </div>
   </div>

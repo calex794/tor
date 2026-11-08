@@ -21,6 +21,28 @@ ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 EXPECTED_HOST = "pandaolate.ru"
 EXPECTED_UPSTREAM = "http://127.0.0.1:3000"
+AUDITED_ADMIN_MAIL = {
+    ("GET", "/admin/mail", "admin_mail::index", "admin_mail"),
+    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user", "admin_mail"),
+    ("GET", "/admin/mail/{id}", "admin_mail::conversation", "admin_mail"),
+    ("GET", "/admin/mail/groups", "admin_mail::groups", "admin_mail"),
+    ("GET", "/admin/mail/groups/{id}", "admin_mail::group", "admin_mail"),
+    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms", "admin_mail"),
+    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room", "admin_mail"),
+}
+AUDITED_REFUND_ADMIN = {
+    ("GET", "/admin/finance/refunds", "page", "admin_refund"),
+    ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
+}
+AUDITED_SUPPORT_ADMIN = {
+    ("GET", "/admin/support", "index", "support_admin"),
+    ("GET", "/admin/support/{id}", "page", "support_admin"),
+    ("GET", "/admin/support/{id}/messages", "messages", "support_admin"),
+    ("POST", "/admin/support/{id}/messages", "submit", "support_admin"),
+    ("POST", "/admin/support/{id}/read", "mark_read", "support_admin"),
+    ("POST", "/admin/support/{id}/close", "close", "support_admin"),
+    ("POST", "/admin/support/{id}/reopen", "reopen", "support_admin"),
+}
 PRIVATE_PROBES = (
     ("/me", {301, 302, 303, 307, 308, 401, 403, 404}),
     ("/api/v1/chapters/1/read", {403, 404}),
@@ -72,7 +94,15 @@ def check_repository(root: Path = ROOT) -> list[str]:
         template = row["template"]
         policy = row["policy"]
         if template.startswith(("/admin", "/internal")) and policy != "deny":
-            problems.append(f"internal/admin route is not denied: {row['method']} {template}")
+            key = (row["method"], template, row["handler"], policy)
+            allow_mail = (row["source"] == "crates/web/src/auth/admin_mail_routes.rs"
+                          and key in AUDITED_ADMIN_MAIL)
+            allow_support = (row["source"] == "crates/web/src/auth/support_admin.rs"
+                             and key in AUDITED_SUPPORT_ADMIN)
+            allow_refund = (row["source"] == "crates/web/src/auth/admin_refund_review.rs"
+                            and key in AUDITED_REFUND_ADMIN)
+            if not (allow_mail or allow_support or allow_refund):
+                problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
     return problems

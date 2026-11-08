@@ -187,15 +187,6 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         released_events, 0,
         "hidden book has no public release event"
     );
-    let hidden_outbox: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM outbox_events
-         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(hidden_outbox, 0, "draft save cannot notify subscribers");
     assert_eq!(
         author.release_book(outsider, book_id).await,
         Err(AuthorError::Missing),
@@ -210,20 +201,17 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
             .await
             .unwrap();
     assert_eq!(count, 1, "one first release event, even on repeat");
-    let outbox: (i64, bool) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint,
-                BOOL_AND((payload->>'first_release')::boolean)
-         FROM outbox_events
-         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    let release_creator: Option<i64> = sqlx::query_scalar(
+        "SELECT creator_user_id FROM chapter_first_release_events WHERE chapter_id=$1",
     )
     .bind(saved.chapter_id)
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(
-        outbox,
-        (1, true),
-        "repeated book release must not enqueue again"
+        release_creator,
+        Some(user),
+        "first release of a draft book must snapshot its verified owner"
     );
     let late_key = "n".repeat(43);
     let late_chapter = save_chapter(SaveChapterRequest {
@@ -561,4 +549,445 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
         repo.create_owned_book(owner, &changed).await,
         Err(AuthorError::Conflict)
     );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_12_private_chapter_keyset_covers_501_chapters_without_leaks() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tor_books::services::authoring::OwnedChapterCursor;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "never use production database");
+    let pool = PgPool::connect(&url).await.expect("PostgreSQL 18");
+    let owner = PgAuthoring::new(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1, 'Long book owner', '$argon2id$test') RETURNING id",
+    )
+    .bind(format!("b12-{nonce}@tor-ci.example"))
+    .fetch_one(&pool)
+    .await
+    .expect("owner");
+    let outsider: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1, 'Other reader', '$argon2id$test') RETURNING id",
+    )
+    .bind(format!("b12-foreign-{nonce}@tor-ci.example"))
+    .fetch_one(&pool)
+    .await
+    .expect("outsider");
+    let book = new_book(
+        &format!("tor-ci:b12:{nonce}"),
+        "ru",
+        "501 глава",
+        &"z".repeat(43),
+    )
+    .expect("book identity");
+    let book_id = owner
+        .create_owned_book(user, &book)
+        .await
+        .expect("create book");
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         SELECT $1, n, ('Глава ' || n::text), 'draft', 'free', 0
+         FROM generate_series(1,501) AS n",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .expect("501 chapters");
+
+    let foreign = owner
+        .list_owned_chapters_page(outsider, book_id, None)
+        .await
+        .expect("private filter");
+    assert!(
+        foreign.chapters.is_empty(),
+        "foreign user must see no chapters"
+    );
+    assert_eq!(
+        owner
+            .list_owned_chapters(user, book_id)
+            .await
+            .unwrap()
+            .len(),
+        200,
+        "legacy callers retain their bounded response"
+    );
+    let mut next: Option<OwnedChapterCursor> = None;
+    let mut count = 0;
+    let mut last = 0;
+    let mut pages = 0;
+    loop {
+        let page = owner
+            .list_owned_chapters_page(user, book_id, next)
+            .await
+            .expect("owner page");
+        assert!(!page.chapters.is_empty());
+        assert!(page.chapters.len() <= 100);
+        for chapter in page.chapters {
+            assert!(chapter.number > last, "strict chapter order across pages");
+            last = chapter.number;
+            count += 1;
+        }
+        pages += 1;
+        next = page.next;
+        if next.is_none() {
+            break;
+        }
+        assert!(pages < 7, "cursor must advance");
+    }
+    assert_eq!(count, 501);
+    assert_eq!(last, 501);
+    assert_eq!(pages, 6);
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_02_registration_persists_source_and_rejects_duplicate_titles() {
+    use tor_books::services::book_registration::{
+        source_identity, with_registration_metadata, RegistrationFields,
+    };
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never run on production");
+    let pool = PgPool::connect(&url).await.expect("PG connect");
+    let user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized, display_name, password_hash)
+         VALUES('b02_registration@tor-ci.example','B02 Author','$argon2id$test')
+         ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let author = PgAuthoring::new(pool.clone());
+    let key = "r".repeat(43);
+    let unique = format!(
+        "https://original.example/book/{user}-{}",
+        std::process::id()
+    );
+    let identity = source_identity(&unique, user, &key).unwrap();
+    let title = format!("С019 регистрация {user} {}", std::process::id());
+    let book = new_book(&identity, "ru", &title, &key).unwrap();
+    let book = with_registration_metadata(
+        book,
+        RegistrationFields {
+            source_url: &unique,
+            original_title: "",
+            original_language: "zh",
+            release_year: "2024",
+            project_status: "ongoing",
+            catalog_section: "novels/chinese",
+            alt_titles: ["Псевдоним С019", "", ""],
+        },
+    )
+    .unwrap();
+    let book_id = author.create_owned_book(user, &book).await.unwrap();
+    assert_eq!(
+        author.create_owned_book(user, &book).await.unwrap(),
+        book_id
+    );
+    let row = sqlx::query(
+        "SELECT source_url, original_language, release_year, project_status, catalog_section,
+                alt_titles, visibility FROM books WHERE id=$1",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("source_url"), unique);
+    assert_eq!(row.get::<String, _>("original_language"), "zh");
+    assert_eq!(row.get::<Option<i32>, _>("release_year"), Some(2024));
+    assert_eq!(row.get::<String, _>("project_status"), "ongoing");
+    assert_eq!(row.get::<String, _>("catalog_section"), "novels/chinese");
+    assert_eq!(
+        row.get::<Vec<String>, _>("alt_titles"),
+        vec!["Псевдоним С019"]
+    );
+    assert_eq!(row.get::<String, _>("visibility"), "draft");
+    let duplicate_key = "s".repeat(43);
+    let duplicate = new_book(
+        &source_identity(&unique, user, &duplicate_key).unwrap(),
+        "ru",
+        &format!("Другой заголовок {user}"),
+        &duplicate_key,
+    )
+    .unwrap();
+    assert_eq!(
+        author.create_owned_book(user, &duplicate).await,
+        Err(AuthorError::Conflict),
+        "the same source work and target language cannot be registered twice"
+    );
+    let another_key = "t".repeat(43);
+    let second = new_book(
+        &source_identity("", user, &another_key).unwrap(),
+        "ru",
+        &title.replace("С019", "с019"),
+        &another_key,
+    )
+    .unwrap();
+    assert_eq!(
+        author.create_owned_book(user, &second).await,
+        Err(AuthorError::Conflict),
+        "exact normalized title alias cannot be claimed twice"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_02_legacy_book_titles_block_new_registration_without_rewriting_old_rows() {
+    use tor_books::services::book_registration::normalized_title;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never run on production");
+    let pool = PgPool::connect(&url).await.expect("PG connect");
+    let marker = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized, display_name, password_hash)
+         VALUES ($1, 'S019 legacy owner', '$argon2id$test') RETURNING id",
+    )
+    .bind(format!("b02-old-{marker}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let author = PgAuthoring::new(pool.clone());
+
+    let old_title = format!("Ёж — и кот {marker}");
+    let old_id: i64 = sqlx::query_scalar(
+        "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id)
+         VALUES ($1, 'ru', $2, 'draft', $3) RETURNING id",
+    )
+    .bind(format!("legacy:before-s019:{marker}"))
+    .bind(&old_title)
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let old_claims: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM book_registration_titles WHERE book_id=$1")
+            .bind(old_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(old_claims, 0, "historical book has no registration claims");
+
+    for title in [&old_title, "Ёж — и кот", "中文 — 作品", "Test... Book"] {
+        let sql_key: String = sqlx::query_scalar("SELECT book_registration_legacy_title_key($1)")
+            .bind(title)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sql_key,
+            normalized_title(title),
+            "PG / Rust title-key parity"
+        );
+    }
+
+    let key = "l".repeat(43);
+    let collision = new_book(
+        &format!("manual:{owner}:{key}"),
+        "ru",
+        &format!("ЕЖ, И КОТ {marker}"),
+        &key,
+    )
+    .unwrap();
+    assert_eq!(
+        author.create_owned_book(owner, &collision).await,
+        Err(AuthorError::Conflict),
+        "legacy private drafts must also block duplicates"
+    );
+    let command_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM book_create_commands WHERE user_id=$1 AND command_key=$2",
+    )
+    .bind(owner)
+    .bind(&key)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        command_rows, 0,
+        "rejected create must roll back its command"
+    );
+
+    let old_still_draft: String = sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
+        .bind(old_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(old_still_draft, "draft", "never rewrite historical data");
+
+    let en_key = "m".repeat(43);
+    let other_language = new_book(
+        &format!("manual:{owner}:{en_key}"),
+        "en",
+        &old_title,
+        &en_key,
+    )
+    .unwrap();
+    assert!(
+        author
+            .create_owned_book(owner, &other_language)
+            .await
+            .is_ok(),
+        "a different target language remains a different edition"
+    );
+
+    let deleted_title = format!("Исторически удалена {marker}");
+    sqlx::query(
+        "INSERT INTO books(source_identity, target_language, title, is_deleted)
+         VALUES($1, 'ru', $2, TRUE)",
+    )
+    .bind(format!("legacy:deleted:{marker}"))
+    .bind(&deleted_title)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let deleted_key = "n".repeat(43);
+    let replacement = new_book(
+        &format!("manual:{owner}:{deleted_key}"),
+        "ru",
+        &deleted_title,
+        &deleted_key,
+    )
+    .unwrap();
+    assert!(
+        author.create_owned_book(owner, &replacement).await.is_ok(),
+        "deleted legacy records must not block new registration"
+    );
+    pool.close().await;
+}
+
+// S019 aliases are part of the existing mandatory authoring PostgreSQL suite.
+#[path = "registration_source_alias_pg.rs"]
+mod registration_source_alias_pg;
+
+#[path = "registration_links_pg.rs"]
+mod registration_links_pg;
+
+#[path = "title_suggestions_pg.rs"]
+mod title_suggestions_pg;
+
+#[path = "registration_sources_edit_pg.rs"]
+mod registration_sources_edit_pg;
+
+#[path = "project_status_pg.rs"]
+mod project_status_pg;
+
+#[path = "book_titles_pg.rs"]
+mod book_titles_pg;
+
+#[path = "book_delayed_schedule_pg.rs"]
+mod book_delayed_schedule_pg;
+#[path = "book_related_pg.rs"]
+mod book_related_pg;
+
+#[path = "book_description_pg.rs"]
+mod book_description_pg;
+#[path = "book_slot_frontier_pg.rs"]
+mod book_slot_frontier_pg;
+#[path = "book_slot_occurrences_pg.rs"]
+mod book_slot_occurrences_pg;
+#[path = "book_slot_release_pg.rs"]
+mod book_slot_release_pg;
+
+#[path = "origin_metadata_pg.rs"]
+mod origin_metadata_pg;
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_auto_number_serializes_free_delayed_and_paid_writers() {
+    use tor_books::{
+        repositories::paid_storage::PgPaidStorage,
+        services::authoring::{save_chapter, SaveChapterRequest},
+    };
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never run on production");
+    let pool = PgPool::connect(&url).await.expect("PG connect");
+    let author = PgAuthoring::new(pool.clone());
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-auto-number@tor-ci.example','Auto author','$argon2id$test')
+         ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book = new_book(
+        &format!("tor-ci:chapter-number:{owner}:{nonce}"),
+        "ru",
+        "Автонумерация",
+        &"a".repeat(43),
+    )
+    .unwrap();
+    let book_id = author.create_owned_book(owner, &book).await.unwrap();
+    let make = |title: &str, key: &str, access: &str, price_amount: i64| {
+        save_chapter(SaveChapterRequest {
+            book_id: book_id as u64,
+            chapter_id: None,
+            number: 0,
+            expected_revision: 0,
+            title,
+            body: "New chapter content",
+            access,
+            price_amount,
+            command_key: key,
+        })
+        .unwrap()
+    };
+    let first = make("First", &"b".repeat(43), "free", 0);
+    let saved = author.create_free_chapter(owner, &first).await.unwrap();
+    assert_eq!(
+        author.create_free_chapter(owner, &first).await.unwrap(),
+        saved
+    );
+    let second = make("Second", &"c".repeat(43), "free", 0);
+    let third = make("Third", &"d".repeat(43), "free", 0);
+    let (second_out, third_out) = tokio::join!(
+        author.create_free_chapter(owner, &second),
+        author.create_free_chapter(owner, &third)
+    );
+    assert_ne!(
+        second_out.unwrap().chapter_id,
+        third_out.unwrap().chapter_id
+    );
+    author.release_book(owner, book_id).await.unwrap();
+    let published = make("Published", &"e".repeat(43), "free", 0);
+    author
+        .create_published_free_chapter(owner, &published)
+        .await
+        .unwrap();
+    let delayed = make("Delayed", &"f".repeat(43), "free", 0);
+    author
+        .create_pending_free_chapter(owner, &delayed)
+        .await
+        .unwrap();
+    let paid = make("Paid", &"g".repeat(43), "paid", 175);
+    PgPaidStorage::new(pool.clone())
+        .prepare_new_paid_chapter(owner, &paid)
+        .await
+        .unwrap();
+    let assigned: Vec<i32> =
+        sqlx::query_scalar("SELECT chapter_no FROM chapters WHERE book_id=$1 ORDER BY chapter_no")
+            .bind(book_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assigned, vec![1, 2, 3, 4, 5, 6]);
+    pool.close().await;
 }

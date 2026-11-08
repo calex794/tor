@@ -1,12 +1,13 @@
 //! TOR F-02 catalogue HTTP projection, kept separate from routing shell.
-use super::{cover_http, pages, public_cards, AppState};
+use super::{auth_cookies, cover_http, pages, public_cards, public_reader_http, AppState};
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
-    response::Html,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use tor_books::services::DEFAULT_PAGE_SIZE;
+use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 #[derive(Default, Deserialize)]
 pub(super) struct CatalogQuery {
@@ -16,16 +17,43 @@ pub(super) struct CatalogQuery {
     tag: Option<String>,
     fandom: Option<String>,
     after: Option<String>,
+    before: Option<String>,
+    page: Option<u32>,
     sort: Option<String>,
 }
+/// Guard page-number presentation from impossible navigation states.
+fn requested_page(query: &CatalogQuery) -> Result<u32, StatusCode> {
+    // Compatibility: old /catalog?after=... URLs were always the next page.
+    let page = query
+        .page
+        .unwrap_or(if query.after.is_some() { 2 } else { 1 });
+    if (query.after.is_some() && query.before.is_some())
+        || page == 0
+        || page > 1_000_000
+        || (query.after.is_some() && page < 2)
+        || (query.before.is_some() && query.page.is_none())
+        || (page > 1 && query.after.is_none() && query.before.is_none())
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(page)
+}
+
 pub(super) async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
     if let Some(search) = state.search.as_ref() {
+        // Tokens are obtained from the signed session cookie, never from
+        // a query parameter. The repository rechecks the live session and
+        // Book age on every SQL statement that emits metadata.
+        let digest = public_reader_http::reader_session_digest(&state, &headers);
+        let search = search.with_session_digest(digest);
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
         let sort = query.sort.as_deref().unwrap_or("oldest");
+        let page_number = requested_page(&query)?;
         let facets = tor_search::repositories::CatalogFacets {
             term: query.q.as_deref().unwrap_or(""),
             language: query.language.as_deref(),
@@ -34,9 +62,10 @@ pub(super) async fn catalog(
             fandom: query.fandom.as_deref(),
         };
         let page = search
-            .search_catalog(
+            .browse_catalog_page(
                 facets,
                 query.after.as_deref(),
+                query.before.as_deref(),
                 DEFAULT_PAGE_SIZE,
                 Some(sort),
             )
@@ -47,7 +76,7 @@ pub(super) async fn catalog(
             })?;
         // First page shows the exact count once. Cursor requests remain
         // cheap and do not perform a repeated full-filter count.
-        let total = if query.after.is_none() {
+        let total = if page_number == 1 {
             Some(
                 search
                     .count_catalog(facets)
@@ -60,13 +89,16 @@ pub(super) async fn catalog(
         } else {
             None
         };
-        let options = if query.after.is_none() {
-            Some(
-                search
-                    .taxonomy_options()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            )
+        let options = if page_number == 1 {
+            let taxonomy = search
+                .taxonomy_options()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            Some(CatalogTaxonomyView::new(
+                taxonomy.genres,
+                taxonomy.tags,
+                taxonomy.fandoms,
+            ))
         } else {
             None
         };
@@ -86,7 +118,7 @@ pub(super) async fn catalog(
             })
             .collect();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::catalog_search_with_covers(
+        let html = pages::catalog_search_with_covers(
             &cards,
             pages::CatalogPageQuery {
                 query: query.q.as_deref().unwrap_or(""),
@@ -95,15 +127,28 @@ pub(super) async fn catalog(
                 tag: query.tag.as_deref(),
                 fandom: query.fandom.as_deref(),
                 cursor: page.next_cursor.as_deref(),
+                previous_cursor: page.previous_cursor.as_deref(),
+                page_number,
                 sort,
                 total,
                 options: options.as_ref(),
             },
             &covers,
-        ));
+        );
+        let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
+        let (html, origin) = cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;
+        let response = if digest.is_some() {
+            // Personalized 18+/21+ metadata must never be cached for guests.
+            auth_cookies::private_response(html, &[])
+        } else {
+            html.into_response()
+        };
+        return Ok(cover_http::cdn_image_csp(response, origin.as_deref()));
     }
     if query.q.is_some()
         || query.after.is_some()
+        || query.before.is_some()
+        || query.page.is_some()
         || query.language.is_some()
         || query.genre.is_some()
         || query.tag.is_some()
@@ -112,7 +157,41 @@ pub(super) async fn catalog(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    Ok(pages::catalog(
-        &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-    ))
+    Ok(
+        pages::catalog(&public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?)
+            .into_response(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn b_18_exactly_twenty_books_and_page_query_is_validated() {
+        assert_eq!(DEFAULT_PAGE_SIZE, 20);
+        let mut request = CatalogQuery::default();
+        assert_eq!(requested_page(&request), Ok(1));
+        request.page = Some(3);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = None;
+        request.after = Some("20".to_owned());
+        assert_eq!(requested_page(&request), Ok(2));
+        request.page = Some(1);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = Some(2);
+        assert_eq!(requested_page(&request), Ok(2));
+        request.before = Some("21".to_owned());
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.after = None;
+        request.page = None;
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = Some(1);
+        assert_eq!(requested_page(&request), Ok(1));
+        request.page = Some(1_000_001);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.before = None;
+        request.page = Some(0);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+    }
 }

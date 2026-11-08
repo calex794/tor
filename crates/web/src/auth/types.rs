@@ -18,26 +18,36 @@ pub(super) async fn session_user(
 
 #[derive(Clone)]
 pub(super) struct AuthState {
+    pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
     pub(super) paid_checkout_enabled: bool,
+    pub(super) layer_checkout_enabled: bool,
+    pub(super) layer_pages_enabled: bool,
+    pub(super) swap_browser_enabled: bool,
+    pub(super) refund_browser_enabled: bool,
     pub(super) paid_reader_available: bool,
+    pub(super) paid_author_available: bool,
     pub(super) authoring: PgAuthoring,
     pub(super) progress: PgReadingProgress,
     pub(super) sync: PgReadingSync,
     pub(super) bookmarks: PgLibrary,
     pub(super) demand: PgContinuationDemand,
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
+    pub(super) creator_follows: tor_social::services::follow::PgCreatorFollows,
     pub(super) follow_updates: PgFollowUpdates,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
+    pub(super) achievements: tor_recommendations::repositories::PgAchievements,
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
     pub(super) ril_signer: Option<RilSubjectSigner>,
-    pub(super) cover_jobs: Option<PgCoverJobs>,
+    pub(super) cover_preview_storage: Option<Arc<dyn CoverObjectStore>>,
     pub(super) cover_upload_enabled: bool,
+    /// Off by default until S020/#486 full cross-surface acceptance.
+    pub(super) age_editor_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -56,6 +66,7 @@ pub(super) struct SavePlaceForm {
 #[derive(Default, Deserialize)]
 pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
+    pub(super) purchased_after: Option<i64>,
     pub(super) updates_after: Option<String>,
     pub(super) limit: Option<u16>,
 }
@@ -64,6 +75,17 @@ pub(super) struct LibraryQuery {
 pub(super) struct NewBookForm {
     pub(super) title: String,
     pub(super) target_language: String,
+    pub(super) source_url: Option<String>,
+    pub(super) extra_source_1: Option<String>,
+    pub(super) extra_source_2: Option<String>,
+    pub(super) original_title: Option<String>,
+    pub(super) original_language: Option<String>,
+    pub(super) release_year: Option<String>,
+    pub(super) project_status: Option<String>,
+    pub(super) catalog_section: Option<String>,
+    pub(super) alt_title_1: Option<String>,
+    pub(super) alt_title_2: Option<String>,
+    pub(super) alt_title_3: Option<String>,
     pub(super) author_name: Option<String>,
     pub(super) description: Option<String>,
     pub(super) genres: Option<String>,

@@ -5,6 +5,7 @@ use std::net::IpAddr;
 pub enum LoginEventKind {
     Registration,
     PasswordLogin,
+    PasswordChange,
 }
 
 impl LoginEventKind {
@@ -12,6 +13,7 @@ impl LoginEventKind {
         match self {
             Self::Registration => "registration",
             Self::PasswordLogin => "password_login",
+            Self::PasswordChange => "password_change",
         }
     }
 }

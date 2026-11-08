@@ -74,6 +74,14 @@ jobs:
           PGPASSWORD=tor-f02-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
             | tee "$RUNNER_TEMP/f02-taxonomy-100k-sql.txt"
+      - name: F-04 rising shelf query plan on 100k books and 100k completions
+        run: |
+          set -o pipefail
+          PGPASSWORD=tor-f02-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/f04_rising_seed.sql \
+            | tee "$RUNNER_TEMP/f04-rising-100k-seed.txt"
+          cargo test -p tor-search --test f04_rising_perf_pg -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/f04-rising-100k-report.txt"
       - name: Preserve query plans and timing evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,5 +90,7 @@ jobs:
           path: |
             ${{ runner.temp }}/f02-pg100k-report.txt
             ${{ runner.temp }}/f02-taxonomy-100k-sql.txt
+            ${{ runner.temp }}/f04-rising-100k-seed.txt
+            ${{ runner.temp }}/f04-rising-100k-report.txt
           if-no-files-found: warn
           retention-days: 14

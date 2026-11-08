@@ -116,8 +116,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public','basic') RETURNING id"
         ),
     )
     .await
@@ -341,6 +341,110 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .await
         .unwrap();
     let writer_cookie = format!("tor-dev-session={writer_session}; tor-dev-csrf={writer_csrf}");
+    // S020: real signed-session Book comments and direct POST must use
+    // live actor access, never anonymous basic-only or client claims.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let direct = format!(
+        "body=Forged&command_key={}&csrf_token={writer_csrf}",
+        generate_session_token()
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &writer_cookie,
+            ORIGIN,
+            &direct
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({writer_id},'pro_adult','moderation',TRUE)
+             ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE
+             WHERE user_id={writer_id} AND level='pro_adult'"
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "GET", &comments_path, &writer_cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    )
+    .await;
+    // Restore the fixture's original actor state before the existing Inbox
+    // revocation scenarios below; 18+ is not granted by this test permanently.
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer_id}"),
+    )
+    .await;
     let incoming_form = format!(
         "body=NEVER_COPY_THIS_SPOILER&parent_id={parent}&command_key={}&csrf_token={writer_csrf}",
         generate_session_token()
@@ -512,7 +616,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let item: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(item["items"][0]["id"], incoming_id.to_string());
     assert_eq!(item["items"][0]["kind"], "reply");
-    assert_eq!(item["items"][0]["is_read"], false);
+    // Both POST requests must leave the original Inbox notification read.
+    assert_eq!(item["items"][0]["is_read"], true);
     assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
     assert_eq!(
         call(
@@ -541,6 +646,20 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         StatusCode::BAD_REQUEST
     );
     let read_path = format!("/me/replies/{incoming_id}/read-state");
+    // Explicitly restore unread to retain the existing manual-toggle tests.
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_path,
+            &cookies,
+            ORIGIN,
+            &format!("csrf_token={csrf}&state=unread")
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
     let read_form = format!("csrf_token={csrf}&state=read");
     assert_eq!(
         call(
@@ -687,6 +806,176 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     )
     .await;
+    // E-03: a selected participant without a public handle is addressed by ID,
+    // but must be validated server-side before creating an Inbox reference.
+    let discover_url = format!("/api/v1/social/mentions/discover?book_id={book}&q=Ot");
+    assert_eq!(
+        call(&app, "GET", &discover_url, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let candidates = html(call(&app, "GET", &discover_url, &cookies, ORIGIN, "").await).await;
+    assert!(candidates.contains(&format!("\"user_id\":{writer_id}")));
+
+    // A-06 / E-03: the profile's current handle, not the legacy mention
+    // registry, is the single identity for lookup and canonicalisation.
+    let handle = format!("e03_reader{writer_id}");
+    pg(
+        &url,
+        &format!("INSERT INTO account_settings(user_id,handle) VALUES({writer_id},'{handle}')"),
+    )
+    .await;
+    let handle_discovery = format!("/api/v1/social/mentions/discover?book_id={book}&q=e03_");
+    let found = html(call(&app, "GET", &handle_discovery, &cookies, ORIGIN, "").await).await;
+    assert!(found.contains(&format!("\"user_id\":{writer_id}")));
+    assert!(found.contains("Other reader"));
+    assert!(!found.contains(&handle)); // Search only returns display names, not saved handles.
+    let handle_key = generate_session_token();
+    let handle_form =
+        format!("body=Hello%20%40{handle}&command_key={handle_key}&csrf_token={csrf}");
+    assert_eq!(
+        call(&app, "POST", &comments_path, &cookies, ORIGIN, &handle_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let handle_comment_id: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM discussion_comments WHERE book_id={book} AND command_key='{handle_key}'"
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM discussion_comment_mentions WHERE comment_id={handle_comment_id} AND recipient_user_id={writer_id}"
+            ),
+        )
+        .await,
+        "1"
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE id={handle_comment_id}"),
+    )
+    .await;
+    let mention_key = generate_session_token();
+    let mention_form = format!(
+        "body=Look%20%40%5Buser%3A{writer_id}%5D&command_key={mention_key}&csrf_token={csrf}"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &comments_path,
+                &cookies,
+                ORIGIN,
+                &mention_form
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let mention_id: i64 = pg(
+        &url,
+        &format!(
+        "SELECT id FROM discussion_comments WHERE book_id={book} AND command_key='{mention_key}'"
+    ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(pg(&url, &format!(
+        "SELECT count(*) FROM discussion_comment_mentions WHERE comment_id={mention_id} AND recipient_user_id={writer_id}"
+    )).await, "1");
+    let notification =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(notification.contains("\"kind\":\"mention\""));
+    assert!(notification.contains(&format!("\"id\":\"{mention_id}\"")));
+    assert!(!notification.contains("Look"));
+
+    // S020: the existing HTTP Inbox must hide the canonical Book reference
+    // as soon as this recipient loses verified 18+ / 21+ eligibility.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    )
+    .await;
+    let denied =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!denied.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={writer_id}"),
+    )
+    .await;
+    let adult = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(adult.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={writer_id}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    )
+    .await;
+    let without_grant =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!without_grant.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({writer_id},'pro_adult','moderation',TRUE)
+             ON CONFLICT(user_id,level) DO UPDATE SET is_active=TRUE"
+        ),
+    )
+    .await;
+    let pro = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(pro.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!(
+            "UPDATE user_level_grants SET is_active=FALSE
+             WHERE user_id={writer_id} AND level='pro_adult'"
+        ),
+    )
+    .await;
+    let revoked =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!revoked.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    )
+    .await;
+    let legacy =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(!legacy.contains(&format!("\"id\":\"{mention_id}\"")));
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM user_level_grants WHERE user_id={writer_id} AND level='pro_adult'"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE id={mention_id}"),
+    )
+    .await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE parent_id={incoming_id}"),
@@ -701,3 +990,9 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
+
+#[path = "book_comments_http_pg/scoped_comments.rs"]
+mod scoped_comments;
+
+#[path = "book_comments_http_pg/s020_age_public_comments.rs"]
+mod s020_age_public_comments;

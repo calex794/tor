@@ -5,13 +5,18 @@ edition.workspace = true
 
 [features]
 default = []
+# Explicitly selected only by isolated PG/MinIO/CDN HTTP tests; not a runtime flag.
+test-cdn-loopback = []
 s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
+s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
 axum = { workspace = true, features = ["multipart"] }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "io-util"] }
 tor-books = { path = "../books" }
+tor-social = { path = "../social" }
+tor-support = { path = "../support" }
 tor-discussions = { path = "../discussions" }
 tor-commerce = { path = "../commerce" }
 tor-contracts = { path = "../contracts" }
@@ -19,14 +24,18 @@ tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }
 tor-search = { path = "../search" }
 tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
+tor-imports = { path = "../imports" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
 async-trait.workspace = true
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
+tor-referrals = { path = "../referrals" }
 tor-route_intelligence = { path = "../route_intelligence" }
 tor-traffic_behavior = { path = "../traffic_behavior" }
 tor-observability = { path = "../observability" }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde.workspace = true
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -34,7 +43,6 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
-serde_json = "1"
 hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 

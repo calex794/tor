@@ -10,7 +10,8 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use tor_reading::services::{library::LibraryError, PublicReadingRepository};
+use tor_accounts::services::security::session_token_digest;
+use tor_reading::services::library::LibraryError;
 
 #[derive(Deserialize)]
 pub(super) struct BookmarkForm {
@@ -21,6 +22,8 @@ pub(super) struct BookmarkForm {
 struct LibraryItemJson {
     book_id: String,
     title: String,
+    pending_deletion: bool,
+    ordinary_deleted: bool,
 }
 
 #[derive(Serialize)]
@@ -59,6 +62,8 @@ pub(super) async fn api_list(
                 .map(|book| LibraryItemJson {
                     book_id: book.book_id.to_string(),
                     title: book.title,
+                    pending_deletion: book.pending_deletion,
+                    ordinary_deleted: book.ordinary_deleted,
                 })
                 .collect();
             private_response(
@@ -83,7 +88,18 @@ pub(super) async fn show_add(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     }
-    let book = match state.reader.public_book(id).await {
+    // The anonymous public_book() gate excludes 18+/21+ even when the
+    // signed-in reader is eligible. Recheck the live session and Book tier
+    // in the SAME SQL query that returns the Book title for the prompt.
+    let digest = state
+        .cookies
+        .session_token(&headers)
+        .map(|token| session_token_digest(&token));
+    let book = match state
+        .reader
+        .public_book_page_for_session(id, 1, None, digest.as_ref())
+        .await
+    {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

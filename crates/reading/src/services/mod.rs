@@ -95,3 +95,5 @@ pub mod library;
 pub mod sync;
 
 pub mod paid_delivery;
+
+pub mod notification_preferences;

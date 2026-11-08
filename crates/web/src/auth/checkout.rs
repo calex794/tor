@@ -32,7 +32,7 @@ struct BuyReceipt {
     replayed: bool,
 }
 
-fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
+pub(super) fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|c| c.is_ascii_digit()) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }

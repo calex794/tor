@@ -5,6 +5,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {createHash}=require('node:crypto');
 const base='http://127.0.0.1:3098';
+const honeypotBrowser=require('./a09_honeypot_browser.cjs');
 const password='OriginalSecurePassword2026';
 const replacement='ReplacementSecurePassword2026';
 const nonce=Date.now().toString();
@@ -34,7 +35,9 @@ async function login(browser,mail,secret) {
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try {
+    await honeypotBrowser(browser,base,email,password);
     const alice=await register(browser,email,'A browser reader');
+    await honeypotBrowser.rejectedLogin(browser,base,email,password);
     const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
     const second=await login(browser,email,password);
     const guest=await browser.newContext();
@@ -61,9 +64,20 @@ async function login(browser,mail,secret) {
     }
     await alice.page.goto(`${base}/me/notification-settings`);
     await alice.page.locator('[name=delivery_mode][value=daily_digest]').check();
-    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/notification-settings`),alice.page.locator('form button').click()]);
+    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/notification-settings`),alice.page.locator('form[action="/me/notification-settings"] button').click()]);
     await alice.page.waitForLoadState('networkidle');
     assert.equal((await (await alice.context.request.get(`${base}/api/v1/me`)).json()).delivery_settings,'daily_digest');
+    await alice.page.goto(`${base}/me/security/sessions`);
+    assert(await alice.page.locator('form[action="/me/security/sessions"]').count()>=2);
+    assert(await alice.page.getByText('это устройство').count()>=1);
+    const remote=alice.page.locator('li.me-now-item').filter({hasNotText:'это устройство'}).first();
+    await remote.locator('input[name=current_password]').fill(password);
+    const [sessionRevoked]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/security/sessions`),remote.locator('button').click()]);
+    assert.equal(sessionRevoked.status(),303);
+    await alice.page.waitForLoadState('networkidle');
+    assert.equal((await second.context.request.get(`${base}/api/v1/me`)).status(),401);
+    assert.equal((await alice.context.request.get(`${base}/api/v1/me`)).status(),200);
+    await alice.page.screenshot({path:path.join(shots,'account-active-sessions.png'),fullPage:true});
     await alice.page.goto(`${base}/forgot-password`);
     const csrf=await alice.page.locator('[name=csrf_token]').inputValue();
     const known=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email,csrf_token:csrf}});
@@ -91,7 +105,7 @@ async function login(browser,mail,secret) {
     await alice.page.locator('[name=token]').fill(code);
     await alice.page.locator('[name=new_password]').fill(replacement);
     await alice.page.locator('[name=confirm_password]').fill(replacement);
-    const [replay]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/reset-password`),alice.page.locator('form button').click()]);
+    const [replay]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/reset-password`),alice.page.locator('form[action="/reset-password"] button').click()]);
     assert.equal(replay.status(),422);
     const fresh=await login(browser,email,replacement);
     assert.equal((await (await fresh.context.request.get(`${base}/api/v1/me`)).json()).display_name,'Updated A reader');

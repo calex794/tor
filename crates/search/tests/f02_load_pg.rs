@@ -20,11 +20,11 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     let inserted = sqlx::query(
         "INSERT INTO books
          (source_identity, target_language, title, author_name, genres,
-          visibility, admin_hold, is_deleted)
+          visibility, admin_hold, is_deleted, access_level)
          SELECT 'ci:f02:100k:' || n::text, 'ru', 'F02 Load Book ' || n::text,
                 'F02 Load Author', ARRAY['f02-load'],
                 CASE WHEN n % 20 = 0 THEN 'draft' ELSE 'public' END,
-                n % 20 = 1, n % 20 = 2
+                n % 20 = 1, n % 20 = 2, 'basic'
          FROM generate_series(1, 100000) AS n",
     )
     .execute(&pool)
@@ -50,7 +50,7 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
 
     // Independent SQL oracle, not the search repository under test.
     let expected: Vec<i64> = sqlx::query_scalar(
-        "SELECT id FROM books WHERE visibility='public'
+        "SELECT id FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic'
           AND NOT admin_hold AND NOT is_deleted
           AND genres @> ARRAY['f02-load'] AND target_language='ru'
           ORDER BY id ASC",
@@ -116,7 +116,7 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     // Measure the exact count separately; it is NOT yet exposed by the HTTP API.
     let count_start = Instant::now();
     let total: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM books WHERE visibility='public'
+        "SELECT count(*) FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic'
          AND NOT admin_hold AND NOT is_deleted
          AND genres @> ARRAY['f02-load'] AND target_language='ru'",
     )
@@ -162,14 +162,14 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     for (sort, oracle) in [
         (
             "title",
-            "SELECT id FROM books WHERE visibility='public'
+            "SELECT id FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic'
               AND NOT admin_hold AND NOT is_deleted
               AND target_language='ru' AND genres @> ARRAY['f02-load']
               ORDER BY lower(title) ASC,id ASC",
         ),
         (
             "author",
-            "SELECT id FROM books WHERE visibility='public'
+            "SELECT id FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic'
               AND NOT admin_hold AND NOT is_deleted
               AND target_language='ru' AND genres @> ARRAY['f02-load']
               ORDER BY lower(author_name) ASC,id ASC",
@@ -282,7 +282,7 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     let midpoint = expected[expected.len() / 2];
     for (sort, query) in [
         ("oldest", "EXPLAIN (ANALYZE, BUFFERS) SELECT id,title,target_language,author_name,genres
-          FROM books WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+          FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
           AND ($1::text = '' OR
                (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
                    @@ plainto_tsquery('simple'::regconfig, $1))
@@ -291,7 +291,7 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
           AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
           ORDER BY id ASC LIMIT $3"),
         ("newest", "EXPLAIN (ANALYZE, BUFFERS) SELECT id,title,target_language,author_name,genres
-          FROM books WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+          FROM books WHERE visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
           AND ($1::text = '' OR
                (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
                    @@ plainto_tsquery('simple'::regconfig, $1))

@@ -28,8 +28,8 @@ async fn fixture(label: &str) -> (PgBookStars, PgPool, i64, i64, i64, i64) {
         readers.push(id);
     }
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Проверяемая книга','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES($1,'ru','Проверяемая книга','public','basic') RETURNING id",
     )
     .bind(&key)
     .fetch_one(&pool)
@@ -122,6 +122,33 @@ async fn f_05_pg_work_and_translation_are_independent_updatable_and_private() {
     assert_eq!((mine.work, mine.translation), (Some(3), Some(2)));
     let theirs = store.own_ratings(second, book).await.unwrap();
     assert_eq!((theirs.work, theirs.translation), (Some(1), None));
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store.visible_summary(book).await.unwrap().is_none());
+    assert!(!store.eligible(first, book).await.unwrap());
+    assert_eq!(
+        store.set_rating(first, book, StarKind::Work, 4).await,
+        Err(StarRatingError::NotEligible)
+    );
+    assert_eq!(store.own_ratings(first, book).await.unwrap().work, None);
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .votes,
+        2
+    );
     pool.close().await;
 }
 
@@ -198,5 +225,172 @@ async fn f_05_pg_hidden_or_unverified_books_cannot_collect_or_expose_votes() {
     .await
     .unwrap();
     assert_eq!(completed, 1);
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+async fn s020_f05_rating_title_and_write_require_current_book_age_rights() {
+    let (store, pool, first, second, book, _) = fixture("s020-age").await;
+    store
+        .set_rating(first, book, StarKind::Work, 5)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .votes,
+        1
+    );
+
+    // Previously completed chapters and ratings do not override Book 18+.
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store.visible_summary(book).await.unwrap().is_none());
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store.own_ratings(first, book).await.unwrap(),
+        Default::default()
+    );
+    assert!(!store.eligible(first, book).await.unwrap());
+    assert_eq!(
+        store.set_rating(first, book, StarKind::Work, 1).await,
+        Err(StarRatingError::NotEligible)
+    );
+
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_some());
+    assert!(store
+        .visible_summary_for_actor(book, Some(second))
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store.eligible(first, book).await.unwrap());
+
+    // 21+ is an independent live grant, not the 18+ toggle.
+    sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query(
+        "INSERT INTO user_level_grants(user_id,level,source,is_active)
+         VALUES($1,'pro_adult','moderation',TRUE)",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE users SET adult_enabled=FALSE WHERE id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store.eligible(first, book).await.unwrap());
+    store
+        .set_rating(first, book, StarKind::Work, 4)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!store.eligible(first, book).await.unwrap());
+    assert_eq!(
+        store.set_rating(first, book, StarKind::Work, 1).await,
+        Err(StarRatingError::NotEligible)
+    );
+
+    // Unknown legacy level denies even previous readers; moderator does not
+    // inherit the separate site administrator's bypass.
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+                 VALUES($1,'moderator',TRUE)",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!store.eligible(first, book).await.unwrap());
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+                 VALUES($1,'administrator',TRUE)",
+    )
+    .bind(first)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_some());
+    assert!(store.eligible(first, book).await.unwrap());
+    sqlx::query("UPDATE account_roles SET is_active=FALSE WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .visible_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_none());
+
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.visible_summary(book).await.unwrap().unwrap().work,
+        StarTotal { sum: 4, votes: 1 }
+    );
+    // Test's age grants/roles use RESTRICT FKs; remove them before erasure.
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM user_level_grants WHERE user_id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }

@@ -80,7 +80,7 @@ run_profile() {
   printf '%s\t%s\t%s\t%s\n' "$profile" "$rate" "$seconds" "$outcome" >> "$out/results.tsv"
   echo "::endgroup::"
 }
-for rate in 25 50 100 200 250; do run_profile catalog "$rate" 15; done
+for rate in 25 50 100 200 250 500; do run_profile catalog "$rate" 15; done
 run_profile catalog_cursor 250 15
 run_profile catalog 50 60
 {

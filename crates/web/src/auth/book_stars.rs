@@ -4,12 +4,16 @@ use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
 use std::fmt::Write;
-use tor_recommendations::repositories::{PgBookStars, StarKind, StarRatingError, UserStars};
+use tor_accounts::services::security::session_token_digest;
+use tor_recommendations::{
+    repositories::PgBookStars,
+    services::book_ratings::{BookRatingService, RatingPage, StarRatingError},
+};
 
 #[derive(Deserialize)]
 pub(super) struct RatingForm {
@@ -48,22 +52,15 @@ fn rating_field(book_id: i64, kind: &str, label: &str, current: Option<i16>, csr
     )
 }
 
-fn form_page(
-    book_id: i64,
-    title: &str,
-    scores: UserStars,
-    csrf: &str,
-    eligible: bool,
-    cookies: &[String],
-) -> Response {
-    let title = pages::escape_html(title);
-    let body = if eligible {
+fn form_page(book_id: i64, view: &RatingPage, csrf: &str, cookies: &[String]) -> Response {
+    let title = pages::escape_html(&view.title);
+    let body = if view.eligible {
         format!(
             "<p>Это независимые оценки: содержание произведения и качество перевода.
              Личный порядок книг формируется отдельно.</p>
              <div class=\"book-score-forms\">{work}{translation}</div>",
-            work = rating_field(book_id, "work", "Произведение", scores.work, csrf),
-            translation = rating_field(book_id, "translation", "Перевод", scores.translation, csrf),
+            work = rating_field(book_id, "work", "Произведение", view.work, csrf),
+            translation = rating_field(book_id, "translation", "Перевод", view.translation, csrf),
         )
     } else {
         "<p class=\"empty-state\">Оценка будет доступна после подтверждённого окончания
@@ -97,22 +94,18 @@ pub(super) async fn page(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(error) => return deny(error),
     };
-    let stars = PgBookStars::new(state.accounts.pool().clone());
-    let summary = match stars.visible_summary(book_id).await {
-        Ok(Some(summary)) => summary,
+    let service = BookRatingService::new(PgBookStars::new(state.accounts.pool().clone()));
+    let ratings = match service.for_actor(actor) {
+        Ok(ratings) => ratings,
+        Err(error) => return deny(map_error(error)),
+    };
+    let view = match ratings.page(book_id).await {
+        Ok(Some(view)) => view,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(map_error(error)),
     };
-    let scores = match stars.own_ratings(actor, book_id).await {
-        Ok(scores) => scores,
-        Err(error) => return deny(map_error(error)),
-    };
-    let eligible = match stars.eligible(actor, book_id).await {
-        Ok(eligible) => eligible,
-        Err(error) => return deny(map_error(error)),
-    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    form_page(book_id, &summary.title, scores, &csrf, eligible, &cookies)
+    form_page(book_id, &view, &csrf, &cookies)
 }
 
 pub(super) async fn submit(
@@ -134,11 +127,32 @@ pub(super) async fn submit(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let Some(kind) = StarKind::parse(&form.rating_kind) else {
-        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    let rating = match BookRatingService::validate_submission(&form.rating_kind, form.rating) {
+        Ok(rating) => rating,
+        Err(error) => return deny(map_error(error)),
     };
-    let stars = PgBookStars::new(state.accounts.pool().clone());
-    match stars.set_rating(actor, book_id, kind, form.rating).await {
+    // NEwBOO's authenticated book_rating scope: 12 write attempts/minute,
+    // separate from login, book likes, comments and reader purchases.
+    // The verified actor, never a browser-supplied id, owns the PG bucket.
+    let throttle = session_token_digest(&format!("action:book_rating:user:{actor}"));
+    match state.accounts.permit_auth_attempt(&throttle, 12, 60).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+            response.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                HeaderValue::from_static("60"),
+            );
+            return response;
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let service = BookRatingService::new(PgBookStars::new(state.accounts.pool().clone()));
+    let ratings = match service.for_actor(actor) {
+        Ok(ratings) => ratings,
+        Err(error) => return deny(map_error(error)),
+    };
+    match ratings.save(book_id, rating).await {
         Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}/rate")), &[]),
         Err(error) => deny(map_error(error)),
     }
@@ -152,10 +166,13 @@ mod tests {
     fn f_05_two_independent_browser_forms_have_no_client_user_id() {
         let content = form_page(
             31,
-            "Проверка <script>",
-            UserStars::default(),
+            &RatingPage {
+                title: "Проверка <script>".to_owned(),
+                work: None,
+                translation: None,
+                eligible: true,
+            },
             "abc",
-            true,
             &[],
         );
         let _ = content;

@@ -1,6 +1,11 @@
 name: TOR PostgreSQL runtime
 on:
   workflow_dispatch:
+    inputs:
+      s061_previous_sha:
+        description: 'Optional 40-char old TOR SHA for real two-binary rollback test'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -15,7 +20,7 @@ jobs:
     needs: select
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && 75 || 30 }}
     services:
       postgres:
         image: postgres:18
@@ -30,6 +35,11 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
+      # CI-only: full SQLx integration links many tor-web test binaries.
+      # Avoid debug DWARF and incremental artifacts exhausting runner disk.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGDATABASE: postgres
@@ -44,10 +54,27 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Chromium for S037 swap acceptance
+        run: |
+          npm install --no-save playwright@1.56.1
+          # PG jobs use the default headless browser; unlike pixel-layout jobs,
+          # they do not install headed Chromium or fetch optional font packs.
+          # The full PostgreSQL/HTTP/Chromium regression still runs below.
+          npx playwright install --only-shell chromium
       - name: PostgreSQL client
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Create isolated roles and database
         run: |
           psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -75,12 +102,20 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
+      # Keep the same lint in standalone PostgreSQL and PG-only runs.
+      # When Rust and PostgreSQL both run, Rust owns the single lint invocation.
       - name: Combined S3 feature Clippy
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+        if: ${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: E-08 baseline-to-Draft installed SQLx ledger upgrade (disposable database)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'
+          E08_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_e08_upgrade' \
+            cargo test -p tor-migrations --test e08_installed_upgrade_pg -- --ignored --test-threads=1
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
@@ -88,10 +123,10 @@ jobs:
       - name: Seed visible and hidden rows
         run: |
           PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          VALUES (1,'ci:1','ru','TOR CI public','public'),
-                 (2,'ci:2','ru','TOR CI hidden','draft'),
-                 (3,'ci:3','ru','TOR CI held','public');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+          VALUES (1,'ci:1','ru','TOR CI public','public','basic'),
+                 (2,'ci:2','ru','TOR CI hidden','draft','basic'),
+                 (3,'ci:3','ru','TOR CI held','public','basic');
           UPDATE books SET admin_hold=true WHERE id=3;
           -- Author/genre fixtures cover public, hidden and held rows with identical metadata.
           UPDATE books SET author_name='Жюль', genres=ARRAY['фэнтези','приключения']
@@ -104,8 +139,8 @@ jobs:
           OVERRIDING SYSTEM VALUE
           SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
             FROM generate_series(901,905) AS id;
-          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
-          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
+          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id,'basic'
             FROM generate_series(901,905) AS id;
           SQL
       - name: Seed published free and protected chapters
@@ -147,6 +182,37 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
+          # Timing only; all original commands and ordering remain unchanged.
+          ci_pg_started=$SECONDS
+          ci_pg_phase_done() {
+            local phase="$1"
+            echo "CI_PG_PHASE_SECONDS phase=$phase seconds=$((SECONDS-ci_pg_started))"
+            ci_pg_started=$SECONDS
+          }
+          # Diagnose compilation versus test execution without changing any Cargo command.
+          # The env -u executions and nested REC13 shell have their own boundaries.
+          ci_pg_cargo_index=0
+          cargo() {
+            local start_us=${EPOCHREALTIME/./}
+            local status=0
+            local package=unknown target=lib prev= arg
+            for arg in "$@"; do
+              case "$prev" in
+                -p) package="$arg" ;;
+                --test) target="$arg" ;;
+              esac
+              case "$arg" in
+                -p|--test) prev="$arg" ;;
+                *) prev= ;;
+              esac
+            done
+            command cargo "$@" || status=$?
+            local end_us=${EPOCHREALTIME/./}
+            ci_pg_cargo_index=$((ci_pg_cargo_index + 1))
+            printf 'CI_PG_CARGO_MS seq=%d package=%s target=%s elapsed_ms=%d status=%d\n' \
+              "$ci_pg_cargo_index" "$package" "$target" "$(((end_us-start_us)/1000))" "$status"
+            return "$status"
+          }
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
@@ -159,51 +225,133 @@ jobs:
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
+          cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test f04_rising_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
-          cargo test -p tor-books --test authoring_pg -- --ignored
+          cargo test -p tor-books --test authoring_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_lifecycle_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test origin_metadata_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
+          cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_related_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test public_related_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test title_suggestions_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
           cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
+          cargo test -p tor-books --lib s020_pg_access_level_monotonic_live_grant_membership_and_cas -- --ignored --test-threads=1
+          cargo test -p tor-web --test s020_age_editor_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s020_age_editor_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_release_pg -- --ignored
+          cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_delayed_schedule_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_occurrences_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_frontier_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_paid_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test scheduled_release_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "books_import_authoring"
           cargo test -p tor-reading --test postgres_reading -- --ignored
+          cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test progress_postgres -- --ignored
+          cargo test -p tor-reading --test age_tier_progress_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test chapter_thanks_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test book_stats_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test book_likes_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
+          cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
+          cargo test -p tor-web --test c08_saved_free_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "reading_library"
+          cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test paid_chapter_comments_pg s011_ -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test text_issues_pg e_12_ -- --ignored --test-threads=1
+          ci_pg_phase_done "referrals_recommendations_social"
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          # Enable owner Layer management for exactly this isolated PG/HTTP suite.
+          # All other tests and the actual application retain the default OFF gate.
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          # S031 Layer wallet + browser-form acceptance: explicit flags per disposable suite.
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
+          ci_pg_phase_done "commerce_support"
           cargo test -p tor-web --test postgres_http -- --ignored
+          cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s033_personal_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test book_shares_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test book_collections_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s016_book_shares_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s009_collections_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s030_owner_transfer_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
+          env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
+          env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_DIRECT_REFUND_REQUESTS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refund_browser_disabled_by_default -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 TOR_REFUND_APPROVAL_HTTP_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
-          TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
+          TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
+            TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
+          ci_pg_phase_done "http_security"
 
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
@@ -242,23 +390,67 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # The D-04 step already built this exact debug binary in this job.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_restart_smoke.sh
       - name: I-11 PostgreSQL 18 backup and clean restore drill
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          cargo build -p tor-web
+          # Reuse the verified binary without two additional Cargo invocations.
+          test -x ./target/debug/tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: S061 build previous binary (manual opt-in only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' }}
+        env:
+          PREVIOUS_SHA: ${{ inputs.s061_previous_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PREVIOUS_SHA" != "$(git rev-parse HEAD)" ]]
+          # Checkout uses a shallow clone. Restore ancestry only for this
+          # optional manual drill; never pay this cost in normal CI.
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+            git fetch --no-tags --unshallow origin main
+          fi
+          git fetch --no-tags origin "$PREVIOUS_SHA"
+          git merge-base --is-ancestor "$PREVIOUS_SHA" "$(git rev-parse HEAD)"
+          git worktree add --detach "$RUNNER_TEMP/s061-previous-source" "$PREVIOUS_SHA"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/s061-previous-target" \
+            cargo build --manifest-path "$RUNNER_TEMP/s061-previous-source/Cargo.toml" \
+            -p tor-web --bin tor-web
+          install -m 700 "$RUNNER_TEMP/s061-previous-target/debug/tor-web" \
+            "$RUNNER_TEMP/s061-previous-tor-web"
+      - name: S061 real candidate cutover, rejection and rollback (disposable PostgreSQL)
+        env:
+          GITHUB_ACTIONS: 'true'
+          TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
+        run: |
+          # Use the existing D-04 binary; build a second only for manual two-SHA tests.
+          test -x ./target/debug/tor-web
+          python3 tools/s061_cutover_pg_smoke.py
+      - name: Preserve S061 real cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s061-real-cutover-pg
+          path: ${{ runner.temp }}/s061-real-cutover/report.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
-          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
+          cargo test -p tor-social --test chapter_release_notifications_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
+          # All four test targets share the same crate and test flags;
+          # Cargo still executes each complete target, with one frontend invocation.
+          cargo test -p tor-accounts --test access_audit_pg --test auth_observation_pg --test credentials_pg --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test moderation_books_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |

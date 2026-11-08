@@ -49,8 +49,13 @@ jobs:
           node-version: '22'
       - name: Install PostgreSQL client
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
       - name: Prepare disposable tor_ci with separate app/migrator privileges
         run: |
           set -euo pipefail
@@ -105,7 +110,11 @@ jobs:
       - name: Install real Chromium before issuing short-lived S3 URLs
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps chromium
+          # ubuntu-24.04 has the shared libraries required by default headless
+          # Chromium. Avoid retrying optional fonts over apt mirrors.
+          npx playwright install --only-shell chromium
+          # Fail closed if the real browser cannot launch on this runner.
+          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
@@ -119,11 +128,14 @@ jobs:
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-web -- --check
           node --check tools/paid_grant_webcrypto_e2e.mjs
+          node --check tools/layer_reader_minio_chromium_e2e.cjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           node --check tools/s035_contiguous_paid_browser.cjs
           node --check tools/paid_reader_private_media_browser.cjs
-          TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          node tools/layer_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_private_media_browser.cjs

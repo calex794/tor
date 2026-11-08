@@ -323,3 +323,9 @@ mod tests {
         pool.close().await;
     }
 }
+
+mod verified;
+pub use verified::{
+    owner_transfer_payload_digest, BookContributor, BookOwnershipSettings,
+    OwnerTransferPrecondition, PgOwnerTransfer,
+};

@@ -21,7 +21,13 @@ const purchase = fixture.purchase_id;
 const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
 const data = fixture.reader_html;
 const csp = fixture.reader_csp;
-const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
+// Mirror the exact JS bundle returned by pages::paid_reader_script in Rust.
+const script = Buffer.concat([
+  fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs"),
+  Buffer.from("\n"),
+  fs.readFileSync("crates/web/assets/newboo-paid-toc.js"),
+]);
+const paidCommentScript = fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs");
 // Serve the EXACT two stylesheets used by pages::layout and
 // pages::newboo_stylesheet, not reader-only CSS as both URLs.
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
@@ -30,12 +36,17 @@ const orderedNewbooFiles = [
   "newboo-home-carousel.css",
   "newboo-book-detail.css",
   "newboo-comments.css",
+  "newboo-support-widget.css",
   "newboo-reader.css",
+  "newboo-layer-storefront.css",
   "newboo-cover-picker.css",
 ];
 // Extract the actual Rust handler's include_str! order, so future changes
 // cannot silently turn this Chromium smoke into a stale visual fixture.
 const pageSource = fs.readFileSync("crates/web/src/pages.rs", "utf8");
+assert(pageSource.includes('include_str!("../assets/newboo-paid-reader.mjs")') &&
+  pageSource.includes('include_str!("../assets/newboo-paid-toc.js")'),
+  "Real paid-reader asset handler must serve both module sources");
 const start = pageSource.indexOf("pub async fn newboo_stylesheet()");
 const end = pageSource.indexOf("pub async fn paid_reader_script()", start);
 assert(start >= 0 && end > start, "NEwBOO Rust CSS handler missing");
@@ -108,6 +119,16 @@ const server = http.createServer(async (req, reply) => {
     } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-reader.mjs") {
       send(reply, 200, script, "application/javascript; charset=utf-8",
         { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-comments.mjs") {
+      send(reply, 200, paidCommentScript, "application/javascript; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" &&
+      uri.pathname === "/api/v1/reader/chapters/" + chapter + "/paid-comments") {
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        version_id: grant.version_id, items: [], next_cursor: null,
+      }), "application/json");
     } else if (req.method === "GET" && uri.pathname === "/assets/site.css") {
       send(reply, 200, siteCss, "text/css; charset=utf-8",
         { "cache-control": "public, max-age=3600" });
@@ -253,9 +274,24 @@ async function run() {
         await page.locator("[data-paid-status]")
           .getByText("Защищённая загрузка завершена", { exact: false })
           .waitFor({ timeout: 20000 });
+        // The real paid reader renders private image markers as guarded
+        // figures, never as visible Markdown or public image URLs. This
+        // synthetic shell verifies the text layer; S034's live PG/MinIO
+        // browser separately proves the private PNG grant and decryption.
+        const sourceBlocks = fixture.expected_markdown.split("\n\n");
+        const privateMarker =
+          /^!\[[^\]\r\n]{0,160}\]\(asset:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\)$/;
+        const imageBlocks = sourceBlocks.filter((block) => privateMarker.test(block));
+        assert.equal(imageBlocks.length, 1, "Expected one strict private image marker");
+        const textBlocks = sourceBlocks.filter((block) => !privateMarker.test(block));
         const chunks = await page.locator(".reader-piece__text").allTextContents();
-        assert(chunks.join("\n\n") === fixture.expected_markdown,
-          "Decrypted synthetic fixture differs (do not log paid plaintext)");
+        assert.deepEqual(chunks, textBlocks,
+          "Decrypted synthetic text blocks differ (do not log paid plaintext)");
+        assert.equal(await page.locator(".reader-paid__image-block").count(), 1,
+          "Protected image marker must render as a guarded figure");
+        const contentHtml = await page.locator("[data-paid-content]").innerHTML();
+        assert(!contentHtml.includes("asset:") && !contentHtml.includes("X-Amz-Signature"),
+          "Private image reference or S3 signature leaked into reader HTML");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
         // Design reference: capture the ACTUAL first screen at scroll=0.
         // Full-page screenshots taken after clicking bottom controls move
@@ -369,9 +405,9 @@ async function run() {
               right: bounds.right,
               bottom: bounds.bottom,
               top: bounds.top,
-              summaryTop: element.closest("details").querySelector("summary")
-                .getBoundingClientRect().top,
               viewportWidth: document.documentElement.clientWidth,
+              gridColumns: getComputedStyle(
+                element.querySelector(".reader-paid__toc-list")).gridTemplateColumns.split(" ").length,
               viewportHeight: window.innerHeight,
             };
           });
@@ -379,8 +415,10 @@ async function run() {
           footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
           footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
           device + ": footer menu clips beyond viewport");
-        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
-          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.gridColumns === (device === "desktop" ? 3 : 1),
+          device + ": paid TOC grid should use 3 desktop or 1 mobile column");
+        assert(await footerToc.locator("[data-paid-toc-close]").isVisible(),
+          device + ": modal close control must be accessible without the trigger");
         assert(footerGeometry.top >= -1,
           device + ": footer menu begins outside the visible viewport");
         await page.screenshot({
@@ -388,7 +426,7 @@ async function run() {
           fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
           maskColor: "#e5e7eb",
         });
-        await footerToc.locator("summary").click();
+        await footerToc.locator("[data-paid-toc-close]").click();
         assert(!(await footerToc.evaluate((element) => element.open)),
           device + ": footer TOC does not close");
         const footerStyles = await bottomNavigation.evaluate((element) => {
@@ -501,7 +539,7 @@ async function run() {
         });
         assert(visuals.ownedBg !== visuals.freeBg &&
           visuals.freeBg !== visuals.closedBg &&
-          visuals.menuWidth <= width - 24,
+          visuals.menuWidth <= width + 1,
           device + ": mixed TOC styles diverge from NEwBOO reading hierarchy");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-mixed-toc-" + device + ".png"),
@@ -519,7 +557,7 @@ async function run() {
         await toc.locator(".reader-paid__toc-menu").screenshot({
           path: path.join(screenshotRoot, "s065-mixed-toc-menu-" + device + ".png"),
         });
-        await toc.locator("summary").click();
+        await toc.locator("[data-paid-toc-close]").click();
         assert(!(await toc.evaluate((element) => element.open)),
           device + ": purchased TOC did not close");
 

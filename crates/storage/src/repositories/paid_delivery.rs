@@ -107,12 +107,12 @@ fn canonical_aad(
     canonical == aad
 }
 
-#[async_trait]
-impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
-    async fn grant_verified_object(
+impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
+    async fn sign_internal(
         &self,
         encrypted: &EncryptedObjectRef,
         ttl: Duration,
+        admin_asset: bool,
     ) -> Result<GrantedContent, DeliveryError> {
         let (kind, codec) = match (encrypted.object.kind, encrypted.codec) {
             (EncryptedObjectKind::Chapter, ContentCodec::Gzip) => ("chapter", "gzip"),
@@ -120,6 +120,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             _ => return Err(DeliveryError::Invalid),
         };
         if validate_signed_get_ttl(ttl).is_err()
+            || (admin_asset && kind != "chapter_asset")
             || (kind == "chapter_asset" && encrypted.object.size_bytes > 8 * 1024 * 1024 + 16)
             || !valid_ciphertext_size(&encrypted.object)
             || encrypted.aad.is_empty()
@@ -156,9 +157,11 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
                       AND body.state='attached'
                       AND body.object_kind='chapter'
                       AND c.access_level='paid'
-                      AND NOT c.admin_hold AND NOT c.is_deleted
-                      AND NOT b.admin_hold AND NOT b.is_deleted
-                      AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+                      AND ($9 OR (
+                            NOT c.admin_hold AND NOT c.is_deleted
+                        AND NOT b.admin_hold AND NOT b.is_deleted
+                        AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+                      ))
                ))",
         )
         .bind(encrypted.object.object_id.as_str())
@@ -169,6 +172,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         .bind(&encrypted.wrapped_key_id)
         .bind(kind)
         .bind(codec)
+        .bind(admin_asset)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| DeliveryError::Unavailable)?
@@ -235,6 +239,29 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             aad_b64u: URL_SAFE_NO_PAD.encode(&encrypted.aad),
             dek_b64u,
         })
+    }
+}
+
+#[async_trait]
+impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
+    async fn grant_verified_object(
+        &self,
+        object: &EncryptedObjectRef,
+        ttl: Duration,
+    ) -> Result<GrantedContent, DeliveryError> {
+        self.sign_internal(object, ttl, false).await
+    }
+
+    async fn grant_verified_admin_asset(
+        &self,
+        object: &EncryptedObjectRef,
+        ttl: Duration,
+    ) -> Result<GrantedContent, DeliveryError> {
+        // A browser cannot select this exceptional G operation directly:
+        // C calls it only after the live administrator's A/D entitlement.
+        // G still requires a canonical attached B image, exact version,
+        // matching release receipt and private S3 HEAD verification.
+        self.sign_internal(object, ttl, true).await
     }
 }
 

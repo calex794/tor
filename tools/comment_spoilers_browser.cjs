@@ -115,8 +115,10 @@ module.exports = async function checkSpoilers(browser, base, out) {
         const entry = page.locator('article.me-now-card').filter({
           has: page.locator(`a[href$="#comment-${replyId}"]`),
         });
-        await entry.getByRole('button', { name: 'Отметить прочитанным', exact: true }).click();
-        await page.waitForURL(base + '/me/inbox');
+        // An Inbox reply marks the received notification read automatically.
+        await page.goto(base + '/me/inbox?filter=read');
+        assert.equal(await page.locator(`a[href$="#comment-${replyId}"]`).count(), 1,
+          'answered item should already be read');
         await page.goto(base + '/me/inbox?filter=read');
         assert.equal(await page.locator(`a[href$="#comment-${replyId}"]`).count(), 1);
         await page.screenshot({ path: path.join(out, `inbox-inline-${name}.png`), fullPage: true });

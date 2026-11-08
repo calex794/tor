@@ -1,3 +1,4 @@
+use super::reader_free::reader_with_public_features;
 use super::*;
 
 #[test]
@@ -58,6 +59,8 @@ fn catalog_metadata_must_be_escaped_in_cards() {
             tag: None,
             fandom: None,
             cursor: None,
+            previous_cursor: None,
+            page_number: 1,
             sort: "oldest",
             total: Some(1),
             options: None,
@@ -117,6 +120,29 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
         .0
         .contains("<!--FORM_ERROR-->"));
     assert!(login_form("csrf-example").0.contains("novalidate"));
+}
+
+#[test]
+fn auth_forms_preserve_explicit_private_reader_return() {
+    let login = login_form_with_next("csrf", Some("/read/42")).0;
+    assert!(login.contains("name=\"next\" value=\"/read/42\""));
+    assert!(login.contains("href=\"/register?next=/read/42\""));
+    let register = registration_form_with_next("csrf", Some("/read/42")).0;
+    assert!(register.contains("name=\"next\" value=\"/read/42\""));
+    assert!(register.contains("href=\"/login?next=/read/42\""));
+    let error = registration_form_with_error_and_next(
+        "csrf",
+        "Reader",
+        "reader@example.test",
+        Some("Повторите отправку"),
+        Some("/read/42"),
+    )
+    .0;
+    assert!(error.contains("name=\"next\" value=\"/read/42\""));
+    assert!(!login_form("csrf").0.contains("name=\"next\""));
+    assert!(!registration_form("csrf").0.contains("name=\"next\""));
+    assert!(!login.contains("<!--AUTH_RETURN_FIELD-->"));
+    assert!(!register.contains("<!--AUTH_LOGIN_NEXT-->"));
 }
 
 #[test]
@@ -242,15 +268,96 @@ fn s005_paywall_escapes_public_metadata_and_never_fakes_checkout() {
 }
 
 #[test]
-fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
+fn s034_checkout_link_requires_explicit_paid_browser_feature() {
+    let preview = tor_reading::services::PublicPaidChapterPreview {
+        book_id: 99,
+        book_title: "Книга".to_owned(),
+        chapter_no: 2,
+        chapter_title: "Название".to_owned(),
+        price_minor: 175,
+    };
+    let disabled = paid_chapter_paywall(&preview).0;
+    assert!(!disabled.contains("/me/chapters/"));
+    let enabled = paid_chapter_paywall_checkout(&preview, Some(103)).0;
+    assert!(enabled.contains("href=\"/me/chapters/103/buy\""));
+    assert!(enabled.contains("Купить главу"));
+    assert!(!enabled.contains("PRIVATE-PAID-MARKER"));
+}
+
+#[test]
+fn s034_purchase_form_escapes_metadata_and_has_exact_terms() {
+    let offer = tor_commerce::repositories::checkout::PublishedChapterOffer {
+        book_id: 1,
+        book_title: "<script>Книга</script>".to_owned(),
+        chapter_id: 103,
+        chapter_no: 3,
+        chapter_title: "<script>Глава</script>".to_owned(),
+        version_id: 602,
+        price_minor: 175,
+    };
+    let html = chapter_purchase_form(&offer, "csrf-abc", "command-key").0;
+    assert!(html.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+    assert!(html.contains("&lt;script&gt;Глава&lt;/script&gt;"));
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("action=\"/me/chapters/103/buy\""));
+    assert!(html.contains("name=\"expected_version_id\" value=\"602\""));
+    assert!(html.contains("name=\"expected_price_minor\" value=\"175\""));
+    assert!(html.contains("name=\"csrf_token\" value=\"csrf-abc\""));
+    assert!(html.contains("name=\"command_key\" value=\"command-key\""));
+    assert!(html.contains("1,75 ₽"));
+    assert!(!html.contains("external-payment"));
+}
+
+#[test]
+fn ne_wboo_reader_shell_uses_live_chapter_data_and_free_preferences() {
     let template = include_str!("../../templates/reader.html");
     assert!(template.contains("reader-topbar"));
     assert!(template.contains("reader-page__title"));
     assert!(template.contains("<!--CHAPTER_CONTENT-->"));
+    assert!(template.contains("<!--FREE_PROGRESS_ATTRS-->"));
+    assert!(template.contains("<!--READER_SUBTITLE-->"));
+    assert!(template.contains("<!--FREE_ISSUES_PANEL-->"));
+    assert!(template.contains("data-free-toc"));
+    assert!(template.contains("<!--CHAPTER_ID-->"));
     assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
-    assert!(!template.contains("data-reader-theme-cycle"));
+    assert!(template.contains("data-free-theme-cycle"));
+    assert!(template.contains("data-free-settings-open"));
+    assert!(template.contains("/assets/newboo-free-reader.js"));
     assert!(!template.contains("Сохранение прогресса появится"));
     assert!(include_str!("../../assets/newboo-reader.css").contains(".reader-topbar__back"));
+}
+
+#[test]
+fn s047_public_free_reader_binds_issue_form_only_to_verified_session() {
+    let chapter = tor_reading::services::PublicChapterPage {
+        version_id: 602,
+        book_id: 1,
+        book_title: "<script>Книга</script>".into(),
+        chapter_title: "<script>Заголовок</script>".into(),
+        version_no: 1,
+        body_markdown: "Первая строка\n\nВторая строка".into(),
+        previous_chapter_id: None,
+        next_chapter_id: Some(103),
+        next_chapter_is_paid: true,
+    };
+    let guest = reader_with_login_link(&chapter, Some(101)).0;
+    assert!(guest.contains("data-free-toc-book=\"1\""));
+    assert!(guest.contains("data-free-toc-chapter=\"101\""));
+    assert!(guest.contains("Войти, чтобы сообщить автору"));
+    assert!(!guest.contains("data-free-issue-form"));
+    assert!(!guest.contains("name=\"csrf_token\""));
+    let signed = reader_with_public_features(&chapter, Some(101), Some("safe"), Some("sent")).0;
+    assert!(signed.contains("data-free-issue-form"));
+    assert!(signed.contains("name=\"csrf_token\" value=\"safe\""));
+    assert!(signed.contains("name=\"version_id\" value=\"602\""));
+    assert!(signed.contains("Сообщение об ошибке отправлено автору."));
+    assert!(signed.contains("data-free-issues id=\"text-issues\" open"));
+    assert!(!signed.contains("<script>Книга</script>"));
+    assert!(!signed.contains("<script>Заголовок</script>"));
+    let injected =
+        reader_with_public_features(&chapter, Some(101), Some("safe"), Some("<script>")).0;
+    assert!(!injected.contains("Сообщение об ошибке отправлено"));
+    assert!(!injected.contains("&lt;script&gt;</p>"));
 }
 
 #[test]
@@ -362,4 +469,43 @@ fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
     .0;
     assert!(private.contains("href=\"/reader/78\""));
     assert!(!private.contains("href=\"/read/78\""));
+}
+
+#[test]
+fn b_18_navigation_follows_books_in_catalog_layout() {
+    let query = CatalogPageQuery {
+        query: "",
+        language: None,
+        genre: None,
+        tag: None,
+        fandom: None,
+        cursor: Some("20"),
+        previous_cursor: None,
+        page_number: 1,
+        sort: "oldest",
+        total: Some(42),
+        options: None,
+    };
+    let html = catalog_search(
+        &[PublicBookCard {
+            id: 20,
+            title: "Последняя на странице".into(),
+            language: "ru".into(),
+            author_name: None,
+            genres: vec![],
+        }],
+        query,
+    )
+    .0;
+    let card = html.find("Последняя на странице").expect("book card");
+    let navigation = html.find("catalog-pagination").expect("page controls");
+    assert!(navigation > card, "page navigation follows the book grid");
+    assert!(html.contains("Страница 1"));
+}
+
+#[test]
+fn s019_header_has_book_registration_on_desktop_and_mobile() {
+    let html = layout("Каталог", "Книги", "").0;
+    assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
+    assert!(html.contains("Создать книгу"));
 }

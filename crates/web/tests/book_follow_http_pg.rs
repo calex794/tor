@@ -137,6 +137,33 @@ async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
     .unwrap()
 }
 
+async fn author_chapter_page(
+    app: &Router,
+    book_id: i64,
+    cookies: &str,
+    after: Option<&str>,
+) -> (StatusCode, String) {
+    let path = match after {
+        Some(cursor) => format!("/me/books/{book_id}?after={cursor}"),
+        None => format!("/me/books/{book_id}"),
+    };
+    let request = Request::builder()
+        .uri(path)
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let content = String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("bounded owner page")
+            .to_vec(),
+    )
+    .unwrap();
+    (status, content)
+}
+
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL 18 tor_ci"]
 async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
@@ -176,8 +203,8 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let public: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:c15:follow:{nonce}','ru','Public','public',{first}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES('ci:c15:follow:{nonce}','ru','Public','public',{first},'basic') RETURNING id"
         ),
     )
     .parse()
@@ -202,8 +229,16 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let two = format!("tor-dev-session={second_token}; tor-dev-csrf={csrf}");
     let guest_page = book_page(&app, public, "").await;
     assert!(guest_page.contains("href=\"/login\">Следить за книгой"));
+    assert!(!guest_page.contains(&format!("/me/books/{public}/chapters/new")));
+    assert!(!guest_page.contains("<!--BOOK_OWNER_"));
     let initial_page = book_page(&app, public, &one).await;
     assert!(initial_page.contains(&format!("action=\"/me/books/{public}/follow\"")));
+    assert!(initial_page.contains(&format!("/me/books/{public}/chapters/new")));
+    assert!(initial_page.contains(&format!("/me/books/{public}/description")));
+    assert!(initial_page.contains(&format!("/me/books/{public}\"")));
+    let other_page = book_page(&app, public, &two).await;
+    assert!(!other_page.contains(&format!("/me/books/{public}/chapters/new")));
+    assert!(!other_page.contains("<!--BOOK_OWNER_"));
     assert!(initial_page.contains(&format!("value=\"{csrf}\"")));
     let follow = format!("/me/books/{public}/follow");
     let unfollow = format!("/me/books/{public}/unfollow");
@@ -297,6 +332,12 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
              VALUES({chapter},{version})"
         ),
     );
+    // B-02: only the real owner sees a direct edit action on published free chapters.
+    let owner_after_release = book_page(&app, public, &one).await;
+    assert!(owner_after_release.contains(&format!("/me/books/{public}/chapters/{chapter}/edit")));
+    let other_after_release = book_page(&app, public, &two).await;
+    assert!(!other_after_release.contains(&format!("/me/books/{public}/chapters/{chapter}/edit")));
+    assert!(!other_after_release.contains("<!--BOOK_OWNER_"));
     let first_feed = followed_page(&app, &one).await;
     assert!(first_feed.contains("Новая глава"));
     assert!(first_feed.contains(&format!("/me/updates/{chapter}/read-state")));
@@ -413,6 +454,191 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         "0",
         "following a book must not mark chapters read"
     );
+    // B-12: a 502-chapter book retains its entire private author TOC.
+    // Only one chapter is public; 501 extra drafts must not leak to readers.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             SELECT {public}, n, 'Черновик ' || n::text, 'draft', 'free', 0
+             FROM generate_series(2,502) AS n"
+        ),
+    );
+    let (foreign_status, foreign_page) = author_chapter_page(&app, public, &two, None).await;
+    assert_eq!(foreign_status, StatusCode::NOT_FOUND);
+    assert!(!foreign_page.contains("Черновик 502"));
+    let (bad_status, _) = author_chapter_page(&app, public, &one, Some("2:0")).await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+    let (bad_status, _) = author_chapter_page(&app, public, &one, Some("2:xyz")).await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+
+    let mut after: Option<String> = None;
+    let mut pages = 0;
+    let mut seen = 0;
+    loop {
+        let (status, html) = author_chapter_page(&app, public, &one, after.as_deref()).await;
+        assert_eq!(status, StatusCode::OK);
+        let count = html.matches("<li>№").count();
+        assert!(count > 0 && count <= 100, "bounded author page");
+        seen += count;
+        pages += 1;
+        if let Some(cursor) = html
+            .split(&format!("/me/books/{public}?after="))
+            .nth(1)
+            .and_then(|tail| tail.split('"').next())
+        {
+            assert!(pages <= 6, "cursor must advance, not loop");
+            assert!(html.contains("Следующие главы"));
+            after = Some(cursor.to_owned());
+        } else {
+            assert!(html.contains("Черновик 502"));
+            break;
+        }
+    }
+    assert_eq!(pages, 6);
+    assert_eq!(
+        seen, 502,
+        "502 chapters through stable private keyset pages"
+    );
+    let guest = author_chapter_page(&app, public, "", None).await;
+    assert_eq!(guest.0, StatusCode::SEE_OTHER);
+
+    // S020: the POST route must recheck age, even when a reader submits a
+    // stale follow form or constructs a Book ID without visiting its page.
+    // A follow is not a purchase and must never grant reading access.
+    let restricted: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:s020:follow:{nonce}','ru','Tier-gated Book','public',{first},'adult')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let restricted_follow = format!("/me/books/{restricted}/follow");
+    let restricted_unfollow = format!("/me/books/{restricted}/unfollow");
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "0"
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND,
+        "an old follow intent cannot bypass revoked adult consent"
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER,
+        "removal of a preexisting follow remains available after revocation"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({second},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={second}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={restricted}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &two, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    // The site administrator's separately active global role bypasses the
+    // age tier. Book moderators and ordinary owners receive no such bypass.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({first},'administrator',TRUE)"
+        ),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=FALSE WHERE user_id={first}"),
+    );
+    assert_eq!(
+        post(&app, &restricted_follow, &one, ORIGIN, &csrf).await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        post(&app, &restricted_unfollow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_book_follows WHERE book_id={restricted}")
+        ),
+        "0"
+    );
+    // Defence in depth: an already-suspended user cannot create a follow
+    // even through a future internal caller without a web-session check.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={restricted}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET account_state='suspended' WHERE id={first}"),
+    );
+    assert_eq!(
+        tor_reading::repositories::PgBookFollows::new(pool.clone())
+            .follow(first, restricted)
+            .await,
+        Err(tor_reading::repositories::FollowError::NotFound)
+    );
+
     // CI drops its isolated tor_ci database; deleting these owned books
     // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
     pool.close().await;
@@ -564,3 +790,9 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     );
     pool.close().await;
 }
+
+#[path = "book_follow_http_pg/s014_profile_follow.rs"]
+mod s014_profile_follow;
+
+#[path = "book_follow_http_pg/s020_creator_follow_age.rs"]
+mod s020_creator_follow_age;

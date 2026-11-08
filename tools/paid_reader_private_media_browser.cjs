@@ -78,6 +78,7 @@ function envelope(objectId, kind, plaintext) {
   };
 }
 const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs", "utf8");
+const paidCommentScript = fs.readFileSync("crates/web/assets/newboo-paid-comments.mjs", "utf8");
 const pageMarkup = '<!doctype html><html lang="ru"><head>' +
   '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
   '</head><body><section data-paid-chapter-reader ' +
@@ -128,6 +129,22 @@ async function caseInBrowser(browser, { mode, viewport }) {
   await page.route("**/assets/newboo-paid-reader.mjs", route => route.fulfill({
     status: 200, contentType: "application/javascript", body: script,
   }));
+  // Only a static, authorized comment listing for this private-media rendering
+  // fixture. Actual D/A grants and authorizations are tested against PG/MinIO.
+  await page.route("**/assets/newboo-paid-comments.mjs", route => route.fulfill({
+    status: 200, contentType: "application/javascript", body: paidCommentScript,
+  }));
+  await page.route("**/api/v1/reader/chapters/103/paid-comments?*", route => {
+    assert.equal(route.request().method(), "GET");
+    const query = new URL(route.request().url()).searchParams;
+    assert.equal(query.get("purchase_id"), PURCHASE);
+    assert.equal(query.get("version_id"), VERSION);
+    return route.fulfill({
+      status: 200, contentType: "application/json",
+      headers: {"cache-control":"private, no-store"},
+      body: JSON.stringify({version_id:VERSION,items:[],next_cursor:null}),
+    });
+  });
   await page.route("**/api/v1/reader/chapters/103/delivery-grants", route => {
     assert.equal(route.request().method(), "POST");
     assert.equal(route.request().headers()["x-csrf-token"], CSRF);

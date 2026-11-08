@@ -12,8 +12,8 @@ async fn seo02_public_book_returns_real_metadata_but_never_hidden_description() 
         .unwrap()
         .as_nanos();
     let visible: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,author_name,genres,description)
-         VALUES($1,'ru','SEO Public','public','Настоящий автор',ARRAY['фэнтези'],'<script>опасно</script>')
+        "INSERT INTO books(source_identity,target_language,title,visibility,author_name,genres,description,access_level)
+         VALUES($1,'ru','SEO Public','public','Настоящий автор',ARRAY['фэнтези'],'<script>опасно</script>','basic')
          RETURNING id",
     ).bind(format!("ci:seo02:public:{stamp}")).fetch_one(&pool).await.unwrap();
     let hidden: i64 = sqlx::query_scalar(

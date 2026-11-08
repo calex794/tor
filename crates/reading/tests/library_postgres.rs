@@ -48,8 +48,8 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
     );
 
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
-         SELECT n, 'ci:c08:' || n, 'ru', 'Длинный список ' || n, 'public' \
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) \
+         SELECT n, 'ci:c08:' || n, 'ru', 'Длинный список ' || n, 'public', 'basic' \
          FROM generate_series(92010, 92114) AS n",
     )
     .execute(&pool)
@@ -82,6 +82,32 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
     }
     assert_eq!(pages, 4);
     assert_eq!(seen.len(), 106);
+    assert!(bookmarks
+        .list_books(92001, 100, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|book| book.book_id == 92114));
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=92114")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!bookmarks
+        .list_books(92001, 100, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|book| book.book_id == 92114));
+    assert_eq!(
+        bookmarks.add_book(92002, 92114).await,
+        Err(LibraryError::NotFound)
+    );
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=92114")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         bookmarks.list_books(92001, 0, None).await.err(),
         Some(LibraryError::Invalid)
@@ -90,6 +116,14 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
         bookmarks.list_books(92001, 101, None).await.err(),
         Some(LibraryError::Invalid)
     );
+
+    // Removing A's copy must not remove B's independently saved copy.
+    // Check while visible: a moderation hold would otherwise mask deletion.
+    bookmarks.remove_book(92001, 92010).await.unwrap();
+    let other = bookmarks.list_books(92002, 30, None).await.unwrap();
+    assert_eq!(other.items.len(), 1);
+    assert_eq!(other.items[0].book_id, 92010);
+    bookmarks.add_book(92001, 92010).await.unwrap();
 
     // A book withdrawn from publication must disappear even if saved.
     sqlx::query("UPDATE books SET admin_hold = true WHERE id = 92010")

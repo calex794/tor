@@ -101,8 +101,8 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:f05:http:{nonce}','ru','Исходная книга <tag>','public')
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:f05:http:{nonce}','ru','Исходная книга <tag>','public','basic')
              RETURNING id",
         ),
     )
@@ -244,6 +244,98 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         work_count, 2,
         "repeated vote does not create duplicate rows"
     );
+    // S020: a saved verified completion or vote never bypasses the current
+    // Book's age tier. Both GET (title) and direct POST must deny.
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND,
+        "anonymous Book detail never gains an adult rating projection"
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=TRUE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    // The Book itself was already authorized by the canonical session reader;
+    // rating/like projections must not then turn it into a 404.
+    let adult_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(adult_detail.status(), StatusCode::OK);
+    assert!(html(adult_detail).await.contains("5.00"));
+
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_level_grants(user_id,level,source,is_active)
+             VALUES({user},'pro_adult','moderation',TRUE)"
+        ),
+    );
+    pg(
+        &url,
+        &format!("UPDATE users SET adult_enabled=FALSE WHERE id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    let pro_detail = call(&app, "GET", &detail, &cookie, ORIGIN, "").await;
+    assert_eq!(pro_detail.status(), StatusCode::OK);
+    assert!(html(pro_detail).await.contains("5.00"));
+
+    pg(
+        &url,
+        &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={user}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level=NULL WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET access_level='basic' WHERE id={book}"),
+    );
+    assert_eq!(
+        call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
@@ -256,5 +348,104 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         call(&app, "GET", &rate, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
+    // AB-08: the already accepted rating must remain unchanged when a
+    // thirteenth distinct write attempt exceeds the shared PostgreSQL cap.
+    // An unrelated actor's rate bucket must remain independent.
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
+    let second_session = generate_session_token();
+    let second_actor = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            &format!("ab08-stars-{nonce}@tor-ci.example"),
+            "Independent Rater",
+            &hash_password("AB08BookRatingTest2026!").unwrap(),
+            &session_token_digest(&second_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
+                (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES({second_actor},{book},{chapter},{version},gen_random_uuid())",
+        ),
+    );
+    let other_cookie = format!("tor-dev-session={second_session}; tor-dev-csrf={csrf}");
+
+    // A second router with its own PostgreSQL pool represents another web
+    // worker. Neither process may allocate an extra twelve rating actions.
+    let second_catalog = PgCatalog::connect(&url).await.unwrap();
+    let second_pool = second_catalog.pool().clone();
+    let second_app = tor_web::router_with_postgres_reading_auth(
+        second_catalog,
+        PgReader::new(second_pool.clone()),
+        PgAccounts::from_pool(second_pool.clone()),
+        false,
+        ORIGIN.to_owned(),
+    );
+    let forged = "csrf_token=bad&rating_kind=work&rating=3";
+    assert_eq!(
+        call(&second_app, "POST", &rate, &other_cookie, ORIGIN, forged)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+    );
+
+    // One actor spends 12 writes, alternating between two independent pools.
+    // The donor's book_rating limit is separate from likes/comments/auth.
+    for attempt in 0..12 {
+        let value = if attempt % 2 == 0 { 3 } else { 4 };
+        let data = format!("csrf_token={csrf}&rating_kind=work&rating={value}");
+        let target = if attempt % 2 == 0 { &app } else { &second_app };
+        assert_eq!(
+            call(target, "POST", &rate, &other_cookie, ORIGIN, &data)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER,
+            "rating attempt {attempt}",
+        );
+    }
+    let selected_rating = format!(
+        "SELECT rating FROM user_book_star_ratings
+         WHERE user_id={second_actor} AND book_id={book} AND rating_kind='work'",
+    );
+    assert_eq!(pg(&url, &selected_rating), "4");
+
+    let denied = call(
+        &second_app,
+        "POST",
+        &rate,
+        &other_cookie,
+        ORIGIN,
+        &format!("csrf_token={csrf}&rating_kind=work&rating=1"),
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(denied.headers()[header::RETRY_AFTER], "60");
+    assert_eq!(pg(&url, &selected_rating), "4");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT COUNT(*) FROM user_book_star_ratings
+                 WHERE user_id={second_actor} AND book_id={book}"
+            ),
+        ),
+        "1",
+    );
+
+    // Legitimate other users remain able to rate the same visible book.
+    assert_eq!(
+        call(&app, "POST", &rate, &cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER,
+    );
+    second_pool.close().await;
+
     pool.close().await;
 }

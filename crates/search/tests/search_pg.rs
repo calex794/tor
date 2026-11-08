@@ -12,8 +12,8 @@ async fn f_03_public_books_only_and_stable_cursor() {
         .unwrap();
     assert_eq!(database, "tor_ci", "never modify live data");
     let row = sqlx::query(
-        "INSERT INTO books (source_identity,target_language,title,visibility)
-         VALUES ('ci:f03','ru','TOR Search Next','public')
+        "INSERT INTO books (source_identity,target_language,title,visibility,access_level)
+         VALUES ('ci:f03','ru','TOR Search Next','public','basic')
          ON CONFLICT(source_identity,target_language)
          DO UPDATE SET title=EXCLUDED.title
          RETURNING id",
@@ -52,8 +52,8 @@ async fn f_03_language_filter_and_param_binding() {
         .unwrap();
     assert_eq!(database, "tor_ci", "never mutate production DB");
     sqlx::query(
-        "INSERT INTO books (source_identity,target_language,title,visibility)
-         VALUES ('ci:f03-en','en','TOR English Search','public')
+        "INSERT INTO books (source_identity,target_language,title,visibility,access_level)
+         VALUES ('ci:f03-en','en','TOR English Search','public','basic')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET title=EXCLUDED.title",
     )
@@ -108,8 +108,8 @@ async fn f_03_facet_search_masks_hidden_author_and_genre() {
     ];
     for (identity, title, author, visibility, held) in rows {
         sqlx::query(
-            "INSERT INTO books(source_identity,target_language,title,author_name,genres,visibility,admin_hold)
-             VALUES ($1,'ru',$2,$3,ARRAY['фэнтези','приключения'],$4,$5)
+            "INSERT INTO books(source_identity,target_language,title,author_name,genres,visibility,admin_hold,access_level)
+             VALUES ($1,'ru',$2,$3,ARRAY['фэнтези','приключения'],$4,$5,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
@@ -184,9 +184,9 @@ async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
     // transitions on the *same* row, without deleting shared fixtures.
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO books
-         (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
+         (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted,access_level)
          VALUES ('ci:f03:revocation','ru','Отзывная книга','Уникальныйавтор',
-                 ARRAY['уникальныйжанр'],'draft',FALSE,FALSE)
+                 ARRAY['уникальныйжанр'],'draft',FALSE,FALSE,'basic')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET visibility='draft',admin_hold=FALSE,is_deleted=FALSE,
                        title=EXCLUDED.title,author_name=EXCLUDED.author_name,genres=EXCLUDED.genres
@@ -280,8 +280,8 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
     for (source, title, visibility, held) in rows {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books
-                (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
-             VALUES ($1,'ru',$2,'Автор F04',ARRAY['f04-test-genre'],$3,$4,FALSE)
+                (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,'ru',$2,'Автор F04',ARRAY['f04-test-genre'],$3,$4,FALSE,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,genres=EXCLUDED.genres,
                            author_name=EXCLUDED.author_name,
@@ -310,6 +310,47 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
     assert_eq!(listed[0].id, visible_id as u64);
     assert_eq!(listed[0].author_name, "Автор F04");
     assert_eq!(listed[0].genres, vec!["f04-test-genre".to_owned()]);
+
+    // S020/P0: the anonymous homepage's latest-books projection is public
+    // discovery, not an entitled catalogue. Age upgrades must revoke the
+    // title BEFORE applying LIMIT, even if an older 18+/21+ reader can open it.
+    for tier in ["adult", "pro_adult"] {
+        sqlx::query("UPDATE books SET access_level=$1 WHERE id=$2")
+            .bind(tier)
+            .bind(visible_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let newest = service
+            .latest_added(Some("f04-test-genre"), 1)
+            .await
+            .unwrap();
+        assert!(
+            newest.is_empty(),
+            "{tier} title leaked through anonymous home showcase"
+        );
+    }
+    // Legacy NULL is unknown: never treat it as an implicit public basic tier.
+    sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let legacy = service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap();
+    assert!(legacy.is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let restored = service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap();
+    assert_eq!(restored.len(), 1);
 
     // No cache: each transition must be reflected in the very next request.
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
@@ -367,8 +408,8 @@ async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() 
         let held = index == 28;
         let deleted = index == 29;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO books (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
-             VALUES ($1,'ru',$2,'Keyset Author',ARRAY['f02-keyset'],$3,$4,$5)
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,'ru',$2,'Keyset Author',ARRAY['f02-keyset'],$3,$4,$5,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
@@ -455,8 +496,8 @@ async fn f_02_exact_total_matches_filters_and_immediate_revocation() {
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books (source_identity,target_language,title,author_name,genres,
-                                visibility,admin_hold,is_deleted)
-             VALUES ($1,$2,$3,'F02 Count Author',ARRAY['f02-count-total'],$4,$5,$6)
+                                visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,$2,$3,'F02 Count Author',ARRAY['f02-count-total'],$4,$5,$6,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
@@ -579,8 +620,8 @@ async fn f_02_lexical_keysets_match_postgres_order_and_hide_private_rows() {
     ] {
         sqlx::query(
             "INSERT INTO books (source_identity,target_language,title,author_name,genres,
-                                visibility,admin_hold,is_deleted)
-             VALUES ($1,'ru',$2,$3,ARRAY['f02-lexical'],$4,$5,$6)
+                                visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,'ru',$2,$3,ARRAY['f02-lexical'],$4,$5,$6,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
@@ -763,8 +804,8 @@ async fn f_02_taxonomy_combination_revocation_and_public_options() {
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books (source_identity,target_language,title,author_name,genres,tags,fandoms,
-                                visibility,admin_hold,is_deleted)
-             VALUES ($1,'ru',$2,'F02 Taxonomist',ARRAY['фэнтези'],$3,$4,$5,$6,$7)
+                                visibility,admin_hold,is_deleted,access_level)
+             VALUES ($1,'ru',$2,'F02 Taxonomist',ARRAY['фэнтези'],$3,$4,$5,$6,$7,'basic')
              ON CONFLICT (source_identity,target_language)
              DO UPDATE SET title=EXCLUDED.title, author_name=EXCLUDED.author_name,
                            genres=EXCLUDED.genres,tags=EXCLUDED.tags,fandoms=EXCLUDED.fandoms,
@@ -884,11 +925,11 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
     // supposedly cached category alive after a committed publication change.
     let book_id: i64 = sqlx::query_scalar(
         "INSERT INTO books
-             (source_identity,target_language,title,genres,tags,fandoms,visibility)
+             (source_identity,target_language,title,genres,tags,fandoms,visibility,access_level)
          VALUES ('ci:perf233:live-taxonomy','ru','PERF 233 Facet Test',
                  ARRAY['aaa-perf233-genre','aaa-perf233-genre'],
                  ARRAY['aaa-perf233-tag'],
-                 ARRAY['aaa-perf233-fandom'],'public')
+                 ARRAY['aaa-perf233-fandom'],'public','basic')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,
                        genres=EXCLUDED.genres,tags=EXCLUDED.tags,

@@ -2,5 +2,6 @@
 #![forbid(unsafe_code)]
 pub mod access;
 pub mod auth;
+pub mod flow;
 pub mod paid_delivery;
 pub mod reader_manifest;

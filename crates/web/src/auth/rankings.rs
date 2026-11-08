@@ -10,7 +10,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use tor_reading::services::PublicReadingRepository;
+use tor_accounts::services::security::session_token_digest;
 use tor_recommendations::{
     repositories::{RankingCommand, RankingStoreError},
     services::ranking::Outcome,
@@ -95,7 +95,15 @@ fn csrf_header(headers: &HeaderMap) -> Option<&str> {
     headers.get("x-csrf-token")?.to_str().ok()
 }
 
-async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode> {
+async fn view(
+    state: &AuthState,
+    user_id: i64,
+    headers: &HeaderMap,
+) -> Result<RankingView, StatusCode> {
+    let digest = state
+        .cookies
+        .session_token(headers)
+        .map(|token| session_token_digest(&token));
     let snapshot = state.rankings.snapshot(user_id).await.map_err(status)?;
     let visible = state
         .rankings
@@ -147,16 +155,25 @@ async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode
     );
     let left = state
         .reader
-        .public_book(left_id)
+        .public_book_page_for_session(left_id, 1, None, digest.as_ref())
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::CONFLICT)?;
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let right = state
         .reader
-        .public_book(right_id)
+        .public_book_page_for_session(right_id, 1, None, digest.as_ref())
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::CONFLICT)?;
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // A saved F-05 question cannot grant 18+/21+ metadata after revocation.
+    // Keep the question and prior answers intact; restore them when the reader
+    // regains a live entitlement instead of returning a misleading 409.
+    let (Some(left), Some(right)) = (left, right) else {
+        return Ok(RankingView {
+            revision: snapshot.revision,
+            state: "restricted",
+            question: None,
+            ranked_books,
+        });
+    };
     Ok(RankingView {
         revision: snapshot.revision,
         state: "choose",
@@ -242,7 +259,7 @@ pub(super) async fn api_state(State(state): State<AuthState>, headers: HeaderMap
         Ok(user) => user,
         Err(error) => return deny(error),
     };
-    match view(&state, user).await {
+    match view(&state, user, &headers).await {
         Ok(result) => private_response(Json(result), &[]),
         Err(error) => deny(error),
     }
@@ -302,7 +319,7 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Err(StatusCode::UNAUTHORIZED) => return private_response(Redirect::to("/login"), &[]),
         Err(error) => return deny(error),
     };
-    let result = match view(&state, user).await {
+    let result = match view(&state, user, &headers).await {
         Ok(result) => result,
         Err(error) => return deny(error),
     };
@@ -335,6 +352,7 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
             question.state_version,
             pages::escape_html(&question.comparison_id),
         ),
+        None if result.state == "restricted" => "<p class=\"ranking-info\">Часть книг временно недоступна. После восстановления допуска прежние сравнения появятся снова.</p>".into(),
         None if result.state == "exhausted" => format!(
             r#"<p class="ranking-info">Все предложенные пары пропущены. Можно возобновить сравнение.</p>
 <form method="post" action="/me/rankings/resume">
