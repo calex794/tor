@@ -523,7 +523,7 @@ pub(super) async fn history(
             </div></section>"
         ),
     );
-    private_response(Html(html), &csrf_cookies)
+    private_response(html, &csrf_cookies)
 }
 
 #[cfg(test)]
