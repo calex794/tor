@@ -107,6 +107,19 @@ fn config(origin: &str) -> Result<Option<BotConfig>, &'static str> {
     }))
 }
 
+pub async fn start_from_pending(
+    pending: Option<(PgAccounts, String)>,
+) -> Result<Option<JoinHandle<()>>, &'static str> {
+    if let Some((accounts, origin)) = pending {
+        start(accounts, origin).await
+    } else {
+        if std::env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1") {
+            return Err("Telegram recovery requires authenticated PostgreSQL, not demo");
+        }
+        Ok(None)
+    }
+}
+
 /// Starts only after HTTP listener binding and a probe of the new schema.
 /// Exactly one operator-enabled bot poller may consume this bot token.
 pub async fn start(
