@@ -1,6 +1,8 @@
 /* Private finalized-delete archive TOC. Not the public reader's TOC. */
 .archive-toc{display:inline-block;margin:10px 0 20px;position:relative;z-index:auto}
 .archive-toc>summary{list-style:none;display:inline-flex;align-items:center;
+  position:fixed;right:18px;bottom:18px;z-index:1750;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);
   cursor:pointer;padding:10px 16px;border-radius:9px;
   background:var(--bg-surface,#fff);color:var(--text-main,#252525);
   border:1px solid var(--border-color,#bbb);font-weight:650}
