@@ -263,25 +263,28 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
         };
         let mut storage_failure = false;
         for update in response.result {
-            // Never advance the polling offset when the idempotency write
-            // failed. Otherwise an unrecorded approval could be lost.
-            let duplicate = match accounts.mark_telegram_update(update.update_id).await {
-                Ok(true) => false,
-                Ok(false) => true,
-                Err(_) => {
+            // A callback must become durable BEFORE this update is marked
+            // handled or the polling offset advances. Otherwise a process
+            // crash or a temporary PostgreSQL failure loses the approval.
+            if let Some(callback) = update.callback_query {
+                if recovery::callback(&client, &answer, &accounts, &cfg, callback)
+                    .await.is_err()
+                {
                     storage_failure = true;
                     break;
                 }
-            };
-            offset = offset.max(update.update_id.saturating_add(1));
-            if duplicate {
-                continue;
             }
             if let Some(message) = update.message {
                 process_message(&client, &send, &accounts, &cfg, message).await;
             }
-            if let Some(callback) = update.callback_query {
-                recovery::callback(&client, &answer, &accounts, &cfg, callback).await;
+            match accounts.mark_telegram_update(update.update_id).await {
+                Ok(_) => {
+                    offset = offset.max(update.update_id.saturating_add(1));
+                }
+                Err(_) => {
+                    storage_failure = true;
+                    break;
+                }
             }
         }
         if storage_failure {

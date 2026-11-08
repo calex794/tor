@@ -68,23 +68,22 @@ pub(super) async fn callback(
     accounts: &PgAccounts,
     _config: &BotConfig,
     cb: BotCallback,
-) {
+) -> Result<(), sqlx::Error> {
     let Some(message) = cb.message else {
-        return;
+        return Ok(());
     };
     if cb.from.is_bot
         || cb.from.id <= 0
         || message.chat.kind != "private"
         || message.chat.id != cb.from.id
     {
-        return;
+        return Ok(());
     }
     let action = cb.data.as_deref().and_then(decode_callback);
     let changed = if let Some((id, approve)) = action {
         accounts
             .decide_telegram_recovery(id, cb.from.id, message.chat.id, approve)
-            .await
-            .unwrap_or(false)
+            .await?
     } else {
         false
     };
@@ -103,6 +102,7 @@ pub(super) async fn callback(
         }))
         .send()
         .await;
+    Ok(())
 }
 
 #[cfg(test)]
