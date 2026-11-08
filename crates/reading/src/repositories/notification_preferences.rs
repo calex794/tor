@@ -2,31 +2,7 @@
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeliveryMode {
-    Disabled,
-    Immediate,
-    DailyDigest,
-}
-
-impl DeliveryMode {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "disabled" => Some(Self::Disabled),
-            "immediate" => Some(Self::Immediate),
-            "daily_digest" => Some(Self::DailyDigest),
-            _ => None,
-        }
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Disabled => "disabled",
-            Self::Immediate => "immediate",
-            Self::DailyDigest => "daily_digest",
-        }
-    }
-}
+pub use crate::services::notification_preferences::DeliveryMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreferenceError {

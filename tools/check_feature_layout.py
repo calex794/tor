@@ -22,7 +22,6 @@ WEB_PAGE_REPOSITORY_BASELINE = {
     "pages/checkout_page.rs": 1,
     "pages/layer_storefront.rs": 3,
     "pages/library.rs": 8,
-    "pages/notification_settings.rs": 1,
     "pages/profile_settings.rs": 1,
     "pages/reader_free.rs": 1,
     "pages/reader_free_comments.rs": 2,
