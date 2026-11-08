@@ -444,6 +444,108 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     assert_eq!(b_links.linked.len(), 1);
     assert_eq!(b_links.linked[0].id, a);
 
+    // Ordinary deletion leaves the historical edge (and the Book row)
+    // available for older purchases; neither source nor target may be
+    // rediscovered or newly relinked. Pending-deletion member management
+    // remains covered separately above and must not be conflated with this.
+    sqlx::query("UPDATE books SET lifecycle_status='ordinary_deleted' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .find_related_candidates(owner, a, &b_title)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
+    assert!(repo
+        .manageable_related_books(owner, a)
+        .await
+        .unwrap()
+        .unwrap()
+        .linked
+        .is_empty());
+    assert!(PgCatalog::new(pool.clone())
+        .public_related_books(a)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(PgCatalog::new(pool.clone())
+        .public_related_books(b)
+        .await
+        .unwrap()
+        .is_empty());
+    let historical_links: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM book_related_links
+         WHERE smaller_book_id=$1 AND larger_book_id=$2",
+    )
+    .bind(a.min(b))
+    .bind(a.max(b))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(historical_links, 1, "do not delete old relations");
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(b)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(PgCatalog::new(pool.clone())
+        .public_related_books(a)
+        .await
+        .unwrap()
+        .iter()
+        .any(|item| item.id == b));
+
+    // A completed deletion of the source freezes member settings and link
+    // writes even though is_deleted stays FALSE for immutable entitlements.
+    sqlx::query("UPDATE books SET lifecycle_status='ordinary_deleted' WHERE id=$1")
+        .bind(a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .manageable_related_books(owner, a)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        repo.find_related_candidates(owner, a, &b_title).await,
+        Err(AuthorError::Missing)
+    );
+    assert_eq!(
+        repo.add_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
+    assert_eq!(
+        repo.remove_related_book(owner, a, b).await,
+        Err(AuthorError::Missing)
+    );
+    assert!(PgCatalog::new(pool.clone())
+        .public_related_books(b)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let still_linked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM book_related_links
+         WHERE smaller_book_id=$1 AND larger_book_id=$2",
+    )
+    .bind(a.min(b))
+    .bind(a.max(b))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(still_linked, 1);
+
     sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
         .bind(b)
         .execute(&pool)
