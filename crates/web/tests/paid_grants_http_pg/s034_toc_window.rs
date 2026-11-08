@@ -36,7 +36,8 @@ pub(super) async fn check(
     assert!(!raw
         .windows(BODY.len())
         .any(|chunk| chunk == BODY.as_bytes()));
-    assert!(!raw.windows(b"dek_b64u".len())
+    assert!(!raw
+        .windows(b"dek_b64u".len())
         .any(|chunk| chunk == b"dek_b64u"));
     let body: Value = serde_json::from_slice(&raw).unwrap();
     assert_eq!(
