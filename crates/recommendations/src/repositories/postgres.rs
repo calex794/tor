@@ -101,9 +101,18 @@ impl PgRanking {
         }
         let rows = sqlx::query(
             "SELECT b.id,b.title,r.tier,r.comparisons_count
-             FROM user_book_rank AS r JOIN books AS b ON b.id=r.book_id
+             FROM user_book_rank AS r
+             JOIN books AS b ON b.id=r.book_id
+             JOIN users AS u ON u.id=r.user_id AND u.account_state='active'
              WHERE r.user_id=$1
-               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND u.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants AS age
+                   WHERE age.user_id=u.id AND age.level='pro_adult' AND age.is_active
+                 )))
              ORDER BY r.tier ASC,b.id::text ASC LIMIT 500",
         )
         .bind(user_id)
