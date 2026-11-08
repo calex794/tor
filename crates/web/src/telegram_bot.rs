@@ -7,7 +7,10 @@ use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_accounts::{
+    repositories::PgAccounts,
+    services::security::{generate_session_token, session_token_digest},
+};
 
 #[derive(Clone)]
 struct BotConfig {
@@ -165,25 +168,68 @@ pub async fn start(
 
 const TELEGRAM_RETRY_DELAY: Duration = Duration::from_secs(30);
 
+/// A fenced PostgreSQL generation is required before any Bot API polling.
+struct PollLease {
+    bot_id: i64,
+    owner: [u8; 32],
+    epoch: i64,
+}
+impl PollLease {
+    async fn renew(&self, accounts: &PgAccounts) -> bool {
+        accounts
+            .renew_telegram_poller(self.bot_id, &self.owner, self.epoch)
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn release(&self, accounts: &PgAccounts) {
+        let _ = accounts
+            .release_telegram_poller(self.bot_id, &self.owner, self.epoch)
+            .await;
+    }
+}
+
 async fn supervise(client: Client, accounts: PgAccounts, cfg: BotConfig) {
+    let Some(bot_id) = cfg.token
+        .split_once(':')
+        .and_then(|(id, _)| id.parse::<i64>().ok())
+        .filter(|id| *id > 0)
+    else {
+        eprintln!("TOR_TELEGRAM_RECOVERY_DISABLED: invalid bot id");
+        return;
+    };
+    // New random owner every process start; never log the bot token or
+    // the lease credential. A stale worker can neither renew nor release
+    // the next owner's fenced generation.
+    let owner = session_token_digest(&generate_session_token());
     loop {
         if accounts.probe_telegram_recovery().await.is_err() {
-            // A missing optional migration disables only this worker.
-            // Avoid logging PostgreSQL details or request bodies.
             eprintln!("TOR_TELEGRAM_RECOVERY_UNAVAILABLE: schema or database");
             tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
             continue;
         }
-        // Never poll or dispatch messages until the Bot API has verified
-        // the exact bot id/username and confirmed webhook mode is disabled.
+        // Identity and webhook checks remain mandatory after every retry.
         if let Err(reason) = identity::verify(&client, &cfg).await {
             eprintln!("TOR_TELEGRAM_RECOVERY_UNAVAILABLE: {reason}");
             tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
             continue;
         }
-        // Polling restarts after sustained Bot API failures, allowing
-        // authentication and webhook checks to be repeated after recovery.
-        poll_forever(&client, &accounts, &cfg).await;
+        let lease = match accounts.claim_telegram_poller(bot_id, &owner).await {
+            Ok(Some(epoch)) => PollLease { bot_id, owner, epoch },
+            Ok(None) => {
+                // Another TOR replica currently owns this bot's updates.
+                tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
+                continue;
+            }
+            Err(_) => {
+                eprintln!("TOR_TELEGRAM_RECOVERY_UNAVAILABLE: poller lease");
+                tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
+                continue;
+            }
+        };
+        poll_forever(&client, &accounts, &cfg, &lease).await;
+        lease.release(&accounts).await;
+        // Retry with fresh getMe/webhook verification and a new lease epoch.
         tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
     }
 }
@@ -261,7 +307,7 @@ async fn process_message(
     }
 }
 
-async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig) {
+async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, lease: &PollLease) {
     // Fixed Telegram authority; never allow an operator-supplied endpoint.
     let poll = format!("https://api.telegram.org/bot{}/getUpdates", cfg.token);
     let send = format!("https://api.telegram.org/bot{}/sendMessage", cfg.token);
@@ -272,7 +318,13 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig) {
     let mut offset = 0_i64;
     let mut consecutive_failures = 0_u8;
     loop {
-        recovery::dispatch(client, &send, accounts).await;
+        if !lease.renew(accounts).await || !recovery::dispatch(client, &send, accounts, lease).await {
+            return;
+        }
+        // A long-poll is permitted only while this DB-fenced lease is live.
+        if !lease.renew(accounts).await {
+            return;
+        }
         let response = client
             .post(&poll)
             .json(&json!({
@@ -298,8 +350,16 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig) {
             continue;
         };
         consecutive_failures = 0;
+        // The request could have outlived the lease during a machine pause.
+        // A stale owner must never process the returned Telegram updates.
+        if !lease.renew(accounts).await {
+            return;
+        }
         let mut storage_failure = false;
         for update in response.result {
+            if !lease.renew(accounts).await {
+                return;
+            }
             // Previously acknowledged updates can be replayed on restart.
             // Avoid repeating Telegram replies, while preserving the
             // callback-before-receipt durability order for new updates.
