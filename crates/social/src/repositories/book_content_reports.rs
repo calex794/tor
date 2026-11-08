@@ -132,15 +132,16 @@ impl PgBookContentReports {
         .fetch_optional(&mut *tx)
         .await?;
         let (reporter, adult) = viewer.ok_or(BookShareError::Forbidden)?;
-        let pro_adult: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-               SELECT 1 FROM user_level_grants g
-               WHERE g.user_id=$1 AND g.level='pro_adult' AND g.is_active)",
+        // Lock the live grant until commit, just like the S016 share path.
+        // Revocation cannot race past a protected Book report submission.
+        let pro_adult_grant: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM user_level_grants
+             WHERE user_id=$1 AND level='pro_adult' AND is_active FOR SHARE",
         )
         .bind(reporter)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-        if !allowed(&book_level, adult, pro_adult) {
+        if !allowed(&book_level, adult, pro_adult_grant.is_some()) {
             return Err(BookShareError::NotFound);
         }
         let old: Option<(i64, i64, String, String)> = sqlx::query_as(
