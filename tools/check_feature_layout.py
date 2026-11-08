@@ -12,6 +12,30 @@ LAYERS = {"api", "services", "repositories", "schemas", "domain"}
 SPECIAL = {"contracts", "web"}
 DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
 
+# Historical coupling budget: no new repository references in web page rendering.
+# Reduce these counts as pages adopt services/schemas; router wiring is exempt.
+WEB_PAGE_REPOSITORY_BASELINE = {
+    "auth/mail_pages.rs": 1,
+    "author_chapter_pages.rs": 1,
+    "book_error_pages.rs": 1,
+    "pages.rs": 4,
+    "pages/account.rs": 3,
+    "pages/checkout_page.rs": 1,
+    "pages/layer_storefront.rs": 3,
+    "pages/library.rs": 13,
+    "pages/notification_settings.rs": 1,
+    "pages/profile_settings.rs": 1,
+    "pages/public_catalog.rs": 1,
+    "pages/public_catalog/catalog_taxonomy_selects.rs": 1,
+    "pages/reader_free.rs": 1,
+    "pages/reader_free_comments.rs": 2,
+    "pages/reader_paid.rs": 4,
+    "pages/reader_private.rs": 1,
+    "pages/referrals.rs": 2,
+    "pages/session_security.rs": 1,
+}
+
+
 
 def _toml(path: Path) -> dict:
     with path.open("rb") as stream:
@@ -25,6 +49,12 @@ def _dependencies(package: dict):
         for section in DEPENDENCY_SECTIONS:
             for alias, spec in scope.get(section, {}).items():
                 yield alias, spec
+
+
+def _is_web_page(path: str) -> bool:
+    return (
+        path == "pages.rs" or path.startswith("pages/") or path.endswith("_pages.rs")
+    ) and not path.endswith("/tests.rs")
 
 
 def check(root: Path = ROOT) -> list[str]:
@@ -135,10 +165,24 @@ def check(root: Path = ROOT) -> list[str]:
                 errors.append(f"source too large: {relative} ({len(lines)} > {max_lines})")
             elif len(lines) > warn_lines:
                 print(f"WARN: {relative}: {len(lines)} lines", file=sys.stderr)
+            source_text = "\n".join(lines)
+            if name == "web" and len(parts) >= 2 and parts[0] == "src":
+                page_path = source.relative_to(src).as_posix()
+                if page_path == "auth.rs" and "security_retention::start(" in source_text:
+                    errors.append(f"account retention must not start from Router construction: {relative}")
+                if _is_web_page(page_path):
+                    references = len(re.findall(r"\brepositories\s*::", source_text))
+                    allowed = WEB_PAGE_REPOSITORY_BASELINE.get(page_path, 0)
+                    if references > allowed:
+                        errors.append(
+                            f"web page repository coupling increased: {relative} "
+                            f"({references} > {allowed})"
+                        )
+                    elif references:
+                        print(f"WARN: {relative}: {references} existing repository references", file=sys.stderr)
             if len(parts) < 3 or parts[0] != "src":
                 continue
             layer = parts[1]
-            source_text = "\n".join(lines)
             if layer in {"api", "services", "schemas", "domain"} and re.search(r"\bsqlx\s*::", source_text):
                 errors.append(f"SQLx outside repositories: {relative}")
             if layer == "domain" and re.search(r"\baxum\s*::", source_text):

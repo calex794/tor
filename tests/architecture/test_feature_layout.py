@@ -71,6 +71,34 @@ class FeatureLayoutTests(unittest.TestCase):
         (self.root / "crates/books/tests/service.rs").unlink()
         self.assertTrue(any("no colocated tests" in item for item in check(self.root)))
 
+    def test_new_web_page_repository_dependency_is_rejected(self):
+        self.scaffold()
+        self.put("crates/web/src/pages/new_page.rs", "use tor_books::repositories::PgCatalog;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_grouped_web_page_repository_dependency_is_rejected(self):
+        self.scaffold()
+        self.put("crates/web/src/pages/new_page.rs", "use tor_books::{domain::BookKey, repositories::PgCatalog};\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_existing_web_page_budget_allows_baseline_but_not_growth(self):
+        self.scaffold()
+        path = "crates/web/src/pages/public_catalog.rs"
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\nuse tor_books::repositories::PgCatalog;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_web_router_may_wire_repository(self):
+        self.scaffold()
+        self.put("crates/web/src/router.rs", "use tor_books::repositories::PgCatalog;\n")
+        self.assertEqual(check(self.root), [])
+
+    def test_retention_does_not_start_while_building_router(self):
+        self.scaffold()
+        self.put("crates/web/src/auth.rs", "fn router_inner() { security_retention::start(accounts); }\n")
+        self.assertTrue(any("account retention must not start" in error for error in check(self.root)))
+
 
 if __name__ == "__main__":
     unittest.main()

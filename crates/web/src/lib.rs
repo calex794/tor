@@ -15,6 +15,7 @@ use tor_books::{
 use tor_reading::{repositories::PgReader, services::ReadingError};
 pub mod achievement_consumer;
 mod auth;
+pub use auth::security_retention::start as start_account_security_retention;
 mod auth_cookies;
 mod author_chapter_http;
 mod author_chapter_images;
