@@ -152,7 +152,8 @@ impl PgBookContentReports {
         .fetch_optional(&mut *tx)
         .await?;
         if let Some((id, previous_book, previous_reason, previous_details)) = old {
-            if previous_book != book_id || previous_reason != reason || previous_details != details {
+            if previous_book != book_id || previous_reason != reason || previous_details != details
+            {
                 return Err(BookShareError::Conflict);
             }
             tx.commit().await?;
@@ -218,13 +219,15 @@ impl PgBookContentReports {
         tx.commit().await?;
         Ok(rows
             .into_iter()
-            .map(|(id, book_id, reporter_id, reason, details)| PendingBookContentReport {
-                id,
-                book_id,
-                reporter_id,
-                reason,
-                details,
-            })
+            .map(
+                |(id, book_id, reporter_id, reason, details)| PendingBookContentReport {
+                    id,
+                    book_id,
+                    reporter_id,
+                    reason,
+                    details,
+                },
+            )
             .collect())
     }
 
