@@ -55,6 +55,7 @@ mod book_project_status;
 mod book_registration_http;
 mod book_related;
 mod book_rooms;
+mod book_shares;
 mod book_sources;
 mod book_stars;
 mod book_stats_http;
@@ -186,6 +187,7 @@ fn router_inner(
     let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
     let team_routes = teams::router(accounts.clone(), cookies.clone());
     let collection_routes = collections::router(accounts.clone(), cookies.clone());
+    let share_routes = book_shares::router(accounts.clone(), cookies.clone());
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -436,7 +438,8 @@ fn router_inner(
         .merge(chapter_routes)
         .merge(personal_routes)
         .merge(team_routes)
-        .merge(collection_routes);
+        .merge(collection_routes)
+        .merge(share_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
