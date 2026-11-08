@@ -4,7 +4,7 @@ use crate::{
     pages::{escape_html, layout},
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, State},
+    extract::{DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
@@ -17,7 +17,7 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_social::repositories::book_collections::{
-    CollectionDetail, CollectionError, PgBookCollections,
+    CollectionBook, CollectionDetail, CollectionError, PgBookCollections,
 };
 
 #[derive(Clone)]
@@ -54,6 +54,10 @@ struct BookForm {
 struct ActionForm {
     expected_revision: i64,
     csrf_token: String,
+}
+#[derive(Default, Deserialize)]
+struct CollectionSearch {
+    q: Option<String>,
 }
 
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
@@ -158,7 +162,12 @@ async fn index(State(s): State<CollectionState>, h: HeaderMap) -> Response {
     html.push_str("</div></section>");
     page("Подборки книг", &html, &cookies)
 }
-async fn detail(State(s): State<CollectionState>, Path(id): Path<i64>, h: HeaderMap) -> Response {
+async fn detail(
+    State(s): State<CollectionState>,
+    Path(id): Path<i64>,
+    Query(query): Query<CollectionSearch>,
+    h: HeaderMap,
+) -> Response {
     let viewer = match viewer(&s, &h).await {
         Ok(v) => v,
         Err(code) => return denied(code),
@@ -167,10 +176,23 @@ async fn detail(State(s): State<CollectionState>, Path(id): Path<i64>, h: Header
         Ok(v) => v,
         Err(e) => return failed(e),
     };
+    let q = query.q.as_deref().unwrap_or("").trim();
+    let candidates = if detail.viewer_is_owner && !q.is_empty() {
+        match s
+            .collections
+            .find_addable_books(detail.collection.owner_user_id, id, q)
+            .await
+        {
+            Ok(books) => books,
+            Err(e) => return failed(e),
+        }
+    } else {
+        Vec::new()
+    };
     let (csrf, cookies) = s.cookies.csrf_for_page(&h);
-    page("Подборка книг", &detail_html(&detail, &csrf), &cookies)
+    page("Подборка книг", &detail_html(&detail, &csrf, q, &candidates), &cookies)
 }
-fn detail_html(data: &CollectionDetail, csrf: &str) -> String {
+fn detail_html(data: &CollectionDetail, csrf: &str, q: &str, candidates: &[CollectionBook]) -> String {
     let c = &data.collection;
     let mut html=format!(
         "<section class=\"section\"><div class=\"container\"><h1>{}</h1>         <p>{}</p><p>{}</p><ul>",
@@ -198,11 +220,43 @@ fn detail_html(data: &CollectionDetail, csrf: &str) -> String {
         } else {
             ""
         };
-        write!(html,
-            "<h2>Изменить подборку</h2>             <form method=\"post\" action=\"/collections/{}/edit\">             <input name=\"title\" required maxlength=\"160\" value=\"{}\">             <select name=\"visibility\"><option value=\"private\" {}>Личная</option>             <option value=\"public\" {}>Публичная</option></select>             <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">             <button type=\"submit\">Сохранить</button></form>             <h2>Добавить книгу</h2>             <form method=\"post\" action=\"/collections/{}/books\">             <label>ID публичной книги<input type=\"number\" name=\"book_id\" min=\"1\" required></label>             <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">             <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">             <button type=\"submit\">Добавить</button></form>",
-            c.id,escape_html(&c.title),private_selected,public_selected,
-            c.revision,escape_html(csrf),c.id,c.revision,escape_html(csrf)
+        write!(
+            html,
+            r#"<h2>Изменить подборку</h2>
+            <form method="post" action="/collections/{}/edit">
+            <label>Название<input name="title" required maxlength="160" value="{}"></label>
+            <label>Видимость<select name="visibility">
+              <option value="private" {}>Личная</option>
+              <option value="public" {}>Публичная</option></select></label>
+            <input type="hidden" name="expected_revision" value="{}">
+            <input type="hidden" name="csrf_token" value="{}">
+            <button type="submit">Сохранить</button></form>"#,
+            c.id, escape_html(&c.title), private_selected, public_selected,
+            c.revision, escape_html(csrf)
         ).expect("HTML");
+        write!(
+            html,
+            r#"<h2>Найти книгу</h2><form method="get" action="/collections/{}">
+            <label>Название книги<input name="q" value="{}" minlength="2" maxlength="80" required></label>
+            <button type="submit">Найти</button></form>"#,
+            c.id, escape_html(q)
+        ).expect("HTML");
+        if !candidates.is_empty() {
+            write!(html, r#"<form method="post" action="/collections/{}/books">
+                <label>Книга<select name="book_id" required>"#, c.id).expect("HTML");
+            for book in candidates {
+                write!(html, r#"<option value="{}">{}</option>"#, book.id, escape_html(&book.title))
+                    .expect("HTML");
+            }
+            write!(html, r#"</select></label>
+                <input type="hidden" name="expected_revision" value="{}">
+                <input type="hidden" name="csrf_token" value="{}">
+                <button type="submit">Добавить</button></form>"#,
+                c.revision, escape_html(csrf)
+            ).expect("HTML");
+        } else if !q.is_empty() {
+            html.push_str("<p>По запросу не найдено доступных книг.</p>");
+        }
         for book in &data.books {
             write!(html,
                 "<form method=\"post\" action=\"/collections/{}/books/{}/remove\">                 <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">                 <button type=\"submit\">Убрать {}</button></form>",
