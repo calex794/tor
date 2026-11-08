@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 use crate::services::translation_teams::TeamError;
 use sqlx::{PgPool, Row};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TeamPeriod {
@@ -42,7 +43,8 @@ pub struct TeamNumbers {
     pub first_chapter_opens: i64,
     pub new_registered_readers: i64,
     pub purchases: i64,
-    pub gross_minor: i64,
+    /// Gross purchase sums in the currency's own minor units; never sum unlike currencies.
+    pub gross_by_currency_minor: BTreeMap<String, i64>,
     pub thanks: i64,
 }
 impl TeamNumbers {
@@ -56,9 +58,29 @@ impl TeamNumbers {
             .new_registered_readers
             .saturating_add(other.new_registered_readers);
         self.purchases = self.purchases.saturating_add(other.purchases);
-        self.gross_minor = self.gross_minor.saturating_add(other.gross_minor);
+        for (currency, amount) in &other.gross_by_currency_minor {
+            let aggregate = self.gross_by_currency_minor.entry(currency.clone()).or_default();
+            *aggregate = aggregate.saturating_add(*amount);
+        }
         self.thanks = self.thanks.saturating_add(other.thanks);
     }
+}
+
+fn parse_currency_totals(value: Option<String>) -> Result<BTreeMap<String, i64>, TeamError> {
+    let mut currencies = BTreeMap::new();
+    if let Some(serialized) = value {
+        for item in serialized.split('|') {
+            let (currency, raw) = item.split_once(':').ok_or(TeamError::Unavailable)?;
+            if currency.len() != 3 || !currency.bytes().all(|letter| letter.is_ascii_uppercase()) {
+                return Err(TeamError::Unavailable);
+            }
+            let amount = raw.parse::<i64>().map_err(|_| TeamError::Unavailable)?;
+            if amount < 0 || currencies.insert(currency.to_owned(), amount).is_some() {
+                return Err(TeamError::Unavailable);
+            }
+        }
+    }
+    Ok(currencies)
 }
 
 #[derive(Clone, Debug)]
@@ -151,13 +173,18 @@ impl PgTeamAnalytics {
                 CROSS JOIN boundaries w
                 WHERE (r.first_opened_at AT TIME ZONE 'UTC')::DATE
                   BETWEEN w.start_day AND w.end_day GROUP BY r.book_id
-             ), purchases AS (
-                SELECT c.book_id,COUNT(*)::BIGINT AS purchases,
-                       SUM(p.amount_minor)::BIGINT AS gross
+             ), purchase_currencies AS (
+                SELECT c.book_id,p.currency,COUNT(*)::BIGINT AS purchases,
+                       SUM(p.amount_minor)::BIGINT AS gross_minor
                 FROM chapter_purchase_facts p JOIN chapters c ON c.id=p.chapter_id
                 JOIN scope s ON s.id=c.book_id CROSS JOIN boundaries w
                 WHERE (p.acquired_at AT TIME ZONE 'UTC')::DATE
-                  BETWEEN w.start_day AND w.end_day GROUP BY c.book_id
+                  BETWEEN w.start_day AND w.end_day GROUP BY c.book_id,p.currency
+             ), purchases AS (
+                SELECT book_id,SUM(purchases)::BIGINT AS purchases,
+                       STRING_AGG(currency::TEXT || ':' || gross_minor::TEXT,
+                           '|' ORDER BY currency) AS gross_by_currency
+                FROM purchase_currencies GROUP BY book_id
              ), thanks AS (
                 SELECT x.book_id,COUNT(*)::BIGINT AS thanks
                 FROM chapter_thanks x JOIN scope s ON s.id=x.book_id
@@ -173,7 +200,7 @@ impl PgTeamAnalytics {
                     COALESCE(o.firsts,0)::BIGINT AS firsts,
                     COALESCE(n.newcomers,0)::BIGINT AS newcomers,
                     COALESCE(p.purchases,0)::BIGINT AS purchases,
-                    COALESCE(p.gross,0)::BIGINT AS gross,
+                    p.gross_by_currency AS gross_by_currency,
                     COALESCE(th.thanks,0)::BIGINT AS thanks
              FROM boundaries w LEFT JOIN scope s ON TRUE
              LEFT JOIN opened o ON o.book_id=s.id
@@ -214,7 +241,7 @@ impl PgTeamAnalytics {
                 purchases: row
                     .try_get("purchases")
                     .map_err(|_| TeamError::Unavailable)?,
-                gross_minor: row.try_get("gross").map_err(|_| TeamError::Unavailable)?,
+                gross_by_currency_minor: parse_currency_totals(row.try_get("gross_by_currency").map_err(|_| TeamError::Unavailable)?)?,
                 thanks: row.try_get("thanks").map_err(|_| TeamError::Unavailable)?,
             };
             totals.add(&numbers);
@@ -240,12 +267,31 @@ impl PgTeamAnalytics {
 
 #[cfg(test)]
 mod tests {
-    use super::TeamPeriod;
+    use super::{parse_currency_totals, TeamNumbers, TeamPeriod};
     #[test]
     fn s029_periods_reject_unknown_and_use_fixed_windows() {
         assert_eq!(TeamPeriod::parse(None).unwrap().days(), 30);
         assert_eq!(TeamPeriod::parse(Some("7d")).unwrap().days(), 7);
         assert_eq!(TeamPeriod::parse(Some("90d")).unwrap().days(), 90);
         assert!(TeamPeriod::parse(Some("365d")).is_err());
+    }
+
+    #[test]
+    fn s029_purchase_sums_never_combine_different_currencies() {
+        let a = parse_currency_totals(Some("RUB:150|USD:245".to_owned())).unwrap();
+        let b = parse_currency_totals(Some("RUB:300|EUR:75".to_owned())).unwrap();
+        let mut total = TeamNumbers {
+            gross_by_currency_minor: a,
+            ..TeamNumbers::default()
+        };
+        total.add(&TeamNumbers {
+            gross_by_currency_minor: b,
+            ..TeamNumbers::default()
+        });
+        assert_eq!(total.gross_by_currency_minor.get("RUB"), Some(&450));
+        assert_eq!(total.gross_by_currency_minor.get("USD"), Some(&245));
+        assert_eq!(total.gross_by_currency_minor.get("EUR"), Some(&75));
+        assert!(parse_currency_totals(Some("RUB:1|RUB:2".to_owned())).is_err());
+        assert!(parse_currency_totals(Some("BAD:abc".to_owned())).is_err());
     }
 }
