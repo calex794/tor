@@ -276,8 +276,6 @@ async fn s065_alternate_reader_access_matrix(
         }
     }
 
-    // NEwBOO navigation/history, preview and media are not TOR routes yet.
-    // Keep them closed when the owner is logged in as well as for outsiders.
     for path in [
         format!("/reader/{chapter}/toc-fragment?limit=100"),
         format!("/reader/{chapter}/comments-fragment"),
@@ -289,8 +287,6 @@ async fn s065_alternate_reader_access_matrix(
         format!("/cdn/chapters/{chapter}/{version}.html"),
         format!("/media/chapters/{chapter}/{version}"),
     ] {
-        // Buyer, book creator without a purchase, and anonymous visitor:
-        // missing compatibility routes must never expose signed credentials.
         for session in [Some(buyer), Some(outsider), None] {
             let response = read_page(browser, &path, session).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
@@ -562,21 +558,18 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
-
     assert_eq!(
         read_page(&browser, "/read/paid/1?purchase_id=1", None)
             .await
             .status(),
         StatusCode::UNAUTHORIZED,
     );
-    // The API-only router never mounts the H reader.
     assert_eq!(
         read_page(&app, "/read/paid/1?purchase_id=1", Some(&buyer_cookie))
             .await
             .status(),
         StatusCode::NOT_FOUND,
     );
-
     let checkout = PgCheckout::new(pool.clone());
     let receipt = checkout
         .checkout_once(
@@ -722,7 +715,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         0,
         "forged asset grants must never reach G"
     );
-
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,
@@ -776,7 +768,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         1,
         "a successful paid grant must write durable first exposure"
     );
-
     // Unlike the forged chapter-ciphertext UUID above, this asset is a real
     // B-attached V1 image. D must authorize the exact purchase before G signs.
     let owned_asset_route =
@@ -797,7 +788,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .unwrap()
         .is_empty());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
-
     let permitted_asset = send(
         &app,
         &owned_asset_route,
@@ -820,7 +810,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(asset_json["content"]["codec"], "none");
     assert!(!asset_json.to_string().contains(BODY));
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
-
     let v2 = scalar(
         &url,
         &format!(
@@ -867,7 +856,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         version.to_string()
     );
     assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
-
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
