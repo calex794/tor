@@ -131,6 +131,8 @@ impl SavedArchiveTocCursor {
 pub enum SavedArchiveTocSide {
     Before,
     After,
+    /// Initial window includes the verified current saved edition.
+    AtOrAfter,
 }
 
 /// One bounded actor-scoped page of actual pinned free and purchased editions.
