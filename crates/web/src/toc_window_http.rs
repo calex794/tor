@@ -2,7 +2,7 @@
 use super::*;
 
 #[derive(Default, Deserialize)]
-struct TocWindowQuery {
+pub(super) struct TocWindowQuery {
     around_chapter_id: Option<u64>,
     before: Option<String>,
     after: Option<String>,
