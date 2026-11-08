@@ -1,5 +1,6 @@
 //! Default-off Telegram Bot API long-polling adapter for A/S004.
 //! Browser-initiated recovery only. Reset secrets never go to Telegram.
+mod identity;
 mod recovery;
 use reqwest::Client;
 use serde::Deserialize;
@@ -12,6 +13,7 @@ use tor_accounts::{repositories::PgAccounts, services::security::session_token_d
 struct BotConfig {
     token: String,
     origin: String,
+    username: String,
 }
 
 #[derive(Deserialize)]
@@ -115,10 +117,11 @@ fn config(origin: &str) -> Result<Option<BotConfig>, &'static str> {
     {
         return Err("Invalid Telegram recovery configuration");
     }
-    let _username = validated_bot_username()?;
+    let username = validated_bot_username()?;
     Ok(Some(BotConfig {
         token,
         origin: origin.trim_end_matches('/').to_owned(),
+        username,
     }))
 }
 
@@ -152,6 +155,9 @@ pub async fn start(
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Telegram HTTP client unavailable")?;
+    // Fail closed before accepting Telegram recovery traffic when the token
+    // belongs to a different bot or a webhook conflicts with long polling.
+    identity::verify(&client, &cfg).await?;
     Ok(Some(tokio::spawn(async move {
         poll_forever(client, accounts, cfg).await;
     })))
