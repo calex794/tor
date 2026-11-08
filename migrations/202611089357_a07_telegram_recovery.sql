@@ -79,7 +79,9 @@ CREATE TABLE account_telegram_recovery_requests (
       (user_id IS NULL AND telegram_user_id IS NULL AND private_chat_id IS NULL
        AND credential_fingerprint IS NULL)
       OR
-      (user_id IS NOT NULL AND telegram_user_id>0 AND private_chat_id>0
+      (user_id IS NOT NULL AND telegram_user_id IS NOT NULL
+       AND private_chat_id IS NOT NULL AND credential_fingerprint IS NOT NULL
+       AND telegram_user_id>0 AND private_chat_id>0
        AND octet_length(credential_fingerprint)=32)
     )
 );
