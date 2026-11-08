@@ -1,7 +1,7 @@
 //! Actual author book/chapter pages: no placeholder books or fabricated chapters.
 use axum::response::Html;
 use std::fmt::Write;
-use tor_books::repositories::postgres::ScheduledChapter;
+use tor_books::schemas::ScheduledChapter;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
