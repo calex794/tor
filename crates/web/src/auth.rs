@@ -50,6 +50,7 @@ mod book_lifecycle;
 mod book_likes;
 mod book_ordinary_deletion;
 mod book_origin_metadata;
+mod book_ownership_finance;
 mod book_project_status;
 mod book_registration_http;
 mod book_related;
@@ -208,9 +209,8 @@ fn router_inner(
     let refund_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
     let cover_upload_enabled = storage.is_some();
-    let telegram_enabled = std::env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1");
     let state = AuthState {
-        telegram_enabled,
+        telegram_enabled: std::env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1"),
         telegram_bot_username: std::env::var("TOR_TELEGRAM_BOT_USERNAME").ok(),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
@@ -275,6 +275,7 @@ fn router_inner(
         .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
         .merge(book_ordinary_deletion::router())
+        .merge(book_ownership_finance::router())
         .merge(book_related::router().merge(book_origin_metadata::router()))
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
@@ -426,7 +427,7 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(session_security::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -589,12 +590,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    // session_security::logout enforces same-origin and CSRF itself.
-    session_security::logout(State(state), headers, Form(form)).await
 }
