@@ -682,3 +682,89 @@ async fn a_07_telegram_recovery_backup_one_time_role_and_channel_guards() {
         None
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_proofs() {
+    let (accounts, user, session) = fixture("tg-unlink").await;
+    let (_, stranger, stranger_session) = fixture("tg-unlink-other").await;
+    let nonce = session_token_digest(&format!("tg-unlink-link-{user}"));
+    let telegram_id = 10_000_000 + user;
+    assert!(accounts
+        .begin_telegram_link(user, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    assert!(accounts
+        .claim_telegram_link(&nonce, telegram_id, telegram_id)
+        .await
+        .unwrap());
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("unlink-backup-{user}-{i}")));
+    assert_eq!(
+        accounts
+            .finish_telegram_link(user, &session, &codes)
+            .await
+            .unwrap(),
+        Some(telegram_id)
+    );
+    let proof = session_token_digest(&format!("telegram-preunlink-{user}"));
+    assert!(accounts
+        .issue_telegram_reset(telegram_id, telegram_id, &proof)
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &stranger_session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &session, "$argon2id$wrong")
+        .await
+        .unwrap());
+    assert!(accounts
+        .unlink_telegram(user, &session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert!(!accounts
+        .unlink_telegram(user, &session, "$argon2id$fixture")
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts
+            .telegram_link_state(user, &session)
+            .await
+            .unwrap()
+            .linked_user_id,
+        None
+    );
+    assert!(!accounts
+        .issue_telegram_reset(telegram_id, telegram_id, &[2_u8; 32])
+        .await
+        .unwrap());
+    assert_eq!(
+        accounts
+            .live_reset_password_hash_allowed(&proof, false, true)
+            .await
+            .unwrap(),
+        None
+    );
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    let backup = session_token_digest(&format!("after-unlink-{user}"));
+    assert!(!accounts
+        .consume_backup_code(&email, &codes[0], &backup)
+        .await
+        .unwrap());
+    let audit: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM account_telegram_binding_events
+         WHERE user_id=$1 ORDER BY id",
+    )
+    .bind(user)
+    .fetch_all(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(audit, vec!["linked", "unlinked"]);
+    assert_ne!(user, stranger);
+}

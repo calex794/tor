@@ -16,6 +16,9 @@ impl PgAccounts {
         sqlx::query("SELECT source FROM password_reset_tokens LIMIT 0")
             .fetch_all(self.pool())
             .await?;
+        sqlx::query("SELECT id FROM account_telegram_binding_events LIMIT 0")
+            .fetch_all(self.pool())
+            .await?;
         Ok(())
     }
 
