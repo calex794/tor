@@ -912,4 +912,5 @@ async fn a_07_telegram_unlink_requires_live_owner_password_and_revokes_recovery_
     assert_ne!(user, stranger);
 }
 
+#[path = "slices_pg/telegram_poller_tests.rs"]
 mod telegram_poller_tests;
