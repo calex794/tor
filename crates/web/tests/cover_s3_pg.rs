@@ -50,7 +50,7 @@ mod cdn_wire;
 #[path = "cover_s3_pg/private_cleanup.rs"]
 mod private_cleanup;
 #[path = "cover_s3_pg/moderator_withdrawal.rs"]
-mod moderator_withdrawal;
+mod withdraw_s3;
 #[path = "cover_s3_pg/source_cleanup.rs"]
 mod source_cleanup;
 
@@ -989,6 +989,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         "recovering a stored object must not attach another revision"
     );
 
-    moderator_withdrawal::verify(&slots, &reviews, &ledger, &store, &card, &session_digest, &app, job).await;
+    withdraw_s3::verify(&slots, &reviews, &ledger, &store, &card, &session_digest, &app, job).await;
     catalog.pool().close().await;
 }
