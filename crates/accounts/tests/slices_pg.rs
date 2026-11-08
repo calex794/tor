@@ -557,7 +557,9 @@ async fn a_07_telegram_pairing_requires_live_session_and_owner_confirmation() {
         .claim_telegram_link(&other_nonce, tg_id, tg_id)
         .await
         .unwrap());
+    assert!(!accounts.telegram_update_seen(tg_id).await.unwrap());
     assert!(accounts.mark_telegram_update(tg_id).await.unwrap());
+    assert!(accounts.telegram_update_seen(tg_id).await.unwrap());
     assert!(!accounts.mark_telegram_update(tg_id).await.unwrap());
 }
 

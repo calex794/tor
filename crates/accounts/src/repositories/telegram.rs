@@ -364,6 +364,20 @@ impl PgAccounts {
         Ok(true)
     }
 
+    /// Skip already-acknowledged Telegram updates after a poller restart.
+    /// Telegram retains updates for at most 24 hours; receipts live 2 days.
+    pub async fn telegram_update_seen(&self, update_id: i64) -> Result<bool, sqlx::Error> {
+        if update_id < 0 {
+            return Ok(true);
+        }
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_telegram_bot_updates WHERE update_id=$1)",
+        )
+        .bind(update_id)
+        .fetch_one(self.pool())
+        .await
+    }
+
     pub async fn mark_telegram_update(&self, update_id: i64) -> Result<bool, sqlx::Error> {
         if update_id < 0 {
             return Ok(false);

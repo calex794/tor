@@ -269,6 +269,20 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
         };
         let mut storage_failure = false;
         for update in response.result {
+            // Previously acknowledged updates can be replayed on restart.
+            // Avoid repeating Telegram replies, while preserving the
+            // callback-before-receipt durability order for new updates.
+            match accounts.telegram_update_seen(update.update_id).await {
+                Ok(true) => {
+                    offset = offset.max(update.update_id.saturating_add(1));
+                    continue;
+                }
+                Ok(false) => {}
+                Err(_) => {
+                    storage_failure = true;
+                    break;
+                }
+            }
             // A callback must become durable BEFORE this update is marked
             // handled or the polling offset advances. Otherwise a process
             // crash or a temporary PostgreSQL failure loses the approval.
@@ -304,6 +318,29 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
 mod tests {
     use super::*;
     use tor_accounts::services::security::generate_session_token;
+
+    #[test]
+    fn a_07_bot_api_callback_update_decodes_expected_telegram_id_and_private_chat() {
+        let wire = r#"{"ok":true,"result":[{
+          "update_id":55,
+          "callback_query":{
+            "id":"callback-id",
+            "from":{"id":998877,"is_bot":false},
+            "message":{"chat":{"id":998877,"type":"private"}},
+            "data":"tr:a:123"
+          }
+        }]}"#;
+        let batch: BotResponse = serde_json::from_str(wire).unwrap();
+        assert!(batch.ok);
+        assert_eq!(batch.result.len(), 1);
+        assert_eq!(batch.result[0].update_id, 55);
+        let callback = batch.result[0].callback_query.as_ref().unwrap();
+        assert_eq!(callback.from.id, 998877);
+        assert!(!callback.from.is_bot);
+        assert_eq!(callback.message.as_ref().unwrap().chat.kind, "private");
+        assert_eq!(callback.message.as_ref().unwrap().chat.id, 998877);
+        assert_eq!(callback.data.as_deref(), Some("tr:a:123"));
+    }
 
     #[test]
     fn a_07_bot_ignores_forged_commands() {
