@@ -35,7 +35,13 @@ fn request(method: &str, path: &str, cookies: &str, form: &str, origin: &str) ->
         ))));
     request
 }
-async fn send(app: &Router, method: &str, path: &str, cookies: &str, form: &str) -> axum::response::Response {
+async fn send(
+    app: &Router,
+    method: &str,
+    path: &str,
+    cookies: &str,
+    form: &str,
+) -> axum::response::Response {
     app.clone()
         .oneshot(request(method, path, cookies, form, ORIGIN))
         .await
@@ -55,11 +61,17 @@ fn field(html: &str, name: &str) -> String {
         .to_owned()
 }
 fn cookie(reply: &axum::response::Response, name: &str) -> String {
-    reply.headers().get_all(header::SET_COOKIE).iter()
+    reply
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
         .filter_map(|v| v.to_str().ok())
         .find(|line| line.starts_with(name))
         .expect("cookie")
-        .split(';').next().unwrap().to_owned()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
 }
 async fn signup(app: &Router, email: &str) -> String {
     let first = send(app, "GET", "/register", "", "").await;
@@ -81,11 +93,29 @@ fn database() -> String {
 fn pg(query: &str) -> String {
     let url = database();
     let output = Command::new("psql")
-        .env("PGOPTIONS", "-c lock_timeout=15000 -c statement_timeout=60000")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", &url, "--command", query])
+        .env(
+            "PGOPTIONS",
+            "-c lock_timeout=15000 -c statement_timeout=60000",
+        )
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            &url,
+            "--command",
+            query,
+        ])
         .output()
         .expect("psql in isolated CI");
-    assert!(output.status.success(), "PG fixture: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "PG fixture: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
@@ -97,9 +127,16 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
     let accounts = PgAccounts::from_pool(catalog.pool());
     let reader = PgReader::new(catalog.pool());
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, reader, accounts, false, ORIGIN.to_owned()
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
-    let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let owner = signup(&app, &format!("s009-owner-{unique}@example.invalid")).await;
     let other = signup(&app, &format!("s009-other-{unique}@example.invalid")).await;
 
@@ -115,27 +152,45 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
     let key = field(&page, "request_key");
     let csrf = field(&page, "csrf_token");
     let cookies = format!("{owner}; {csrf_cookie}");
-    let creation = format!("title=PrivateShelves&visibility=private&request_key={key}&csrf_token={csrf}");
+    let creation =
+        format!("title=PrivateShelves&visibility=private&request_key={key}&csrf_token={csrf}");
     assert_eq!(
-        send(&app, "POST", "/collections", &owner, &creation).await.status(),
+        send(&app, "POST", "/collections", &owner, &creation)
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        app.clone().oneshot(request("POST", "/collections", &cookies, &creation, "https://evil.invalid"))
-            .await.unwrap().status(),
+        app.clone()
+            .oneshot(request(
+                "POST",
+                "/collections",
+                &cookies,
+                &creation,
+                "https://evil.invalid"
+            ))
+            .await
+            .unwrap()
+            .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", "/collections", &csrf_cookie, &creation).await.status(),
+        send(&app, "POST", "/collections", &csrf_cookie, &creation)
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED,
     );
     let made = send(&app, "POST", "/collections", &cookies, &creation).await;
     assert_eq!(made.status(), StatusCode::SEE_OTHER);
-    let path = made.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let path = made.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     assert!(path.starts_with("/collections/"));
     assert_eq!(
         send(&app, "POST", "/collections", &cookies, &creation)
-            .await.headers()[header::LOCATION],
+            .await
+            .headers()[header::LOCATION],
         path.as_str(),
         "duplicate form must not create another collection",
     );
@@ -149,7 +204,9 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
     );
 
     let title = format!("S009Book{unique}");
-    let owner_id = pg(&format!("SELECT id FROM users WHERE email_normalized='s009-owner-{unique}@example.invalid'"));
+    let owner_id = pg(&format!(
+        "SELECT id FROM users WHERE email_normalized='s009-owner-{unique}@example.invalid'"
+    ));
     let book: i64 = pg(&format!(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
          VALUES('ci:s009:{unique}','ru','{title}','public','basic',{owner_id}) RETURNING id"
@@ -157,44 +214,76 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
     let invalid = format!("book_id=0&expected_revision=1&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &format!("{path}/books"), &cookies, &invalid)
-            .await.status(), StatusCode::BAD_REQUEST
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
     );
     let add = format!("book_id={book}&expected_revision=1&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &format!("{path}/books"), &cookies, &add)
-            .await.status(), StatusCode::SEE_OTHER
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
     );
     assert_eq!(
         send(&app, "POST", &format!("{path}/books"), &cookies, &add)
-            .await.status(), StatusCode::CONFLICT
+            .await
+            .status(),
+        StatusCode::CONFLICT
     );
-    assert!(html(send(&app, "GET", &path, &cookies, "").await).await.contains(&title));
+    assert!(html(send(&app, "GET", &path, &cookies, "").await)
+        .await
+        .contains(&title));
     let stolen = format!("title=Hacked&visibility=public&expected_revision=2&csrf_token={csrf}");
     assert_eq!(
-        send(&app, "POST", &format!("{path}/edit"), &format!("{other}; {csrf_cookie}"), &stolen)
-            .await.status(), StatusCode::NOT_FOUND
+        send(
+            &app,
+            "POST",
+            &format!("{path}/edit"),
+            &format!("{other}; {csrf_cookie}"),
+            &stolen
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
     );
-    let publish = format!("title=PublicShelves&visibility=public&expected_revision=2&csrf_token={csrf}");
+    let publish =
+        format!("title=PublicShelves&visibility=public&expected_revision=2&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &format!("{path}/edit"), &cookies, &publish)
-            .await.status(), StatusCode::SEE_OTHER
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
     );
     let public_html = html(send(&app, "GET", &path, "", "").await).await;
     assert!(public_html.contains("PublicShelves"));
     assert!(public_html.contains(&title));
-    assert!(!public_html.contains("name=\"expected_revision\""), "guest must never see owner controls");
-    assert!(html(send(&app, "GET", "/collections", "", "").await).await.contains("PublicShelves"));
+    assert!(
+        !public_html.contains("name=\"expected_revision\""),
+        "guest must never see owner controls"
+    );
+    assert!(html(send(&app, "GET", "/collections", "", "").await)
+        .await
+        .contains("PublicShelves"));
 
-    pg(&format!("UPDATE books SET visibility='draft' WHERE id={book}"));
-    assert!(!html(send(&app, "GET", &path, "", "").await).await.contains(&title));
+    pg(&format!(
+        "UPDATE books SET visibility='draft' WHERE id={book}"
+    ));
+    assert!(!html(send(&app, "GET", &path, "", "").await)
+        .await
+        .contains(&title));
     let delete = format!("expected_revision=3&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &format!("{path}/delete"), &cookies, &delete)
-            .await.status(), StatusCode::SEE_OTHER
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
     );
     assert_eq!(
         send(&app, "GET", &path, &cookies, "").await.status(),
         StatusCode::NOT_FOUND,
     );
-    assert!(!html(send(&app, "GET", "/collections", "", "").await).await.contains("PublicShelves"));
+    assert!(!html(send(&app, "GET", "/collections", "", "").await)
+        .await
+        .contains("PublicShelves"));
 }
