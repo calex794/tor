@@ -81,12 +81,20 @@ class FeatureLayoutTests(unittest.TestCase):
         self.put("crates/web/src/pages/new_page.rs", "use tor_books::{domain::BookKey, repositories::PgCatalog};\n")
         self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
 
-    def test_existing_web_page_budget_allows_baseline_but_not_growth(self):
+    def test_cleaned_catalog_page_rejects_any_new_repository_dependency(self):
         self.scaffold()
         path = "crates/web/src/pages/public_catalog.rs"
-        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
+        self.put(path, "use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;\n")
         self.assertEqual(check(self.root), [])
-        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\nuse tor_books::repositories::PgCatalog;\n")
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_cleaned_catalog_taxonomy_selects_rejects_repository_dependency(self):
+        self.scaffold()
+        path = "crates/web/src/pages/public_catalog/catalog_taxonomy_selects.rs"
+        self.put(path, "use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
         self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
 
     def test_web_router_may_wire_repository(self):

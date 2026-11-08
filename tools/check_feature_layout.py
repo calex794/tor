@@ -25,8 +25,6 @@ WEB_PAGE_REPOSITORY_BASELINE = {
     "pages/library.rs": 13,
     "pages/notification_settings.rs": 1,
     "pages/profile_settings.rs": 1,
-    "pages/public_catalog.rs": 1,
-    "pages/public_catalog/catalog_taxonomy_selects.rs": 1,
     "pages/reader_free.rs": 1,
     "pages/reader_free_comments.rs": 2,
     "pages/reader_paid.rs": 4,
