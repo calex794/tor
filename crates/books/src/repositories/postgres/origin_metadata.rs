@@ -154,8 +154,14 @@ impl PgAuthoring {
         origin: OriginFields<'_>,
         discovery: DiscoveryFields<'_>,
     ) -> Result<i64, AuthorError> {
-        self.update_origin_metadata_inner(actor, book_id, expected_revision, origin, Some(discovery))
-            .await
+        self.update_origin_metadata_inner(
+            actor,
+            book_id,
+            expected_revision,
+            origin,
+            Some(discovery),
+        )
+        .await
     }
 
     async fn update_origin_metadata_inner(
