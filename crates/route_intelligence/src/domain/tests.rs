@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 343);
+    assert_eq!(unique.len(), 347);
 }
 
 #[test]
@@ -298,4 +298,27 @@ fn s049_share_report_routes_are_admin_traffic_without_any_public_alias() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/recommendation-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_book_complaint_routes_are_classified_and_admin_only_on_private_surface() {
+    for (template, method) in [
+        ("/books/{id}/report", "GET"),
+        ("/books/{id}/report", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Social);
+    }
+    for (template, method) in [
+        ("/admin/book-reports", "GET"),
+        ("/admin/book-reports/{report_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/book-reports"), "POST").route_known);
 }
