@@ -226,8 +226,7 @@ async fn f_05_http_hidden_book_denied_without_writing_comparison() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
-    let restricted: serde_json::Value =
-        serde_json::from_str(&body_of(response).await).unwrap();
+    let restricted: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
     assert_eq!(restricted["state"], "restricted");
     assert!(restricted["question"].is_null());
     assert_eq!(restricted["revision"], before.revision);
