@@ -509,9 +509,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         app
     };
     let listener = tokio::net::TcpListener::bind(address).await?;
-    let _telegram_bot_worker = tor_web::telegram_bot::start_from_pending(pending_telegram_bot)
-        .await
-        .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+    let _telegram_bot_worker =
+        tor_web::telegram_bot::start_from_pending(pending_telegram_bot).await;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
     let _cover_worker = if let Some((catalog, storage)) = pending_cover_worker {

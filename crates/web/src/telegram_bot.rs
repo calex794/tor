@@ -125,21 +125,30 @@ fn config(origin: &str) -> Result<Option<BotConfig>, &'static str> {
     }))
 }
 
+/// Telegram is optional infrastructure. Missing credentials, a missing
+/// migration, or an unavailable Bot API must not prevent TOR from serving
+/// its existing login, reading, and account routes.
 pub async fn start_from_pending(
     pending: Option<(PgAccounts, String)>,
-) -> Result<Option<JoinHandle<()>>, &'static str> {
+) -> Option<JoinHandle<()>> {
     if let Some((accounts, origin)) = pending {
-        start(accounts, origin).await
+        match start(accounts, origin).await {
+            Ok(handle) => handle,
+            Err(reason) => {
+                eprintln!("TOR_TELEGRAM_RECOVERY_DISABLED: {reason}");
+                None
+            }
+        }
     } else {
         if std::env::var("TOR_TELEGRAM_RECOVERY_ENABLED").as_deref() == Ok("1") {
-            return Err("Telegram recovery requires authenticated PostgreSQL, not demo");
+            eprintln!("TOR_TELEGRAM_RECOVERY_DISABLED: authenticated PostgreSQL required");
         }
-        Ok(None)
+        None
     }
 }
 
-/// Starts only after HTTP listener binding and a probe of the new schema.
-/// Exactly one operator-enabled bot poller may consume this bot token.
+/// Bootstrapping is local-only. The network and database checks run inside a
+/// supervised worker; no external Telegram dependency gates the HTTP listener.
 pub async fn start(
     accounts: PgAccounts,
     origin: String,
@@ -147,20 +156,38 @@ pub async fn start(
     let Some(cfg) = config(&origin)? else {
         return Ok(None);
     };
-    accounts
-        .probe_telegram_recovery()
-        .await
-        .map_err(|_| "Telegram recovery migration is missing")?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| "Telegram HTTP client unavailable")?;
-    // Fail closed before accepting Telegram recovery traffic when the token
-    // belongs to a different bot or a webhook conflicts with long polling.
-    identity::verify(&client, &cfg).await?;
     Ok(Some(tokio::spawn(async move {
-        poll_forever(client, accounts, cfg).await;
+        supervise(client, accounts, cfg).await;
     })))
+}
+
+const TELEGRAM_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+async fn supervise(client: Client, accounts: PgAccounts, cfg: BotConfig) {
+    loop {
+        if accounts.probe_telegram_recovery().await.is_err() {
+            // A missing optional migration disables only this worker.
+            // Avoid logging PostgreSQL details or request bodies.
+            eprintln!("TOR_TELEGRAM_RECOVERY_UNAVAILABLE: schema or database");
+            tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
+            continue;
+        }
+        // Never poll or dispatch messages until the Bot API has verified
+        // the exact bot id/username and confirmed webhook mode is disabled.
+        if let Err(reason) = identity::verify(&client, &cfg).await {
+            eprintln!("TOR_TELEGRAM_RECOVERY_UNAVAILABLE: {reason}");
+            tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
+            continue;
+        }
+        // Polling restarts after sustained Bot API failures, allowing
+        // authentication and webhook checks to be repeated after recovery.
+        poll_forever(&client, &accounts, &cfg).await;
+        tokio::time::sleep(TELEGRAM_RETRY_DELAY).await;
+    }
 }
 
 async fn send_message(client: &Client, endpoint: &str, chat_id: i64, text: &str) -> bool {
@@ -236,7 +263,7 @@ async fn process_message(
     }
 }
 
-async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
+async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig) {
     // Fixed Telegram authority; never allow an operator-supplied endpoint.
     let poll = format!("https://api.telegram.org/bot{}/getUpdates", cfg.token);
     let send = format!("https://api.telegram.org/bot{}/sendMessage", cfg.token);
@@ -245,8 +272,9 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
         cfg.token
     );
     let mut offset = 0_i64;
+    let mut consecutive_failures = 0_u8;
     loop {
-        recovery::dispatch(&client, &send, &accounts).await;
+        recovery::dispatch(client, &send, accounts).await;
         let response = client
             .post(&poll)
             .json(&json!({
@@ -264,9 +292,14 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
         let Some(response) = parsed.filter(|res| res.ok) else {
             // Never log token, URLs, usernames, request bodies or Telegram IDs.
             eprintln!("TOR_TELEGRAM_POLL_UNAVAILABLE");
+            consecutive_failures = consecutive_failures.saturating_add(1);
+            if consecutive_failures >= 3 {
+                return;
+            }
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };
+        consecutive_failures = 0;
         let mut storage_failure = false;
         for update in response.result {
             // Previously acknowledged updates can be replayed on restart.
@@ -287,7 +320,7 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
             // handled or the polling offset advances. Otherwise a process
             // crash or a temporary PostgreSQL failure loses the approval.
             if let Some(callback) = update.callback_query {
-                if recovery::callback(&client, &answer, &accounts, &cfg, callback)
+                if recovery::callback(client, &answer, accounts, cfg, callback)
                     .await
                     .is_err()
                 {
@@ -296,7 +329,7 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
                 }
             }
             if let Some(message) = update.message {
-                process_message(&client, &send, &accounts, &cfg, message).await;
+                process_message(client, &send, accounts, cfg, message).await;
             }
             match accounts.mark_telegram_update(update.update_id).await {
                 Ok(_) => {
