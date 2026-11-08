@@ -378,10 +378,21 @@ impl PgLayers {
         let public_books: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
+             JOIN users buyer ON buyer.id=$2 AND buyer.account_state='active'
              WHERE vb.layer_version_id=$1 AND b.visibility='public' AND b.visibility_status='active'
-               AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (
+                 b.access_level='basic'
+                 OR (b.access_level='adult' AND buyer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS (
+                   SELECT 1 FROM user_level_grants age
+                   WHERE age.user_id=buyer.id AND age.level='pro_adult' AND age.is_active
+                 ))
+               )",
         )
         .bind(cmd.version.get())
+        .bind(actor)
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?;

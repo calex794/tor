@@ -114,8 +114,8 @@ async fn d_05_pg_old_held_book_does_not_block_fresh_buyer_of_current_layer() {
         .await
         .unwrap();
     let current_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Current valid','public',$2) RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+         VALUES($1,'ru','Current valid','public',$2,'basic') RETURNING id",
     )
     .bind(format!("ci:d05:quote-current:{owner}"))
     .bind(owner)
