@@ -217,6 +217,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let mut pending_social_notifications = None;
     let mut pending_support_cleanup = None;
+    let mut pending_security_retention: Option<PgAccounts> = None;
     // Explicit operator opt-in. A copied binary must never silently run
     // scheduled releases before the additive S058 migration is applied.
     let schedule_worker_enabled = match env::var("TOR_SCHEDULED_RELEASE_WORKER_ENABLED") {
@@ -332,6 +333,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                pending_security_retention = Some(accounts.clone());
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -570,10 +572,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
-    axum::serve(
+    // The authenticated server starts this worker once, after binding HTTP.
+    let account_retention = pending_security_retention.map(tor_web::start_account_security_retention);
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await?;
+    .await;
+    if let Some(handle) = account_retention {
+        handle.abort();
+        let _ = handle.await;
+    }
+    serve_result?;
     Ok(())
 }

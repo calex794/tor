@@ -104,7 +104,7 @@ mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
 mod saved_free_chapters;
-mod security_retention;
+pub(crate) mod security_retention;
 mod session_security;
 mod settings_routes;
 mod support_bundle;
@@ -174,7 +174,6 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
-    security_retention::start(accounts.clone());
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
