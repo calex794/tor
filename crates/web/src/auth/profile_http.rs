@@ -200,7 +200,7 @@ pub(super) async fn submit(
                     page
                 };
                 private_response((status, page), &[])
-            },
+            }
             _ => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
         },
     }

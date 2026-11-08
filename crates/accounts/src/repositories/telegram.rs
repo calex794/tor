@@ -186,13 +186,11 @@ impl PgAccounts {
             .execute(&mut *tx)
             .await?;
         for digest in code_hashes {
-            sqlx::query(
-                "INSERT INTO account_recovery_codes(user_id,code_hash) VALUES($1,$2)",
-            )
-            .bind(user_id)
-            .bind(digest.as_slice())
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("INSERT INTO account_recovery_codes(user_id,code_hash) VALUES($1,$2)")
+                .bind(user_id)
+                .bind(digest.as_slice())
+                .execute(&mut *tx)
+                .await?;
         }
         sqlx::query("DELETE FROM account_telegram_link_intents WHERE user_id=$1")
             .bind(user_id)

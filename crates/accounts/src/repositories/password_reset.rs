@@ -9,7 +9,8 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Option<String>, sqlx::Error> {
-        self.live_reset_password_hash_allowed(digest, true, true).await
+        self.live_reset_password_hash_allowed(digest, true, true)
+            .await
     }
 
     pub async fn live_reset_password_hash_allowed(
@@ -73,7 +74,8 @@ impl PgAccounts {
         token_hash: &[u8; 32],
         new_hash: &str,
     ) -> Result<bool, sqlx::Error> {
-        self.consume_password_reset_allowed(token_hash, new_hash, true, true).await
+        self.consume_password_reset_allowed(token_hash, new_hash, true, true)
+            .await
     }
 
     pub async fn consume_password_reset_allowed(
