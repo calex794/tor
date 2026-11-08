@@ -1,6 +1,6 @@
 //! S020: per-book active membership for origin metadata, optimistic revision, visibility isolation.
 use sqlx::PgPool;
-use tor_books::repositories::{book_members::PgBookMembers, postgres::PgAuthoring};
+use tor_books::repositories::{book_members::PgBookMembers, postgres::{OriginFields, PgAuthoring}};
 use tor_books::services::authoring::{AuthorError, DiscoveryFields};
 use tor_contracts::access::BookRole;
 
@@ -253,9 +253,11 @@ async fn s020_book_member_origin_metadata_preserves_access_and_publication() {
                 owner,
                 discovery_book,
                 start.revision,
-                "ZH",
-                "2024",
-                "novels/chinese",
+                OriginFields {
+                    language: "ZH",
+                    year: "2024",
+                    section: "novels/chinese",
+                },
                 DiscoveryFields {
                     author_name: "  Новый автор ",
                     genres: "Фэнтези, фантастика, фэнтези",
@@ -284,9 +286,11 @@ async fn s020_book_member_origin_metadata_preserves_access_and_publication() {
                 owner,
                 discovery_book,
                 start.revision,
-                "en",
-                "2023",
-                "novels/english",
+                OriginFields {
+                    language: "en",
+                    year: "2023",
+                    section: "novels/english",
+                },
                 DiscoveryFields {
                     author_name: "stale",
                     genres: "",
@@ -303,9 +307,11 @@ async fn s020_book_member_origin_metadata_preserves_access_and_publication() {
                 outsider,
                 discovery_book,
                 saved.revision,
-                "en",
-                "2023",
-                "novels/english",
+                OriginFields {
+                    language: "en",
+                    year: "2023",
+                    section: "novels/english",
+                },
                 DiscoveryFields {
                     author_name: "forged",
                     genres: "",
