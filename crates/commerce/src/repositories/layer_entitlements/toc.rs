@@ -15,24 +15,37 @@ impl PgLayerChapterEntitlements {
         actor: PositiveId,
         chapter_id: PositiveId,
     ) -> Result<LayerTocAnchor, DeliveryError> {
-        match self.resolve_entitlement(Actor { user_id: actor }, chapter_id, None).await? {
+        match self
+            .resolve_entitlement(Actor { user_id: actor }, chapter_id, None)
+            .await?
+        {
             EntitlementDecision::Allowed { pinned } if pinned.chapter_id == chapter_id => {}
             EntitlementDecision::Allowed { .. } => return Err(DeliveryError::Conflict),
-            EntitlementDecision::Denied { reason: DenialReason::Hidden } =>
-                return Err(DeliveryError::Hidden),
+            EntitlementDecision::Denied {
+                reason: DenialReason::Hidden,
+            } => return Err(DeliveryError::Hidden),
             EntitlementDecision::Denied { .. } => return Err(DeliveryError::Denied),
         }
         let row = sqlx::query(
             "SELECT c.chapter_no, c.title AS chapter_title, b.title AS book_title
              FROM chapters c JOIN books b ON b.id=c.book_id WHERE c.id=$1",
-        ).bind(chapter_id.get())
-         .fetch_optional(&self.pool).await.map_err(|_| DeliveryError::Unavailable)?
-         .ok_or(DeliveryError::Unavailable)?;
+        )
+        .bind(chapter_id.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?
+        .ok_or(DeliveryError::Unavailable)?;
         Ok(LayerTocAnchor {
             chapter_id: chapter_id.get(),
-            chapter_no: row.try_get("chapter_no").map_err(|_| DeliveryError::Unavailable)?,
-            chapter_title: row.try_get("chapter_title").map_err(|_| DeliveryError::Unavailable)?,
-            book_title: row.try_get("book_title").map_err(|_| DeliveryError::Unavailable)?,
+            chapter_no: row
+                .try_get("chapter_no")
+                .map_err(|_| DeliveryError::Unavailable)?,
+            chapter_title: row
+                .try_get("chapter_title")
+                .map_err(|_| DeliveryError::Unavailable)?,
+            book_title: row
+                .try_get("book_title")
+                .map_err(|_| DeliveryError::Unavailable)?,
         })
     }
 
@@ -58,8 +71,12 @@ impl PgLayerChapterEntitlements {
                 WHERE anchor.id=$1 AND c.id=$2 AND c.chapter_no=$3
             )",
         )
-        .bind(chapter_id.get()).bind(cursor.chapter_id).bind(cursor.chapter_no)
-        .fetch_one(&self.pool).await.map_err(|_| DeliveryError::Unavailable)?;
+        .bind(chapter_id.get())
+        .bind(cursor.chapter_id)
+        .bind(cursor.chapter_no)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
         if !valid {
             return Err(DeliveryError::Invalid);
         }
@@ -98,22 +115,37 @@ impl PgLayerChapterEntitlements {
              ORDER BY c.chapter_no {order},c.id {order} LIMIT $5"
         );
         let rows = sqlx::query(&sql)
-            .bind(actor.get()).bind(chapter_id.get())
-            .bind(cursor.chapter_no).bind(cursor.chapter_id)
+            .bind(actor.get())
+            .bind(chapter_id.get())
+            .bind(cursor.chapter_no)
+            .bind(cursor.chapter_id)
             .bind(i64::from(limit) + 1)
-            .fetch_all(&self.pool).await.map_err(|_| DeliveryError::Unavailable)?;
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
         let has_more = rows.len() > usize::from(limit);
         let mut chapters = Vec::with_capacity(usize::from(limit));
         for row in rows.into_iter().take(usize::from(limit)) {
-            let id: i64 = row.try_get("chapter_id").map_err(|_| DeliveryError::Unavailable)?;
-            let number: i32 = row.try_get("chapter_no").map_err(|_| DeliveryError::Unavailable)?;
-            let title: String = row.try_get("title").map_err(|_| DeliveryError::Unavailable)?;
-            let kind: String = row.try_get("access_level").map_err(|_| DeliveryError::Unavailable)?;
+            let id: i64 = row
+                .try_get("chapter_id")
+                .map_err(|_| DeliveryError::Unavailable)?;
+            let number: i32 = row
+                .try_get("chapter_no")
+                .map_err(|_| DeliveryError::Unavailable)?;
+            let title: String = row
+                .try_get("title")
+                .map_err(|_| DeliveryError::Unavailable)?;
+            let kind: String = row
+                .try_get("access_level")
+                .map_err(|_| DeliveryError::Unavailable)?;
             let access = if kind == "free" {
                 LayerTocAccess::PublicFree
             } else if kind == "paid" {
                 let chapter = PositiveId::new(id).map_err(|_| DeliveryError::Unavailable)?;
-                match self.resolve_entitlement(Actor { user_id: actor }, chapter, None).await? {
+                match self
+                    .resolve_entitlement(Actor { user_id: actor }, chapter, None)
+                    .await?
+                {
                     EntitlementDecision::Allowed { pinned } if pinned.chapter_id == chapter => {}
                     _ => return Err(DeliveryError::Denied),
                 }
@@ -121,7 +153,12 @@ impl PgLayerChapterEntitlements {
             } else {
                 return Err(DeliveryError::Unavailable);
             };
-            chapters.push(LayerTocChapter { chapter_id: id, chapter_no: number, title, access });
+            chapters.push(LayerTocChapter {
+                chapter_id: id,
+                chapter_no: number,
+                title,
+                access,
+            });
         }
         if matches!(side, MixedTocSide::Before) {
             chapters.reverse();
@@ -132,13 +169,19 @@ impl PgLayerChapterEntitlements {
             } else {
                 chapters.last()
             };
-            edge.map(|c| MixedTocCursor {
-                chapter_no: c.chapter_no,
-                chapter_id: c.chapter_id,
-            }.encode())
+            edge.map(|c| {
+                MixedTocCursor {
+                    chapter_no: c.chapter_no,
+                    chapter_id: c.chapter_id,
+                }
+                .encode()
+            })
         } else {
             None
         };
-        Ok(LayerTocWindow { chapters, next_cursor })
+        Ok(LayerTocWindow {
+            chapters,
+            next_cursor,
+        })
     }
 }
