@@ -430,32 +430,48 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         "comment_id={comment}&reason=abuse&details=Review+comment&command_key={comment_command}&csrf_token={comment_csrf}"
     );
     assert_eq!(
-        send(&app, "GET", &format!("{report_path}?comment_id={}", comment + 1000000), &reader, "")
-            .await.status(),
+        send(
+            &app,
+            "GET",
+            &format!("{report_path}?comment_id={}", comment + 1000000),
+            &reader,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     // A stale form for a hidden comment cannot register a complaint.
-    pg(&format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={comment}"));
+    pg(&format!(
+        "UPDATE discussion_comments SET visibility='hidden' WHERE id={comment}"
+    ));
     assert_eq!(
         send(&app, "POST", &report_path, &comment_cookies, &comment_post)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
-    pg(&format!("UPDATE discussion_comments SET visibility='visible' WHERE id={comment}"));
+    pg(&format!(
+        "UPDATE discussion_comments SET visibility='visible' WHERE id={comment}"
+    ));
     assert_eq!(
         send(&app, "POST", &report_path, &comment_cookies, &comment_post)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
         send(&app, "POST", &report_path, &comment_cookies, &comment_post)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     let comment_report: i64 = pg(&format!(
         "SELECT id FROM social_book_content_reports WHERE book_id={book}
          AND comment_id={comment} AND reporter_user_id={reader_id}"
-    )).parse().unwrap();
+    ))
+    .parse()
+    .unwrap();
     assert_ne!(comment_report, report);
     let comments_queue = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
     assert!(comments_queue.contains(&format!("Комментарий #{comment}")));
@@ -463,7 +479,8 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     let comment_decision = format!("/admin/book-reports/{comment_report}/decision");
     assert_eq!(
         send(&app, "POST", &comment_decision, &admin_cookies, &decision)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
