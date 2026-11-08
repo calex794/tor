@@ -8,6 +8,7 @@ mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
 mod layer_reader;
+mod layer_toc;
 mod paid_comments;
 mod text_issues;
 mod toc_window;
@@ -481,7 +482,9 @@ fn router_inner(
             post(admin_sealed_history::asset),
         );
     if state.layer_reader_enabled {
-        app = app.route("/read/layer/{chapter_id}", get(layer_reader::layer_reader));
+        app = app
+            .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
+            .route("/api/v1/reader/layer/{chapter_id}/toc/window", get(layer_toc::page));
     }
     if state.reader_s3_origin.is_some() {
         app = app
