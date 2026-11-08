@@ -45,7 +45,11 @@ struct ActionForm {
 
 pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let shares = PgBookShares::new(accounts.pool().clone());
-    let state = ShareState { accounts, shares, cookies };
+    let state = ShareState {
+        accounts,
+        shares,
+        cookies,
+    };
     Router::new()
         .route("/books/{id}/share", get(share_page).post(send))
         .route("/library/shared", get(inbox))
@@ -91,11 +95,7 @@ fn form_allowed(s: &ShareState, h: &HeaderMap, csrf: &str) -> bool {
     s.cookies.same_origin(h) && s.cookies.valid_csrf(h, csrf)
 }
 
-async fn share_page(
-    State(s): State<ShareState>,
-    Path(id): Path<i64>,
-    h: HeaderMap,
-) -> Response {
+async fn share_page(State(s): State<ShareState>, Path(id): Path<i64>, h: HeaderMap) -> Response {
     let actor = match actor(&s, &h).await {
         Ok(actor) => actor,
         Err(e) => return deny(e),
@@ -144,7 +144,9 @@ async fn share_page(
         )
         .expect("HTML");
     }
-    body.push_str(r#"<p><a href="/library/shared">Полученные рекомендации</a></p></div></section>"#);
+    body.push_str(
+        r#"<p><a href="/library/shared">Полученные рекомендации</a></p></div></section>"#,
+    );
     page("Поделиться книгой", &body, &cookies)
 }
 
@@ -181,9 +183,9 @@ async fn inbox(State(s): State<ShareState>, h: HeaderMap) -> Response {
         Err(e) => return deny(status(e)),
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&h);
-    let mut body=String::from(
+    let mut body = String::from(
         r#"<section class="section"><div class="container">
-        <h1>Рекомендации друзей</h1><p>Это ссылки на доступные книги, а не покупки или право на чтение.</p>"#
+        <h1>Рекомендации друзей</h1><p>Это ссылки на доступные книги, а не покупки или право на чтение.</p>"#,
     );
     if shares.is_empty() {
         body.push_str("<p>Рекомендаций пока нет.</p>");
@@ -199,7 +201,8 @@ async fn inbox(State(s): State<ShareState>, h: HeaderMap) -> Response {
             escape_html(&share.message)
         )
         .expect("HTML");
-        for (action, label) in [("hide", "Скрыть"),("mute", "Не получать от этого друга")] {
+        for (action, label) in [("hide", "Скрыть"), ("mute", "Не получать от этого друга")]
+        {
             write!(
                 body,
                 r#"<form method="post" action="/library/shared/{}/action">
@@ -208,7 +211,10 @@ async fn inbox(State(s): State<ShareState>, h: HeaderMap) -> Response {
                 <input type="hidden" name="details" value="">
                 <input type="hidden" name="csrf_token" value="{}">
                 <button type="submit">{}</button></form>"#,
-                share.id, action, escape_html(&csrf),label
+                share.id,
+                action,
+                escape_html(&csrf),
+                label
             )
             .expect("HTML");
         }
@@ -222,7 +228,8 @@ async fn inbox(State(s): State<ShareState>, h: HeaderMap) -> Response {
             <label>Дополнение<input name="details" maxlength="500"></label>
             <input type="hidden" name="csrf_token" value="{}">
             <button type="submit">Пожаловаться</button></form></article>"#,
-            share.id, escape_html(&csrf)
+            share.id,
+            escape_html(&csrf)
         )
         .expect("HTML");
     }

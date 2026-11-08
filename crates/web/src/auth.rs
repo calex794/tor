@@ -184,10 +184,10 @@ fn router_inner(
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
-    let personal_routes = personal_books::router(accounts.clone(), cookies.clone());
-    let team_routes = teams::router(accounts.clone(), cookies.clone());
-    let collection_routes = collections::router(accounts.clone(), cookies.clone());
-    let share_routes = book_shares::router(accounts.clone(), cookies.clone());
+    let social_routes = personal_books::router(accounts.clone(), cookies.clone())
+        .merge(teams::router(accounts.clone(), cookies.clone()))
+        .merge(collections::router(accounts.clone(), cookies.clone()))
+        .merge(book_shares::router(accounts.clone(), cookies.clone()));
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -282,7 +282,10 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
-        .route("/mail/groups", get(group_mail::index).post(group_mail::create))
+        .route(
+            "/mail/groups",
+            get(group_mail::index).post(group_mail::create),
+        )
         .route("/mail/groups/{id}", get(group_mail::detail))
         .route(
             "/mail/groups/{id}/messages",
@@ -295,7 +298,10 @@ fn router_inner(
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))
         .route("/books/{id}/room/leave", post(book_rooms::leave))
-        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
@@ -308,10 +314,16 @@ fn router_inner(
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
-        .route("/me/replies/{id}/read-state", post(reply_read_state::submit))
+        .route(
+            "/me/replies/{id}/read-state",
+            post(reply_read_state::submit),
+        )
         .route("/me/library", get(library_page::my_library))
         .merge(saved_free_chapters::router())
-        .route("/me/updates/{id}/read-state", post(follow_read_state::submit))
+        .route(
+            "/me/updates/{id}/read-state",
+            post(follow_read_state::submit),
+        )
         .route("/me/rankings", get(rankings::page))
         .route(
             "/books/{id}/like",
@@ -424,10 +436,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes)
-        .merge(personal_routes)
-        .merge(team_routes)
-        .merge(collection_routes)
-        .merge(share_routes);
+        .merge(social_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
