@@ -3,13 +3,13 @@ mod classifier;
 pub use classifier::classify;
 
 use CostClass::{CheapRead as Read, Free, Write};
-use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
+use ProductArea::{Auth, Catalog, Dashboard, Reading, Social, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 333] = [
+static ROUTES: [RouteRegistration; 340] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -334,15 +334,22 @@ static ROUTES: [RouteRegistration; 333] = [
     RouteRegistration::new("/me/books/{id}/settings/ownership", "GET", "/me/", Prefix, Page, Dashboard, Read), // 321
     RouteRegistration::new("/me/books/{id}/settings/ownership/transfer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 322
     RouteRegistration::new("/me/books/{id}/settings/ownership/shares", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 323
-    RouteRegistration::new("/me/security/telegram", "GET", "/me/", Exact, Page, Auth, Read), // 324
-    RouteRegistration::new("/me/security/telegram/begin", "POST", "/me/", Exact, Page, Auth, Write), // 325
-    RouteRegistration::new("/me/security/telegram/confirm", "POST", "/me/", Exact, Page, Auth, Write), // 326
-    RouteRegistration::new("/recover/backup", "GET", "/recover/", Exact, Page, Auth, Read), // 327
-    RouteRegistration::new("/recover/backup", "POST", "/recover/", Exact, Page, Auth, Write), // 328
-    RouteRegistration::new("/me/security/telegram/unlink", "POST", "/me/", Exact, Page, Auth, Write), // 329
-    RouteRegistration::new("/recover/telegram", "GET", "/recover/", Exact, Page, Auth, Read), // 330
-    RouteRegistration::new("/recover/telegram", "POST", "/recover/", Exact, Page, Auth, Write), // 331
-    RouteRegistration::new("/recover/telegram/complete", "POST", "/recover/", Exact, Page, Auth, Write), // 332
+    RouteRegistration::new("/collections", "GET", "/collections/", Exact, Page, Social, Read), // 324
+    RouteRegistration::new("/collections", "POST", "/collections/", Exact, Page, Social, Write), // 325
+    RouteRegistration::new("/collections/{id}", "GET", "/collections/", Prefix, Page, Social, Read), // 326
+    RouteRegistration::new("/collections/{id}/edit", "POST", "/collections/", Prefix, Page, Social, Write), // 327
+    RouteRegistration::new("/collections/{id}/books", "POST", "/collections/", Prefix, Page, Social, Write), // 328
+    RouteRegistration::new("/collections/{id}/books/{book_id}/remove", "POST", "/collections/", Prefix, Page, Social, Write), // 329
+    RouteRegistration::new("/collections/{id}/delete", "POST", "/collections/", Prefix, Page, Social, Write), // 330
+    RouteRegistration::new("/me/security/telegram", "GET", "/me/", Exact, Page, Auth, Read), // 331
+    RouteRegistration::new("/me/security/telegram/begin", "POST", "/me/", Exact, Page, Auth, Write), // 332
+    RouteRegistration::new("/me/security/telegram/confirm", "POST", "/me/", Exact, Page, Auth, Write), // 333
+    RouteRegistration::new("/recover/backup", "GET", "/recover/", Exact, Page, Auth, Read), // 334
+    RouteRegistration::new("/recover/backup", "POST", "/recover/", Exact, Page, Auth, Write), // 335
+    RouteRegistration::new("/me/security/telegram/unlink", "POST", "/me/", Exact, Page, Auth, Write), // 336
+    RouteRegistration::new("/recover/telegram", "GET", "/recover/", Exact, Page, Auth, Read), // 337
+    RouteRegistration::new("/recover/telegram", "POST", "/recover/", Exact, Page, Auth, Write), // 338
+    RouteRegistration::new("/recover/telegram/complete", "POST", "/recover/", Exact, Page, Auth, Write), // 339
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

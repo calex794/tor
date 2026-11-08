@@ -97,7 +97,7 @@ OWNER_CALLS = {
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",
-    "update_metadata_if_current", "offer_if_current",
+    "update_metadata_if_current", "offer_if_current", "delete_owned_collection",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -422,6 +422,35 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
+
+    # S009 public collection detail also serves an owner's private collection.
+    # Guest access is legitimate, but the E repository must constrain every
+    # private read by the identity returned from a live A session.
+    collection_detail = (
+        entry["source"] == "crates/web/src/auth/collections.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/collections/{id}", "detail")
+        and policy == "scoped"
+    )
+    collection_detail_guarded = False
+    if collection_detail:
+        reader = functions.get("viewer", "")
+        collection_repo = _production((ROOT / "crates/social/src/repositories/book_collections.rs")
+                                      .read_text(encoding="utf-8"))
+        collection_detail_guarded = bool(
+            re.search(r"\bviewer\s*\(\s*&s\s*,\s*&h\s*\)", body)
+            and ".session_token(h)" in reader
+            and "active_session_user(&session_token_digest(&raw))" in reader
+            and re.search(r"\.detail\s*\(\s*viewer\s*,\s*id\s*\)", body)
+            and "WHERE id=$1 AND deleted_at IS NULL" in collection_repo
+            and "(visibility='public' OR owner_user_id=$2)" in collection_repo
+            and ".bind(viewer)" in collection_repo
+            and "ok_or(CollectionError::NotFound)" in collection_repo
+        )
+        if not collection_detail_guarded:
+            errors.append(f"{label}: collection private read lacks live session-bound owner gate")
+        else:
+            evidence += "\n" + reader
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
@@ -443,12 +472,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         elif not (
             "StatusCode::UNAUTHORIZED" in evidence
             or 'Redirect::to("/login")' in evidence
+            or collection_detail_guarded
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
         # Shared write helpers contain both calls; each route must prove its own.
-        if policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
+        if collection_detail:
+            proof = {"detail"}
+        elif policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
             proof = {"follow"}
         elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
             proof = {"unfollow"}
@@ -506,7 +538,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 r"\bcharge\s*\(\s*&state\s*,\s*actor\s*,",
         }
         layer_pattern = layer_delegates.get(admin_key)
-        if layer_pattern is not None:
+        if collection_detail:
+            scoped = collection_detail_guarded
+        elif layer_pattern is not None:
             charged = functions.get("__layer_charge", "")
             scoped = (
                 entry["source"] == "crates/web/src/auth/layer_storefront.rs"

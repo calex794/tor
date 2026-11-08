@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 333);
+    assert_eq!(unique.len(), 340);
 }
 
 #[test]
@@ -308,3 +308,4 @@ fn a_07_s030_main_integration_keeps_telegram_and_ownership_routes() {
     assert!(!classify(Some("/me/security/telegram/unlink"), "GET").route_known);
     assert!(!classify(Some("/me/books/{id}/settings/ownership/transfer"), "GET").route_known);
 }
+
