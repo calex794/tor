@@ -96,7 +96,9 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
         .iter()
         .all(|c| c.id != private.id));
     assert_eq!(
-        collections.update_metadata_if_current(other, private.id, 1, "Hi", "public").await,
+        collections
+            .update_metadata_if_current(other, private.id, 1, "Hi", "public")
+            .await,
         Err(CollectionError::NotFound)
     );
     assert_eq!(
@@ -156,10 +158,15 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
         .books
         .is_empty());
     assert_eq!(
-        collections.delete_owned_collection(other, private.id, 3).await,
+        collections
+            .delete_owned_collection(other, private.id, 3)
+            .await,
         Err(CollectionError::NotFound)
     );
-    collections.delete_owned_collection(owner, private.id, 3).await.unwrap();
+    collections
+        .delete_owned_collection(owner, private.id, 3)
+        .await
+        .unwrap();
     assert_eq!(
         collections.detail(Some(owner), private.id).await.err(),
         Some(CollectionError::NotFound)
@@ -231,7 +238,9 @@ async fn e_07_rejects_invalid_or_missing_ownership_without_writes() {
         Err(CollectionError::NotFound)
     );
     assert_eq!(
-        service.update_metadata_if_current(owner, col.id, 0, "X", "public").await,
+        service
+            .update_metadata_if_current(owner, col.id, 0, "X", "public")
+            .await,
         Err(CollectionError::Invalid)
     );
     assert_eq!(
