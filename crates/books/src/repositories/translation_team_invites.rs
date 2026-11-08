@@ -149,7 +149,7 @@ mod tests {
     use super::*;
     #[test]
     fn rejects_non_token_inputs() {
-        for input in ["", "123", "x/".repeat(22).as_str()] {
+        for input in ["", "123", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"] {
             assert_eq!(digest(input), Err(TeamError::Missing));
         }
         assert_eq!(digest(&"a".repeat(43)).unwrap().len(), 32);
