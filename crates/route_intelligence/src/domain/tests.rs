@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 342);
+    assert_eq!(unique.len(), 344);
 }
 
 #[test]
@@ -284,4 +284,18 @@ fn e_08_admin_room_read_routes_are_audited_and_read_only() {
         assert_eq!(route.cost_class, CostClass::CheapRead);
         assert!(!classify(Some(template), "POST").route_known);
     }
+}
+
+#[test]
+fn s049_share_report_routes_are_admin_traffic_without_any_public_alias() {
+    for (template, method) in [
+        ("/admin/recommendation-reports", "GET"),
+        ("/admin/recommendation-reports/{share_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/recommendation-reports"), "POST").route_known);
 }
