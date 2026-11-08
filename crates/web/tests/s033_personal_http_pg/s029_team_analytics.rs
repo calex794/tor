@@ -5,10 +5,36 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
-    repositories::{postgres::PgAuthoring, PgCatalog},
+    repositories::{postgres::PgAuthoring, translation_team_invites::PgTeamInvites, PgCatalog},
     services::authoring::new_book,
 };
-use tor_reading::repositories::PgReader;
+use tor_reading::repositories::{book_stats::PgBookStats, PgChapterThanks, PgReader, ThanksMutation};
+
+/// Insert only synthetic, bounded fixtures into tor_ci, matching the established
+/// Book stats HTTP regression. No production DB or persistent migrations.
+fn pg(url: &str, statement: &str) -> String {
+    let result = std::process::Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            statement,
+        ])
+        .output()
+        .expect("psql");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
 
 #[tokio::test]
 #[ignore = "disposable migrated PostgreSQL tor_ci"]
@@ -32,6 +58,8 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         .as_nanos();
     let owner = signup(&app, &format!("s029-owner-{stamp}@example.invalid")).await;
     let foreign = signup(&app, &format!("s029-foreign-{stamp}@example.invalid")).await;
+    let member_email = format!("s029-member-{stamp}@example.invalid");
+    let member = signup(&app, &member_email).await;
     let owner_id = lookup
         .active_session_user(&session_token_digest(owner.split_once('=').unwrap().1))
         .await
@@ -39,6 +67,11 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         .unwrap();
     let foreign_id = lookup
         .active_session_user(&session_token_digest(foreign.split_once('=').unwrap().1))
+        .await
+        .unwrap()
+        .unwrap();
+    let member_id = lookup
+        .active_session_user(&session_token_digest(member.split_once('=').unwrap().1))
         .await
         .unwrap()
         .unwrap();
@@ -59,6 +92,14 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
         .to_str()
         .unwrap()
         .to_owned();
+    let team_id = team.rsplit('/').next().unwrap().parse::<i64>().unwrap();
+    let invitation = generate_session_token();
+    let invites = PgTeamInvites::new(pool.clone());
+    invites
+        .invite(owner_id, team_id, &member_email, &invitation)
+        .await
+        .unwrap();
+    invites.decide(member_id, &invitation, true).await.unwrap();
     let authoring = PgAuthoring::new(pool.clone());
     let mine = new_book(
         &format!("s029:owner:{stamp}"),
@@ -88,6 +129,47 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     )
     .await;
     assert_eq!(linked.status(), StatusCode::SEE_OTHER);
+
+    // Seed a genuinely published public free chapter and record actual views.
+    // This proves the analytics model reads nonzero counters rather than defaults.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET visibility='public',visibility_status='active' WHERE id={own_book_id}"
+        ),
+    );
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({own_book_id},1,'Analytics free','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'Analytics reader fixture') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+    let stats = PgBookStats::new(pool.clone());
+    stats.record_open(chapter, Some(foreign_id)).await.unwrap();
+    stats.record_open(chapter, None).await.unwrap();
+    let thanks = PgChapterThanks::new(pool.clone());
+    assert_eq!(
+        thanks.thank_visible_free(foreign_id, chapter).await.unwrap(),
+        ThanksMutation::Added
+    );
     let scoped = format!("{team}/analytics?period=7d&book_id={own_book_id}");
     let html = body(send(&app, "GET", &scoped, &owner, "").await).await;
     assert!(html.contains(&format!("A Book {stamp}")));
@@ -107,6 +189,23 @@ async fn s029_analytics_csv_matches_ui_book_period_scope_without_foreign_book_da
     assert!(!csv.contains(&format!("Z Book {stamp}")));
     assert!(!csv.contains(&format!(";{other_book_id};")));
     assert_eq!(csv.lines().count(), 3, "header, total, one linked book");
+    let csv_book = csv.lines().nth(2).unwrap();
+    let values = csv_book.trim_end_matches('\r').split(';').collect::<Vec<_>>();
+    assert_eq!(values[5], "2", "actual public chapter opens");
+    assert_eq!(values[6], "1", "anonymous opening");
+    assert_eq!(values[7], "1", "first authenticated chapter opening");
+    assert_eq!(values[8], "1", "new registered reader of this book");
+    assert_eq!(values[9], "0", "no fabricated purchases");
+    assert_eq!(values[11], "1", "one real Thanks event");
+    assert_eq!(
+        send(&app, "GET", &scoped, &member, "").await.status(),
+        StatusCode::OK,
+        "invited active team member has Team analytics without Book ACL"
+    );
+    assert_eq!(
+        send(&app, "GET", &csv_path, &member, "").await.status(),
+        StatusCode::OK
+    );
     for route in [&scoped, &csv_path] {
         assert_eq!(
             send(&app, "GET", route, &foreign, "").await.status(),
