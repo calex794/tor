@@ -38,6 +38,7 @@ const orderedNewbooFiles = [
   "newboo-comments.css",
   "newboo-support-widget.css",
   "newboo-reader.css",
+  "newboo-archive-toc.css",
   "newboo-layer-storefront.css",
   "newboo-cover-picker.css",
 ];
