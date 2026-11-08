@@ -225,10 +225,18 @@ async fn detail(
             let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
             page("Команда", &detail_html(&team, &csrf), &cookies)
         },
+        Err(TeamError::Missing) => match s.invites.member_team(actor, team_id).await {
+            Ok(name) => page("Команда", &format!(
+                "<section class=\"section\"><div class=\"container\"><h1>{}</h1>\
+                 <p>Вы участник команды. Права на книги назначаются отдельно.</p>\
+                 <a href=\"/me/teams\">Все команды</a></div></section>",
+                escape_html(&name)
+            ), &[]),
+            Err(error) => team_error(error),
+        },
         Err(error) => team_error(error),
     }
 }
-
 
 fn valid_write(s: &TeamState, headers: &HeaderMap, csrf: Option<&str>) -> bool {
     s.cookies.same_origin(headers)
