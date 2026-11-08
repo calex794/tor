@@ -50,7 +50,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/covers/{id}/preview", get(preview))
         .route("/moderation/covers/{id}/decision", post(decide))
         .route("/moderation/books/{id}/cover-history", get(history))
-        .route("/moderation/books/{id}/cover-withdraw", post(withdraw::submit))
+        .route("/moderation/books/{id}/cover-withdraw", post(submit_withdrawal))
 }
 
 fn error_code(err: CoverReviewError) -> StatusCode {
@@ -390,6 +390,15 @@ pub(super) async fn decide(
             super::moderation_books::decision_error(error_code(error), "/moderation/covers")
         }
     }
+}
+
+pub(super) async fn submit_withdrawal(
+    State(state): State<AuthState>,
+    Path(book_id): Path<i64>,
+    headers: HeaderMap,
+    form: Form<withdraw::WithdrawForm>,
+) -> Response {
+    withdraw::submit(State(state), Path(book_id), headers, form).await
 }
 
 pub(super) async fn history(
