@@ -216,7 +216,10 @@ async fn a_07_stale_worker_cannot_claim_link_or_ack_notification() {
     let codes: [[u8; 32]; 8] =
         std::array::from_fn(|i| session_token_digest(&format!("tg-fenced-code-{user}-{i}")));
     assert_eq!(
-        accounts.finish_telegram_link(user, &session, &codes).await.unwrap(),
+        accounts
+            .finish_telegram_link(user, &session, &codes)
+            .await
+            .unwrap(),
         Some(tg_id)
     );
     let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
