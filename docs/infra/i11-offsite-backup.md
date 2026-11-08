@@ -16,7 +16,7 @@ limit** and cannot be used for a real database. This new operator path uses
 
 ## Separation and prerequisites
 
-- Root access on the *actual* PostgreSQL host; all secret files must be
+- Operator should first verify backup disk growth, especially external S3 fees,\n  and monitor external snapshot age; this initial version does not yet issue alerts.\n- Root access on the *actual* PostgreSQL host; all secret files must be
   `root:root` and mode `0600`. The backup uses only the local socket;
   PostgreSQL must not be exposed publicly.
 - PostgreSQL 18 binary package, `restic` **0.17 or newer** supporting
