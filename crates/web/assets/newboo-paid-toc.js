@@ -142,7 +142,7 @@
         void load("after");
     }, { passive: true });
 
-    const hide = () => { root.open = false; };
+    const hide = () => { root.open = false; trigger.focus(); };
     root.addEventListener("toggle", () => {
       if (root.open) {
         if (originalBodyOverflow === null) originalBodyOverflow = document.body.style.overflow;
