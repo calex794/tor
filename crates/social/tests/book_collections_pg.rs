@@ -109,11 +109,31 @@ async fn e_07_private_collection_owner_cas_and_public_projection() {
         collections.add_book(owner, private.id, 1, adult_book).await,
         Err(CollectionError::NotFound)
     );
+    let choices = collections
+        .find_addable_books(owner, private.id, "E07 Book 0")
+        .await
+        .unwrap();
+    assert!(choices.iter().any(|b| b.id == public_book));
+    assert!(collections
+        .find_addable_books(other, private.id, "E07 Book 0")
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        collections.find_addable_books(owner, private.id, "X").await,
+        Err(CollectionError::Invalid)
+    );
     let revision = collections
         .add_book(owner, private.id, 1, public_book)
         .await
         .unwrap();
     assert_eq!(revision, 2);
+    assert!(!collections
+        .find_addable_books(owner, private.id, "E07 Book 0")
+        .await
+        .unwrap()
+        .iter()
+        .any(|b| b.id == public_book));
     assert_eq!(
         collections
             .add_book(owner, private.id, 1, public_book)
