@@ -1,5 +1,6 @@
 //! D-03: PostgreSQL authority for a directly purchased, pinned chapter version.
 //! This implementation never reads progress, book visibility or a client version.
+mod toc_window;
 use crate::services::entitlements::{decide_direct_purchase, DirectPurchaseRecord};
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};

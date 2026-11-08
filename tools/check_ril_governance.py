@@ -56,7 +56,7 @@ SCOPE_CALLS = {
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "pinned_free_chapter", "pinned_free_chapters", "saved_archive_chapters", "purchased_only_books",
     "purchased_s3_completion_state", "complete_purchased_s3",
-    "set_ril_behavior_consent", "readable_purchases",
+    "set_ril_behavior_consent", "readable_purchases", "mixed_book_toc_window",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "save_rating", "add_comment", "delete_comment",
     "delivery_preference", "set_delivery_preference",
