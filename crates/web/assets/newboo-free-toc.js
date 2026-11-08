@@ -46,7 +46,7 @@
     } else {
       node.href = "/reader/" + entry.chapter_id;
       const badge = document.createElement("small");
-      badge.textContent = entry.access_level === "paid" ? "Платная" : "Бесплатно";
+      badge.textContent = entry.access_level === "paid" ? "Платная · нужен доступ" : "Бесплатно";
       row.append(node, badge);
     }
     return row;
