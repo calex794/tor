@@ -771,6 +771,11 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
     let finance_form = format!(
         "csrf_token={to_csrf}&expected_revision=1&share_{from}=40&share_{to}=60&reason=After+transfer&account_password={PASSWORD}"
     );
+    // Use the former owner's own CSRF proof so ownership authorization is
+    // exercised, rather than rejecting another user's unrelated CSRF token.
+    let former_owner_finance_form = format!(
+        "csrf_token={csrf}&expected_revision=1&share_{from}=40&share_{to}=60&reason=After+transfer&account_password={PASSWORD}"
+    );
     assert_eq!(
         send(
             &app,
@@ -778,7 +783,7 @@ async fn s030_http_owner_forms_origin_csrf_step_up_transfer_and_share_revision()
             &shares_path,
             &owner_auth,
             ORIGIN,
-            &finance_form
+            &former_owner_finance_form
         )
         .await
         .status(),
