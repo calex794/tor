@@ -2356,6 +2356,34 @@
     },
     {
       "method": "GET",
+      "template": "/books/{id}/share",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "share_page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/share",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "send",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/library/shared",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "inbox",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/library/shared/{share_id}/action",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "receiver_action",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/security/telegram",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "telegram_recovery::link_page",

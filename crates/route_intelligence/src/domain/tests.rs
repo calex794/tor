@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 343);
+    assert_eq!(unique.len(), 347);
 }
 
 #[test]
@@ -289,6 +289,10 @@ fn e_08_admin_room_read_routes_are_audited_and_read_only() {
 #[test]
 fn a_07_s030_main_integration_keeps_telegram_and_ownership_routes() {
     for (path, method) in [
+        ("/books/{id}/share", "GET"),
+        ("/books/{id}/share", "POST"),
+        ("/library/shared", "GET"),
+        ("/library/shared/{share_id}/action", "POST"),
         ("/me/security/telegram", "GET"),
         ("/me/security/telegram/begin", "POST"),
         ("/me/security/telegram/confirm", "POST"),

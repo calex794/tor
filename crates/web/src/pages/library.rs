@@ -239,7 +239,7 @@ fn my_library_inner(
         ""
     };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}</div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section>{purchased_only_html}</div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}<p><a href=\"/library/shared\">Рекомендации друзей</a></p></div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section>{purchased_only_html}</div></section>"
     );
     layout(
         "Моя библиотека",
