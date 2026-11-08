@@ -232,7 +232,7 @@ impl PgOwnerTransfer {
 
         let row = sqlx::query(
             "SELECT owner_user_id, NOT admin_hold AND NOT is_deleted
-               AND lifecycle_status <> 'pending_deletion' AS available
+               AND lifecycle_status NOT IN ('pending_deletion','ordinary_deleted') AS available
              FROM books WHERE id=$1 FOR UPDATE",
         )
         .bind(book_id)

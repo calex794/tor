@@ -308,6 +308,82 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s030_pg_rejects_completed_ordinary_deletion() {
+    // Ordinary deletion preserves purchased chapters: is_deleted stays FALSE.
+    // A transfer must not reopen this archived Book through the owner UI.
+    let url = database();
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let accounts = PgAccounts::from_pool(catalog.pool());
+    let hash = hash_password(PASSWORD).unwrap();
+    let unique = stamp();
+    let target = format!("S030ArchivedRecipient{unique}");
+    let (owner, session) = user(
+        &accounts,
+        &format!("s030-archived-owner-{unique}@example.invalid"),
+        &format!("S030ArchivedOwner{unique}"),
+        &hash,
+    )
+    .await;
+    let (_recipient, _) = user(
+        &accounts,
+        &format!("s030-archived-target-{unique}@example.invalid"),
+        &target,
+        &hash,
+    )
+    .await;
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,
+                               owner_user_id,access_level,lifecycle_status,ordinary_deleted_at)
+             VALUES('ci:s030:{unique}:archived','ru','S030 archived','draft',
+                    {owner},'basic','ordinary_deleted',clock_timestamp())
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT is_deleted FROM books WHERE id={book}")
+        ),
+        "f",
+        "ordinary deletion must not become a hard/legal deletion"
+    );
+    let token = transfer_token(&accounts, owner, book, &target, &session, &hash).await;
+    assert_eq!(
+        PgOwnerTransfer::new(catalog.pool())
+            .transfer(
+                owner,
+                book,
+                owner,
+                &target,
+                &session_token_digest(&session),
+                &token,
+            )
+            .await,
+        Err(AuthorError::Forbidden),
+        "completed ordinary deletion must not be transferred"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
+        owner.to_string()
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM book_owner_transfer_events WHERE book_id={book}")
+        ),
+        "0"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn s030_pg_rejects_low_tier_historic_layer_and_revoked_session() {
     let url = database();
     let catalog = PgCatalog::connect(&url).await.unwrap();
