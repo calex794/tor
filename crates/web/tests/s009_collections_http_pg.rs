@@ -211,6 +211,10 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level,owner_user_id)
          VALUES('ci:s009:{unique}','ru','{title}','public','basic',{owner_id}) RETURNING id"
     )).parse().unwrap();
+    let search = html(send(&app, "GET", &format!("{path}?q=S009Book{unique}"), &cookies, "").await).await;
+    assert!(search.contains(&format!(r#"<option value="{book}">"#)));
+    assert!(!html(send(&app, "GET", &format!("{path}?q=S009Book{unique}"), "", "").await).await
+        .contains("name=\"book_id\""));
     let invalid = format!("book_id=0&expected_revision=1&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &format!("{path}/books"), &cookies, &invalid)
@@ -234,6 +238,8 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
     assert!(html(send(&app, "GET", &path, &cookies, "").await)
         .await
         .contains(&title));
+    let after_add = html(send(&app, "GET", &format!("{path}?q=S009Book{unique}"), &cookies, "").await).await;
+    assert!(!after_add.contains(&format!(r#"<option value="{book}">"#)));
     let stolen = format!("title=Hacked&visibility=public&expected_revision=2&csrf_token={csrf}");
     assert_eq!(
         send(
