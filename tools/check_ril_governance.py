@@ -402,6 +402,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/covers", "page"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/covers/{id}/preview", "preview"): "crates/web/src/auth/moderation_covers.rs",
             ("POST", "/moderation/covers/{id}/decision", "decide"): "crates/web/src/auth/moderation_covers.rs",
+            ("POST", "/moderation/books/{id}/cover-withdraw", "submit_withdrawal"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/books/{id}/cover-history", "history"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/books/registrations", "queue"): "crates/web/src/auth/moderation_registration.rs",
             ("POST", "/moderation/books/{id}/registration", "decide"): "crates/web/src/auth/moderation_registration.rs",
@@ -521,7 +522,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             )
         elif entry["source"] == "crates/web/src/auth/moderation_covers.rs":
             cover_ops = {"page": "pending_with_wait_age", "preview": "preview",
-                         "decide": "decide", "history": "private_history"}
+                         "decide": "decide", "history": "private_history",
+                         "submit_withdrawal": "withdraw_current"}
             operation = cover_ops.get(entry["handler"])
             scoped = bool(
                 operation

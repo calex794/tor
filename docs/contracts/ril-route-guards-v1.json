@@ -2040,6 +2040,13 @@
       "policy": "scoped"
     },
     {
+      "method": "POST",
+      "template": "/moderation/books/{id}/cover-withdraw",
+      "source": "crates/web/src/auth/moderation_covers.rs",
+      "handler": "submit_withdrawal",
+      "policy": "scoped"
+    },
+    {
       "method": "GET",
       "template": "/moderation/books/{id}/cover-history",
       "source": "crates/web/src/auth/moderation_covers.rs",

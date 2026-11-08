@@ -1,6 +1,8 @@
 //! MOD-COVER-01: the only site-moderator authority to publish a processed cover.
 //! This is distinct from G's worker and from the Book member "moderator" role.
 use sqlx::{PgPool, Postgres, Row, Transaction};
+#[path = "cover_review/withdraw.rs"]
+mod withdraw;
 
 #[derive(Clone)]
 pub struct PgCoverReview {
@@ -453,7 +455,13 @@ impl PgCoverReview {
                     d.outcome,d.reason,EXTRACT(EPOCH FROM d.decided_at)::bigint AS decided_unix
              FROM book_cover_review_decisions d
              JOIN users u ON u.id=d.reviewer_user_id WHERE d.book_id=$1
-             ORDER BY d.id DESC LIMIT 100",
+             UNION ALL
+             SELECT 0 AS request_id,w.job_id,w.reviewer_user_id,
+                    u.display_name AS reviewer_name,'withdrawn' AS outcome,
+                    w.reason,EXTRACT(EPOCH FROM w.decided_at)::bigint AS decided_unix
+             FROM book_cover_slot_withdrawals w
+             JOIN users u ON u.id=w.reviewer_user_id WHERE w.book_id=$1
+             ORDER BY decided_unix DESC LIMIT 100",
         )
         .bind(book_id)
         .fetch_all(&mut *tx)

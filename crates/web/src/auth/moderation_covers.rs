@@ -48,6 +48,10 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/covers/{id}/preview", get(preview))
         .route("/moderation/covers/{id}/decision", post(decide))
         .route("/moderation/books/{id}/cover-history", get(history))
+        .route(
+            "/moderation/books/{id}/cover-withdraw",
+            post(submit_withdrawal),
+        )
 }
 
 fn error_code(err: CoverReviewError) -> StatusCode {
@@ -389,6 +393,79 @@ pub(super) async fn decide(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WithdrawForm {
+    csrf_token: String,
+    expected_slot_revision: i64,
+    reason: String,
+    confirmed: Option<String>,
+    action: Option<String>,
+}
+
+pub(super) async fn submit_withdrawal(
+    State(state): State<AuthState>,
+    Path(book_id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<WithdrawForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let Some(digest) = session(&state, &headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if form
+        .action
+        .as_deref()
+        .is_some_and(|action| action != "withdraw")
+    {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let reason = form.reason.trim();
+    let back = format!("/moderation/books/{book_id}/cover-history");
+    if book_id <= 0 || form.expected_slot_revision <= 0 || reason.is_empty() || reason.len() > 2000
+    {
+        return super::moderation_books::decision_error(
+            StatusCode::BAD_REQUEST,
+            "/moderation/covers",
+        );
+    }
+    let confirmed = match super::moderation_confirm::was_confirmed(form.confirmed.as_deref()) {
+        Ok(value) => value,
+        Err(code) => return super::moderation_books::decision_error(code, "/moderation/covers"),
+    };
+    if !confirmed {
+        return super::moderation_confirm::confirmation_page(
+            super::moderation_confirm::ReviewIntent {
+                kind: "cover_withdraw",
+                subject_id: book_id,
+                revision: form.expected_slot_revision,
+                action: "withdraw",
+                reason,
+                csrf: &form.csrf_token,
+            },
+        );
+    }
+    let repository = PgCoverReview::new(state.accounts.pool().clone());
+    match repository
+        .withdraw_current(&digest, book_id, form.expected_slot_revision, reason)
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&back), &[]),
+        Err(error) => {
+            super::moderation_books::decision_error(error_code(error), "/moderation/covers")
+        }
+    }
+}
+
 pub(super) async fn history(
     State(state): State<AuthState>,
     Path(book_id): Path<i64>,
@@ -408,6 +485,26 @@ pub(super) async fn history(
         Ok(rows) => rows,
         Err(error) => return deny(error_code(error)),
     };
+    let active_revision = match repo.current_active(&digest, book_id).await {
+        Ok(value) => value,
+        Err(err) => return deny(error_code(err)),
+    };
+    let (csrf, csrf_cookies) = state.cookies.csrf_for_page(&headers);
+    let withdrawal_form = active_revision.map_or_else(
+        || "<p>Действующая обложка отсутствует.</p>".to_owned(),
+        |revision| format!(
+            r#"<section><h2>Снять действующую обложку</h2>
+             <p>Книга останется опубликованной, на сайте появится заглушка.
+             Старые публичные копии передаются отдельной системе очистки.</p>
+             <form method="post" action="/moderation/books/{book_id}/cover-withdraw">
+             <input type="hidden" name="csrf_token" value="{}">
+             <input type="hidden" name="expected_slot_revision" value="{revision}">
+             <label for="cover-withdraw-reason">Причина снятия (обязательна)</label>
+             <textarea id="cover-withdraw-reason" name="reason" maxlength="2000" required></textarea>
+             <button type="submit">Продолжить снятие обложки</button></form></section>"#,
+            pages::escape_html(&csrf)
+        ),
+    );
     let mut entries = String::new();
     for row in rows {
         let reason = pages::escape_html(row.reason.as_deref().unwrap_or("—"));
@@ -427,11 +524,11 @@ pub(super) async fn history(
         &format!(
             "<section class=\"me-page\"><div class=\"container\">
             <h1>История обложек книги #{book_id}</h1>
-            <ol>{entries}</ol><a href=\"/moderation/covers\">Очередь обложек</a>
+            {withdrawal_form}<ol>{entries}</ol><a href=\"/moderation/covers\">Очередь обложек</a>
             </div></section>"
         ),
     );
-    private_response(html, &[])
+    private_response(html, &csrf_cookies)
 }
 
 #[cfg(test)]

@@ -87,7 +87,7 @@ impl PgPublicCoverPublications {
         }
         let rows = sqlx::query(
             "SELECT s.book_id,v.variant_name FROM books b
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN book_cover_review_requests r ON r.job_id=j.id
                AND r.book_id=b.id AND r.state='approved'
@@ -136,7 +136,7 @@ impl PgPublicCoverPublications {
         let row = sqlx::query(
             "SELECT s.job_id, s.revision, v.content_sha256, v.size_bytes
              FROM books b
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=$2
              WHERE b.id=$1
@@ -215,7 +215,7 @@ impl PgPublicCoverPublications {
         let publication = Self::from_row(&row)?;
         let current = sqlx::query(
             "SELECT 1 FROM books b
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
              JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=$5
              WHERE b.id=$1 AND s.job_id=$2 AND s.revision=$3
@@ -268,7 +268,7 @@ impl PgPublicCoverPublications {
                     p.content_sha256,p.size_bytes,p.lease_epoch
              FROM public_cover_publications p
              JOIN books b ON b.id=p.book_id
-             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
                AND s.job_id=p.job_id AND s.revision=p.slot_revision
              JOIN cover_variant_jobs j ON j.id=p.job_id AND j.book_id=b.id
              JOIN cover_variants v ON v.job_id=j.id
@@ -313,7 +313,7 @@ impl PgPublicCoverPublications {
                     OR ((p.state='reserved' AND p.created_at < now() - interval '15 minutes'
                          OR p.state='copied') AND NOT EXISTS (
                         SELECT 1 FROM books b
-                        JOIN book_cover_slots s ON s.book_id=b.id
+                        JOIN book_cover_slots s ON s.book_id=b.id AND NOT s.is_withdrawn
                         JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
                         JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=p.variant_name
                         WHERE b.id=p.book_id AND s.job_id=p.job_id
