@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_books::{
-    repositories::postgres::ManagedOriginMetadata,
+    repositories::postgres::{ManagedOriginMetadata, origin_metadata::OriginFields},
     services::authoring::{AuthorError, DiscoveryFields},
 };
 
@@ -171,9 +171,11 @@ pub(super) async fn save(
                 actor,
                 book_id,
                 form.expected_revision,
-                &form.original_language,
-                &form.release_year,
-                &form.catalog_section,
+                OriginFields {
+                    language: &form.original_language,
+                    year: &form.release_year,
+                    section: &form.catalog_section,
+                },
                 discovery,
             )
             .await
