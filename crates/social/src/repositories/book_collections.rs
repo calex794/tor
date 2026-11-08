@@ -143,6 +143,47 @@ impl PgBookCollections {
         rows.into_iter().map(row_collection).collect()
     }
 
+    /// A bounded, owner-scoped selection list. Never reveals hidden or adult Book titles.
+    pub async fn find_addable_books(
+        &self,
+        actor: i64,
+        collection_id: i64,
+        query: &str,
+    ) -> Result<Vec<CollectionBook>, CollectionError> {
+        let search = query.trim();
+        if actor <= 0 || collection_id <= 0 || !(2..=80).contains(&search.chars().count()) {
+            return Err(CollectionError::Invalid);
+        }
+        let rows = sqlx::query(
+            "SELECT b.id,b.title FROM books AS b
+             JOIN social_book_collections AS c ON c.id=$2 AND c.owner_user_id=$1
+               AND c.deleted_at IS NULL
+             WHERE b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+               AND b.access_level='basic' AND NOT b.is_deleted AND NOT b.admin_hold
+               AND strpos(lower(b.title),lower($3))>0
+               AND NOT EXISTS (
+                   SELECT 1 FROM social_book_collection_items AS i
+                   WHERE i.collection_id=c.id AND i.book_id=b.id
+               )
+             ORDER BY b.id DESC LIMIT 20",
+        )
+        .bind(actor)
+        .bind(collection_id)
+        .bind(search)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|r| {
+                Ok(CollectionBook {
+                    id: r.try_get("id")?,
+                    title: r.try_get("title")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()
+            .map_err(CollectionError::from)
+    }
+
     /// A hidden collection is indistinguishable from a missing one to strangers.
     /// Book titles are a public Basic-only projection here; paid chapter text
     /// and all non-Basic Book metadata stay out of this read model.
