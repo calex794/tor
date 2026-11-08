@@ -20,8 +20,16 @@ fn fixture_sql(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let output = std::process::Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", statement,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            statement,
         ])
         .output()
         .expect("FLOW public fixture");
@@ -32,7 +40,6 @@ fn fixture_sql(url: &str, statement: &str) -> String {
     );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
-
 
 async fn send(
     app: &Router,
@@ -108,7 +115,9 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     .unwrap();
     fixture_sql(
         &url,
-        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
     let book_path = format!("/books/{book}");
     let reader_path = format!("/reader/{chapter}");
@@ -163,7 +172,8 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     assert_eq!(
         send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(),
         StatusCode::OK
-    );    for surface in [book_path.as_str(), reader_path.as_str()] {
+    );
+    for surface in [book_path.as_str(), reader_path.as_str()] {
         assert_eq!(
             send(&app, "GET", surface, "", &cookies, ORIGIN)
                 .await
@@ -247,9 +257,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     // Guests can read the same pages without becoming identified visitors.
     for surface in [book_path.as_str(), reader_path.as_str()] {
         assert_eq!(
-            send(&app, "GET", surface, "", "", ORIGIN)
-                .await
-                .status(),
+            send(&app, "GET", surface, "", "", ORIGIN).await.status(),
             StatusCode::OK,
             "{surface}"
         );
