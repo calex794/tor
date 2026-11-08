@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_books::services::DEFAULT_PAGE_SIZE;
+use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 #[derive(Default, Deserialize)]
 pub(super) struct CatalogQuery {
@@ -89,12 +90,15 @@ pub(super) async fn catalog(
             None
         };
         let options = if page_number == 1 {
-            Some(
-                search
-                    .taxonomy_options()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            )
+            let taxonomy = search
+                .taxonomy_options()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            Some(CatalogTaxonomyView::new(
+                taxonomy.genres,
+                taxonomy.tags,
+                taxonomy.fandoms,
+            ))
         } else {
             None
         };
