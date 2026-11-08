@@ -11,6 +11,7 @@ pub(super) struct WithdrawForm {
     expected_slot_revision: i64,
     reason: String,
     confirmed: Option<String>,
+    action: Option<String>,
 }
 
 pub(super) async fn submit(
@@ -30,6 +31,9 @@ pub(super) async fn submit(
         Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if form.action.as_deref().is_some_and(|action| action != "withdraw") {
+        return deny(StatusCode::BAD_REQUEST);
     }
     let reason = form.reason.trim();
     let back = format!("/moderation/books/{book_id}/cover-history");
