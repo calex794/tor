@@ -100,6 +100,47 @@ pub struct SavedArchivePage {
     pub next_cursor: Option<i64>,
 }
 
+/// Canonical book-order position for sparse, imported and renumbered archives.
+/// Neither a cursor nor a bookmark is an entitlement to read a chapter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SavedArchiveTocCursor {
+    pub chapter_no: i32,
+    pub chapter_id: i64,
+}
+
+impl SavedArchiveTocCursor {
+    pub fn parse(value: &str) -> Option<Self> {
+        let (number, id) = value.split_once('.')?;
+        if number.starts_with('0') || id.starts_with('0')
+            || !number.bytes().all(|byte| byte.is_ascii_digit())
+            || !id.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return None;
+        }
+        let chapter_no = number.parse::<i32>().ok()?;
+        let chapter_id = id.parse::<i64>().ok()?;
+        (chapter_no > 0 && chapter_id > 0).then_some(Self { chapter_no, chapter_id })
+    }
+
+    pub fn encode(self) -> String {
+        format!("{}.{}", self.chapter_no, self.chapter_id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SavedArchiveTocSide {
+    Before,
+    After,
+}
+
+/// One bounded actor-scoped page of actual pinned free and purchased editions.
+/// The nullable cursor always advances toward the requested edge of the book.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SavedArchiveTocPage {
+    pub items: Vec<SavedArchiveChapter>,
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LibraryError {
     Invalid,
@@ -110,6 +151,17 @@ pub enum LibraryError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archived_cursor_requires_canonical_positive_number_and_id() {
+        assert_eq!(SavedArchiveTocCursor::parse("1805.42"),
+            Some(SavedArchiveTocCursor { chapter_no: 1805, chapter_id: 42 }));
+        assert_eq!(SavedArchiveTocCursor { chapter_no: 1805, chapter_id: 42 }.encode(), "1805.42");
+        for invalid in ["", "0.1", "1.0", "01.1", "1.02", "1", "-1.5",
+            "1.-5", "1.2.3", "1.%20", "1. 2", "2147483648.1", "1.9223372036854775808"] {
+            assert!(SavedArchiveTocCursor::parse(invalid).is_none(), "{invalid}");
+        }
+    }
 
     #[test]
     fn bookmark_metadata_never_contains_content_or_entitlement() {
