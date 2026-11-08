@@ -754,7 +754,10 @@ async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
         service.transfer(owner, book, owner, &recipient_name, &digest, &token),
     );
     assert_eq!(
-        [first, second].iter().filter(|result| result.is_ok()).count(),
+        [first, second]
+            .iter()
+            .filter(|result| result.is_ok())
+            .count(),
         1,
         "only one concurrent HTTP-equivalent transfer may commit",
     );
@@ -767,7 +770,10 @@ async fn s030_pg_parallel_user_transfer_consumes_proof_exactly_once() {
         "the same password proof cannot authorize a second transfer",
     );
     assert_eq!(
-        pg(&url, &format!("SELECT owner_user_id FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT owner_user_id FROM books WHERE id={book}")
+        ),
         recipient.to_string(),
     );
     assert_eq!(
