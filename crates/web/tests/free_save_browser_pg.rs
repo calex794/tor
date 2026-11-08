@@ -15,6 +15,7 @@ use tor_discussions::repositories::public_chapter_comments::{
     CreateResult as CommentCreateResult, NewChapterComment, PgPublicChapterComments,
 };
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -148,6 +149,44 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     )
     .parse()
     .unwrap();
+    let notify_reader: i64 = pg(
+        &url,
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('free-browser-g08-follower@tor-ci.example','G08 reader','$argon2id$test')
+         RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    let notify_optout: i64 = pg(
+        &url,
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('free-browser-g08-optout@tor-ci.example','G08 optout','$argon2id$test')
+         RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    let notify_late: i64 = pg(
+        &url,
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('free-browser-g08-late@tor-ci.example','G08 late','$argon2id$test')
+         RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_book_follows(user_id,book_id)
+             VALUES({notify_reader},{book}),({notify_optout},{book})"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO user_notification_preferences(user_id,kind,enabled)
+             VALUES({notify_optout},'chapter_created',false)"
+        ),
+    );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         reader,
@@ -234,6 +273,97 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         ),
     );
     assert_eq!(event, "1");
+    // G-06/G-08: assert the real authenticated HTTP Save creates an outbox
+    // root that the *existing* S058 reader fanout and E-08 on-site consumer
+    // can deliver after a simulated worker restart.
+    let root: String = pg(
+        &url,
+        &format!(
+            "SELECT id::text FROM outbox_events
+             WHERE event_type='ChapterPublished' AND aggregate_id={chapter_id}
+               AND payload->>'version_id'='{version_id}'"
+        ),
+    );
+    assert!(!root.is_empty(), "HTTP Save must write the durable root event");
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_book_follows(user_id,book_id)
+             VALUES({notify_late},{book})"
+        ),
+    );
+    let notifications = PgNotifications::new(pool.clone());
+    let mut root_done = false;
+    for _ in 0..12 {
+        notifications.fanout_chapter_releases(100).await.unwrap();
+        root_done = pg(
+            &url,
+            &format!(
+                "SELECT delivered_at IS NOT NULL FROM outbox_events
+                 WHERE id='{root}'::uuid"
+            ),
+        ) == "t";
+        if root_done {
+            break;
+        }
+    }
+    assert!(root_done, "the real root must be processed by S058");
+    let children = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM outbox_events
+             WHERE event_type='reader.chapter.released' AND aggregate_id={chapter_id}"
+        ),
+    );
+    assert_eq!(children, "2", "only the original followers are eligible");
+    drop(notifications);
+    let after_restart = PgNotifications::new(pool.clone());
+    let mut child_receipts = String::new();
+    for _ in 0..12 {
+        after_restart.deliver_pending(100).await.unwrap();
+        child_receipts = pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM event_deliveries d
+                 JOIN outbox_events e ON e.id=d.event_id
+                 WHERE e.event_type='reader.chapter.released'
+                   AND e.aggregate_id={chapter_id}
+                   AND d.consumer='user_notifications'"
+            ),
+        );
+        if child_receipts == "2" {
+            break;
+        }
+    }
+    assert_eq!(child_receipts, "2", "each recipient event must be acked");
+    for (recipient, expected) in [
+        (notify_reader, "1"),
+        (notify_optout, "0"),
+        (notify_late, "0"),
+    ] {
+        let actual = pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM user_notifications
+                 WHERE recipient_user_id={recipient}
+                   AND kind='chapter_created' AND url='/reader/{chapter_id}'"
+            ),
+        );
+        assert_eq!(actual, expected, "notification eligibility and opt-out");
+    }
+    after_restart.deliver_pending(8).await.unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM user_notifications
+                 WHERE recipient_user_id={notify_reader}
+                   AND kind='chapter_created' AND url='/reader/{chapter_id}'"
+            )
+        ),
+        "1",
+        "replay cannot duplicate a delivered on-site notification"
+    );
     let (status, reader_html) = send(
         &app,
         "GET",
