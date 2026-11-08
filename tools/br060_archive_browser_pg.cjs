@@ -236,6 +236,26 @@ async function checkViewport(page, screen) {
       'WHERE u.email_normalized=\'' + readerMail + '\' AND p.chapter_id=' + chapter
     );
     assert.equal(pin, '1', 'bookmark must pin exact V1 before author replaces it');
+    // A 160-chapter archived book exercises both real keyset directions.
+    // These are disposable fixture pins created BEFORE the moderated deletion.
+    pg('INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level) ' +
+      'SELECT ' + book + ',n,\'Archive extra \'||n,\'public\',\'free\' ' +
+      'FROM generate_series(2,160) AS n');
+    pg('INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) ' +
+      'SELECT id,1,\'ARCHIVE_HISTORY_V1_\'||chapter_no ' +
+      'FROM chapters WHERE book_id=' + book + ' AND chapter_no BETWEEN 2 AND 160');
+    pg('INSERT INTO chapter_publications(chapter_id,version_id) ' +
+      'SELECT c.id,v.id FROM chapters c ' +
+      'JOIN chapter_versions v ON v.chapter_id=c.id ' +
+      'WHERE c.book_id=' + book + ' AND c.chapter_no BETWEEN 2 AND 160');
+    pg('INSERT INTO reader_saved_free_chapters(user_id,chapter_id,version_id) ' +
+      'SELECT li.user_id,c.id,p.version_id FROM reader_library_items li ' +
+      'JOIN chapters c ON c.book_id=li.book_id ' +
+      'JOIN chapter_publications p ON p.chapter_id=c.id ' +
+      'WHERE li.book_id=' + book + ' AND c.chapter_no BETWEEN 2 AND 160 ' +
+      'AND li.user_id=(SELECT id FROM users WHERE email_normalized=\'' +
+        readerMail + '\') ON CONFLICT DO NOTHING');
+
 
     // Simulate the author's later publication without modifying the old pin.
     const v2 = id(pg(
@@ -352,11 +372,77 @@ async function checkViewport(page, screen) {
     assert(Math.abs(positionAfterToc - scroll) < 12,
       'opening archive TOC must not replace the pinned reading scroll position');
     assert(!(await fresh.content()).includes('BR060_UNPINNED_FREE_V2'));
+    const midChapter = id(pg('SELECT id FROM chapters WHERE book_id=' +
+      book + ' AND chapter_no=80'));
+    const midUrl = base + '/me/library/saved/' + midChapter;
+    assert.equal((await fresh.goto(midUrl, { waitUntil: 'networkidle' })).status(), 200);
+    const middleToc = fresh.locator('[data-archive-toc]');
+    assert.equal(await middleToc.locator('.archive-toc__row').count(), 50,
+      'initial archived window should be 25 older plus 25 newer editions');
+    assert.match(await middleToc.getAttribute('data-archive-toc-before'), /^\d+\.\d+$/);
+    assert.match(await middleToc.getAttribute('data-archive-toc-after'), /^\d+\.\d+$/);
+    assert.equal(await middleToc.locator('.archive-toc__row--current').count(), 1);
+    assert((await middleToc.locator('.archive-toc__row--current').innerText())
+      .includes('Глава 80.'));
+    const archiveApi = '/api/v1/me/library/saved/' + midChapter + '/toc/window';
+    const archiveWindow = await fresh.evaluate(async url => {
+      const reply = await fetch(url, { credentials: 'same-origin' });
+      return { code: reply.status, cache: reply.headers.get('cache-control'),
+        data: await reply.json() };
+    }, archiveApi + '?before=80.' + midChapter + '&limit=60');
+    assert.equal(archiveWindow.code, 200);
+    assert.equal(archiveWindow.cache, 'private, no-store');
+    assert.equal(archiveWindow.data.items.length, 60);
+    assert(!JSON.stringify(archiveWindow.data).includes('ARCHIVE_HISTORY_V1_'),
+      'private TOC must not deliver archived body text');
+    const invalidArchive = await fresh.evaluate(async url =>
+      (await fetch(url, { credentials: 'same-origin' })).status,
+    archiveApi + '?before=080.' + midChapter);
+    assert.equal(invalidArchive, 400, 'noncanonical cursor must be rejected');
+    const wideArchive = await fresh.evaluate(async url =>
+      (await fetch(url, { credentials: 'same-origin' })).status,
+    archiveApi + '?before=80.' + midChapter + '&limit=61');
+    assert.equal(wideArchive, 400, 'archive pages must be bounded at 60');
+    await middleToc.locator('summary').click();
+    const viewport = middleToc.locator('[data-archive-toc-scroll]');
+    await viewport.evaluate(el => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
+    await fresh.waitForFunction(() =>
+      document.querySelectorAll('.archive-toc__row').length > 50, null, { timeout: 15000 });
+    const previousLoaded = await middleToc.locator('.archive-toc__row').count();
+    assert(previousLoaded > 50, 'scrolling up did not load earlier saved editions');
+    assert((await middleToc.locator('.archive-toc__title').allTextContents())
+      .some(text => text.startsWith('Глава 1.')),
+      'first archived chapter must be reachable without leaving the modal');
+    await viewport.evaluate(el => {
+      el.scrollTop = el.scrollHeight;
+      el.dispatchEvent(new Event('scroll'));
+    });
+    await fresh.waitForFunction(count =>
+      document.querySelectorAll('.archive-toc__row').length > count,
+    previousLoaded, { timeout: 15000 });
+    const headings = await middleToc.locator('.archive-toc__title').allTextContents();
+    assert(headings.some(text => text.startsWith('Глава 160.')),
+      'last archived chapter must be reachable without a separate archive page');
+    assert.equal(await middleToc.locator('.archive-toc__row').count(), 160);
+    const keys = await middleToc.locator('[data-archive-toc-id]')
+      .evaluateAll(rows => rows.map(row => row.dataset.archiveTocId));
+    assert.equal(new Set(keys).size, keys.length, 'pagination duplicated archived chapters');
+    await middleToc.locator('[data-archive-toc-close]').click();
+    console.log('BR-060 archive TOC PASS: 160 pinned chapters, private JSON, both edges, mobile');
+
 
     // Another signed-in user has neither a Book shelf item nor the old V1.
     const outsider = await outsiderContext.newPage();
     await register(outsider, address('outsider'), 'Посторонний BR-060');
     assert.equal((await outsider.goto(archivedURL)).status(), 404);
+    const outsiderToc = await outsider.evaluate(async url =>
+      (await fetch(url, { credentials: 'same-origin' })).status,
+    '/api/v1/me/library/saved/' + chapter + '/toc/window?after=1.' + chapter);
+    assert.equal(outsiderToc, 404, 'other signed-in account cannot enumerate archive');
+
     const outsidersLibrary = await outsider.goto(base + '/me/library');
     assert.equal(outsidersLibrary.status(), 200);
     assert(!(await outsider.content()).includes('Архивная книга BR-060 ' + nonce));
