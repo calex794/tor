@@ -123,7 +123,6 @@ mod toc_window_tests {
     }
 }
 
-
 /// D-05 Layer CURRENT navigation. Metadata is not a purchase grant.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayerTocAnchor {
