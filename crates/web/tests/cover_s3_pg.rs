@@ -986,5 +986,40 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         Some((job, 1)),
         "recovering a stored object must not attach another revision"
     );
+
+    // MOD-COVER: withdrawing an approved image is not hiding its Book.
+    // B immediately stops every same-origin and CDN publication projection,
+    // and the old private source remains intact for audit.
+    reviews
+        .withdraw_current(&session_digest, BOOK_ID, 1, "Policy withdrawal")
+        .await
+        .unwrap();
+    assert_eq!(slots.current_slot(BOOK_ID).await.unwrap(), Some((job, 2)));
+    assert!(slots
+        .public_variant(BOOK_ID, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(slots.public_card_ids(&[BOOK_ID as u64]).await.unwrap().is_empty());
+    assert!(ledger
+        .current_cdn_copies(&[BOOK_ID], PublicCoverKind::Main)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(ledger.publication_candidates(3).await.unwrap().is_empty());
+    assert_eq!(
+        request(&app, "/covers/950/card.webp").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert!(store
+        .exists_verified(&card.storage_key, &card.sha256, card.size_bytes)
+        .await
+        .unwrap(), "moderator withdrawal must retain private verified bytes");
+    assert!(reviews
+        .private_history(&session_digest, BOOK_ID)
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.outcome == "withdrawn"));
     catalog.pool().close().await;
 }
