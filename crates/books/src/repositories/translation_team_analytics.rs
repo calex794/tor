@@ -136,7 +136,7 @@ impl PgTeamAnalytics {
                         AND owner_user.account_state='active'
                     WHERE owner_member.team_id=t.id AND owner_member.user_id=b.owner_user_id
                   ))
-                ORDER BY b.id LIMIT 100
+                ORDER BY tb.created_at DESC,b.id DESC LIMIT 100
              ), opened AS (
                 SELECT d.book_id,
                        SUM(d.opens)::BIGINT AS opens,
