@@ -52,7 +52,7 @@ impl PgBookShares {
         let title: Option<String> = sqlx::query_scalar(
             "SELECT title FROM books
              WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND lifecycle_status='active' AND access_level='basic'
+               AND lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND access_level='basic'
                AND NOT is_deleted AND NOT admin_hold",
         )
         .bind(book_id)
@@ -204,7 +204,7 @@ impl PgBookShares {
         let eligible: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM books
              WHERE id=$1 AND visibility='public' AND visibility_status='active'
-               AND lifecycle_status='active' AND access_level='basic'
+               AND lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND access_level='basic'
                AND NOT is_deleted AND NOT admin_hold FOR SHARE",
         )
         .bind(book_id)
@@ -258,7 +258,7 @@ impl PgBookShares {
              JOIN users u ON u.id=s.sender_user_id
              WHERE s.recipient_user_id=$1 AND s.state='delivered'
                AND b.visibility='public' AND b.visibility_status='active'
-               AND b.lifecycle_status='active' AND b.access_level='basic'
+               AND b.lifecycle_status IN ('in_progress','completed','abandoned','on_hiatus') AND b.access_level='basic'
                AND NOT b.is_deleted AND NOT b.admin_hold
                AND NOT EXISTS(
                   SELECT 1 FROM social_user_blocks bl
