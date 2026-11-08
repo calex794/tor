@@ -557,7 +557,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert!(history_page.contains("Обложка: Одобрено"));
     assert!(history_page.contains(&format!("(#{winning_reviewer})")));
     assert!(!history_page.contains("staging/covers/"));
-
     let stored_variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(stored_variants.len(), 2);
     assert_eq!(stored_variants[0].name, "card");
@@ -575,7 +574,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert_eq!(image.get(8..12), Some(&b"WEBP"[..]));
         assert_eq!(digest(&image), variant.sha256);
     }
-
     private_cleanup::verify_private_variant_retention(private_cleanup::PrivateRetentionCase {
         url: &url,
         catalog: &catalog,
@@ -588,7 +586,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         job,
     })
     .await;
-
     let card = slots
         .public_variant(BOOK_ID, PublicCoverKind::Card)
         .await
@@ -717,7 +714,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         assert!(!urls.contains_key(&951));
     }
     cdn_html::verify(&catalog, &publisher, &public_urls).await;
-
     let card_original = store
         .get_bounded(&card.storage_key, card.size_bytes as usize)
         .await
@@ -741,7 +737,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         request(&app, "/covers/951/card.webp").await.status(),
         StatusCode::NOT_FOUND
     );
-
     // An old same-origin cover URL must stop resolving when its public Book is
     // pending deletion, and both list projection and both variants must agree.
     // Existing private S3 variants stay stored; only public access is revoked.
@@ -821,7 +816,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(purge.submit_batch().await.unwrap().claimed, 0);
     #[cfg(not(feature = "test-cdn-loopback"))]
     assert_eq!(fake_cdn.submissions(), 2);
-
     // Force only local CI retry timestamps forward; real worker waits.
     pg_sql(
         &url,
@@ -945,7 +939,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         Some((job, 1)),
         "lifecycle revocation does not publish a new cover revision"
     );
-
     // A malicious provider writer can forge HEAD metadata. The public HTTP
     // adapter still checks GET bytes and refuses to leak corrupted images.
     let mut damaged = card_original.clone();
@@ -975,7 +968,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .await
         .unwrap()
         .is_empty());
-
     store
         .put_verified(&card.storage_key, &card_original)
         .await
@@ -989,7 +981,6 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         Some((job, 1)),
         "recovering a stored object must not attach another revision"
     );
-
     withdraw_s3::verify(
         &slots,
         &reviews,
