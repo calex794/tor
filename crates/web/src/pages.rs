@@ -343,6 +343,13 @@ fn book_detail_body(
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
         .replace(
+            "<!--BOOK_SHARE_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/books/{}/share\">Посоветовать другу</a>",
+                book.id
+            ),
+        )
+        .replace(
             "<!--BOOK_REFERRAL_ACTION-->",
             &format!(
                 "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
