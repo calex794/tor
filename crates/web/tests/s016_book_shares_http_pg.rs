@@ -266,8 +266,17 @@ async fn s016_s017_http_friend_share_csrf_replay_inbox_hide_report_and_mute() {
     let receiver_cookies = format!("{receiver}; {recipient_cookie}");
     let hide = format!("action=hide&reason=&details=&csrf_token={recipient_csrf}");
     let action_path = format!("/library/shared/{share_id}/action");
+    // A stolen recipient CSRF must be rejected before the ownership guard.
     assert_eq!(
         send(&app, "POST", &action_path, &sender_cookies, &hide)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // With the sender's own valid CSRF, the recipient-only ACL still rejects.
+    let own_csrf = format!("action=hide&reason=&details=&csrf_token={csrf}");
+    assert_eq!(
+        send(&app, "POST", &action_path, &sender_cookies, &own_csrf)
             .await
             .status(),
         StatusCode::NOT_FOUND
