@@ -488,7 +488,7 @@ pub(super) async fn upload_and_show(
     assert_eq!(private_history.status(), StatusCode::OK);
     let history_body = body_of(private_history).await;
     assert!(history_body.contains("Снять действующую обложку"));
-    assert!(history_body.contains("expected_slot_revision\\" value=\\"1"));
+    assert!(history_body.contains(r#"expected_slot_revision=" value="1"#));
     assert_eq!(
         send(app, request("POST", &remove_path,
             &format!("csrf_token={reviewer_csrf}&expected_slot_revision=1&reason=Policy"),
@@ -529,7 +529,7 @@ pub(super) async fn upload_and_show(
         "", "", ORIGIN)).await;
     assert_eq!(public_after.status(), StatusCode::OK);
     assert!(!body_of(public_after).await.contains(&format!(
-        "src=\\"/covers/{book_id}/main.webp\\""
+        r#"src="/covers/{book_id}/main.webp""#
     )));
     let history_after = body_of(send(app, request("GET", &history_path,
         "", &reviewer_cookie, ORIGIN)).await).await;
