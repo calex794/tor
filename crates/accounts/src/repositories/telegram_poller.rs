@@ -113,5 +113,4 @@ impl PgAccounts {
         .await?;
         Ok(active.then_some(inserted))
     }
-
 }

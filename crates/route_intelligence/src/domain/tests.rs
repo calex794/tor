@@ -308,4 +308,3 @@ fn a_07_s030_main_integration_keeps_telegram_and_ownership_routes() {
     assert!(!classify(Some("/me/security/telegram/unlink"), "GET").route_known);
     assert!(!classify(Some("/me/books/{id}/settings/ownership/transfer"), "GET").route_known);
 }
-

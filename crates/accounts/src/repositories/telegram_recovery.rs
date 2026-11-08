@@ -177,7 +177,6 @@ impl PgAccounts {
         Ok(changed.is_some())
     }
 
-
     /// A stale owner cannot approve a callback after takeover: the active
     /// lease is row-locked inside the same SQL statement as the update.
     /// None means lost lease; Some(false) means no eligible pending request.
