@@ -175,16 +175,33 @@ pub fn saved_free_reader_with_toc(
     page: &tor_reading::services::library::SavedArchivePage,
     paid_reader_available: bool,
 ) -> Html<String> {
+    saved_free_reader_with_paginated_toc(
+        chapter, csrf, page, paid_reader_available, None, None,
+    )
+}
+
+/// Renders a book-order window around the actual pinned chapter, with separate
+/// keyset cursors for older and newer saved editions.
+pub fn saved_free_reader_with_paginated_toc(
+    chapter: &SavedFreeChapter,
+    csrf: &str,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+    before: Option<&str>,
+    after: Option<&str>,
+) -> Html<String> {
     if !chapter.ordinary_deleted {
         return saved_free_reader(chapter, csrf);
     }
-    saved_free_reader_internal(chapter, csrf, Some((page, paid_reader_available)))
+    saved_free_reader_internal(chapter, csrf, Some((page, paid_reader_available, before, after)))
 }
 
 fn archive_toc_markup(
     chapter: &SavedFreeChapter,
     page: &tor_reading::services::library::SavedArchivePage,
     paid_reader_available: bool,
+    before: Option<&str>,
+    after: Option<&str>,
 ) -> String {
     let mut rows = String::new();
     let mut found_current = false;
@@ -257,8 +274,15 @@ fn archive_toc_markup(
             chapter.book_id
         )
     });
+    let before_cursor = escape_html(before.unwrap_or(""));
+    let after_cursor = escape_html(after.unwrap_or(""));
+    let paid_enabled = if paid_reader_available { "1" } else { "0" };
     format!(
-        "<details class=\"archive-toc\" data-archive-toc>
+        "<details class=\"archive-toc\" data-archive-toc
+          data-archive-toc-chapter=\"{}\"
+          data-archive-toc-before=\"{before_cursor}\"
+          data-archive-toc-after=\"{after_cursor}\"
+          data-archive-paid-available=\"{paid_enabled}\">
           <summary>Оглавление сохранённых глав</summary>
           <button type=\"button\" class=\"archive-toc__backdrop\" data-archive-toc-backdrop
                   tabindex=\"-1\" aria-label=\"Закрыть оглавление\"></button>
@@ -275,19 +299,26 @@ fn archive_toc_markup(
               <ol class=\"archive-toc__list\">{rows}</ol>
             </div>
             <footer class=\"archive-toc__foot\">
+              <span data-archive-toc-status role="status" aria-live="polite"></span>
               {next_link}
               <a href=\"/me/library/{}/saved\">Полный архив книги</a>
             </footer>
           </div>
         </details>",
-        chapter.book_id
+        chapter.book_id,
+        chapter.chapter_id
     )
 }
 
 fn saved_free_reader_internal(
     chapter: &SavedFreeChapter,
     csrf: &str,
-    toc: Option<(&tor_reading::services::library::SavedArchivePage, bool)>,
+    toc: Option<(
+        &tor_reading::services::library::SavedArchivePage,
+        bool,
+        Option<&str>,
+        Option<&str>,
+    )>,
 ) -> Html<String> {
     let normalized = chapter
         .body_markdown
@@ -336,8 +367,8 @@ fn saved_free_reader_internal(
     };
     let title = escape_html(&chapter.chapter_title);
     let book = escape_html(&chapter.book_title);
-    let toc_markup = toc.map_or_else(String::new, |(page, paid)| {
-        archive_toc_markup(chapter, page, paid)
+    let toc_markup = toc.map_or_else(String::new, |(page, paid, before, after)| {
+        archive_toc_markup(chapter, page, paid, before, after)
     });
     let content = format!(
         "<section class=\"section reader-page\" data-free-reader><div class=\"container\">\
