@@ -5,12 +5,12 @@ mod layer_allocation;
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
-#[path = "layers_pg/layer_toc.rs"]
-mod layer_toc;
 #[path = "layers_pg/layer_offer.rs"]
 mod layer_offer;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
+#[path = "layers_pg/layer_toc.rs"]
+mod layer_toc;
 #[path = "layers_pg/layer_wallet_evidence.rs"]
 mod layer_wallet_evidence;
 use sqlx::PgPool;
