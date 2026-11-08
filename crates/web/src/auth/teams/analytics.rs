@@ -18,7 +18,21 @@ use tor_books::repositories::translation_team_analytics::{
 #[serde(deny_unknown_fields)]
 pub(super) struct ReportQuery {
     period: Option<String>,
-    book_id: Option<i64>,
+    book_id: Option<String>,
+}
+
+fn selected_book_id(query: &ReportQuery) -> Result<Option<i64>, tor_books::services::translation_teams::TeamError> {
+    use tor_books::services::translation_teams::TeamError;
+    match query.book_id.as_deref() {
+        None | Some("") => Ok(None),
+        Some(raw) if raw.len() <= 19 => raw
+            .parse::<i64>()
+            .ok()
+            .filter(|id| *id > 0)
+            .map(Some)
+            .ok_or(TeamError::Invalid),
+        _ => Err(TeamError::Invalid),
+    }
 }
 
 async fn load(
@@ -39,7 +53,7 @@ async fn load(
         .ok_or_else(|| private_response(Redirect::to("/login"), &[]))?;
     let period = TeamPeriod::parse(query.period.as_deref()).map_err(team_error)?;
     let report = PgTeamAnalytics::new(state.accounts.pool().clone())
-        .report(actor, team_id, query.book_id, period)
+        .report(actor, team_id, selected_book_id(query).map_err(team_error)?, period)
         .await
         .map_err(team_error)?;
     Ok((report, actor))
@@ -91,7 +105,7 @@ pub(super) async fn page(
         Err(error) => return team_error(error),
     };
     for book in &view.linked {
-        let selected = if query.book_id == Some(book.id) {
+        let selected = if selected_book_id(&query).ok().flatten() == Some(book.id) {
             " selected"
         } else {
             ""
@@ -109,7 +123,7 @@ pub(super) async fn page(
         "/me/teams/{team_id}/analytics.csv?period={}",
         report.period.code()
     );
-    if let Some(id) = query.book_id {
+    if let Some(id) = selected_book_id(&query).ok().flatten() {
         let _ = write!(csv_url, "&book_id={id}");
     }
     let _ = write!(
@@ -226,6 +240,17 @@ mod tests {
     use super::*;
     #[test]
     fn s029_csv_escapes_formula_and_multiline_text() {
+        assert_eq!(
+            selected_book_id(&ReportQuery {
+                period: None,
+                book_id: Some(String::new()),
+            }).unwrap(),
+            None
+        );
+        assert!(selected_book_id(&ReportQuery {
+            period: None,
+            book_id: Some("-1".to_owned()),
+        }).is_err());
         assert_eq!(csv_text("=SUM(A1)"), "\"'=SUM(A1)\"");
         assert_eq!(csv_text("  +evil"), "\"'  +evil\"");
         assert_eq!(csv_text("Hello \"Team\""), "\"Hello \"\"Team\"\"\"");
