@@ -156,26 +156,37 @@ pub(super) async fn save(
         form.fandoms.as_deref(),
     ) {
         (None, None, None, None) => None,
-        (Some(author_name), Some(genres), Some(tags), Some(fandoms)) => {
-            Some(DiscoveryFields { author_name, genres, tags, fandoms })
-        }
+        (Some(author_name), Some(genres), Some(tags), Some(fandoms)) => Some(DiscoveryFields {
+            author_name,
+            genres,
+            tags,
+            fandoms,
+        }),
         _ => return deny(StatusCode::BAD_REQUEST),
     };
     let result = if let Some(discovery) = discovery {
         state
             .authoring
             .update_origin_and_discovery(
-                actor, book_id, form.expected_revision,
-                &form.original_language, &form.release_year,
-                &form.catalog_section, discovery,
+                actor,
+                book_id,
+                form.expected_revision,
+                &form.original_language,
+                &form.release_year,
+                &form.catalog_section,
+                discovery,
             )
             .await
     } else {
         state
             .authoring
             .update_origin_metadata(
-                actor, book_id, form.expected_revision,
-                &form.original_language, &form.release_year, &form.catalog_section,
+                actor,
+                book_id,
+                form.expected_revision,
+                &form.original_language,
+                &form.release_year,
+                &form.catalog_section,
             )
             .await
     };
