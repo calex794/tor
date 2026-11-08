@@ -225,7 +225,8 @@ impl PgBookContentReports {
         .bind(command_key)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some((id, previous_book, previous_comment, previous_reason, previous_details)) = old {
+        if let Some((id, previous_book, previous_comment, previous_reason, previous_details)) = old
+        {
             if previous_book != book_id
                 || previous_comment != comment_id
                 || previous_reason != reason
@@ -299,16 +300,16 @@ impl PgBookContentReports {
         tx.commit().await?;
         Ok(rows
             .into_iter()
-            .map(
-                |(id, book_id, comment_id, reporter_id, reason, details)| PendingBookContentReport {
+            .map(|(id, book_id, comment_id, reporter_id, reason, details)| {
+                PendingBookContentReport {
                     id,
                     book_id,
                     comment_id,
                     reporter_id,
                     reason,
                     details,
-                },
-            )
+                }
+            })
             .collect())
     }
 
