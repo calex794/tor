@@ -1,14 +1,7 @@
 //! Account-owned settings, serialized per user and protected by revision CAS.
 use super::PgAccounts;
+pub use crate::services::profile::Profile;
 use crate::services::profile::ProfileUpdate;
-
-pub struct Profile {
-    pub user_id: i64,
-    pub display_name: String,
-    pub handle: Option<String>,
-    pub adult_enabled: bool,
-    pub revision: i64,
-}
 
 #[derive(Debug)]
 pub enum ProfileError {
