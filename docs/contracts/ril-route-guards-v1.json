@@ -2423,6 +2423,34 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "admin_reports::decide",
       "policy": "admin_share_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::form",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/book-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::queue",
+      "policy": "admin_book_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/book-reports/{report_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::decide",
+      "policy": "admin_book_reports"
     }
   ]
 }
