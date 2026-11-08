@@ -188,7 +188,10 @@ impl PgOwnerTransfer {
             step_up_token,
             book_id,
             expected_owner,
-            BookStepUpScope { name: OWNER_TRANSFER_SCOPE, payload_digest: &payload },
+            BookStepUpScope {
+                name: OWNER_TRANSFER_SCOPE,
+                payload_digest: &payload,
+            },
         )
         .await
         .map_err(|_| AuthorError::Unavailable)?

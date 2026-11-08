@@ -20,7 +20,10 @@ pub(crate) async fn consume_book_step_up(
     if actor <= 0
         || book <= 0
         || revision <= 0
-        || !matches!(scope.name, "book.owner.transfer.v1" | "book.revenue.shares.v1")
+        || !matches!(
+            scope.name,
+            "book.owner.transfer.v1" | "book.revenue.shares.v1"
+        )
         || token.len() != 43
         || !token
             .bytes()

@@ -126,7 +126,10 @@ impl PgRevenueShares {
                 step_up_token,
                 book_id,
                 expected_revision,
-                BookStepUpScope { name: SHARES_SCOPE, payload_digest: &payload },
+                BookStepUpScope {
+                    name: SHARES_SCOPE,
+                    payload_digest: &payload,
+                },
             )
             .await
             .map_err(|_| RevenueShareError::Unavailable)?

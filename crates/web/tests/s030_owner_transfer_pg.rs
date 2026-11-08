@@ -106,7 +106,10 @@ async fn transfer_token(
             &verified,
             book,
             actor,
-            BookStepUpScope { name: BOOK_TRANSFER_SCOPE, payload_digest: &payload },
+            BookStepUpScope {
+                name: BOOK_TRANSFER_SCOPE,
+                payload_digest: &payload,
+            },
         )
         .await
         .unwrap()
@@ -259,7 +262,10 @@ async fn s030_pg_one_owner_team_and_immutable_share_revisions() {
             &verified,
             book,
             1,
-            BookStepUpScope { name: BOOK_SHARES_SCOPE, payload_digest: &digest },
+            BookStepUpScope {
+                name: BOOK_SHARES_SCOPE,
+                payload_digest: &digest,
+            },
         )
         .await
         .unwrap();

@@ -247,7 +247,10 @@ async fn transfer(
             &proof,
             id,
             form.expected_owner_id,
-            BookStepUpScope { name: BOOK_TRANSFER_SCOPE, payload_digest: &payload },
+            BookStepUpScope {
+                name: BOOK_TRANSFER_SCOPE,
+                payload_digest: &payload,
+            },
         )
         .await
     {
@@ -352,7 +355,10 @@ async fn save_shares(
             &proof,
             id,
             expected_revision,
-            BookStepUpScope { name: BOOK_SHARES_SCOPE, payload_digest: &payload },
+            BookStepUpScope {
+                name: BOOK_SHARES_SCOPE,
+                payload_digest: &payload,
+            },
         )
         .await
     {
