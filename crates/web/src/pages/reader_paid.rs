@@ -3,7 +3,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::entitlements::{
+use tor_commerce::services::reader_views::{
     MixedBookToc, MixedTocAccess, MixedTocChapter, ReadablePurchase, ReadablePurchasesPage,
 };
 
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn paid_library_links_to_exact_purchased_edition_and_escapes_titles() {
-        use tor_commerce::repositories::entitlements::ReadablePurchase;
+        use tor_commerce::services::reader_views::ReadablePurchase;
         let page = ReadablePurchasesPage {
             items: vec![ReadablePurchase {
                 purchase_id: 31,
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn mixed_book_toc_displays_nevboo_states_without_granting_closed_pages() {
-        use tor_commerce::repositories::entitlements::MixedTocChapter;
+        use tor_commerce::services::reader_views::MixedTocChapter;
         let edition = ReadablePurchase {
             purchase_id: 31,
             chapter_id: 23,
@@ -486,7 +486,7 @@ mod tests {
             chapter_title: "Вторая \"глава\"".to_owned(),
         };
         let toc = MixedBookToc {
-            chapters: vec![tor_commerce::repositories::entitlements::MixedTocChapter {
+            chapters: vec![tor_commerce::services::reader_views::MixedTocChapter {
                 chapter_id: 23,
                 chapter_no: 2,
                 title: "Вторая \"глава\"".to_owned(),
