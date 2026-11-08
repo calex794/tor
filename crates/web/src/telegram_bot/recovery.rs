@@ -64,13 +64,20 @@ pub(super) async fn dispatch(
             }
             _ => false,
         };
-        if delivered
-            && accounts
-                .mark_telegram_recovery_notified(request.id)
-                .await
-                .is_err()
-        {
-            return false;
+        if delivered {
+            let fence = TelegramPollerFence {
+                bot_id: lease.bot_id,
+                owner_digest: &lease.owner,
+                lease_epoch: lease.epoch,
+            };
+            if !matches!(
+                accounts
+                    .mark_telegram_recovery_notified_fenced(fence, request.id)
+                    .await,
+                Ok(Some(_))
+            ) {
+                return false;
+            }
         }
     }
     true

@@ -20,6 +20,46 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+// Exercise the bot's locked PostgreSQL claim instead of bypassing its lease.
+trait TestTelegramLink {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error>;
+}
+
+impl TestTelegramLink for PgAccounts {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let bot_id = 11_000_000_000 + telegram_user_id;
+        let owner = session_token_digest(&format!("tg-web-fixture-owner-{bot_id}"));
+        let epoch = self
+            .claim_telegram_poller(bot_id, &owner)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let fenced = self
+            .claim_telegram_link_fenced(
+                TelegramPollerFence {
+                    bot_id,
+                    owner_digest: &owner,
+                    lease_epoch: epoch,
+                },
+                nonce_digest,
+                telegram_user_id,
+                private_chat_id,
+            )
+            .await;
+        assert!(self.release_telegram_poller(bot_id, &owner, epoch).await?);
+        fenced.map(|value| value.unwrap_or(false))
+    }
+}
+
 async fn request(
     app: &Router,
     method: &str,

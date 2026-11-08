@@ -8,7 +8,7 @@ use serde_json::json;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tor_accounts::{
-    repositories::PgAccounts,
+    repositories::{telegram_recovery::TelegramPollerFence, PgAccounts},
     services::security::{generate_session_token, session_token_digest},
 };
 
@@ -270,27 +270,40 @@ async fn process_message(
     send_endpoint: &str,
     accounts: &PgAccounts,
     cfg: &BotConfig,
+    lease: &PollLease,
     message: BotMessage,
-) {
+) -> Result<(), &'static str> {
     let Some(sender) = message.from else {
-        return;
+        return Ok(());
     };
     if sender.is_bot
         || sender.id <= 0
         || message.chat.kind != "private"
         || message.chat.id != sender.id
     {
-        return;
+        return Ok(());
     }
     let Some(text) = message.text else {
-        return;
+        return Ok(());
     };
     match parse_command(text.trim()) {
         BotCommand::Bind(nonce) => {
-            let result = accounts
-                .claim_telegram_link(&session_token_digest(nonce), sender.id, message.chat.id)
-                .await;
-            let reply = if matches!(result, Ok(true)) {
+            let fence = TelegramPollerFence {
+                bot_id: lease.bot_id,
+                owner_digest: &lease.owner,
+                lease_epoch: lease.epoch,
+            };
+            let claimed = accounts
+                .claim_telegram_link_fenced(
+                    fence,
+                    &session_token_digest(nonce),
+                    sender.id,
+                    message.chat.id,
+                )
+                .await
+                .map_err(|_| "Telegram storage unavailable")?
+                .ok_or("Telegram polling lease lost")?;
+            let reply = if claimed {
                 format!("Telegram ID: {}. Вернитесь в настройки TOR, проверьте этот ID и подтвердите привязку.", sender.id)
             } else {
                 "Ссылка привязки недействительна или устарела. Запросите новую в TOR.".to_owned()
@@ -310,6 +323,7 @@ async fn process_message(
         }
         BotCommand::None => {}
     }
+    Ok(())
 }
 
 async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, lease: &PollLease) {
@@ -393,7 +407,13 @@ async fn poll_forever(client: &Client, accounts: &PgAccounts, cfg: &BotConfig, l
                 }
             }
             if let Some(message) = update.message {
-                process_message(client, &send, accounts, cfg, message).await;
+                if process_message(client, &send, accounts, cfg, lease, message)
+                    .await
+                    .is_err()
+                {
+                    storage_failure = true;
+                    break;
+                }
             }
             match accounts
                 .acknowledge_telegram_update_fenced(

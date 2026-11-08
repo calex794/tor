@@ -31,6 +31,46 @@ async fn fixture(label: &str) -> (PgAccounts, i64, [u8; 32]) {
     (accounts, user, digest)
 }
 
+// Integration fixtures exercise the same fenced claim used by the live bot.
+trait TestTelegramLink {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error>;
+}
+
+impl TestTelegramLink for PgAccounts {
+    async fn claim_telegram_link(
+        &self,
+        nonce_digest: &[u8; 32],
+        telegram_user_id: i64,
+        private_chat_id: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let bot_id = 9_000_000_000 + telegram_user_id;
+        let owner = session_token_digest(&format!("tg-fixture-owner-{bot_id}"));
+        let epoch = self
+            .claim_telegram_poller(bot_id, &owner)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let fenced = self
+            .claim_telegram_link_fenced(
+                TelegramPollerFence {
+                    bot_id,
+                    owner_digest: &owner,
+                    lease_epoch: epoch,
+                },
+                nonce_digest,
+                telegram_user_id,
+                private_chat_id,
+            )
+            .await;
+        assert!(self.release_telegram_poller(bot_id, &owner, epoch).await?);
+        fenced.map(|value| value.unwrap_or(false))
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
@@ -558,10 +598,33 @@ async fn a_07_telegram_pairing_requires_live_session_and_owner_confirmation() {
         .claim_telegram_link(&other_nonce, tg_id, tg_id)
         .await
         .unwrap());
+    let bot_id = 10_000_000_000 + user;
+    let poll_owner = session_token_digest(&format!("tg-receipt-owner-{user}"));
+    let epoch = accounts
+        .claim_telegram_poller(bot_id, &poll_owner)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!accounts.telegram_update_seen(tg_id).await.unwrap());
-    assert!(accounts.mark_telegram_update(tg_id).await.unwrap());
+    assert_eq!(
+        accounts
+            .acknowledge_telegram_update_fenced(bot_id, &poll_owner, epoch, tg_id)
+            .await
+            .unwrap(),
+        Some(true)
+    );
     assert!(accounts.telegram_update_seen(tg_id).await.unwrap());
-    assert!(!accounts.mark_telegram_update(tg_id).await.unwrap());
+    assert_eq!(
+        accounts
+            .acknowledge_telegram_update_fenced(bot_id, &poll_owner, epoch, tg_id)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert!(accounts
+        .release_telegram_poller(bot_id, &poll_owner, epoch)
+        .await
+        .unwrap());
 }
 
 #[tokio::test]

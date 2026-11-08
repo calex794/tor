@@ -132,19 +132,41 @@ impl PgAccounts {
             .collect())
     }
 
-    pub async fn mark_telegram_recovery_notified(
+    /// Persist notification delivery only while this worker still owns the
+    /// exact PostgreSQL polling lease. A superseded worker must not ack it.
+    /// None = lost lease, Some(false) = request already notified or expired.
+    pub async fn mark_telegram_recovery_notified_fenced(
         &self,
+        fence: TelegramPollerFence<'_>,
         request_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE account_telegram_recovery_requests SET notified_at=now()
-             WHERE id=$1 AND status='pending' AND expires_at>now()
-               AND notified_at IS NULL",
+    ) -> Result<Option<bool>, sqlx::Error> {
+        if fence.bot_id <= 0 || fence.lease_epoch <= 0 || request_id <= 0 {
+            return Ok(None);
+        }
+        let (active, notified): (bool, bool) = sqlx::query_as(
+            "WITH active_lease AS MATERIALIZED (
+               SELECT bot_id FROM account_telegram_poller_leases
+               WHERE bot_id=$1 AND owner_digest=$2 AND lease_epoch=$3
+                 AND expires_at>clock_timestamp()
+               FOR SHARE
+             ), notified AS (
+               UPDATE account_telegram_recovery_requests AS r
+               SET notified_at=now()
+               WHERE r.id=$4 AND r.status='pending' AND r.expires_at>now()
+                 AND r.notified_at IS NULL
+                 AND EXISTS(SELECT 1 FROM active_lease)
+               RETURNING r.id
+             )
+             SELECT EXISTS(SELECT 1 FROM active_lease),
+                    EXISTS(SELECT 1 FROM notified)",
         )
+        .bind(fence.bot_id)
+        .bind(fence.owner_digest.as_slice())
+        .bind(fence.lease_epoch)
         .bind(request_id)
-        .execute(self.pool())
+        .fetch_one(self.pool())
         .await?;
-        Ok(())
+        Ok(active.then_some(notified))
     }
 
     /// A stale owner cannot approve a callback after takeover: the active

@@ -380,18 +380,4 @@ impl PgAccounts {
         .fetch_one(self.pool())
         .await
     }
-
-    pub async fn mark_telegram_update(&self, update_id: i64) -> Result<bool, sqlx::Error> {
-        if update_id < 0 {
-            return Ok(false);
-        }
-        let receipt: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO account_telegram_bot_updates(update_id) VALUES($1)
-             ON CONFLICT DO NOTHING RETURNING update_id",
-        )
-        .bind(update_id)
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(receipt.is_some())
-    }
 }

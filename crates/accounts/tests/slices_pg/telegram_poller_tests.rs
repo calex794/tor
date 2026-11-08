@@ -132,3 +132,134 @@ async fn a_07_telegram_poller_lease_contends_fences_and_recovers_after_expiry() 
         .await
         .unwrap());
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_07_stale_worker_cannot_claim_link_or_ack_notification() {
+    let (accounts, user, session) = fixture("tg-fenced-side-effects").await;
+    let tg_id = 14_000_000 + user;
+    let bot_id = 14_000_000_000 + user;
+    let owner_a = session_token_digest(&format!("tg-fence-owner-a-{user}"));
+    let owner_b = session_token_digest(&format!("tg-fence-owner-b-{user}"));
+    let nonce = session_token_digest(&format!("tg-fenced-link-{user}"));
+    assert!(accounts
+        .begin_telegram_link(user, &session, "$argon2id$fixture", &nonce)
+        .await
+        .unwrap());
+    let epoch_a = accounts
+        .claim_telegram_poller(bot_id, &owner_a)
+        .await
+        .unwrap()
+        .unwrap();
+    let old = TelegramPollerFence {
+        bot_id,
+        owner_digest: &owner_a,
+        lease_epoch: epoch_a,
+    };
+    let foreign = TelegramPollerFence {
+        bot_id,
+        owner_digest: &owner_b,
+        lease_epoch: epoch_a,
+    };
+    assert_eq!(
+        accounts
+            .claim_telegram_link_fenced(foreign, &nonce, tg_id, tg_id)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts
+            .claim_telegram_link_fenced(old, &nonce, tg_id, tg_id + 1)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert!(accounts
+        .release_telegram_poller(bot_id, &owner_a, epoch_a)
+        .await
+        .unwrap());
+    let epoch_b = accounts
+        .claim_telegram_poller(bot_id, &owner_b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(epoch_b > epoch_a);
+    assert_eq!(
+        accounts
+            .claim_telegram_link_fenced(old, &nonce, tg_id, tg_id)
+            .await
+            .unwrap(),
+        None
+    );
+    let candidate: Option<i64> = sqlx::query_scalar(
+        "SELECT candidate_telegram_user_id FROM account_telegram_link_intents
+         WHERE user_id=$1",
+    )
+    .bind(user)
+    .fetch_one(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(candidate, None, "stale bot must not change a link intent");
+    let current = TelegramPollerFence {
+        bot_id,
+        owner_digest: &owner_b,
+        lease_epoch: epoch_b,
+    };
+    assert_eq!(
+        accounts
+            .claim_telegram_link_fenced(current, &nonce, tg_id, tg_id)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    let codes: [[u8; 32]; 8] =
+        std::array::from_fn(|i| session_token_digest(&format!("tg-fenced-code-{user}-{i}")));
+    assert_eq!(
+        accounts.finish_telegram_link(user, &session, &codes).await.unwrap(),
+        Some(tg_id)
+    );
+    let email: String = sqlx::query_scalar("SELECT email_normalized FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    let browser = session_token_digest(&format!("tg-fenced-browser-{user}"));
+    accounts
+        .begin_browser_telegram_recovery(Some(&email), &browser, "Fnc_13")
+        .await
+        .unwrap();
+    let request_id = accounts
+        .pending_telegram_recovery_notifications()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|x| x.private_chat_id == tg_id)
+        .unwrap()
+        .id;
+    assert_eq!(
+        accounts
+            .mark_telegram_recovery_notified_fenced(old, request_id)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        accounts
+            .mark_telegram_recovery_notified_fenced(current, request_id)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        accounts
+            .mark_telegram_recovery_notified_fenced(current, request_id)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+    assert!(accounts
+        .release_telegram_poller(bot_id, &owner_b, epoch_b)
+        .await
+        .unwrap());
+}
