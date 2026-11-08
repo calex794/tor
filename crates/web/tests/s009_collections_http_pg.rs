@@ -310,9 +310,15 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&app, "POST", &format!("{path}/rate"), &other_cookies, &rating)
-            .await
-            .status(),
+        send(
+            &app,
+            "POST",
+            &format!("{path}/rate"),
+            &other_cookies,
+            &rating
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert!(html(send(&app, "GET", &path, "", "").await)
@@ -323,15 +329,27 @@ async fn s009_collections_real_http_create_select_hide_publish_replay_and_delete
         "body=%3Cscript%3Ealert%281%29%3C%2Fscript%3E&request_key={other_key}&csrf_token={other_csrf}"
     );
     assert_eq!(
-        send(&app, "POST", &format!("{path}/comments"), &other_cookies, &comment)
-            .await
-            .status(),
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &comment
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        send(&app, "POST", &format!("{path}/comments"), &other_cookies, &comment)
-            .await
-            .status(),
+        send(
+            &app,
+            "POST",
+            &format!("{path}/comments"),
+            &other_cookies,
+            &comment
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     let public_comments = html(send(&app, "GET", &path, "", "").await).await;

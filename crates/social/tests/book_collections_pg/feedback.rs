@@ -18,7 +18,9 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
         Err(CollectionError::NotFound)
     );
     assert_eq!(
-        feedback.add_comment(reader, col.id, "Hidden", &key(81)).await,
+        feedback
+            .add_comment(reader, col.id, "Hidden", &key(81))
+            .await,
         Err(CollectionError::NotFound)
     );
     assert!(feedback.read_public(col.id, None).await.is_err());
@@ -46,7 +48,9 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
         id
     );
     assert_eq!(
-        feedback.add_comment(reader, col.id, "Different", &key(82)).await,
+        feedback
+            .add_comment(reader, col.id, "Different", &key(82))
+            .await,
         Err(CollectionError::Conflict)
     );
     let public = feedback.read_public(col.id, None).await.unwrap();
@@ -56,7 +60,11 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
     assert_eq!(public.comments.len(), 1);
     assert_eq!(public.comments[0].body, malicious);
     assert_eq!(
-        feedback.read_public(col.id, Some(reader)).await.unwrap().viewer_rating,
+        feedback
+            .read_public(col.id, Some(reader))
+            .await
+            .unwrap()
+            .viewer_rating,
         Some(5)
     );
     assert_eq!(
@@ -64,7 +72,12 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
         Err(CollectionError::NotFound)
     );
     feedback.delete_comment(owner, col.id, id).await.unwrap();
-    assert!(feedback.read_public(col.id, None).await.unwrap().comments.is_empty());
+    assert!(feedback
+        .read_public(col.id, None)
+        .await
+        .unwrap()
+        .comments
+        .is_empty());
     assert_eq!(
         feedback.delete_comment(owner, col.id, id).await,
         Err(CollectionError::NotFound)
@@ -73,7 +86,10 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
         .add_comment(reader, col.id, "Author delete", &key(83))
         .await
         .unwrap();
-    feedback.delete_comment(reader, col.id, second).await.unwrap();
+    feedback
+        .delete_comment(reader, col.id, second)
+        .await
+        .unwrap();
 
     collections
         .update_metadata_if_current(owner, col.id, 2, "Private", "private")
@@ -88,13 +104,12 @@ async fn e_07_public_feedback_is_scoped_idempotent_and_moderated() {
         feedback.add_comment(reader, col.id, "No", &key(84)).await,
         Err(CollectionError::NotFound)
     );
-    let purchases: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM library_purchased_chapters WHERE user_id=$1"
-    )
-    .bind(reader)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let purchases: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM library_purchased_chapters WHERE user_id=$1")
+            .bind(reader)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(purchases, 0);
 }
 
@@ -114,5 +129,13 @@ async fn e_07_concurrent_identical_comment_is_inserted_once() {
         feedback.add_comment(reader, col.id, "Once", &token)
     );
     assert_eq!(first.unwrap(), second.unwrap());
-    assert_eq!(feedback.read_public(col.id, None).await.unwrap().comments.len(), 1);
+    assert_eq!(
+        feedback
+            .read_public(col.id, None)
+            .await
+            .unwrap()
+            .comments
+            .len(),
+        1
+    );
 }

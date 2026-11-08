@@ -362,8 +362,11 @@ fn detail_html(
                 } else {
                     ""
                 };
-                write!(html, r#"<option value="{score}" {selected}>{score}</option>"#)
-                    .expect("HTML");
+                write!(
+                    html,
+                    r#"<option value="{score}" {selected}>{score}</option>"#
+                )
+                .expect("HTML");
             }
             write!(
                 html,
@@ -553,7 +556,11 @@ async fn comment(
         Ok(actor) => actor,
         Err(e) => return denied(e),
     };
-    match s.feedback.add_comment(actor, id, &f.body, &f.request_key).await {
+    match s
+        .feedback
+        .add_comment(actor, id, &f.body, &f.request_key)
+        .await
+    {
         Ok(_) => private_response(
             Redirect::to(&format!("/collections/{id}#collection-feedback")),
             &[],
