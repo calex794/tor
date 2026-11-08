@@ -380,6 +380,57 @@ async fn s030_pg_rejects_completed_ordinary_deletion() {
         ),
         "0"
     );
+
+    // Ordinary deletion leaves purchase records intact, but must close the
+    // sensitive ownership page and block all future creator-share revisions.
+    assert!(PgOwnerTransfer::new(catalog.pool())
+        .settings(owner, book)
+        .await
+        .unwrap()
+        .is_none());
+    let assignments = [ShareAssignment {
+        user_id: owner,
+        share_percent: 100,
+    }];
+    let reason = "archived Book cannot change future shares";
+    let digest = revenue_share_payload_digest(owner, book, 1, &assignments, reason).unwrap();
+    let verified = verify_password_for_step_up(PASSWORD, &hash).unwrap();
+    let share_token = accounts
+        .issue_book_mutation_step_up(
+            owner,
+            &session_token_digest(&session),
+            &verified,
+            book,
+            1,
+            BookStepUpScope {
+                name: BOOK_SHARES_SCOPE,
+                payload_digest: &digest,
+            },
+        )
+        .await
+        .unwrap();
+    let result = PgRevenueShares::new(catalog.pool())
+        .replace_schedule_verified(
+            owner,
+            book,
+            1,
+            &assignments,
+            reason,
+            (&session_token_digest(&session), &share_token),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(tor_books::domain::shares::RevenueShareError::Forbidden)
+    ));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT current_revision FROM revenue_share_states WHERE book_id={book}")
+        ),
+        "1",
+        "deleted Book must retain its immutable financial revision"
+    );
 }
 
 #[tokio::test]
