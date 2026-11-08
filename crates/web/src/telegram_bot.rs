@@ -1,6 +1,6 @@
 //! Default-off Telegram Bot API long-polling adapter for A/S004.
-//! The bot has no privilege to change passwords: it only issues typed,
-//! short-lived recovery proofs through the existing accounts repository.
+//! Browser-initiated recovery only. Reset secrets never go to Telegram.
+mod recovery;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -26,6 +26,20 @@ struct BotResponse {
 struct BotUpdate {
     update_id: i64,
     message: Option<BotMessage>,
+    callback_query: Option<BotCallback>,
+}
+
+#[derive(Deserialize)]
+struct BotCallback {
+    id: String,
+    #[serde(rename = "from")]
+    from: BotUser,
+    message: Option<BotCallbackMessage>,
+    data: Option<String>,
+}
+#[derive(Deserialize)]
+struct BotCallbackMessage {
+    chat: BotChat,
 }
 #[derive(Deserialize)]
 struct BotMessage {
@@ -205,42 +219,15 @@ async fn process_message(
             let _ = send_message(client, send_endpoint, sender.id, &reply).await;
         }
         BotCommand::Recover => {
-            let key = session_token_digest(&format!("a07:telegram-recover:{}", sender.id));
-            match accounts.permit_auth_attempt(&key, 3, 3600).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    let _ = send_message(
-                        client,
-                        send_endpoint,
-                        sender.id,
-                        "Слишком много запросов. Повторите позже.",
-                    )
-                    .await;
-                    return;
-                }
-                Err(_) => return,
-            };
-            let token = generate_session_token();
-            let digest = session_token_digest(&token);
-            let result = accounts
-                .issue_telegram_reset(sender.id, message.chat.id, &digest)
-                .await;
-            if matches!(result, Ok(true)) {
-                let reply = format!(
-                    "Вы запросили смену пароля TOR. Ссылка действует 10 минут и один раз:\n{}/reset-password#{}\n\nЕсли это были не вы, не открывайте её. Пароль никогда не присылайте боту.",
-                    cfg.origin, token
-                );
-                if !send_message(client, send_endpoint, sender.id, &reply).await {
-                    let _ = accounts.revoke_telegram_reset(&digest).await;
-                }
-            } else {
-                let _ = send_message(
-                    client,
-                    send_endpoint,
-                    sender.id,
-                    "Для этого аккаунта восстановление через Telegram недоступно. Используйте заранее сохранённые резервные коды или защищённую процедуру восстановления.",
-                ).await;
-            }
+            // A bot-started command cannot create a reset credential. The
+            // browser must initiate the challenge and retain its private proof.
+            let reply = format!(
+                "Для восстановления пароля TOR откройте {}/recover/telegram \
+                 в своём браузере. Проверьте код на сайте и подтвердите заявку здесь. \
+                 Пароль и одноразовые ссылки боту не отправляйте.",
+                cfg.origin
+            );
+            let _ = send_message(client, send_endpoint, sender.id, &reply).await;
         }
         BotCommand::None => {}
     }
@@ -250,12 +237,15 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
     // Fixed Telegram authority; never allow an operator-supplied endpoint.
     let poll = format!("https://api.telegram.org/bot{}/getUpdates", cfg.token);
     let send = format!("https://api.telegram.org/bot{}/sendMessage", cfg.token);
+    let answer = format!("https://api.telegram.org/bot{}/answerCallbackQuery", cfg.token);
     let mut offset = 0_i64;
     loop {
+        recovery::dispatch(&client, &send, &accounts).await;
         let response = client
             .post(&poll)
             .json(&json!({
-                "offset":offset,"limit":25,"timeout":20,"allowed_updates":["message"]
+                "offset":offset,"limit":25,"timeout":20,
+                "allowed_updates":["message","callback_query"]
             }))
             .send()
             .await;
@@ -271,22 +261,31 @@ async fn poll_forever(client: Client, accounts: PgAccounts, cfg: BotConfig) {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };
+        let mut storage_failure = false;
         for update in response.result {
-            offset = offset.max(update.update_id.saturating_add(1));
-            // Ack before side effects: a failed message can be explicitly
-            // retried with a fresh /recover. The same update cannot create
-            // multiple reset links after a restart or concurrent runner.
-            match accounts.mark_telegram_update(update.update_id).await {
-                Ok(true) => {}
-                Ok(false) => continue,
+            // Never advance the polling offset when the idempotency write
+            // failed. Otherwise an unrecorded approval could be lost.
+            let duplicate = match accounts.mark_telegram_update(update.update_id).await {
+                Ok(true) => false,
+                Ok(false) => true,
                 Err(_) => {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
+                    storage_failure = true;
+                    break;
                 }
+            };
+            offset = offset.max(update.update_id.saturating_add(1));
+            if duplicate {
+                continue;
             }
             if let Some(message) = update.message {
                 process_message(&client, &send, &accounts, &cfg, message).await;
             }
+            if let Some(callback) = update.callback_query {
+                recovery::callback(&client, &answer, &accounts, &cfg, callback).await;
+            }
+        }
+        if storage_failure {
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 }
