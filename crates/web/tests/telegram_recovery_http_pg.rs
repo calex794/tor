@@ -27,7 +27,7 @@ trait TestTelegramLink {
         nonce_digest: &[u8; 32],
         telegram_user_id: i64,
         private_chat_id: i64,
-    ) -> Result<bool, sqlx::Error>;
+    ) -> Result<bool, &'static str>;
 }
 
 impl TestTelegramLink for PgAccounts {
@@ -36,13 +36,14 @@ impl TestTelegramLink for PgAccounts {
         nonce_digest: &[u8; 32],
         telegram_user_id: i64,
         private_chat_id: i64,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, &'static str> {
         let bot_id = 11_000_000_000 + telegram_user_id;
         let owner = session_token_digest(&format!("tg-web-fixture-owner-{bot_id}"));
         let epoch = self
             .claim_telegram_poller(bot_id, &owner)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+            .await
+            .map_err(|_| "fixture poller lease unavailable")?
+            .ok_or("fixture poller lease not granted")?;
         let fenced = self
             .claim_telegram_link_fenced(
                 TelegramPollerFence {
@@ -54,9 +55,13 @@ impl TestTelegramLink for PgAccounts {
                 telegram_user_id,
                 private_chat_id,
             )
-            .await;
-        assert!(self.release_telegram_poller(bot_id, &owner, epoch).await?);
-        fenced.map(|value| value.unwrap_or(false))
+            .await
+            .map_err(|_| "fixture Telegram link failed")?;
+        assert!(self
+            .release_telegram_poller(bot_id, &owner, epoch)
+            .await
+            .map_err(|_| "fixture poller release failed")?);
+        Ok(fenced.unwrap_or(false))
     }
 }
 
