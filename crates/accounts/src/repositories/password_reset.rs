@@ -22,7 +22,14 @@ impl PgAccounts {
             "SELECT u.password_hash,t.credential_fingerprint FROM password_reset_tokens t
              JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1
              AND t.consumed_at IS NULL AND t.expires_at>now() AND u.account_state='active'
-             AND ((t.source='email' AND $2) OR (t.source IN ('telegram','backup') AND $3))",
+             AND ((t.source='email' AND $2) OR (t.source IN ('telegram','backup') AND $3))
+             AND (t.source='email' OR (
+               NOT EXISTS (SELECT 1 FROM account_roles r
+                           WHERE r.user_id=u.id AND r.is_active)
+               AND NOT EXISTS (SELECT 1 FROM books b WHERE b.owner_user_id=u.id)
+               AND NOT EXISTS (SELECT 1 FROM book_members bm
+                               WHERE bm.user_id=u.id AND bm.is_active)
+             ))",
         )
         .bind(digest.as_slice())
         .bind(email_enabled)
@@ -98,6 +105,14 @@ impl PgAccounts {
             "SELECT credential_fingerprint FROM password_reset_tokens
              WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()
              AND ((source='email' AND $2) OR (source IN ('telegram','backup') AND $3))
+             AND (source='email' OR (
+               NOT EXISTS (SELECT 1 FROM account_roles r
+                           WHERE r.user_id=password_reset_tokens.user_id AND r.is_active)
+               AND NOT EXISTS (SELECT 1 FROM books b
+                               WHERE b.owner_user_id=password_reset_tokens.user_id)
+               AND NOT EXISTS (SELECT 1 FROM book_members bm
+                               WHERE bm.user_id=password_reset_tokens.user_id AND bm.is_active)
+             ))
              FOR UPDATE",
         )
         .bind(token_hash.as_slice())
