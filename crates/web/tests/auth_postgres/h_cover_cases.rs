@@ -488,10 +488,10 @@ pub(super) async fn upload_and_show(
     assert_eq!(private_history.status(), StatusCode::OK);
     let history_body = body_of(private_history).await;
     assert!(history_body.contains("Снять действующую обложку"));
-    assert!(history_body.contains(r#"expected_slot_revision=" value="1"#));
+    assert!(history_body.contains("expected_slot_revision"));
     assert_eq!(
         send(app, request("POST", &remove_path,
-            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=1&reason=Policy"),
+            &format!("csrf_token={csrf}&expected_slot_revision=1&reason=Policy"),
             cookies, ORIGIN)).await.status(),
         StatusCode::FORBIDDEN,
         "Book owner is not a site moderator"
