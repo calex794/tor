@@ -21,3 +21,4 @@ mod security_retention;
 pub mod sessions;
 pub mod step_up;
 pub mod telegram;
+pub mod telegram_recovery;

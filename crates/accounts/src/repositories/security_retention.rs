@@ -89,6 +89,17 @@ impl PgAccounts {
         )
         .execute(self.pool())
         .await?;
+        sqlx::query(
+            "WITH batch AS (
+               SELECT id FROM account_telegram_recovery_requests
+               WHERE expires_at<now()-INTERVAL '1 hour'
+               ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM account_telegram_recovery_requests t
+             USING batch b WHERE t.id=b.id",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }

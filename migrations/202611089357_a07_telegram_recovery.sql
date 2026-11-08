@@ -55,3 +55,36 @@ CREATE INDEX account_telegram_binding_events_by_user
     ON account_telegram_binding_events(user_id, created_at DESC);
 CREATE INDEX account_telegram_binding_events_expiry
     ON account_telegram_binding_events(created_at);
+
+
+-- Browser-held opaque proof; Telegram receives only a comparison code and
+-- an approve/deny callback, never a bearer reset token.
+-- For unknown or ineligible identities a decoy row is stored with user_id=NULL,
+-- preserving the same user-facing challenge flow without revealing an account.
+CREATE TABLE account_telegram_recovery_requests (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    telegram_user_id BIGINT,
+    private_chat_id BIGINT,
+    credential_fingerprint BYTEA,
+    browser_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(browser_digest) = 32),
+    match_code TEXT NOT NULL CHECK (match_code ~ '^[A-Za-z0-9_-]{6}$'),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'denied', 'used')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT now()+INTERVAL '5 minutes',
+    notified_at TIMESTAMPTZ,
+    CHECK (expires_at > created_at),
+    CHECK (
+      (user_id IS NULL AND telegram_user_id IS NULL AND private_chat_id IS NULL
+       AND credential_fingerprint IS NULL)
+      OR
+      (user_id IS NOT NULL AND telegram_user_id>0 AND private_chat_id>0
+       AND octet_length(credential_fingerprint)=32)
+    )
+);
+CREATE INDEX account_telegram_recovery_outbox
+    ON account_telegram_recovery_requests(id)
+    WHERE user_id IS NOT NULL AND status='pending' AND notified_at IS NULL;
+CREATE INDEX account_telegram_recovery_expiry
+    ON account_telegram_recovery_requests(expires_at);
