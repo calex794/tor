@@ -22,7 +22,6 @@ mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
 pub use chapter_schedule::DueReleaseOutcome;
-// Compatibility for existing callers; new HTML pages consume tor_books::schemas.
 pub use crate::schemas::ScheduledChapter;
 mod legacy_title_guard;
 mod mail_aliases;
@@ -83,7 +82,6 @@ impl PgCatalog {
         catalog.probe().await?;
         Ok(catalog)
     }
-    /// Explicit pool shutdown; used to verify loss-of-readiness behavior.
     pub async fn close_for_test(&self) {
         self.pool.close().await;
     }
