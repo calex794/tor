@@ -21,6 +21,7 @@ class OffsiteBackupBoundaries(unittest.TestCase):
         src = BACKUP.read_text(encoding="utf-8")
         for required in (
             "root:root:600", "s3:https://", "restic backup",
+            "export RESTIC_REPOSITORY",
             "--stdin-from-command", "pg_dump", "flock -n",
             "--format=custom", "TOR_OFFSITE_BACKUP_OK",
         ):
