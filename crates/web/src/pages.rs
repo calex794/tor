@@ -556,3 +556,4 @@ pub use password_reset::{
     reset_confirm_form, reset_request_form, reset_request_form_with_telegram,
 };
 pub(crate) mod telegram_recovery;
+pub(crate) mod telegram_request;

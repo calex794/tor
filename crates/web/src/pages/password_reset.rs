@@ -17,7 +17,8 @@ pub fn reset_request_form_with_telegram(
         "Восстановление по почте временно недоступно."
     });
     let telegram_help = if telegram_enabled {
-        "<p>Привязали Telegram? Напишите боту /recover.          <a href=\"/recover/backup\">Использовать резервный код</a>.</p>"
+        "<p><a href=\"/recover/telegram\">Восстановление через Telegram</a> · \
+         <a href=\"/recover/backup\">Использовать резервный код</a>.</p>"
     } else {
         ""
     };

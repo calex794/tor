@@ -111,6 +111,7 @@ mod support_bundle;
 mod sync_actions;
 mod teams;
 mod telegram_recovery;
+mod telegram_request;
 mod text_issues;
 mod types;
 use types::*;

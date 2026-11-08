@@ -1,6 +1,6 @@
 use super::{
     notification_settings, password_change, password_reset, profile_http, session_security,
-    telegram_recovery, AuthState,
+    telegram_recovery, telegram_request, AuthState,
 };
 use axum::{
     routing::{get, post},
@@ -9,6 +9,8 @@ use axum::{
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
+        .route("/recover/telegram", get(telegram_request::page).post(telegram_request::request))
+        .route("/recover/telegram/complete", post(telegram_request::complete))
         .route("/me/security/telegram", get(telegram_recovery::link_page))
         .route(
             "/me/security/telegram/unlink",
