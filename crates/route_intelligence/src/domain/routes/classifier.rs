@@ -336,6 +336,13 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/settings/ownership"), "GET") => Some(321),
         (Some("/me/books/{id}/settings/ownership/transfer"), "POST") => Some(322),
         (Some("/me/books/{id}/settings/ownership/shares"), "POST") => Some(323),
+        (Some("/collections"), "GET") => Some(324),
+        (Some("/collections"), "POST") => Some(325),
+        (Some("/collections/{id}"), "GET") => Some(326),
+        (Some("/collections/{id}/edit"), "POST") => Some(327),
+        (Some("/collections/{id}/books"), "POST") => Some(328),
+        (Some("/collections/{id}/books/{book_id}/remove"), "POST") => Some(329),
+        (Some("/collections/{id}/delete"), "POST") => Some(330),
         _ => None,
     };
     index

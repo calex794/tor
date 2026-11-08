@@ -3,13 +3,13 @@ mod classifier;
 pub use classifier::classify;
 
 use CostClass::{CheapRead as Read, Free, Write};
-use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
+use ProductArea::{Auth, Catalog, Dashboard, Reading, Social, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 324] = [
+static ROUTES: [RouteRegistration; 331] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -334,6 +334,13 @@ static ROUTES: [RouteRegistration; 324] = [
     RouteRegistration::new("/me/books/{id}/settings/ownership", "GET", "/me/", Prefix, Page, Dashboard, Read), // 321
     RouteRegistration::new("/me/books/{id}/settings/ownership/transfer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 322
     RouteRegistration::new("/me/books/{id}/settings/ownership/shares", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 323
+    RouteRegistration::new("/collections", "GET", "/collections/", Exact, Page, Social, Read), // 324
+    RouteRegistration::new("/collections", "POST", "/collections/", Exact, Page, Social, Write), // 325
+    RouteRegistration::new("/collections/{id}", "GET", "/collections/", Prefix, Page, Social, Read), // 326
+    RouteRegistration::new("/collections/{id}/edit", "POST", "/collections/", Prefix, Page, Social, Write), // 327
+    RouteRegistration::new("/collections/{id}/books", "POST", "/collections/", Prefix, Page, Social, Write), // 328
+    RouteRegistration::new("/collections/{id}/books/{book_id}/remove", "POST", "/collections/", Prefix, Page, Social, Write), // 329
+    RouteRegistration::new("/collections/{id}/delete", "POST", "/collections/", Prefix, Page, Social, Write), // 330
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
