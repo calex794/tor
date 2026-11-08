@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 315] = [
+static ROUTES: [RouteRegistration; 319] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -325,6 +325,10 @@ static ROUTES: [RouteRegistration; 315] = [
     RouteRegistration::new("/me/teams/invites/{token}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 312
     RouteRegistration::new("/me/teams/invites/{token}/accept", "POST", "/me/", Prefix, Page, Dashboard, Write), // 313
     RouteRegistration::new("/me/teams/invites/{token}/decline", "POST", "/me/", Prefix, Page, Dashboard, Write), // 314
+    RouteRegistration::new("/me/teams/{id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 315
+    RouteRegistration::new("/me/teams/{id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 316
+    RouteRegistration::new("/me/teams/{id}/books/{book_id}/remove", "POST", "/me/", Prefix, Page, Dashboard, Write), // 317
+    RouteRegistration::new("/me/teams/{id}/members/{member_id}/remove", "POST", "/me/", Prefix, Page, Dashboard, Write), // 318
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
