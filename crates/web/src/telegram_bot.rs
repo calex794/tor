@@ -6,10 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 
 #[derive(Clone)]
 struct BotConfig {
