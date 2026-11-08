@@ -169,6 +169,7 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String>
 
 /// Finalized ordinary-deletion archive only. Earlier saved-free views remain
 /// script-free and do not disclose other chapter metadata.
+#[cfg(test)]
 pub fn saved_free_reader_with_toc(
     chapter: &SavedFreeChapter,
     csrf: &str,
@@ -307,7 +308,7 @@ fn archive_toc_markup(
             </footer>
           </div>
         </details>",
-        chapter.book_id, chapter.chapter_id
+        chapter.chapter_id, chapter.book_id
     )
 }
 

@@ -404,7 +404,6 @@ pub use library::my_library_with_updates_and_layers_and_purchased_only;
 mod library_saved_free;
 pub use library_saved_free::{
     saved_archive_list, saved_free_reader, saved_free_reader_with_paginated_toc,
-    saved_free_reader_with_toc,
 };
 
 pub async fn stylesheet() -> impl IntoResponse {
