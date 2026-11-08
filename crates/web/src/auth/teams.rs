@@ -169,7 +169,7 @@ async fn index(State(s): State<TeamState>, headers: HeaderMap) -> Response {
     let mut html = list_html(&teams, &csrf);
     let mut fragment = String::from("<h2>Команды, в которых я участвую</h2><ul>");
     for (id, name) in joined {
-        write!(fragment, "<li><a href=\\"/me/teams/{}\\">{}</a></li>", id, escape_html(&name)).expect("HTML");
+        write!(fragment, "<li><a href=\"/me/teams/{}\">{}</a></li>", id, escape_html(&name)).expect("HTML");
     }
     fragment.push_str("</ul>");
     if let Some(index) = html.rfind("</div></section>") {
