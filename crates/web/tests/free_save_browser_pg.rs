@@ -284,7 +284,10 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
                AND payload->>'version_id'='{version_id}'"
         ),
     );
-    assert!(!root.is_empty(), "HTTP Save must write the durable root event");
+    assert!(
+        !root.is_empty(),
+        "HTTP Save must write the durable root event"
+    );
     pg(
         &url,
         &format!(
