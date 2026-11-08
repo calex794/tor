@@ -8,6 +8,8 @@ pub mod cover_slots;
 pub mod cover_source_cleanup;
 pub mod personal_books;
 pub mod recommendation_policy;
+pub mod translation_team_books;
+pub mod translation_team_invites;
 pub mod translation_teams;
 // B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
 pub(crate) mod owner_transfer;

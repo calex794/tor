@@ -21,7 +21,8 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
-pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
+pub use crate::schemas::ScheduledChapter;
+pub use chapter_schedule::DueReleaseOutcome;
 mod legacy_title_guard;
 mod mail_aliases;
 mod origin_metadata;
@@ -81,7 +82,6 @@ impl PgCatalog {
         catalog.probe().await?;
         Ok(catalog)
     }
-    /// Explicit pool shutdown; used to verify loss-of-readiness behavior.
     pub async fn close_for_test(&self) {
         self.pool.close().await;
     }

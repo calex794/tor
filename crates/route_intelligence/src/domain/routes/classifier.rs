@@ -323,6 +323,14 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/teams"), "GET") => Some(308),
         (Some("/me/teams"), "POST") => Some(309),
         (Some("/me/teams/{id}"), "GET") => Some(310),
+        (Some("/me/teams/{id}/invites"), "POST") => Some(311),
+        (Some("/me/teams/invites/{token}"), "GET") => Some(312),
+        (Some("/me/teams/invites/{token}/accept"), "POST") => Some(313),
+        (Some("/me/teams/invites/{token}/decline"), "POST") => Some(314),
+        (Some("/me/teams/{id}/books"), "GET") => Some(315),
+        (Some("/me/teams/{id}/books"), "POST") => Some(316),
+        (Some("/me/teams/{id}/books/{book_id}/remove"), "POST") => Some(317),
+        (Some("/me/teams/{id}/members/{member_id}/remove"), "POST") => Some(318),
         _ => None,
     };
     index

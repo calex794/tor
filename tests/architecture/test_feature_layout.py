@@ -35,6 +35,23 @@ class FeatureLayoutTests(unittest.TestCase):
         self.scaffold()
         self.assertEqual(check(self.root), [])
 
+    def test_paid_reader_repository_reference_is_forbidden(self):
+        self.scaffold()
+        path = "crates/web/src/pages/reader_paid.rs"
+        self.put(path, "use tor_commerce::services::reader_views::ReadablePurchase;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_commerce::repositories::entitlements::ReadablePurchase;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_library_repository_budget_is_reduced_to_eight(self):
+        self.scaffold()
+        path = "crates/web/src/pages/library.rs"
+        line = "use tor_reading::repositories::follow_updates::FollowedReleasePage;\n"
+        self.put(path, line * 8)
+        self.assertEqual(check(self.root), [])
+        self.put(path, line * 9)
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
     def test_flat_services_forbidden(self):
         self.put("src/services/x.rs", "")
         self.assertTrue(any("root src" in item for item in check(self.root)))
@@ -70,6 +87,50 @@ class FeatureLayoutTests(unittest.TestCase):
         self.scaffold()
         (self.root / "crates/books/tests/service.rs").unlink()
         self.assertTrue(any("no colocated tests" in item for item in check(self.root)))
+
+    def test_new_web_page_repository_dependency_is_rejected(self):
+        self.scaffold()
+        self.put("crates/web/src/pages/new_page.rs", "use tor_books::repositories::PgCatalog;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_grouped_web_page_repository_dependency_is_rejected(self):
+        self.scaffold()
+        self.put("crates/web/src/pages/new_page.rs", "use tor_books::{domain::BookKey, repositories::PgCatalog};\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_cleaned_catalog_page_rejects_any_new_repository_dependency(self):
+        self.scaffold()
+        path = "crates/web/src/pages/public_catalog.rs"
+        self.put(path, "use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_cleaned_catalog_taxonomy_selects_rejects_repository_dependency(self):
+        self.scaffold()
+        path = "crates/web/src/pages/public_catalog/catalog_taxonomy_selects.rs"
+        self.put(path, "use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_search::repositories::catalog::TaxonomyOptions;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_author_schedule_page_uses_schema_not_repository(self):
+        self.scaffold()
+        path = "crates/web/src/author_chapter_pages.rs"
+        self.put(path, "use tor_books::schemas::ScheduledChapter;\n")
+        self.assertEqual(check(self.root), [])
+        self.put(path, "use tor_books::repositories::postgres::ScheduledChapter;\n")
+        self.assertTrue(any("web page repository coupling increased" in error for error in check(self.root)))
+
+    def test_web_router_may_wire_repository(self):
+        self.scaffold()
+        self.put("crates/web/src/router.rs", "use tor_books::repositories::PgCatalog;\n")
+        self.assertEqual(check(self.root), [])
+
+    def test_retention_does_not_start_while_building_router(self):
+        self.scaffold()
+        self.put("crates/web/src/auth.rs", "fn router_inner() { security_retention::start(accounts); }\n")
+        self.assertTrue(any("account retention must not start" in error for error in check(self.root)))
 
 
 if __name__ == "__main__":

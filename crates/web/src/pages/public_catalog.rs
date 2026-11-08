@@ -3,7 +3,7 @@ use super::{escape_html, layout, layout_with_support_widget};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::domain::seo_urls::BookUrl;
-use tor_search::repositories::catalog::TaxonomyOptions;
+use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 mod catalog_active_filters;
 mod catalog_pagination;
@@ -270,7 +270,7 @@ pub struct CatalogPageQuery<'a> {
     pub page_number: u32,
     pub sort: &'a str,
     pub total: Option<u64>,
-    pub options: Option<&'a TaxonomyOptions>,
+    pub options: Option<&'a CatalogTaxonomyView>,
 }
 
 pub fn catalog_search_with_covers(

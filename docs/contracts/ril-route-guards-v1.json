@@ -2192,6 +2192,62 @@
       "source": "crates/web/src/auth/teams.rs",
       "handler": "detail",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/{id}/invites",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "invite",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams/invites/{token}",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "invite_page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/invites/{token}/accept",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "accept",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/invites/{token}/decline",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "decline",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/teams/{id}/books",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "books_page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/{id}/books",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "add_book",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/{id}/books/{book_id}/remove",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "remove_book",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/teams/{id}/members/{member_id}/remove",
+      "source": "crates/web/src/auth/teams.rs",
+      "handler": "remove_member",
+      "policy": "session"
     }
   ]
 }
