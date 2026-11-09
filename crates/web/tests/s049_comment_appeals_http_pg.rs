@@ -302,8 +302,8 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
             &app,
             "POST",
             &appeal_path,
-            &format!("{reporter}; {appeal_cookie}"),
-            &appeal_post
+            &format!("{reporter}; {report_cookie}"),
+            &appeal_post.replace(&appeal_csrf, &report_csrf)
         )
         .await
         .status(),
@@ -371,13 +371,17 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     let admin_csrf = field(&admin_html, "csrf_token");
     let decision = format!("decision=restored&note=Second+review&csrf_token={admin_csrf}");
     let decision_path = format!("{queue}/{appeal}/decision");
+    let moderator_page = send(&app, "GET", "/me", &moderator, "").await;
+    assert_eq!(moderator_page.status(), StatusCode::OK);
+    let moderator_cookie = cookie(&moderator_page, "tor-dev-csrf=");
+    let moderator_csrf = field(&body(moderator_page).await, "csrf_token");
     assert_eq!(
         send(
             &app,
             "POST",
             &decision_path,
-            &format!("{first}; {admin_cookie}"),
-            &decision
+            &format!("{first}; {first_cookie}"),
+            &decision.replace(&admin_csrf, &first_csrf)
         )
         .await
         .status(),
@@ -389,8 +393,8 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
             &app,
             "POST",
             &decision_path,
-            &format!("{moderator}; {admin_cookie}"),
-            &decision
+            &format!("{moderator}; {moderator_cookie}"),
+            &decision.replace(&admin_csrf, &moderator_csrf)
         )
         .await
         .status(),
