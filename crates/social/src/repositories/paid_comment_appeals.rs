@@ -350,9 +350,13 @@ impl PgPaidCommentAppeals {
                 return Err(BookShareError::Conflict);
             }
             let changed = sqlx::query(
-                "UPDATE discussion_comments SET visibility='visible'
-                 WHERE id=$1 AND chapter_id=$2 AND version_id=$3
-                   AND book_id IS NULL AND visibility='hidden'",
+                "UPDATE discussion_comments AS c SET visibility='visible'
+                 WHERE c.id=$1 AND c.chapter_id=$2 AND c.version_id=$3
+                   AND c.book_id IS NULL AND c.visibility='hidden'
+                   AND (c.parent_id IS NULL OR EXISTS (
+                     SELECT 1 FROM discussion_comments parent
+                     WHERE parent.id=c.parent_id AND parent.chapter_id=$2
+                       AND parent.version_id=$3 AND parent.visibility='visible'))",
             )
             .bind(comment)
             .bind(chapter)
