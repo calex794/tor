@@ -286,7 +286,10 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
         .await
         .unwrap();
     assert_eq!(repo.totals(f.owner).await.unwrap().available_minor, 200);
-    assert_eq!(repo.recent_earnings(f.owner).await.unwrap()[0].status, "mature");
+    assert_eq!(
+        repo.recent_earnings(f.owner).await.unwrap()[0].status,
+        "mature"
+    );
 
     // A pending buyer refund holds back the *whole* original creator earning.
     let refund: i64 = sqlx::query_scalar(
@@ -310,7 +313,10 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
         ),
         (200, 200, 0)
     );
-    assert_eq!(repo.recent_earnings(f.owner).await.unwrap()[0].status, "refund_hold");
+    assert_eq!(
+        repo.recent_earnings(f.owner).await.unwrap()[0].status,
+        "refund_hold"
+    );
     let key = IdempotencyKey::parse(&format!("{}8", "S".repeat(42))).unwrap();
     assert_eq!(
         repo.reserve_once(f.owner, 120, &key).await,
