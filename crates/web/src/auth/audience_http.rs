@@ -1,4 +1,4 @@
-//! FLOW: site-administrator access to C reading and F discovery aggregates.
+//! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
 mod render;
 
@@ -18,6 +18,7 @@ use tor_reading::{repositories::audience::PgAudience, services::audience::Audien
 use tor_recommendations::{
     repositories::audience::PgDiscoveryAudience, services::audience::DiscoveryError,
 };
+use tor_traffic_behavior::{repositories::PgFlowAudience, services::audience::FlowHourlyError};
 
 #[derive(Clone)]
 struct AudienceState {
@@ -25,6 +26,7 @@ struct AudienceState {
     cookies: CookiePolicy,
     store: PgAudience,
     discovery: PgDiscoveryAudience,
+    traffic: PgFlowAudience,
 }
 
 #[derive(Default, Deserialize)]
@@ -45,6 +47,7 @@ impl AudienceQuery {
 pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let store = PgAudience::new(accounts.pool().clone());
     let discovery = PgDiscoveryAudience::new(accounts.pool().clone());
+    let traffic = PgFlowAudience::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .with_state(AudienceState {
@@ -52,6 +55,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             cookies,
             store,
             discovery,
+            traffic,
         })
 }
 
@@ -86,7 +90,7 @@ async fn page(
     headers: HeaderMap,
     query: Result<Query<AudienceQuery>, QueryRejection>,
 ) -> Response {
-    // One deadline covers fresh authorization and both independent aggregate reads.
+    // One deadline covers fresh authorization and all independent aggregate reads.
     let deadline = Instant::now() + Duration::from_millis(950);
     match timeout_at(deadline, administrator(&state, &headers)).await {
         Ok(Ok(())) => {}
@@ -101,25 +105,36 @@ async fn page(
         Ok(days) => days,
         Err(status) => return secure(status),
     };
-    let (reading, sources) = tokio::join!(
+    let hours_supported = matches!(days, 1 | 7);
+    let (reading, sources, hours) = tokio::join!(
         timeout_at(deadline, state.store.report(days)),
         timeout_at(deadline, state.discovery.report(days)),
+        async {
+            if hours_supported {
+                timeout_at(deadline, state.traffic.report(days)).await.ok()
+            } else {
+                None
+            }
+        },
     );
     if matches!(reading, Ok(Err(AudienceError::Invalid)))
         || matches!(sources, Ok(Err(DiscoveryError::Invalid)))
+        || matches!(hours, Some(Err(FlowHourlyError::Invalid)))
     {
         return secure(StatusCode::BAD_REQUEST);
     }
     let reading = reading.ok().and_then(Result::ok);
     let sources = sources.ok().and_then(Result::ok);
-    let status = if reading.is_some() && sources.is_some() {
+    let hours = hours.and_then(Result::ok);
+    let status = if reading.is_some() && sources.is_some() && (!hours_supported || hours.is_some())
+    {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
     secure((
         status,
-        render::page(days, reading.as_ref(), sources.as_ref()),
+        render::page(days, reading.as_ref(), sources.as_ref(), hours.as_ref()),
     ))
 }
 
