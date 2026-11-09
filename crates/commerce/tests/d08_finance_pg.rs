@@ -12,6 +12,7 @@ use tor_commerce::{
     repositories::{
         checkout::PgCheckout,
         creator_finance::{CreatorFinanceError, PgCreatorFinance},
+        creator_wallet_credits::{CreatorWalletCreditError, PgCreatorWalletCredits},
     },
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
@@ -163,6 +164,191 @@ async fn balance(f: &Fixture) -> i64 {
         .fetch_one(&f.pool)
         .await
         .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s038_mature_creator_credit_is_journaled_once_in_unified_wallet() {
+    let f = fixture("s038_wallet_credit").await;
+    sqlx::query(
+        "INSERT INTO finance_revenue_terms
+         (book_id,policy_version,platform_fee_bps,refund_policy_version,refund_window_seconds)
+         VALUES($1,'ci-s038-wallet-v1',2000,'ci-s038-wallet-refund-v1',1)",
+    )
+    .bind(f.book)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO finance_revenue_term_states(book_id,policy_version)
+         VALUES($1,'ci-s038-wallet-v1')",
+    )
+    .bind(f.book)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    PgCheckout::new(f.pool.clone())
+        .with_creator_posting(true)
+        .checkout_once(&buy_one(&f, f.offers[0], 'P'))
+        .await
+        .unwrap();
+
+    let credits = PgCreatorWalletCredits::new(f.pool.clone());
+    let finance = PgCreatorFinance::new(f.pool.clone());
+    assert_eq!(credits.settle_mature_once(0, 20).await, Err(CreatorWalletCreditError::Invalid));
+    assert_eq!(credits.settle_mature_once(f.owner, 21).await, Err(CreatorWalletCreditError::Invalid));
+    assert_eq!(credits.settle_mature_once(f.owner, 20).await.unwrap(), 0);
+    let before = finance.totals(f.owner).await.unwrap();
+    assert_eq!(before.wallet_balance_minor, 0);
+    assert_eq!(before.combined_balance_minor, 200);
+    assert_eq!(before.available_minor, 0);
+
+    sqlx::query("SELECT pg_sleep(1.2)").execute(&f.pool).await.unwrap();
+    let matured = finance.totals(f.owner).await.unwrap();
+    assert_eq!(matured.available_minor, 200);
+
+    // Two app replicas race for one immutable recipient credit. The wallet
+    // row and source PK serialize both physical and journal mutations.
+    let (left, right) = tokio::join!(
+        credits.settle_mature_once(f.owner, 20),
+        credits.settle_mature_once(f.owner, 20)
+    );
+    assert_eq!(left.unwrap() + right.unwrap(), 1);
+    assert_eq!(credits.settle_mature_once(f.owner, 20).await.unwrap(), 0);
+
+    let owner_balance: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(f.owner)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(owner_balance, 200);
+    let exact: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*)::BIGINT,COALESCE(SUM(c.amount_minor),0)::BIGINT,
+                COALESCE(SUM(j.delta_minor),0)::BIGINT
+         FROM finance_creator_wallet_credits c
+         JOIN reader_wallet_entries j ON j.id=c.wallet_entry_id
+         WHERE c.user_id=$1 AND j.user_id=$1 AND j.kind='creator_earning_credit'",
+    )
+    .bind(f.owner)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(exact, (1, 200, 200));
+
+    // Credit does not duplicate the old unposted earning in the finance view.
+    let after = finance.totals(f.owner).await.unwrap();
+    assert_eq!((after.wallet_balance_minor, after.combined_balance_minor), (200, 200));
+    assert_eq!((after.mature_minor, after.available_minor), (0, 200));
+    assert_eq!(finance.totals(f.buyer).await.unwrap().wallet_balance_minor, 750);
+
+    // No one can invent a stand-alone journal credit without its exact
+    // immutable creator-earning source, even with a direct SQL insert.
+    let mut forged = f.pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE reader_wallet_accounts SET balance_minor=balance_minor+1 WHERE user_id=$1",
+    )
+    .bind(f.owner)
+    .execute(&mut *forged)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_wallet_entries
+           (user_id,kind,delta_minor,balance_after_minor,reference)
+         VALUES($1,'creator_earning_credit',1,201,$2)",
+    )
+    .bind(f.owner)
+    .bind(format!("forged-s038-credit-{}", f.owner))
+    .execute(&mut *forged)
+    .await
+    .unwrap();
+    assert!(forged.commit().await.is_err(), "orphan creator credit must fail at commit");
+    assert_eq!(finance.totals(f.owner).await.unwrap().wallet_balance_minor, 200);
+    f.pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purchases() {
+    let f = fixture("s038_wallet_hold").await;
+    publish_terms(&f, "ci-s038-spend-hold-v1", 2000).await;
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',true)",
+    )
+    .bind(f.book)
+    .bind(f.buyer)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let finance = PgCreatorFinance::new(f.pool.clone());
+    let payout_key = IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap();
+    assert!(finance.reserve_once(f.buyer, 900, &payout_key).await.unwrap().created);
+    assert_eq!(finance.totals(f.buyer).await.unwrap().available_minor, 100);
+
+    let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
+    let blocked = checkout.checkout_once(&buy_one(&f, f.offers[0], 'Z')).await;
+    assert!(blocked.is_err(), "reserved wallet funds cannot buy a chapter");
+    assert_eq!(balance(&f).await, 1000);
+    let posted: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM chapter_purchase_facts WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(posted, 0, "a blocked wallet debit cannot leave a purchase");
+
+    // A trusted rejection frees the hold; the very same purchase then works.
+    let request: i64 = sqlx::query_scalar(
+        "SELECT id FROM finance_creator_payout_requests WHERE user_id=$1 AND state='pending'",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE finance_creator_payout_requests SET state='rejected',
+             decided_at=clock_timestamp(),decision_actor_id=$2,
+             decision_reason='CI hold release' WHERE id=$1",
+    )
+    .bind(request)
+    .bind(f.owner)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    checkout.checkout_once(&buy_one(&f, f.offers[0], 'Z')).await.unwrap();
+    assert_eq!(balance(&f).await, 750);
+
+    let second_key = IdempotencyKey::parse(&format!("{}8", "X".repeat(42))).unwrap();
+    assert!(finance.reserve_once(f.buyer, 700, &second_key).await.unwrap().created);
+    assert!(checkout.checkout_batch_once(&buy_batch(&f, 'V')).await.is_err());
+    assert_eq!(balance(&f).await, 750);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::BIGINT FROM chapter_purchase_facts WHERE user_id=$1",
+        )
+        .bind(f.buyer)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap(),
+        1
+    );
+
+    // One concurrent request and purchase must not each claim all 1000.
+    // The same PostgreSQL protection also covers direct wallet debit SQL,
+    // not only Rust's checkout functions.
+    let direct = sqlx::query(
+        "UPDATE reader_wallet_accounts SET balance_minor=balance_minor-100
+         WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .execute(&f.pool)
+    .await;
+    assert!(direct.is_err(), "the database enforces remaining payout reserves");
+
+    f.pool.close().await;
 }
 
 #[tokio::test]
