@@ -324,7 +324,6 @@ async fn create_chapter(
     }
     }
 }
-
 /// Prepopulate a draft editor only after resolving the active database session.
 async fn edit_chapter(
     State(state): State<AuthorChapterState>,
@@ -395,7 +394,6 @@ async fn edit_chapter(
     };
     private_response(page, &cookies)
 }
-
 /// Two tabs can open the same revision, but only one may save it.
 async fn update_chapter(
     State(state): State<AuthorChapterState>,
@@ -529,7 +527,6 @@ async fn update_chapter(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn publish_chapter(
     State(state): State<AuthorChapterState>,
     Path((id, chapter_id)): Path<(i64, i64)>,
