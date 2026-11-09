@@ -28,8 +28,7 @@ pub(super) struct ApprovalForm {
 /// conditions enforced again by PgDirectRefundApprovals::approve_once.
 pub(super) fn enabled(state: &AuthState) -> bool {
     state.paid_checkout_enabled
-        && state.refund_browser_enabled
-        && std::env::var("TOR_REFUND_APPROVAL_HTTP_ENABLED").as_deref() == Ok("1")
+        && std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref() == Ok("1")
 }
 
 pub(super) fn form(row: &AdminRefundRequest, csrf: &str) -> String {
@@ -59,6 +58,26 @@ pub(super) fn form(row: &AdminRefundRequest, csrf: &str) -> String {
            <button type="submit">Подтвердить внутренний возврат</button></form>"#,
         row.id,
         row.revision,
+        crate::pages::escape_html(csrf)
+    )
+}
+
+pub(super) fn support_form(request: i64, revision: i64, csrf: &str) -> String {
+    format!(
+        r#"<form method="post" action="/admin/finance/refunds/approve" autocomplete="off">
+        <h3>Подтверждение возврата №{request}</h3>
+        <input type="hidden" name="request_id" value="{request}">
+        <input type="hidden" name="expected_revision" value="{revision}">
+        <input type="hidden" name="csrf_token" value="{}">
+        <label>Причина решения администратора
+          <textarea name="reason" maxlength="1000" required></textarea></label>
+        <label>Текущий пароль администратора
+          <input type="password" name="current_password"
+                 autocomplete="current-password" required></label>
+        <p>Подтверждение зачислит историческую сумму во внутренний кошелёк,
+        отзовёт дальнейший доступ к выбранной главе и оставит неизменяемый
+        финансовый след. Уже выданный текст невозможно изъять у читателя.</p>
+        <button type="submit">Подтвердить возврат</button></form>"#,
         crate::pages::escape_html(csrf)
     )
 }
