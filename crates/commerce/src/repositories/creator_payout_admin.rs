@@ -31,6 +31,9 @@ pub struct PgCreatorPayoutAdmin {
     pool: PgPool,
 }
 
+mod approval_readiness;
+pub use approval_readiness::PayoutApprovalQuote;
+
 impl PgCreatorPayoutAdmin {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
