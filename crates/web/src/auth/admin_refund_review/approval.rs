@@ -31,6 +31,26 @@ pub(super) fn enabled(state: &AuthState) -> bool {
         && std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref() == Ok("1")
 }
 
+pub(super) fn support_form(request: i64, revision: i64, csrf: &str) -> String {
+    format!(
+        r#"<form method="post" action="/admin/finance/refunds/approve" autocomplete="off">
+        <h3>Подтверждение возврата №{request}</h3>
+        <input type="hidden" name="request_id" value="{request}">
+        <input type="hidden" name="expected_revision" value="{revision}">
+        <input type="hidden" name="csrf_token" value="{}">
+        <label>Причина решения администратора
+          <textarea name="reason" maxlength="1000" required></textarea></label>
+        <label>Текущий пароль администратора
+          <input type="password" name="current_password"
+                 autocomplete="current-password" required></label>
+        <p>Подтверждение зачислит историческую сумму во внутренний кошелёк
+        и отзовёт дальнейший доступ к выбранной главе. Уже выданный текст
+        невозможно изъять у пользователя.</p>
+        <button type="submit">Подтвердить возврат</button></form>"#,
+        crate::pages::escape_html(csrf)
+    )
+}
+
 fn positive(raw: &str) -> Option<i64> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|c| c.is_ascii_digit()) {
         return None;
