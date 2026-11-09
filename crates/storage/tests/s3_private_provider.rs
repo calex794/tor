@@ -227,7 +227,6 @@ fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
     }
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable loopback MinIO from storage-s3.yml"]
 async fn s349_free_markdown_s3_immutable_get_verified_and_private_url() {
@@ -238,8 +237,7 @@ async fn s349_free_markdown_s3_immutable_get_verified_and_private_url() {
 
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("MinIO URL");
     assert!(
-        endpoint.starts_with("http://127.0.0.1:")
-            || endpoint.starts_with("http://localhost:"),
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
         "never test against production S3"
     );
     let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test access");
