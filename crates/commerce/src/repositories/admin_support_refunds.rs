@@ -110,7 +110,11 @@ impl PgSupportRefunds {
         }
         let requested_id = query.parse::<i64>().ok().filter(|id| *id > 0);
         let handle = query.trim_start_matches('@');
-        let mut tx = self.pool.begin().await.map_err(|_| SupportRefundError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
         let admin = Self::administrator(&mut tx, digest).await?;
         let rows = sqlx::query(
             "SELECT u.id,u.display_name,s.handle
@@ -134,14 +138,22 @@ impl PgSupportRefunds {
             .into_iter()
             .map(|r| {
                 Ok(RefundUser {
-                    id: r.try_get("id").map_err(|_| SupportRefundError::Unavailable)?,
-                    name: r.try_get("display_name").map_err(|_| SupportRefundError::Unavailable)?,
-                    handle: r.try_get("handle").map_err(|_| SupportRefundError::Unavailable)?,
+                    id: r
+                        .try_get("id")
+                        .map_err(|_| SupportRefundError::Unavailable)?,
+                    name: r
+                        .try_get("display_name")
+                        .map_err(|_| SupportRefundError::Unavailable)?,
+                    handle: r
+                        .try_get("handle")
+                        .map_err(|_| SupportRefundError::Unavailable)?,
                 })
             })
             .collect::<Result<_, SupportRefundError>>()?;
         Self::audit(&mut tx, admin, "search_users", None, users.len()).await?;
-        tx.commit().await.map_err(|_| SupportRefundError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
         Ok(users)
     }
 
@@ -154,7 +166,11 @@ impl PgSupportRefunds {
         if user_id <= 0 || before.is_some_and(|v| v <= 0) {
             return Err(SupportRefundError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| SupportRefundError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
         let admin = Self::administrator(&mut tx, digest).await?;
         let user = sqlx::query(
             "SELECT u.id,u.display_name,s.handle,
@@ -206,35 +222,78 @@ impl PgSupportRefunds {
                 .into_iter()
                 .map(|r| {
                     Ok(RefundPurchase {
-                        id: r.try_get("id").map_err(|_| SupportRefundError::Unavailable)?,
-                        book: r.try_get("book").map_err(|_| SupportRefundError::Unavailable)?,
-                        chapter: r.try_get("chapter").map_err(|_| SupportRefundError::Unavailable)?,
-                        amount_minor: r.try_get("amount_minor").map_err(|_| SupportRefundError::Unavailable)?,
-                        acquired: r.try_get("acquired").map_err(|_| SupportRefundError::Unavailable)?,
-                        batch_position: r.try_get("batch_position").map_err(|_| SupportRefundError::Unavailable)?,
-                        first_exposed: r.try_get("first_exposed").map_err(|_| SupportRefundError::Unavailable)?,
-                        revoked: r.try_get("revoked").map_err(|_| SupportRefundError::Unavailable)?,
-                        request_id: r.try_get("request_id").map_err(|_| SupportRefundError::Unavailable)?,
-                        request_state: r.try_get("request_state").map_err(|_| SupportRefundError::Unavailable)?,
-                        request_revision: r.try_get("request_revision").map_err(|_| SupportRefundError::Unavailable)?,
-                        support_intent: r.try_get("support_intent").map_err(|_| SupportRefundError::Unavailable)?,
+                        id: r
+                            .try_get("id")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        book: r
+                            .try_get("book")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        chapter: r
+                            .try_get("chapter")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        amount_minor: r
+                            .try_get("amount_minor")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        acquired: r
+                            .try_get("acquired")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        batch_position: r
+                            .try_get("batch_position")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        first_exposed: r
+                            .try_get("first_exposed")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        revoked: r
+                            .try_get("revoked")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        request_id: r
+                            .try_get("request_id")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        request_state: r
+                            .try_get("request_state")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        request_revision: r
+                            .try_get("request_revision")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        support_intent: r
+                            .try_get("support_intent")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
                     })
                 })
                 .collect::<Result<_, SupportRefundError>>()?;
         }
-        Self::audit(&mut tx, admin, "view_purchases", Some(user_id), purchases.len()).await?;
-        tx.commit().await.map_err(|_| SupportRefundError::Unavailable)?;
-        let detail = user.map(|r| {
-            Ok(RefundUserDetail {
-                user: RefundUser {
-                    id: r.try_get("id").map_err(|_| SupportRefundError::Unavailable)?,
-                    name: r.try_get("display_name").map_err(|_| SupportRefundError::Unavailable)?,
-                    handle: r.try_get("handle").map_err(|_| SupportRefundError::Unavailable)?,
-                },
-                support_conversation_id: r.try_get("support_id").map_err(|_| SupportRefundError::Unavailable)?,
-                purchases,
+        Self::audit(
+            &mut tx,
+            admin,
+            "view_purchases",
+            Some(user_id),
+            purchases.len(),
+        )
+        .await?;
+        tx.commit()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
+        let detail = user
+            .map(|r| {
+                Ok(RefundUserDetail {
+                    user: RefundUser {
+                        id: r
+                            .try_get("id")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        name: r
+                            .try_get("display_name")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                        handle: r
+                            .try_get("handle")
+                            .map_err(|_| SupportRefundError::Unavailable)?,
+                    },
+                    support_conversation_id: r
+                        .try_get("support_id")
+                        .map_err(|_| SupportRefundError::Unavailable)?,
+                    purchases,
+                })
             })
-        }).transpose()?;
+            .transpose()?;
         Ok(detail)
     }
 
@@ -250,14 +309,23 @@ impl PgSupportRefunds {
         reason: &str,
     ) -> Result<i64, SupportRefundError> {
         let reason = reason.trim();
-        if buyer <= 0 || purchase_id <= 0 || conversation_id <= 0
-            || reason.is_empty() || reason.chars().count() > 1000
+        if buyer <= 0
+            || purchase_id <= 0
+            || conversation_id <= 0
+            || reason.is_empty()
+            || reason.chars().count() > 1000
             || command_key.len() != 43
-            || !command_key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || !command_key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
             return Err(SupportRefundError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| SupportRefundError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
         let admin = Self::administrator(&mut tx, digest).await?;
         let owner: Option<i64> = sqlx::query_scalar(
             "SELECT p.user_id FROM chapter_purchase_facts p
@@ -317,17 +385,26 @@ impl PgSupportRefunds {
         .await
         .map_err(|_| SupportRefundError::Unavailable)?;
         if let Some(q) = existing {
-            let author: Option<i64> = q.try_get("admin_user_id").map_err(|_| SupportRefundError::Unavailable)?;
-            let case: Option<i64> = q.try_get("support_conversation_id").map_err(|_| SupportRefundError::Unavailable)?;
-            let old_reason: String = q.try_get("reason").map_err(|_| SupportRefundError::Unavailable)?;
+            let author: Option<i64> = q
+                .try_get("admin_user_id")
+                .map_err(|_| SupportRefundError::Unavailable)?;
+            let case: Option<i64> = q
+                .try_get("support_conversation_id")
+                .map_err(|_| SupportRefundError::Unavailable)?;
+            let old_reason: String = q
+                .try_get("reason")
+                .map_err(|_| SupportRefundError::Unavailable)?;
             if author == Some(admin) && case == Some(conversation_id) && old_reason == reason {
                 return q.try_get("id").map_err(|_| SupportRefundError::Unavailable);
             }
             return Err(SupportRefundError::Conflict);
         }
-        let digest_value = Sha256::digest(format!(
-            "s036.admin.support.v1:{admin}:{buyer}:{purchase_id}:{conversation_id}:{reason}"
-        ).as_bytes());
+        let digest_value = Sha256::digest(
+            format!(
+                "s036.admin.support.v1:{admin}:{buyer}:{purchase_id}:{conversation_id}:{reason}"
+            )
+            .as_bytes(),
+        );
         let request_id: i64 = sqlx::query_scalar(
             "INSERT INTO finance_direct_refund_requests
              (purchase_id,user_id,request_key,request_digest,reason)
@@ -369,7 +446,9 @@ impl PgSupportRefunds {
         .execute(&mut *tx)
         .await
         .map_err(|_| SupportRefundError::Unavailable)?;
-        tx.commit().await.map_err(|_| SupportRefundError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| SupportRefundError::Unavailable)?;
         Ok(request_id)
     }
 }
