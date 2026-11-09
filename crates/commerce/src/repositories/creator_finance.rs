@@ -35,6 +35,25 @@ pub struct CreatorPayoutRequest {
     pub created_utc: String,
 }
 
+/// Read-only details of a creator's own immutable purchase-origin earning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatorEarningLine {
+    pub purchase_id: i64,
+    pub amount_minor: i64,
+    pub share_percent: i16,
+    pub reversed_minor: i64,
+    pub status: String,
+    pub earned_utc: String,
+}
+
+/// One append-only reversal of an earning originally belonging to this actor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatorRefundLine {
+    pub purchase_id: i64,
+    pub amount_minor: i64,
+    pub reversed_utc: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayoutReservationReceipt {
     pub id: i64,
@@ -152,6 +171,88 @@ impl PgCreatorFinance {
                     created_utc,
                 },
             )
+            .collect())
+    }
+
+    /// NEwBOO finance parity: per-purchase earning history, not only totals.
+    /// Returning a source purchase identifier does not disclose the buyer,
+    /// book text or another collaborator's earning share.
+    pub async fn recent_earnings(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<CreatorEarningLine>, CreatorFinanceError> {
+        if user_id <= 0 {
+            return Err(CreatorFinanceError::Invalid);
+        }
+        let rows: Vec<(i64, i64, i16, i64, String, String)> = sqlx::query_as(
+            "SELECT e.purchase_id,e.amount_minor,e.share_percent,
+                    COALESCE(r.amount_minor,0)::BIGINT,
+                    CASE WHEN r.purchase_id IS NOT NULL THEN 'reversed'
+                         WHEN EXISTS (
+                           SELECT 1 FROM finance_direct_refund_requests q
+                           WHERE q.purchase_id=e.purchase_id
+                             AND q.state IN ('pending','processing')
+                         ) THEN 'refund_hold'
+                         WHEN e.clear_at>clock_timestamp() THEN 'immature'
+                         ELSE 'mature' END,
+                    to_char(e.created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI')
+             FROM finance_creator_earnings e
+             LEFT JOIN finance_direct_refund_creator_reversals r
+               ON r.purchase_id=e.purchase_id AND r.user_id=e.user_id
+             WHERE e.user_id=$1 AND e.origin_type='chapter_purchase'
+             ORDER BY e.created_at DESC,e.purchase_id DESC LIMIT 50",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| CreatorFinanceError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(purchase_id, amount_minor, share_percent, reversed_minor, status, earned_utc)| {
+                    CreatorEarningLine {
+                        purchase_id,
+                        amount_minor,
+                        share_percent,
+                        reversed_minor,
+                        status,
+                        earned_utc,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// Historical refunds remain visible after team/owner changes.
+    /// Query is scoped to the actual earning's recipient, not buyer or
+    /// current book membership; no buyer identity is selected.
+    pub async fn recent_refunds(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<CreatorRefundLine>, CreatorFinanceError> {
+        if user_id <= 0 {
+            return Err(CreatorFinanceError::Invalid);
+        }
+        let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+            "SELECT r.purchase_id,r.amount_minor,
+                    to_char(r.created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI')
+             FROM finance_direct_refund_creator_reversals r
+             JOIN finance_creator_earnings e
+               ON e.purchase_id=r.purchase_id AND e.user_id=r.user_id
+             WHERE r.user_id=$1
+             ORDER BY r.created_at DESC,r.purchase_id DESC LIMIT 50",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| CreatorFinanceError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(purchase_id, amount_minor, reversed_utc)| CreatorRefundLine {
+                purchase_id,
+                amount_minor,
+                reversed_utc,
+            })
             .collect())
     }
 
