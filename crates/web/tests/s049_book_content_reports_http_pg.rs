@@ -602,7 +602,10 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     // leaving the pending queue, with no Book title or comment body disclosure.
     let history_response = send(&app, "GET", admin_path, &admin_cookies, "").await;
     assert_eq!(history_response.status(), StatusCode::OK);
-    assert_eq!(history_response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
     let history_html = html(history_response).await;
     assert!(history_html.contains("История решений"));
     assert!(history_html.contains(&format!("Решение по жалобе #{report}")));
@@ -644,7 +647,9 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
          WHERE user_id={admin_id} AND role='administrator'"
     ));
     assert_eq!(
-        send(&app, "GET", admin_path, &admin_cookies, "").await.status(),
+        send(&app, "GET", admin_path, &admin_cookies, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
         "revoked administrator cannot read immutable review history"
     );

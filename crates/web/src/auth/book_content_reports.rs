@@ -163,7 +163,10 @@ pub(super) async fn queue(
         Ok(reports) => reports,
         Err(error) => return deny(status(error)),
     };
-    let history = match store(&s).review_history(&digest, query.history_before, 25).await {
+    let history = match store(&s)
+        .review_history(&digest, query.history_before, 25)
+        .await
+    {
         Ok(history) => history,
         Err(error) => return deny(status(error)),
     };
