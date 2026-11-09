@@ -473,6 +473,10 @@ async fn update_chapter(
             ),
         };
     }
+    // Free-edition edits must not silently fall back to storing Markdown in PG.
+    if cfg!(feature = "s3-free") {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
     let input = match save_chapter(SaveChapterRequest {
         book_id: book,
         chapter_id: Some(chapter),
@@ -544,6 +548,10 @@ async fn publish_chapter(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    // S349 does not permit body_markdown-dependent pending releases.
+    if cfg!(feature = "s3-free") {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
     match state
         .authoring
         .release_pending_free_chapter(
