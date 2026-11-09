@@ -127,11 +127,11 @@ pub(super) async fn check(
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        decision(app, report, &admin_cookie, &csrf, ORIGIN, "hide_comment")
+        decision(app, report, &admin_cookie, &csrf, ORIGIN, "remove_chapter")
             .await
             .status(),
         StatusCode::BAD_REQUEST,
-        "no paid comment hiding without separate sanctions and appeal policy"
+        "explicit paid comment hide is reserved for the second complaint"
     );
     let accept = decision(app, report, &admin_cookie, &csrf, ORIGIN, "reviewed").await;
     assert_eq!(accept.status(), StatusCode::SEE_OTHER);
@@ -196,6 +196,67 @@ pub(super) async fn check(
     assert!(body.contains(&format!("Решение по жалобе #{report}")));
     assert!(!body.contains(BODY));
 
+    // A second report for the same exact E comment requires a different
+    // command key and an explicit, auditable administrator hide decision.
+    let second = scalar(
+        url,
+        &format!(
+            "INSERT INTO social_paid_comment_reports
+             (chapter_id,version_id,comment_id,reporter_user_id,reason,details,command_key)
+             SELECT chapter_id,version_id,comment_id,reporter_user_id,
+                    'spam','Second complaint','{}'
+             FROM social_paid_comment_reports WHERE id={report} RETURNING id",
+            "X".repeat(43)
+        ),
+    );
+    assert_eq!(
+        decision(app, second, &moderator_cookie, &csrf, ORIGIN, "hide_comment")
+            .await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        decision(app, second, &admin_cookie, &csrf, ORIGIN, "hide_comment")
+            .await.status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(url, &format!(
+            "SELECT visibility FROM discussion_comments WHERE id={comment}"
+        )),
+        "hidden",
+        "manual sanction hides the precise E comment"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM social_paid_comment_review_events
+                 WHERE report_id={second} AND reviewer_user_id={admin}
+                   AND decision='reviewed' AND moderation_action='hide_paid_comment'"
+            ),
+        ),
+        1,
+        "hide and its immutable audit event are one transaction"
+    );
+    assert_eq!(
+        decision(app, second, &admin_cookie, &csrf, ORIGIN, "hide_comment")
+            .await.status(),
+        StatusCode::CONFLICT
+    );
+    let hidden_history = read_page(app, path, Some(&admin_cookie)).await;
+    let history_body = String::from_utf8(
+        to_bytes(hidden_history.into_body(), 256 * 1024)
+            .await.unwrap().to_vec()
+    ).unwrap();
+    assert!(history_body.contains("hide_paid_comment"));
+    assert!(!history_body.contains(BODY));
+    rejected_pg(
+        url,
+        &format!(
+            "UPDATE social_paid_comment_review_events
+             SET moderation_action='none' WHERE report_id={second}"
+        ),
+    );
     pg(
         url,
         &format!(
