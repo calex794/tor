@@ -15,7 +15,10 @@ async fn decision(
         .method("POST")
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .header(header::ORIGIN, origin)
-        .header(header::COOKIE, format!("tor-dev-session={session}; tor-dev-csrf={csrf}"))
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+        )
         .body(Body::from(form))
         .unwrap();
     app.clone().oneshot(req).await.unwrap()
@@ -24,10 +27,22 @@ async fn decision(
 fn rejected_pg(url: &str, query: &str) {
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));
     let result = Command::new("psql")
-        .args(["-X","-q","-v","ON_ERROR_STOP=1","--dbname",url,"--command",query])
+        .args([
+            "-X",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
+        ])
         .output()
         .unwrap();
-    assert!(!result.status.success(), "immutable decision must reject updates");
+    assert!(
+        !result.status.success(),
+        "immutable decision must reject updates"
+    );
 }
 
 pub(super) async fn check(
@@ -37,15 +52,17 @@ pub(super) async fn check(
     buyer: i64,
     chapter: i64,
 ) {
-    let (admin, admin_cookie) =
-        account(accounts, "s049-paid-comment-admin@tor-ci.example").await;
+    let (admin, admin_cookie) = account(accounts, "s049-paid-comment-admin@tor-ci.example").await;
     let (moderator, moderator_cookie) =
         account(accounts, "s049-paid-comment-moderator@tor-ci.example").await;
-    pg(url, &format!(
-        "INSERT INTO account_roles(user_id,role,is_active)
+    pg(
+        url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
          VALUES({admin},'administrator',TRUE),({moderator},'moderator',TRUE)
          ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
-    ));
+        ),
+    );
     let report = scalar(
         url,
         &format!(
@@ -64,7 +81,10 @@ pub(super) async fn check(
     );
 
     let path = "/admin/paid-comment-reports";
-    assert_eq!(read_page(app, path, None).await.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        read_page(app, path, None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
     assert_eq!(
         read_page(app, path, Some(&moderator_cookie)).await.status(),
         StatusCode::FORBIDDEN,
@@ -74,8 +94,12 @@ pub(super) async fn check(
     assert_eq!(pending.status(), StatusCode::OK);
     assert_eq!(pending.headers()[header::CACHE_CONTROL], "no-store");
     let html = String::from_utf8(
-        to_bytes(pending.into_body(), 256 * 1024).await.unwrap().to_vec()
-    ).unwrap();
+        to_bytes(pending.into_body(), 256 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains(&format!("Жалоба #{report}")));
     assert!(html.contains("S049 paid private comment"));
     assert!(!html.contains(BODY));
@@ -85,48 +109,71 @@ pub(super) async fn check(
 
     assert_eq!(
         decision(app, report, &moderator_cookie, &csrf, ORIGIN, "reviewed")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        decision(app, report, &admin_cookie, &csrf, "https://bad.invalid", "reviewed")
-            .await.status(),
+        decision(
+            app,
+            report,
+            &admin_cookie,
+            &csrf,
+            "https://bad.invalid",
+            "reviewed"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         decision(app, report, &admin_cookie, &csrf, ORIGIN, "hide_comment")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::BAD_REQUEST,
         "no paid comment hiding without separate sanctions and appeal policy"
     );
     let accept = decision(app, report, &admin_cookie, &csrf, ORIGIN, "reviewed").await;
     assert_eq!(accept.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        scalar(url, &format!(
-            "SELECT count(*) FROM social_paid_comment_review_events
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM social_paid_comment_review_events
              WHERE report_id={report} AND reviewer_user_id={admin}
                AND decision='reviewed'"
-        )),
+            )
+        ),
         1
     );
     assert_eq!(
-        pg(url, &format!("SELECT state FROM social_paid_comment_reports WHERE id={report}")),
+        pg(
+            url,
+            &format!("SELECT state FROM social_paid_comment_reports WHERE id={report}")
+        ),
         "reviewed"
     );
     assert_eq!(
-        pg(url, &format!("SELECT visibility FROM discussion_comments WHERE id={comment}")),
+        pg(
+            url,
+            &format!("SELECT visibility FROM discussion_comments WHERE id={comment}")
+        ),
         "visible",
         "review never hides an edition comment automatically"
     );
     assert_eq!(
         decision(app, report, &admin_cookie, &csrf, ORIGIN, "dismissed")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::CONFLICT
     );
     assert_eq!(
-        scalar(url, &format!(
-            "SELECT count(*) FROM social_paid_comment_review_events WHERE report_id={report}"
-        )),
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM social_paid_comment_review_events WHERE report_id={report}"
+            )
+        ),
         1,
         "a decided report has exactly one immutable decision"
     );
@@ -140,22 +187,32 @@ pub(super) async fn check(
     let history = read_page(app, path, Some(&admin_cookie)).await;
     assert_eq!(history.status(), StatusCode::OK);
     let body = String::from_utf8(
-        to_bytes(history.into_body(), 256 * 1024).await.unwrap().to_vec()
-    ).unwrap();
+        to_bytes(history.into_body(), 256 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(body.contains(&format!("Решение по жалобе #{report}")));
     assert!(!body.contains(BODY));
 
-    pg(url, &format!(
-        "UPDATE account_roles SET is_active=FALSE WHERE user_id={admin}
+    pg(
+        url,
+        &format!(
+            "UPDATE account_roles SET is_active=FALSE WHERE user_id={admin}
          AND role='administrator'"
-    ));
+        ),
+    );
     assert_eq!(
         read_page(app, path, Some(&admin_cookie)).await.status(),
         StatusCode::FORBIDDEN,
         "revoked administrator loses paid-comment complaint history immediately"
     );
-    pg(url, &format!(
-        "UPDATE account_roles SET is_active=FALSE WHERE user_id={moderator}
+    pg(
+        url,
+        &format!(
+            "UPDATE account_roles SET is_active=FALSE WHERE user_id={moderator}
          AND role='moderator'"
-    ));
+        ),
+    );
 }

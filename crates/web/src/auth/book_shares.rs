@@ -87,7 +87,10 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             "/me/comment-appeals/{hide_event_id}",
             post(comment_appeals::submit),
         )
-        .route("/admin/paid-comment-reports", get(paid_comment_reviews::queue))
+        .route(
+            "/admin/paid-comment-reports",
+            get(paid_comment_reviews::queue),
+        )
         .route(
             "/admin/paid-comment-reports/{report_id}/decision",
             post(paid_comment_reviews::decide),
