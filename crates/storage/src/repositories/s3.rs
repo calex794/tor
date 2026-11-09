@@ -249,3 +249,46 @@ impl OrphanDeletePort for S3PrivateStore {
 
 #[cfg(test)]
 mod tests;
+
+#[async_trait]
+impl crate::services::inventory::InventoryLister for S3PrivateStore {
+    async fn list_page(
+        &self,
+        prefix: crate::services::inventory::InventoryPrefix,
+        token: Option<&str>,
+    ) -> Result<crate::services::inventory::InventoryPage, crate::services::inventory::InventoryError> {
+        use crate::services::inventory::{InventoryError, InventoryPage};
+
+        if token.is_some_and(str::is_empty) {
+            return Err(InventoryError::Invalid);
+        }
+        let response = self
+            .client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(prefix.as_str())
+            .max_keys(1000)
+            .set_continuation_token(token.map(str::to_owned))
+            .send()
+            .await
+            .map_err(|_| InventoryError::Unavailable)?;
+        let truncated = response.is_truncated().ok_or(InventoryError::Unavailable)?;
+        let keys = response
+            .contents()
+            .iter()
+            .map(|item| item.key().map(str::to_owned).ok_or(InventoryError::Invalid))
+            .collect::<Result<Vec<_>, _>>()?;
+        let page = InventoryPage {
+            keys,
+            truncated,
+            next_token: response.next_continuation_token().map(str::to_owned),
+        };
+        page.validate(&crate::services::inventory::InventoryLease {
+            prefix,
+            epoch: 1,
+            cycle: 1,
+            continuation_token: token.map(str::to_owned),
+        })?;
+        Ok(page)
+    }
+}
