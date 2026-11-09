@@ -18,9 +18,9 @@ use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_support_refunds::{
     PgSupportRefunds, RefundPurchase, SupportRefundError,
 };
-use tor_commerce::repositories::refund_admin_review::{
-    AdminRefundRequest, PgRefundAdminReview, RefundAdminViewError,
-};
+#[cfg(test)]
+use tor_commerce::repositories::refund_admin_review::AdminRefundRequest;
+use tor_commerce::repositories::refund_admin_review::{PgRefundAdminReview, RefundAdminViewError};
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,6 +43,7 @@ pub(super) fn router() -> Router<AuthState> {
         )
 }
 
+#[cfg(test)]
 fn status(state: &str) -> &'static str {
     match state {
         "pending" => "Ожидает решения",
@@ -53,6 +54,7 @@ fn status(state: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn render_request(row: &AdminRefundRequest) -> String {
     let policy = row.policy_version.as_deref().unwrap_or("Не зафиксирована");
     let deadline = row.deadline_utc.as_deref().unwrap_or("Не зафиксирован");
