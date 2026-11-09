@@ -8,6 +8,7 @@ pub mod book_shares;
 mod chapter_notifications;
 pub mod collection_feedback;
 pub mod creator_follows;
+pub mod free_comment_appeals;
 pub mod free_comment_reports;
 pub mod free_comment_reviews;
 pub mod friendships;
