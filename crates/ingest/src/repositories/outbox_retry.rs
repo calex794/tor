@@ -201,7 +201,10 @@ mod tests {
         }
         assert!(!supported_retry_event(
             "ChapterPublished",
-            &["chapter_release_fanout_v1".to_string(), "external_mail".to_string()]
+            &[
+                "chapter_release_fanout_v1".to_string(),
+                "external_mail".to_string()
+            ]
         ));
     }
 
