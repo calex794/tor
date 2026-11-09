@@ -90,8 +90,7 @@ impl PgOutboxAdminRetry {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AdminRetryError::Unavailable)?;
-        let Some((delivered, dead, active_lease, previous_attempts, previous_epoch)) = event
-        else {
+        let Some((delivered, dead, active_lease, previous_attempts, previous_epoch)) = event else {
             return Err(AdminRetryError::NotFound);
         };
         if delivered || !dead || active_lease {

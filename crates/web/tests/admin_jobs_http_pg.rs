@@ -23,8 +23,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("disposable PostgreSQL fixture requires psql");
@@ -131,12 +139,15 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
 
     // No session and ordinary members never receive operator rights.
     assert_eq!(
-        request(&app, &event_id, None, &csrf, Some(&csrf), ORIGIN).await.0,
+        request(&app, &event_id, None, &csrf, Some(&csrf), ORIGIN)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
         request(&app, &event_id, Some(&session), &csrf, Some(&csrf), ORIGIN)
-            .await.0,
+            .await
+            .0,
         StatusCode::FORBIDDEN
     );
     pg(
@@ -148,22 +159,39 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     // Credential alone is insufficient: token and same-origin are mandatory.
     assert_eq!(
-        request(&app, &event_id, Some(&session), &csrf, None, ORIGIN).await.0,
+        request(&app, &event_id, Some(&session), &csrf, None, ORIGIN)
+            .await
+            .0,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, &event_id, Some(&session), &csrf, Some(&csrf), "https://evil.invalid")
-            .await.0,
+        request(
+            &app,
+            &event_id,
+            Some(&session),
+            &csrf,
+            Some(&csrf),
+            "https://evil.invalid"
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "not-a-uuid", Some(&session), &csrf, Some(&csrf), ORIGIN)
-            .await.0,
+        request(
+            &app,
+            "not-a-uuid",
+            Some(&session),
+            &csrf,
+            Some(&csrf),
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::BAD_REQUEST
     );
 
-    let (status, body) =
-        request(&app, &event_id, Some(&session), &csrf, Some(&csrf), ORIGIN).await;
+    let (status, body) = request(&app, &event_id, Some(&session), &csrf, Some(&csrf), ORIGIN).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert!(body.contains("\"status\":\"queued\""));
     assert!(body.contains("\"previous_attempts\":12"));
@@ -188,7 +216,8 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     assert_eq!(
         request(&app, &event_id, Some(&session), &csrf, Some(&csrf), ORIGIN)
-            .await.0,
+            .await
+            .0,
         StatusCode::CONFLICT,
         "a second request must not schedule duplicate work"
     );
@@ -196,8 +225,22 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     // Two simultaneous operator requests race on the same event row.
     let concurrent = dead_event(&url, &format!("g-admin-concurrent-{nonce}"));
     let (first, second) = tokio::join!(
-        request(&app, &concurrent, Some(&session), &csrf, Some(&csrf), ORIGIN),
-        request(&app, &concurrent, Some(&session), &csrf, Some(&csrf), ORIGIN)
+        request(
+            &app,
+            &concurrent,
+            Some(&session),
+            &csrf,
+            Some(&csrf),
+            ORIGIN
+        ),
+        request(
+            &app,
+            &concurrent,
+            Some(&session),
+            &csrf,
+            Some(&csrf),
+            ORIGIN
+        )
     );
     let statuses = [first.0, second.0];
     assert!(statuses.contains(&StatusCode::ACCEPTED));
@@ -213,7 +256,8 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     assert_eq!(
         request(&app, &active, Some(&session), &csrf, Some(&csrf), ORIGIN)
-            .await.0,
+            .await
+            .0,
         StatusCode::CONFLICT,
         "a live lease cannot be stolen by an administrator"
     );
@@ -228,14 +272,17 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     assert_eq!(
         request(&app, &revoked, Some(&session), &csrf, Some(&csrf), ORIGIN)
-            .await.0,
+            .await
+            .0,
         StatusCode::FORBIDDEN,
         "role revocation must be checked on every request"
     );
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT (dead_at IS NOT NULL)::text FROM outbox_events WHERE id='{revoked}'::uuid"),
+            &format!(
+                "SELECT (dead_at IS NOT NULL)::text FROM outbox_events WHERE id='{revoked}'::uuid"
+            ),
         ),
         "true"
     );
@@ -243,7 +290,9 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"),
+            &format!(
+                "SELECT count(*) FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"
+            ),
         ),
         "1",
         "one successful retry must have exactly one append-only audit row"

@@ -2451,6 +2451,13 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "content_reports::decide",
       "policy": "admin_book_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/admin/jobs/{id}/retry",
+      "source": "crates/web/src/auth/admin_jobs.rs",
+      "handler": "retry",
+      "policy": "admin_outbox_retry"
     }
   ]
 }

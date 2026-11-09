@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -376,6 +376,32 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             audited_admin or audited_support or audited_refund or approved_refund
             or audited_s049 or audited_s049_book_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_outbox_retry":
+        # G-07: requeue is authorized by the locked, live role in the SAME
+        # PostgreSQL transaction as the event mutation and append-only audit.
+        repo = _production((ROOT / "crates/ingest/src/repositories/outbox_retry.rs")
+                           .read_text(encoding="utf-8"))
+        authorized_route = (
+            entry["source"] == "crates/web/src/auth/admin_jobs.rs"
+            and admin_key == ("POST", "/api/v1/admin/jobs/{id}/retry", "retry")
+        )
+        handler_guard = all(token in evidence for token in (
+            "session_actor(&digest)", "!actor.administrator",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers, csrf)",
+            ".retry_dead_letter(&digest, &event_id)",
+            "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
+        ))
+        persistence_guard = all(token in repo for token in (
+            "FOR SHARE OF s,u,r", "u.account_state='active'",
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "FOR UPDATE",
+            "dead_at IS NOT NULL", "lease_epoch=lease_epoch+1",
+            "INSERT INTO g_outbox_admin_retry_audit",
+            "tx.commit()", "NotRetryable",
+        ))
+        if not (authorized_route and handler_guard and persistence_guard):
+            errors.append(f"{label}: G-07 retry lacks live administrator, CSRF, fencing or audit")
     if policy == "admin_book_reports":
         repo = _production((ROOT / "crates/social/src/repositories/book_content_reports.rs")
                            .read_text(encoding="utf-8"))
