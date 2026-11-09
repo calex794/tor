@@ -201,7 +201,7 @@ impl PgCreatorFinance {
         .await
         .map_err(|_| CreatorFinanceError::Unavailable)?;
         if let Some((id, old_amount, old_digest)) = prior {
-            if old_amount != amount_minor || old_digest != digest.as_slice() {
+            if old_amount != amount_minor || old_digest.as_slice() != digest.as_slice() {
                 return Err(CreatorFinanceError::Conflict);
             }
             tx.commit()
