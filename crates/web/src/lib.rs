@@ -62,6 +62,10 @@ pub mod paid_author_publish;
 pub mod free_author_publish;
 #[cfg(feature = "s3-free")]
 pub mod free_reader_http;
+#[cfg(feature = "s3-free")]
+mod free_s3_router;
+#[cfg(feature = "s3-free")]
+pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
@@ -437,35 +441,6 @@ pub fn router_with_postgres_reading_auth(
         public_origin,
         None,
         false,
-    )
-}
-
-/// S349: full free-author save is enabled only with a real private S3 writer.
-#[cfg(feature = "s3-free")]
-pub fn router_with_postgres_reading_auth_free_s3(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    origin: (bool, String),
-    covers: Option<(
-        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-        bool,
-    )>,
-    free: crate::free_author_publish::PgFreeAuthorPublisher<
-        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
-    >,
-) -> Router {
-    let (objects, upload) = match covers {
-        Some((store, enabled)) => (Some(store), enabled),
-        None => (None, false),
-    };
-    admin_reader_router::authenticated_postgres_reader_with_free_s3(
-        catalog,
-        reader,
-        accounts,
-        origin,
-        (objects, upload),
-        Arc::new(free),
     )
 }
 
