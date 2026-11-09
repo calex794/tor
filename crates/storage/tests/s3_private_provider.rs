@@ -226,3 +226,77 @@ fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
         ));
     }
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO from storage-s3.yml"]
+async fn s349_free_markdown_s3_immutable_get_verified_and_private_url() {
+    use tor_storage::{
+        repositories::free_chapter_s3::S3FreeChapterStore,
+        services::free_chapter::{upload_and_verify, FreeChapterObject, FreeChapterStore},
+    };
+
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:")
+            || endpoint.starts_with("http://localhost:"),
+        "never test against production S3"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test access");
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").expect("test secret");
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(Credentials::new(access, secret, None, None, "free-ci"))
+        .endpoint_url(&endpoint)
+        .force_path_style(true)
+        .retry_config(RetryConfig::standard().with_max_attempts(1))
+        .build();
+    let client = Client::from_conf(config);
+    const FREE_BUCKET: &str = "tor-free-chapter-ci";
+    client
+        .create_bucket()
+        .bucket(FREE_BUCKET)
+        .send()
+        .await
+        .expect("create disposable private bucket");
+    let store = S3FreeChapterStore::new(client.clone(), FREE_BUCKET.to_owned()).unwrap();
+    let markdown = "# Текст главы\n\nСтраница с эмодзи 😀";
+    let object = FreeChapterObject::for_markdown(701, 801, markdown).unwrap();
+    assert!(upload_and_verify(&store, &object, markdown).await.is_ok());
+    assert!(upload_and_verify(&store, &object, markdown).await.is_ok());
+    assert_eq!(
+        store.get_verified(&object).await.unwrap(),
+        markdown.as_bytes()
+    );
+    assert_eq!(
+        curl_status(&format!("{endpoint}/{FREE_BUCKET}/{}", object.key())),
+        "403",
+        "private draft cannot be fetched anonymously"
+    );
+
+    // Forged metadata does not authorize a different edition body.
+    let altered = FreeChapterObject::for_markdown(701, 801, "different").unwrap();
+    assert_eq!(store.head_matches(&altered).await, Ok(false));
+    assert_eq!(
+        store.get_verified(&altered).await.err(),
+        Some(StorageError::Corrupt)
+    );
+
+    // Even if HEAD SHA is forged, actual GET bytes must still match.
+    client
+        .put_object()
+        .bucket(FREE_BUCKET)
+        .key(object.key())
+        .content_type("text/plain; charset=utf-8")
+        .metadata("sha256", hex::encode(object.sha256()))
+        .body(ByteStream::from(b"FORGED".to_vec()))
+        .send()
+        .await
+        .expect("test-only tampering");
+    assert_eq!(store.head_matches(&object).await, Ok(false));
+    assert_eq!(
+        store.get_verified(&object).await.err(),
+        Some(StorageError::Corrupt)
+    );
+}
