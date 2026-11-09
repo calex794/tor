@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 355] = [
+static ROUTES: [RouteRegistration; 359] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -365,6 +365,10 @@ static ROUTES: [RouteRegistration; 355] = [
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/paid-comments/report", "POST", "/api/v1/reader/chapters/", Prefix, Api, Social, Write), // 352
     RouteRegistration::new("/admin/paid-comment-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 353
     RouteRegistration::new("/admin/paid-comment-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 354
+    RouteRegistration::new("/me/paid-comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 355
+    RouteRegistration::new("/me/paid-comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 356
+    RouteRegistration::new("/admin/paid-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 357
+    RouteRegistration::new("/admin/paid-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 358
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

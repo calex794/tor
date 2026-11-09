@@ -50,13 +50,11 @@ mod s049_paid_comment_reviews;
 mod s065_role_matrix;
 #[path = "paid_grants_http_pg/s065_unsealed.rs"]
 mod s065_unsealed;
-
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
 const UUID: &str = "a1a1a1a1-1111-4111-8111-111111111111";
 const ASSET_UUID: &str = "a1a1a1a1-1111-4111-8111-111111111112";
 const BODY: &str = "S034-PAID-PRIVATE-V1-NEVER-IN-HTTP";
-
 fn pg(url: &str, sql: &str) -> String {
     assert!(
         url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"),
@@ -138,7 +136,6 @@ impl PrivateObjectDeliveryPort for FakeG {
             dek_b64u: SecretValue::new(URL_SAFE_NO_PAD.encode([0x11_u8; 32])).unwrap(),
         })
     }
-
     async fn grant_verified_admin_asset(
         &self,
         object: &EncryptedObjectRef,
@@ -268,7 +265,6 @@ async fn s065_alternate_reader_access_matrix(
             }
         }
     }
-
     for path in [
         format!("/reader/{chapter}/toc-fragment?limit=100"),
         format!("/reader/{chapter}/comments-fragment"),
@@ -290,7 +286,6 @@ async fn s065_alternate_reader_access_matrix(
             );
         }
     }
-
     // Progress is data about a chapter, never an entitlement. In particular,
     // a stolen purchase ID cannot be used to read someone else's V1 position.
     let owned_query = format!(
@@ -620,7 +615,8 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         (&csrf, &author_csrf),
     )
     .await;
-    s049_paid_comment_reviews::check(&url, &accounts, &browser, buyer, chapter).await;
+    s049_paid_comment_reviews::check(&url, &accounts, &browser, buyer, chapter, &author_cookie)
+        .await;
     s065_alternate_reader_access_matrix(
         &browser,
         (chapter, version, purchase_id),

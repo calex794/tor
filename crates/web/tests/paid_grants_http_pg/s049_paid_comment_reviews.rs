@@ -1,5 +1,7 @@
 //! S049: real PG/HTTP acceptance of manual administrator-only paid-comment reviews.
 use super::*;
+#[path = "s049_paid_comment_appeals.rs"]
+mod paid_appeals;
 
 async fn decision(
     app: &Router,
@@ -51,6 +53,7 @@ pub(super) async fn check(
     app: &Router,
     buyer: i64,
     chapter: i64,
+    author_cookie: &str,
 ) {
     let (admin, admin_cookie) = account(accounts, "s049-paid-comment-admin@tor-ci.example").await;
     let (moderator, moderator_cookie) =
@@ -264,6 +267,17 @@ pub(super) async fn check(
     .unwrap();
     assert!(history_body.contains("hide_paid_comment"));
     assert!(!history_body.contains(BODY));
+    paid_appeals::check(
+        url,
+        accounts,
+        app,
+        author_cookie,
+        comment,
+        second,
+        &admin_cookie,
+        admin,
+    )
+    .await;
     rejected_pg(
         url,
         &format!(
