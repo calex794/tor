@@ -38,6 +38,7 @@ mod account_home;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+mod admin_creator_payouts;
 mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
@@ -274,6 +275,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
+        .merge(admin_creator_payouts::router())
         .merge(moderation_books::router())
         .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
