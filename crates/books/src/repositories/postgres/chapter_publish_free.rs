@@ -95,9 +95,10 @@ impl PgAuthoring {
                 .try_get("payload_hash")
                 .map_err(|_| AuthorError::Unavailable)?;
             if old_hash.as_slice() != payload_hash.as_slice() {
+                tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
                 return Err(AuthorError::Conflict);
             }
-            return Ok(SavedChapter {
+            let saved = SavedChapter {
                 chapter_id: row
                     .try_get::<Option<i64>, _>("chapter_id")
                     .map_err(|_| AuthorError::Unavailable)?
@@ -110,7 +111,14 @@ impl PgAuthoring {
                     .try_get::<Option<i64>, _>("saved_revision")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-            });
+            };
+            // SQLx rollback-on-drop is asynchronous. Explicitly release the
+            // book FOR UPDATE lock before returning an HTTP replay/conflict:
+            // otherwise the following FK check for a late subscriber can
+            // wait on an idle-in-transaction connection in a single-thread
+            // Tokio test or under a busy runtime.
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
+            return Ok(saved);
         }
 
         let number = chapter_number::assign(&mut tx, input.book_id, input.number).await?;
