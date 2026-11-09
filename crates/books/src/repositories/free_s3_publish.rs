@@ -271,7 +271,11 @@ impl PgFreeS3Publication {
             .fetch_one(&mut *tx)
             .await
             .map_err(write_error)?;
-            return if exact { Ok(()) } else { Err(AuthorError::Conflict) };
+            return if exact {
+                Ok(())
+            } else {
+                Err(AuthorError::Conflict)
+            };
         }
         if chapter_visibility != "draft" {
             return Err(AuthorError::Conflict);
@@ -290,14 +294,12 @@ impl PgFreeS3Publication {
         .execute(&mut *tx)
         .await
         .map_err(write_error)?;
-        sqlx::query(
-            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-        )
-        .bind(chapter_id)
-        .bind(version_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(write_error)?;
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+            .bind(chapter_id)
+            .bind(version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(write_error)?;
         if book_visibility == "public" {
             sqlx::query(
                 "INSERT INTO chapter_first_release_events
