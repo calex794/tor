@@ -98,6 +98,29 @@ module.exports = async function checkSpoilers(browser, base, out) {
         });
         assert.equal(await received.count(), 1);
         assert(!(await received.innerText()).includes('скрытый ответ'), 'Inbox contains no body copy');
+        // S013: the JSON projection is also a delivery surface, not just the HTML Inbox.
+        // Keep it a reference-only message; never serialize even masked comment bodies.
+        const inboxApi = await context.request.get(base + '/api/v1/me/inbox?filter=unread');
+        assert.equal(inboxApi.status(), 200, 'private Inbox API must require the reader session');
+        const inboxJson = await inboxApi.json();
+        const inboxItem = inboxJson.items.find(item => item.id === replyId);
+        assert(inboxItem, 'reply must be present in actor-only Inbox JSON');
+        assert.deepEqual(Object.keys(inboxItem).sort(),
+          ['id', 'kind', 'created_at', 'book_id', 'book_title', 'url', 'is_read'].sort(),
+          'Inbox API must not add message-body or unmasked-preview fields');
+        assert(!JSON.stringify(inboxJson).includes('скрытый ответ'),
+          'no spoiler plaintext in Inbox JSON');
+        assert(!JSON.stringify(inboxJson).includes(`Ответ-${name}`),
+          'no public comment copy in Inbox JSON');
+        // The on-site bell uses a separate social/release projection. Discussion tab
+        // must delegate to the safe Inbox rather than copy a comment preview.
+        await page.goto(base + '/notifications');
+        assert(!(await page.locator('main').innerText()).includes('скрытый ответ'),
+          'notification bell must never expose comment spoilers');
+        await page.goto(base + '/notifications?tab=discussions');
+        await page.waitForURL(base + '/me/inbox');
+        assert(!(await page.locator('main').innerText()).includes('скрытый ответ'),
+          'notification discussion redirect must preserve reference-only Inbox');
         await received.locator('details.comment-reply > summary').click();
         const responseMarker = 'INBOX-ANSWER-' + name;
         await received.getByLabel('Ваш ответ', { exact: true }).fill(responseMarker + ' ||ответ из Inbox||');
