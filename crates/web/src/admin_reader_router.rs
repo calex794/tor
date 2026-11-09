@@ -59,7 +59,6 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
     )
 }
 
-
 /// Fresh-install S349: free chapter writes are never allowed to fall back to PG.
 #[cfg(feature = "s3-free")]
 pub(super) fn authenticated_postgres_reader_with_free_s3(
@@ -67,7 +66,10 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     reader: PgReader,
     accounts: tor_accounts::repositories::PgAccounts,
     origin: (bool, String),
-    covers: (Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>, bool),
+    covers: (
+        Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+        bool,
+    ),
     free: Arc<dyn crate::author_chapter_http::FreeChapterPublisher>,
 ) -> Router {
     let (secure, public_origin) = origin;
@@ -87,14 +89,8 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     } else {
         None
     };
-    let owner_auth = auth::router_with_free_author(
-        accounts,
-        auth_reader,
-        secure,
-        public_origin,
-        cover,
-        free,
-    );
+    let owner_auth =
+        auth::router_with_free_author(accounts, auth_reader, secure, public_origin, cover, free);
     ril::instrument(
         make_router_with_paid_checkout(
             Arc::new(catalog.clone()),
