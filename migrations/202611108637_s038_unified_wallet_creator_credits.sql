@@ -153,7 +153,7 @@ BEGIN
 
     IF NEW.balance_minor + mature_unposted - refund_hold < active_reservations THEN
         RAISE EXCEPTION 'wallet debit would consume reserved payout or clawback debt'
-            USING ERRCODE='23514';
+            USING ERRCODE='P0R38';
     END IF;
     RETURN NEW;
 END;
