@@ -30,8 +30,22 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "never use a retained database");
     let result = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=15000 -c lock_timeout=5000")
-        .args(["-X","-A","-t","-q","-v","ON_ERROR_STOP=1","--dbname",url,"--command",sql])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=15000 -c lock_timeout=5000",
+        )
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql is required for disposable financial acceptance");
     assert!(
@@ -43,7 +57,12 @@ fn pg(url: &str, sql: &str) -> String {
 }
 
 async fn request(
-    app: &Router, method: &str, path: &str, cookie: &str, origin: &str, form: &str,
+    app: &Router,
+    method: &str,
+    path: &str,
+    cookie: &str,
+    origin: &str,
+    form: &str,
 ) -> Response {
     let request = Request::builder()
         .uri(path)
@@ -63,8 +82,14 @@ async fn html(response: Response) -> String {
 
 fn hidden(markup: &str, name: &str) -> String {
     let marker = format!("name=\"{name}\" value=\"");
-    markup.split_once(&marker).expect("expected hidden form field").1
-        .split_once('"').expect("quoted field").0.to_owned()
+    markup
+        .split_once(&marker)
+        .expect("expected hidden form field")
+        .1
+        .split_once('"')
+        .expect("quoted field")
+        .0
+        .to_owned()
 }
 
 fn app(accounts: PgAccounts, catalog: PgCatalog) -> Router {
@@ -80,9 +105,11 @@ async fn s036_refunds_not_routed_to_buyer() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let site = app(accounts, catalog);
-    for method in ["GET","POST"] {
+    for method in ["GET", "POST"] {
         assert_eq!(
-            request(&site,method,"/me/refunds","",ORIGIN,"purchase_id=1").await.status(),
+            request(&site, method, "/me/refunds", "", ORIGIN, "purchase_id=1")
+                .await
+                .status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -91,8 +118,14 @@ async fn s036_refunds_not_routed_to_buyer() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires isolated PostgreSQL, explicit support refund administrator opt-in"]
 async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
-    assert_eq!(std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(),
+        Ok("1")
+    );
+    assert_eq!(
+        std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref(),
+        Ok("1")
+    );
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
     assert!(url.ends_with("/tor_ci"));
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -223,9 +256,18 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     let buyer_cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
     assert_ne!(buyer, outsider);
-    for method in ["GET","POST"] {
+    for method in ["GET", "POST"] {
         assert_eq!(
-            request(&site,method,"/me/refunds",&buyer_cookie,ORIGIN,"purchase_id=1").await.status(),
+            request(
+                &site,
+                method,
+                "/me/refunds",
+                &buyer_cookie,
+                ORIGIN,
+                "purchase_id=1"
+            )
+            .await
+            .status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -235,7 +277,9 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
             "INSERT INTO support_conversations(requester_user_id)
              VALUES({buyer}) RETURNING id"
         ),
-    ).parse().unwrap();
+    )
+    .parse()
+    .unwrap();
     pg(
         &url,
         &format!(
@@ -246,11 +290,15 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     );
     let detail_path = format!("/admin/finance/refunds/user/{buyer}");
     assert_eq!(
-        request(&site,"GET",&detail_path,&buyer_cookie,ORIGIN,"").await.status(),
+        request(&site, "GET", &detail_path, &buyer_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&site,"GET",&detail_path,"",ORIGIN,"").await.status(),
+        request(&site, "GET", &detail_path, "", ORIGIN, "")
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED
     );
     pg(
@@ -262,99 +310,210 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
         ),
     );
     let search = request(
-        &site,"GET","/admin/finance/refunds?q=Refund",&admin_cookie,ORIGIN,""
-    ).await;
-    assert_eq!(search.status(),StatusCode::OK);
-    assert_eq!(search.headers()[header::CACHE_CONTROL],"no-store");
+        &site,
+        "GET",
+        "/admin/finance/refunds?q=Refund",
+        &admin_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(search.status(), StatusCode::OK);
+    assert_eq!(search.headers()[header::CACHE_CONTROL], "no-store");
     assert!(html(search).await.contains(&format!("user/{buyer}")));
-    let detail = request(&site,"GET",&detail_path,&admin_cookie,ORIGIN,"").await;
-    assert_eq!(detail.status(),StatusCode::OK);
-    assert_eq!(detail.headers()["x-robots-tag"],"noindex, nofollow");
+    let detail = request(&site, "GET", &detail_path, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(detail.status(), StatusCode::OK);
+    assert_eq!(detail.headers()["x-robots-tag"], "noindex, nofollow");
     let markup = html(detail).await;
     assert!(markup.contains(&format!("Покупка №{purchase}")));
     assert!(markup.contains("&lt;script&gt;"));
     assert!(!markup.contains("<script>x</script>"));
     assert!(markup.contains(&format!("/admin/support/{chat}")));
     assert!(markup.contains("action=\"/admin/finance/refunds/prepare\""));
-    let command_key = hidden(&markup,"command_key");
+    let command_key = hidden(&markup, "command_key");
     let body = format!(
         "buyer_id={buyer}&purchase_id={purchase}&conversation_id={chat}&command_key={command_key}&csrf_token={csrf}&reason=Support+goodwill"
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&buyer_cookie,ORIGIN,&body)
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &buyer_cookie,
+            ORIGIN,
+            &body
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&admin_cookie,"https://evil.invalid",&body)
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &admin_cookie,
+            "https://evil.invalid",
+            &body
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&admin_cookie,ORIGIN,
-                &body.replace(&csrf,"invalid")).await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &admin_cookie,
+            ORIGIN,
+            &body.replace(&csrf, "invalid")
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&admin_cookie,ORIGIN,
-                &body.replace(&format!("conversation_id={chat}"),"conversation_id=9999999999"))
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &admin_cookie,
+            ORIGIN,
+            &body.replace(
+                &format!("conversation_id={chat}"),
+                "conversation_id=9999999999"
+            )
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&admin_cookie,ORIGIN,&body)
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &admin_cookie,
+            ORIGIN,
+            &body
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/prepare",&admin_cookie,ORIGIN,&body)
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/prepare",
+            &admin_cookie,
+            ORIGIN,
+            &body
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url,&format!("SELECT count(*) FROM finance_support_refund_intents WHERE purchase_id={purchase}")),
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM finance_support_refund_intents WHERE purchase_id={purchase}"
+            )
+        ),
         "1"
     );
     assert_eq!(
-        pg(&url,&format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")),
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
         "700"
     );
     let request_id = pg(
-        &url,&format!("SELECT request_id FROM finance_support_refund_intents WHERE purchase_id={purchase}")
+        &url,
+        &format!(
+            "SELECT request_id FROM finance_support_refund_intents WHERE purchase_id={purchase}"
+        ),
     );
-    let ready = html(request(&site,"GET",&detail_path,&admin_cookie,ORIGIN,"").await).await;
+    let ready = html(request(&site, "GET", &detail_path, &admin_cookie, ORIGIN, "").await).await;
     assert!(ready.contains("action=\"/admin/finance/refunds/approve\""));
     let approval = format!(
         "csrf_token={csrf}&request_id={request_id}&expected_revision=1&reason=Approved+support+goodwill&current_password=S036RefundOtherPassword2026"
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/approve",&admin_cookie,"https://evil.invalid",&approval)
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/approve",
+            &admin_cookie,
+            "https://evil.invalid",
+            &approval
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&site,"POST","/admin/finance/refunds/approve",&admin_cookie,ORIGIN,
-                &approval.replace("S036RefundOtherPassword2026","BadPassword"))
-            .await.status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/refunds/approve",
+            &admin_cookie,
+            ORIGIN,
+            &approval.replace("S036RefundOtherPassword2026", "BadPassword")
+        )
+        .await
+        .status(),
         StatusCode::UNAUTHORIZED
     );
-    let accepted = request(&site,"POST","/admin/finance/refunds/approve",&admin_cookie,ORIGIN,&approval).await;
-    assert_eq!(accepted.status(),StatusCode::OK);
+    let accepted = request(
+        &site,
+        "POST",
+        "/admin/finance/refunds/approve",
+        &admin_cookie,
+        ORIGIN,
+        &approval,
+    )
+    .await;
+    assert_eq!(accepted.status(), StatusCode::OK);
     assert!(html(accepted).await.contains("Внутренний возврат"));
     assert_eq!(
-        pg(&url,&format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")),
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
         "1000"
     );
     assert_eq!(
-        pg(&url,&format!("SELECT count(*) FROM chapter_purchase_revocations WHERE purchase_id={purchase}")),
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_revocations WHERE purchase_id={purchase}"
+            )
+        ),
         "1"
     );
     assert_eq!(
-        pg(&url,&format!("SELECT count(*) FROM finance_direct_refund_postings WHERE purchase_id={purchase}")),
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM finance_direct_refund_postings WHERE purchase_id={purchase}"
+            )
+        ),
         "1"
     );
-    let replay = request(&site,"POST","/admin/finance/refunds/approve",&admin_cookie,ORIGIN,&approval).await;
-    assert_eq!(replay.status(),StatusCode::OK);
+    let replay = request(
+        &site,
+        "POST",
+        "/admin/finance/refunds/approve",
+        &admin_cookie,
+        ORIGIN,
+        &approval,
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::OK);
     assert!(html(replay).await.contains("Повторное подтверждение"));
     assert_eq!(
         pg(&url,&format!("SELECT count(*) FROM reader_wallet_entries WHERE purchase_id={purchase} AND kind='chapter_refund'")),
@@ -366,7 +525,9 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
     );
     pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={outsider} AND role='administrator'"));
     assert_eq!(
-        request(&site,"GET",&detail_path,&admin_cookie,ORIGIN,"").await.status(),
+        request(&site, "GET", &detail_path, &admin_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
 }
