@@ -11,7 +11,9 @@ pub struct PgFreeCommentReports {
 
 fn valid_key(key: &str) -> bool {
     key.len() == 43
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 async fn eligible(
@@ -135,9 +137,12 @@ impl PgFreeCommentReports {
     ) -> Result<i64, BookShareError> {
         let (chapter, version, comment) = target;
         let details = details.trim();
-        if chapter <= 0 || version <= 0 || comment <= 0
+        if chapter <= 0
+            || version <= 0
+            || comment <= 0
             || !matches!(reason, "spam" | "abuse" | "misleading" | "other")
-            || details.chars().count() > 500 || details.contains('\0')
+            || details.chars().count() > 500
+            || details.contains('\0')
             || !valid_key(command_key)
         {
             return Err(BookShareError::Invalid);
