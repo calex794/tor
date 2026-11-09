@@ -355,9 +355,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     let malformed = dead_event(&url, &format!("g-admin-malformed-{nonce}"));
     pg(
         &url,
-        &format!(
-            "UPDATE outbox_events SET payload='{{}}'::jsonb WHERE id='{malformed}'::uuid"
-        ),
+        &format!("UPDATE outbox_events SET payload='{{}}'::jsonb WHERE id='{malformed}'::uuid"),
     );
     assert_eq!(
         request(&app, &malformed, Some(&session), &csrf, Some(&csrf), ORIGIN)
