@@ -71,7 +71,14 @@ async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
     // Private S3 is inaccessible without the presigned URL.
     let anonymous = format!("{endpoint}/{BUCKET}/{}", object.key());
     let status = std::process::Command::new("curl")
-        .args(["--silent", "--output", "/dev/null", "--write-out", "%{http_code}", &anonymous])
+        .args([
+            "--silent",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            &anonymous,
+        ])
         .output()
         .unwrap();
     assert!(status.status.success());
@@ -103,7 +110,10 @@ async fn s349_free_markdown_put_verify_replay_and_corruption_denial() {
         .send()
         .await
         .unwrap();
-    assert_eq!(store.get_verified(&object).await, Err(StorageError::Corrupt));
+    assert_eq!(
+        store.get_verified(&object).await,
+        Err(StorageError::Corrupt)
+    );
     assert_eq!(
         upload_and_verify(&store, &object, text).await.err(),
         Some(StorageError::Corrupt)
