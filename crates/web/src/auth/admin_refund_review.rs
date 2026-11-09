@@ -41,52 +41,6 @@ pub(super) fn router() -> Router<AuthState> {
         )
 }
 
-#[cfg(test)]
-use tor_commerce::repositories::refund_admin_review::AdminRefundRequest;
-
-#[cfg(test)]
-fn status(state: &str) -> &'static str {
-    match state {
-        "pending" => "Ожидает решения",
-        "processing" => "В обработке",
-        "approved" => "Внутренний возврат одобрен",
-        "rejected" => "Отклонена",
-        _ => "Неизвестный статус",
-    }
-}
-
-#[cfg(test)]
-fn render_request(row: &AdminRefundRequest) -> String {
-    let policy = row.policy_version.as_deref().unwrap_or("Не зафиксирована");
-    let deadline = row.deadline_utc.as_deref().unwrap_or("Не зафиксирован");
-    format!(
-        r#"<article class="me-now-card">
-        <h2>Заявка №{} — {}</h2>
-        <p>Покупка №{} · Читатель №{}: {}</p>
-        <p>Книга: {} · Глава: {}</p>
-        <p>Сумма: {} коп. · Версия решения: {}</p>
-        <p>Поступила (UTC): {}</p>
-        <p>Политика при покупке: {} · Дедлайн (UTC): {}</p>
-        <p>Первый защищённый доступ: {} · Отзыв доступа: {}</p>
-        <p>Причина читателя: {}</p></article>"#,
-        row.id,
-        status(&row.state),
-        row.purchase_id,
-        row.buyer_user_id,
-        pages::escape_html(&row.buyer_name),
-        pages::escape_html(&row.book_title),
-        pages::escape_html(&row.chapter_title),
-        row.amount_minor,
-        row.revision,
-        pages::escape_html(&row.created_utc),
-        pages::escape_html(policy),
-        pages::escape_html(deadline),
-        if row.first_exposed { "Да" } else { "Нет" },
-        if row.revoked { "Да" } else { "Нет" },
-        pages::escape_html(&row.reason),
-    )
-}
-
 fn page_shell(content: &str, cookies: &[String]) -> Response {
     let mut response = private_response(
         pages::layout(
@@ -350,32 +304,32 @@ pub(super) async fn buyer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn s036_admin_review_escapes_all_user_supplied_text_and_has_no_decisions() {
-        let row = AdminRefundRequest {
-            id: 13,
-            purchase_id: 9,
-            buyer_user_id: 6,
-            buyer_name: "<script>buyer</script>".to_owned(),
-            book_title: "<img src=x>".to_owned(),
-            chapter_title: "<b>Chapter</b>".to_owned(),
+    fn s036_admin_purchase_cards_escape_title_and_bind_to_exact_purchase() {
+        let row = RefundPurchase {
+            id: 9,
+            book: "<img src=x>".to_owned(),
+            chapter: "<script>alert(1)</script>".to_owned(),
             amount_minor: 300,
-            reason: "<script>alert(1)</script>".to_owned(),
-            state: "pending".to_owned(),
-            revision: 1,
-            policy_version: Some("policy-x".to_owned()),
-            deadline_utc: None,
-            created_utc: "2026-11-03 00:00".to_owned(),
-            first_exposed: false,
+            acquired: "2026-11-10 00:00".to_owned(),
+            batch_position: Some(2),
+            first_exposed: true,
             revoked: false,
+            request_id: None,
+            request_state: None,
+            request_revision: None,
+            support_intent: false,
         };
-        let html = render_request(&row);
+        let html = render_purchase(&row, 12, Some(7), "csrf", true);
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&lt;img src=x&gt;"));
-        assert!(html.contains("&lt;b&gt;Chapter&lt;/b&gt;"));
         assert!(!html.contains("<script>"));
-        assert!(!html.contains("<form"));
-        assert!(!html.contains("name=\"decision\""));
-        assert!(html.contains("Ожидает решения"));
+        assert!(html.contains("name=\"purchase_id\" value=\"9\""));
+        assert!(html.contains("name=\"buyer_id\" value=\"12\""));
+        assert!(html.contains("name=\"conversation_id\" value=\"7\""));
+        assert!(!html.contains("name=\"amount_minor\""));
+        assert!(html.contains("Позиция 2"));
+        assert!(html.contains("action=\"/admin/finance/refunds/prepare\""));
     }
 }
