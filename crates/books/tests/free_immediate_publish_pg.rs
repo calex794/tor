@@ -208,7 +208,6 @@ async fn draft_book_is_still_private_and_public_save_fails_closed() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 /tor_ci"]
 async fn s349_new_free_chapter_stays_bodyless_and_hidden_until_s3_receipt() {
@@ -320,6 +319,12 @@ async fn s349_new_free_chapter_stays_bodyless_and_hidden_until_s3_receipt() {
     .unwrap();
     assert_eq!(row.0, None);
     assert_eq!(row.1, "public");
-    assert!(authoring.prepare_new(actor, &input).await.unwrap().published);
+    assert!(
+        authoring
+            .prepare_new(actor, &input)
+            .await
+            .unwrap()
+            .published
+    );
     pool.close().await;
 }
