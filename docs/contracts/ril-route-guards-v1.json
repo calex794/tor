@@ -2500,6 +2500,20 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "paid_comment_reviews::decide",
       "policy": "admin_paid_comment_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{chapter_id}/comments/{comment_id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reports::form",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{chapter_id}/comments/{comment_id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reports::submit",
+      "policy": "scoped"
     }
   ]
 }

@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 355);
+    assert_eq!(unique.len(), 357);
 }
 
 #[test]
@@ -358,4 +358,14 @@ fn s049_paid_comment_reports_are_administrator_only_routes() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/paid-comment-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_free_comment_report_route_is_reader_scoped_not_administrator() {
+    for method in ["GET", "POST"] {
+        let route = classify(Some("/reader/{chapter_id}/comments/{comment_id}/report"), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Social);
+    }
 }

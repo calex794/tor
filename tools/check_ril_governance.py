@@ -209,6 +209,8 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return source.parent / "book_comment_appeals.rs"
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "paid_comment_reviews":
         return source.parent / "book_paid_comment_reviews.rs"
+    if source == root / "crates/web/src/auth/book_shares.rs" and module == "free_comment_reports":
+        return source.parent / "book_free_comment_reports.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -384,6 +386,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and admin_key in s049_book_admin
     )
     if is_s049_book:
+        evidence += "\n" + functions.get("session_user", "")
+        evidence += "\n" + functions.get("store", "")
+    s049_free_comment_ops = {
+        ("GET", "/reader/{chapter_id}/comments/{comment_id}/report",
+         "free_comment_reports::form"): "reportable",
+        ("POST", "/reader/{chapter_id}/comments/{comment_id}/report",
+         "free_comment_reports::submit"): "submit",
+    }
+    is_s049_free_comment_report = (
+        entry["source"] == "crates/web/src/auth/book_shares.rs"
+        and admin_key in s049_free_comment_ops
+    )
+    if is_s049_free_comment_report:
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
     s049_paid_review_ops = {
@@ -776,6 +791,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "user_level_grants" in repo
                 and "b.visibility_status='active'" in repo
                 and "NOT b.admin_hold" in repo
+            )
+        elif is_s049_free_comment_report:
+            operation = s049_free_comment_ops.get(admin_key)
+            repo = _production((ROOT / "crates/social/src/repositories/free_comment_reports.rs")
+                               .read_text(encoding="utf-8"))
+            scoped = bool(
+                policy == "scoped" and operation
+                and "session_user(&s, &headers)" in evidence
+                and ".active_session_user(&digest)" in evidence
+                and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+                and "chapter_publications p" in repo
+                and "ch.access_level='free'" in repo
+                and "p.version_id=$2" in repo
+                and "c.version_id=$3" in repo
+                and "c.visibility='visible'" in repo
+                and "s.revoked_at IS NULL" in repo
+                and "FOR UPDATE OF u FOR SHARE OF s" in repo
             )
         elif is_s049_appeal_user:
             operation = s049_appeal_user.get(admin_key)

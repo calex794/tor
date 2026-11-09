@@ -23,6 +23,8 @@ mod admin_reports;
 mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
+#[path = "book_free_comment_reports.rs"]
+mod free_comment_reports;
 #[path = "book_paid_comment_reviews.rs"]
 mod paid_comment_reviews;
 
@@ -71,6 +73,10 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/books/{id}/report",
             get(content_reports::form).post(content_reports::submit),
+        )
+        .route(
+            "/reader/{chapter_id}/comments/{comment_id}/report",
+            get(free_comment_reports::form).post(free_comment_reports::submit),
         )
         .route("/admin/book-reports", get(content_reports::queue))
         .route(
