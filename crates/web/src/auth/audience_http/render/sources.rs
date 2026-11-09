@@ -14,7 +14,12 @@ pub(super) fn section(body: &mut String, report: &DiscoveryReport) {
          <p>Здесь сравниваются календарные дни UTC. Начало включено, конец не включён. \
          Сегодняшний день ещё не завершён.</p>",
     );
-    write!(body, "<p>Время расчёта: {}.</p>", time(&report.measured_at_utc)).expect("String");
+    write!(
+        body,
+        "<p>Время расчёта: {}.</p>",
+        time(&report.measured_at_utc)
+    )
+    .expect("String");
     health(body, report);
     period(body, "current", "Текущий период", &report.current);
     period(body, "previous", "Предыдущий период", &report.previous);
@@ -48,23 +53,38 @@ fn health(body: &mut String, report: &DiscoveryReport) {
     let health = &report.health;
     body.push_str("<section class=\"book-section-card\" data-testid=\"audience-sources-health\"><h3>Обновление данных</h3>");
     if let Some(last_success) = &health.last_success_utc {
-        write!(body, "<p>Последнее подтверждение обработки: {}.</p>", time(last_success)).expect("String");
+        write!(
+            body,
+            "<p>Последнее подтверждение обработки: {}.</p>",
+            time(last_success)
+        )
+        .expect("String");
     } else {
         body.push_str("<p>Обработка ещё не подтверждена. Полнота свежих данных неизвестна.</p>");
     }
     if !health.fresh {
-        body.push_str("<p>Нет подтверждения за последние 30 секунд. Показанные итоги могут отставать.</p>");
+        body.push_str(
+            "<p>Нет подтверждения за последние 30 секунд. Показанные итоги могут отставать.</p>",
+        );
     } else {
         body.push_str("<p>Обработка подтверждена за последние 30 секунд.</p>");
     }
     if health.rec_dirty || health.organic_dirty {
-        body.push_str("<p>Есть изменения, ожидающие пересчёта. Итоги могут измениться после обработки.</p>");
+        body.push_str(
+            "<p>Есть изменения, ожидающие пересчёта. Итоги могут измениться после обработки.</p>",
+        );
     }
     body.push_str("</section>");
 }
 
 fn period(body: &mut String, key: &str, label: &str, period: &DiscoveryPeriod) {
-    write!(body, "<section data-testid=\"audience-sources-{key}\"><h3>{label}</h3><p>С {} до {}.</p>", day(&period.from_day), day(&period.until_day_exclusive)).expect("String");
+    write!(
+        body,
+        "<section data-testid=\"audience-sources-{key}\"><h3>{label}</h3><p>С {} до {}.</p>",
+        day(&period.from_day),
+        day(&period.until_day_exclusive)
+    )
+    .expect("String");
     if period.includes_partial_today {
         body.push_str("<p>Включает незавершённый сегодняшний день.</p>");
     }
@@ -92,7 +112,11 @@ fn channel_card(body: &mut String, channel: &DiscoveryChannel) {
         ("clicks", "Учтённые переходы", channel.clicks),
         ("book-opens", "Открытия книги", channel.book_opens),
         ("starts", "Первые чтения книг", channel.starts),
-        ("completions", "Первое завершение главы в книге", channel.completions),
+        (
+            "completions",
+            "Первое завершение главы в книге",
+            channel.completions,
+        ),
     ] {
         let value = if channel.source == DiscoverySource::Unattributed
             && matches!(metric, "clicks" | "book-opens")
@@ -101,7 +125,11 @@ fn channel_card(body: &mut String, channel: &DiscoveryChannel) {
         } else {
             value.map_or_else(|| "Нет данных".to_owned(), |value| value.to_string())
         };
-        write!(body, "<dt>{label}</dt><dd data-metric=\"{metric}\">{value}</dd>").expect("String");
+        write!(
+            body,
+            "<dt>{label}</dt><dd data-metric=\"{metric}\">{value}</dd>"
+        )
+        .expect("String");
     }
     body.push_str("</dl></article>");
 }
@@ -113,10 +141,16 @@ mod tests {
     #[test]
     fn missing_rec_opens_and_measured_zero_are_distinct() {
         let mut html = String::new();
-        channel_card(&mut html, &DiscoveryChannel {
-            source: DiscoverySource::Recommendations,
-            clicks: Some(0), book_opens: None, starts: Some(2), completions: Some(1),
-        });
+        channel_card(
+            &mut html,
+            &DiscoveryChannel {
+                source: DiscoverySource::Recommendations,
+                clicks: Some(0),
+                book_opens: None,
+                starts: Some(2),
+                completions: Some(1),
+            },
+        );
         assert!(html.contains("data-metric=\"clicks\">0</dd>"));
         assert!(html.contains("data-metric=\"book-opens\">Нет данных</dd>"));
         assert!(html.contains("data-metric=\"starts\">2</dd>"));
@@ -127,10 +161,16 @@ mod tests {
     #[test]
     fn unknown_source_does_not_claim_navigation_measurement() {
         let mut html = String::new();
-        channel_card(&mut html, &DiscoveryChannel {
-            source: DiscoverySource::Unattributed,
-            clicks: None, book_opens: None, starts: Some(3), completions: None,
-        });
+        channel_card(
+            &mut html,
+            &DiscoveryChannel {
+                source: DiscoverySource::Unattributed,
+                clicks: None,
+                book_opens: None,
+                starts: Some(3),
+                completions: None,
+            },
+        );
         assert_eq!(html.matches("Не измеряется").count(), 2);
         assert!(html.contains("data-metric=\"starts\">3</dd>"));
         assert!(html.contains("data-metric=\"completions\">Нет данных</dd>"));
@@ -138,7 +178,10 @@ mod tests {
 
     #[test]
     fn calendar_dates_are_escaped_in_text_and_attributes() {
-        assert_eq!(day("2026-11-10"), "<time datetime=\"2026-11-10\">2026-11-10 UTC</time>");
+        assert_eq!(
+            day("2026-11-10"),
+            "<time datetime=\"2026-11-10\">2026-11-10 UTC</time>"
+        );
         let html = day("\"><script>bad()</script>");
         assert!(!html.contains("<script>"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;"));

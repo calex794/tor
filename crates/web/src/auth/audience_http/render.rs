@@ -215,7 +215,9 @@ mod tests {
         assert!(html.contains("audience-comparison-unavailable"));
         assert!(!html.contains("data-metric=\"readers\">0"));
         report.current.available = false;
-        assert!(!page(7, Some(&report), None).0.contains("data-metric=\"readers\""));
+        assert!(!page(7, Some(&report), None)
+            .0
+            .contains("data-metric=\"readers\""));
         assert!(page(30, None, None).0.contains("role=\"alert\""));
     }
 

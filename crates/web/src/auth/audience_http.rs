@@ -117,7 +117,10 @@ async fn page(
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    secure((status, render::page(days, reading.as_ref(), sources.as_ref())))
+    secure((
+        status,
+        render::page(days, reading.as_ref(), sources.as_ref()),
+    ))
 }
 
 #[cfg(test)]

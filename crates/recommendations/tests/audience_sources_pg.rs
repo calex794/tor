@@ -6,7 +6,8 @@ use tor_recommendations::{
     repositories::{audience::PgDiscoveryAudience, PgRecommendations},
     services::{
         audience::{
-            DiscoveryChannel, DiscoveryError, DiscoveryPeriod, DiscoverySource, DISCOVERY_PERIOD_DAYS,
+            DiscoveryChannel, DiscoveryError, DiscoveryPeriod, DiscoverySource,
+            DISCOVERY_PERIOD_DAYS,
         },
         feedback::new_ticket,
     },
@@ -124,11 +125,13 @@ async fn clear_daily_fixture(pool: &PgPool) {
         "rec_dirty_buckets",
         "organic_discovery_dirty",
     ] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE book_id BETWEEN $1 AND $1+2"))
-            .bind(DAILY_BOOK)
-            .execute(pool)
-            .await
-            .unwrap();
+        sqlx::query(&format!(
+            "DELETE FROM {table} WHERE book_id BETWEEN $1 AND $1+2"
+        ))
+        .bind(DAILY_BOOK)
+        .execute(pool)
+        .await
+        .unwrap();
     }
 }
 
@@ -272,8 +275,20 @@ async fn flow_source_full_totals_cover_180_days_without_a_row_limit() {
                 .unwrap();
             assert_eq!(span, value.days);
         }
-        assert_delta(&old.current, &value.current, COUNTS, i64::from(value.days) * 2, current_complete);
-        assert_delta(&old.previous, &value.previous, COUNTS, i64::from(value.days) * 2, previous_complete);
+        assert_delta(
+            &old.current,
+            &value.current,
+            COUNTS,
+            i64::from(value.days) * 2,
+            current_complete,
+        );
+        assert_delta(
+            &old.previous,
+            &value.previous,
+            COUNTS,
+            i64::from(value.days) * 2,
+            previous_complete,
+        );
     }
 
     // A historical unknown must not silently become a partial numeric SUM.
@@ -286,15 +301,17 @@ async fn flow_source_full_totals_cover_180_days_without_a_row_limit() {
     .await
     .unwrap();
     for days in DISCOVERY_PERIOD_DAYS {
-        assert_eq!(report.report(days).await.unwrap().current.channels[2].book_opens, None);
+        assert_eq!(
+            report.report(days).await.unwrap().current.channels[2].book_opens,
+            None
+        );
     }
 
-    let old_health: Option<String> = sqlx::query_scalar(
-        "SELECT last_success::text FROM rec_worker_health WHERE singleton",
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let old_health: Option<String> =
+        sqlx::query_scalar("SELECT last_success::text FROM rec_worker_health WHERE singleton")
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     sqlx::query("INSERT INTO rec_worker_health(singleton,last_success) VALUES(true,now()-interval '1 hour') ON CONFLICT(singleton) DO UPDATE SET last_success=EXCLUDED.last_success")
         .execute(&pool).await.unwrap();
     for table in ["rec_dirty_buckets", "organic_discovery_dirty"] {
@@ -312,37 +329,64 @@ async fn flow_source_full_totals_cover_180_days_without_a_row_limit() {
     assert_eq!(stale.health, repeated.health);
     assert_eq!(fingerprint, mutation_fingerprint(&pool).await);
     sqlx::query("UPDATE rec_worker_health SET last_success=now() WHERE singleton")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(report.report(7).await.unwrap().health.fresh);
     sqlx::query("DELETE FROM rec_worker_health WHERE singleton")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let absent = report.report(7).await.unwrap();
     assert!(!absent.health.fresh);
     assert_eq!(absent.health.last_success_utc, None);
     if let Some(last_success) = old_health {
-        sqlx::query("INSERT INTO rec_worker_health(singleton,last_success) VALUES(true,$1::timestamptz)")
-            .bind(last_success).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO rec_worker_health(singleton,last_success) VALUES(true,$1::timestamptz)",
+        )
+        .bind(last_success)
+        .execute(&pool)
+        .await
+        .unwrap();
     }
     clear_daily_fixture(&pool).await;
 }
 
 async fn clean_journey(pool: &PgPool) {
-    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM books WHERE source_identity LIKE 'ci:flow-sources:%'")
-        .fetch_all(pool).await.unwrap();
+    let ids: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM books WHERE source_identity LIKE 'ci:flow-sources:%'")
+            .fetch_all(pool)
+            .await
+            .unwrap();
     sqlx::query("DELETE FROM event_deliveries WHERE event_id IN(SELECT id FROM outbox_events WHERE dedupe_key LIKE 'flow-sources-test:%')")
         .execute(pool).await.unwrap();
     sqlx::query("DELETE FROM outbox_events WHERE dedupe_key LIKE 'flow-sources-test:%'")
-        .execute(pool).await.unwrap();
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE email_normalized='flow-sources@tor-ci.example'")
-        .execute(pool).await.unwrap();
-    for table in ["rec_quality_daily", "organic_discovery_quality_daily", "rec_dirty_buckets", "organic_discovery_dirty"] {
+        .execute(pool)
+        .await
+        .unwrap();
+    for table in [
+        "rec_quality_daily",
+        "organic_discovery_quality_daily",
+        "rec_dirty_buckets",
+        "organic_discovery_dirty",
+    ] {
         sqlx::query(&format!("DELETE FROM {table} WHERE book_id=ANY($1)"))
-            .bind(&ids).execute(pool).await.unwrap();
+            .bind(&ids)
+            .execute(pool)
+            .await
+            .unwrap();
     }
     sqlx::query("DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id=ANY($1))")
         .bind(&ids).execute(pool).await.unwrap();
     sqlx::query("DELETE FROM books WHERE id=ANY($1)")
-        .bind(&ids).execute(pool).await.unwrap();
+        .bind(&ids)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 async fn book_fixture(pool: &PgPool, name: &str) -> (i64, i64, i64) {
@@ -371,19 +415,41 @@ async fn book_fixture(pool: &PgPool, name: &str) -> (i64, i64, i64) {
     .await
     .unwrap();
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter).bind(version).execute(pool).await.unwrap();
+        .bind(chapter)
+        .bind(version)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general')")
-        .bind(book).execute(pool).await.unwrap();
+        .bind(book)
+        .execute(pool)
+        .await
+        .unwrap();
     (book, chapter, version)
 }
 
-async fn canonical_fact(pool: &PgPool, actor: i64, book: (i64, i64, i64), completed: bool) -> String {
+async fn canonical_fact(
+    pool: &PgPool,
+    actor: i64,
+    book: (i64, i64, i64),
+    completed: bool,
+) -> String {
     let event: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
-        .fetch_one(pool).await.unwrap();
+        .fetch_one(pool)
+        .await
+        .unwrap();
     let (table, event_type, authority) = if completed {
-        ("reader_chapter_completions", "ChapterCompletedV1", "C-verified-free-position")
+        (
+            "reader_chapter_completions",
+            "ChapterCompletedV1",
+            "C-verified-free-position",
+        )
     } else {
-        ("reader_chapter_starts", "ChapterStartedV1", "C-verified-free-start")
+        (
+            "reader_chapter_starts",
+            "ChapterStartedV1",
+            "C-verified-free-start",
+        )
     };
     // Mirrors C's fact + matching domain event in one commit, never a naked
     // browser payload. Production C writing is separately exercised over HTTP.
@@ -417,14 +483,30 @@ async fn refresh(store: &PgRecommendations) {
 }
 
 async fn accept_twice(store: &PgRecommendations, event: &str) {
-    let (a, b) = tokio::join!(store.accept_read_event(event), store.accept_read_event(event));
-    assert_ne!(a.unwrap(), b.unwrap(), "one worker commits, the other sees the receipt");
+    let (a, b) = tokio::join!(
+        store.accept_read_event(event),
+        store.accept_read_event(event)
+    );
+    assert_ne!(
+        a.unwrap(),
+        b.unwrap(),
+        "one worker commits, the other sees the receipt"
+    );
     assert!(!store.accept_read_event(event).await.unwrap());
 }
 
-async fn organic_navigation(store: &PgRecommendations, actor: i64, book: i64, source: OrganicSource) {
-    let ticket = store.issue_organic_tickets(actor, &SESSION, source, &[book])
-        .await.unwrap().remove(0).1;
+async fn organic_navigation(
+    store: &PgRecommendations,
+    actor: i64,
+    book: i64,
+    source: OrganicSource,
+) {
+    let ticket = store
+        .issue_organic_tickets(actor, &SESSION, source, &[book])
+        .await
+        .unwrap()
+        .remove(0)
+        .1;
     let (a, b) = tokio::join!(
         store.activate_organic(actor, &SESSION, &ticket),
         store.activate_organic(actor, &SESSION, &ticket)
@@ -432,7 +514,10 @@ async fn organic_navigation(store: &PgRecommendations, actor: i64, book: i64, so
     a.unwrap();
     b.unwrap();
     for _ in 0..2 {
-        store.record_organic_book_open(actor, &SESSION, book).await.unwrap();
+        store
+            .record_organic_book_open(actor, &SESSION, book)
+            .await
+            .unwrap();
     }
 }
 
@@ -451,8 +536,14 @@ async fn recommendation_navigation(store: &PgRecommendations, actor: i64, book: 
         next_cursor: None,
         personalized: true,
     };
-    let ticket = store.issue_tickets(actor, &SESSION, Surface::Home, feed)
-        .await.unwrap().items.remove(0).ticket.unwrap();
+    let ticket = store
+        .issue_tickets(actor, &SESSION, Surface::Home, feed)
+        .await
+        .unwrap()
+        .items
+        .remove(0)
+        .ticket
+        .unwrap();
     let (a, b) = tokio::join!(
         store.activate(actor, &SESSION, &ticket),
         store.activate(actor, &SESSION, &ticket)
@@ -475,12 +566,23 @@ async fn flow_source_real_navigation_receipts_optout_and_historical_backfill() {
     let report = PgDiscoveryAudience::new(pool.clone());
     assert!(!store.consent(actor).await.unwrap().enabled);
     assert!(matches!(
-        store.issue_organic_tickets(actor, &SESSION, OrganicSource::Catalog, &[1]).await,
+        store
+            .issue_organic_tickets(actor, &SESSION, OrganicSource::Catalog, &[1])
+            .await,
         Err(FeedbackError::Forbidden)
     ));
-    store.set_consent(actor, true, 0, &new_ticket().unwrap()).await.unwrap();
+    store
+        .set_consent(actor, true, 0, &new_ticket().unwrap())
+        .await
+        .unwrap();
     let mut books = Vec::new();
-    for name in ["catalog", "search", "recommendations", "unattributed", "hidden"] {
+    for name in [
+        "catalog",
+        "search",
+        "recommendations",
+        "unattributed",
+        "hidden",
+    ] {
         books.push(book_fixture(&pool, name).await);
     }
     refresh(&store).await;
@@ -490,57 +592,112 @@ async fn flow_source_real_navigation_receipts_optout_and_historical_backfill() {
     organic_navigation(&store, actor, books[1].0, OrganicSource::Search).await;
     recommendation_navigation(&store, actor, books[2].0).await;
     // A direct book open without a source ticket creates no navigation fact.
-    store.record_book_open(actor, &SESSION, books[3].0).await.unwrap();
-    store.record_organic_book_open(actor, &SESSION, books[3].0).await.unwrap();
+    store
+        .record_book_open(actor, &SESSION, books[3].0)
+        .await
+        .unwrap();
+    store
+        .record_organic_book_open(actor, &SESSION, books[3].0)
+        .await
+        .unwrap();
     for book in books.iter().copied().take(4) {
         for completed in [false, true] {
             let event = canonical_fact(&pool, actor, book, completed).await;
             accept_twice(&store, &event).await;
         }
     }
-    let hidden_ticket = store.issue_organic_tickets(actor, &SESSION, OrganicSource::Search, &[books[4].0])
-        .await.unwrap().remove(0).1;
+    let hidden_ticket = store
+        .issue_organic_tickets(actor, &SESSION, OrganicSource::Search, &[books[4].0])
+        .await
+        .unwrap()
+        .remove(0)
+        .1;
     let hidden_event = canonical_fact(&pool, actor, books[4], false).await;
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
-        .bind(books[4].0).execute(&pool).await.unwrap();
-    assert_eq!(store.activate_organic(actor, &SESSION, &hidden_ticket).await, Err(FeedbackError::NotFound));
-    store.record_organic_book_open(actor, &SESSION, books[4].0).await.unwrap();
+        .bind(books[4].0)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .activate_organic(actor, &SESSION, &hidden_ticket)
+            .await,
+        Err(FeedbackError::NotFound)
+    );
+    store
+        .record_organic_book_open(actor, &SESSION, books[4].0)
+        .await
+        .unwrap();
     accept_twice(&store, &hidden_event).await;
     refresh(&store).await;
     let after = report.report(1).await.unwrap();
-    assert_delta(&before.current, &after.current, [[1; 4]; 4], 1, rec_opens_complete);
+    assert_delta(
+        &before.current,
+        &after.current,
+        [[1; 4]; 4],
+        1,
+        rec_opens_complete,
+    );
     assert_eq!(before.previous, after.previous);
-    let actual_opens: i64 = sqlx::query_scalar("SELECT book_opens FROM rec_quality_daily WHERE book_id=$1")
-        .bind(books[2].0).fetch_one(&pool).await.unwrap();
-    assert_eq!(actual_opens, 1, "replayed successful opens materialize once");
+    let actual_opens: i64 =
+        sqlx::query_scalar("SELECT book_opens FROM rec_quality_daily WHERE book_id=$1")
+            .bind(books[2].0)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        actual_opens, 1,
+        "replayed successful opens materialize once"
+    );
     let fingerprint = mutation_fingerprint(&pool).await;
     report.report(30).await.unwrap();
     assert_eq!(fingerprint, mutation_fingerprint(&pool).await);
 
     // Hiding a previously authorized book changes no anonymous historical total.
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
-        .bind(books[0].0).execute(&pool).await.unwrap();
+        .bind(books[0].0)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(after.current, report.report(1).await.unwrap().current);
     verify_book_open_backfill(&pool, books[2].0).await;
 
-    store.set_consent(actor, false, 1, &new_ticket().unwrap()).await.unwrap();
+    store
+        .set_consent(actor, false, 1, &new_ticket().unwrap())
+        .await
+        .unwrap();
     let pending = report.report(1).await.unwrap();
     assert!(pending.health.rec_dirty && pending.health.organic_dirty);
     refresh(&store).await;
     let erased = report.report(1).await.unwrap();
     assert_eq!(before.current, erased.current);
-    let canonical: i64 = sqlx::query_scalar("SELECT count(*) FROM reader_chapter_starts WHERE user_id=$1")
-        .bind(actor).fetch_one(&pool).await.unwrap();
-    assert_eq!(canonical, 5, "F opt-out never deletes authoritative C facts");
+    let canonical: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_chapter_starts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        canonical, 5,
+        "F opt-out never deletes authoritative C facts"
+    );
     let retained: Option<i64> = sqlx::query_scalar("SELECT book_opens FROM rec_quality_daily WHERE book_id=$1 AND bucket_date=(now() AT TIME ZONE 'UTC')::date-45")
         .bind(books[2].0).fetch_one(&pool).await.unwrap();
-    assert_eq!(retained, None, "anonymous history outlives raw identity retention");
+    assert_eq!(
+        retained, None,
+        "anonymous history outlives raw identity retention"
+    );
     clean_journey(&pool).await;
 }
 
 async fn verify_book_open_backfill(pool: &PgPool, book: i64) {
-    sqlx::query("UPDATE rec_quality_daily SET book_opens=NULL,starts=99,completions=77 WHERE book_id=$1")
-        .bind(book).execute(pool).await.unwrap();
+    sqlx::query(
+        "UPDATE rec_quality_daily SET book_opens=NULL,starts=99,completions=77 WHERE book_id=$1",
+    )
+    .bind(book)
+    .execute(pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO rec_quality_daily
            (bucket_date,book_id,surface,source,reason,position,generation,algorithm_version,
@@ -553,7 +710,9 @@ async fn verify_book_open_backfill(pool: &PgPool, book: i64) {
     .await
     .unwrap();
     let migration = include_str!("../../../migrations/202611109063_flow_source_book_opens.sql");
-    let (_, backfill) = migration.split_once("WITH").expect("migration backfill CTE");
+    let (_, backfill) = migration
+        .split_once("WITH")
+        .expect("migration backfill CTE");
     sqlx::raw_sql(&format!("WITH{backfill}"))
         .execute(pool)
         .await
