@@ -1,5 +1,6 @@
 //! G-07 / S066: one audited, administrator-only dead-letter requeue.
 //! Never dispatch here, delete receipts or bypass the shared outbox.
+use serde_json::Value;
 use sqlx::PgPool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +25,9 @@ pub struct PgOutboxAdminRetry {
 }
 
 // Row order matches the locked outbox_events SELECT below.
-type RetryCandidateRow = (String, Vec<String>, bool, bool, bool, i32, i64);
+type RetryCandidateRow = (
+    String, Vec<String>, i64, String, i64, String, bool, bool, bool, i32, i64,
+);
 
 fn valid_event_id(id: &str) -> bool {
     let bytes = id.as_bytes();
@@ -49,6 +52,51 @@ fn supported_retry_event(event_type: &str, consumers: &[String]) -> bool {
         ("ChapterPublished", "chapter_release_fanout_v1")
             | ("reader.chapter.released", "user_notifications")
     )
+}
+
+/// A whitelisted family with a malformed envelope can poison its worker.
+fn supported_retry_payload(
+    event_type: &str,
+    schema_version: i64,
+    aggregate_kind: &str,
+    aggregate_id: i64,
+    payload: &str,
+) -> bool {
+    if schema_version != 1 || aggregate_kind != "chapter" || aggregate_id <= 0 {
+        return false;
+    }
+    let Ok(payload) = serde_json::from_str::<Value>(payload) else {
+        return false;
+    };
+    if !payload.is_object() {
+        return false;
+    }
+    let id = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
+    };
+    match event_type {
+        "ChapterPublished" => {
+            id("chapter_id") == Some(aggregate_id)
+                && id("book_id").is_some()
+                && id("version_id").is_some()
+                && payload.get("first_release").and_then(Value::as_bool) == Some(true)
+                && payload
+                    .get("published_at")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty())
+        }
+        "reader.chapter.released" => {
+            id("object_id") == Some(aggregate_id)
+                && id("book_id").is_some()
+                && id("version_id").is_some()
+                && id("actor_user_id").is_some()
+                && id("recipient_user_id").is_some()
+        }
+        _ => false,
+    }
 }
 
 impl PgOutboxAdminRetry {
@@ -100,6 +148,7 @@ impl PgOutboxAdminRetry {
         // incrementing lease_epoch before making the event due again.
         let event: Option<RetryCandidateRow> = sqlx::query_as(
             "SELECT event_type,required_consumers,
+                    schema_version::bigint,aggregate_kind,aggregate_id,payload::text,
                     delivered_at IS NOT NULL,
                     dead_at IS NOT NULL,
                     COALESCE(lease_until>clock_timestamp(),false),
@@ -115,6 +164,10 @@ impl PgOutboxAdminRetry {
         let Some((
             event_type,
             consumers,
+            schema_version,
+            aggregate_kind,
+            aggregate_id,
+            payload,
             delivered,
             dead,
             active_lease,
@@ -127,7 +180,18 @@ impl PgOutboxAdminRetry {
                 .map_err(|_| AdminRetryError::Unavailable)?;
             return Err(AdminRetryError::NotFound);
         };
-        if !supported_retry_event(&event_type, &consumers) || delivered || !dead || active_lease {
+        if !supported_retry_event(&event_type, &consumers)
+            || !supported_retry_payload(
+                &event_type,
+                schema_version,
+                &aggregate_kind,
+                aggregate_id,
+                &payload,
+            )
+            || delivered
+            || !dead
+            || active_lease
+        {
             // A rejected operator action must release the administrator role
             // SHARE lock before returning an HTTP response. SQLx rollback on
             // Drop is asynchronous; callers may immediately revoke that role.
@@ -183,7 +247,7 @@ impl PgOutboxAdminRetry {
 
 #[cfg(test)]
 mod tests {
-    use super::{supported_retry_event, valid_event_id};
+    use super::{supported_retry_event, supported_retry_payload, valid_event_id};
 
     #[test]
     fn g_07_admin_retry_only_accepts_reviewed_internal_consumers() {
@@ -208,6 +272,34 @@ mod tests {
                 "chapter_release_fanout_v1".to_string(),
                 "external_mail".to_string()
             ]
+        ));
+    }
+
+    #[test]
+    fn g_07_rejects_poison_payloads_before_operator_requeue() {
+        let root = r#"{"chapter_id":11,"book_id":12,"version_id":13,"first_release":true,"published_at":"2026-11-09T19:00:00Z"}"#;
+        assert!(supported_retry_payload("ChapterPublished", 1, "chapter", 11, root));
+        assert!(!supported_retry_payload(
+            "ChapterPublished", 1, "chapter", 11, "{}"
+        ));
+        assert!(!supported_retry_payload(
+            "ChapterPublished",
+            1,
+            "chapter",
+            11,
+            r#"{"chapter_id":11}"#,
+        ));
+        assert!(!supported_retry_payload("ChapterPublished", 2, "chapter", 11, root));
+        assert!(!supported_retry_payload("ChapterPublished", 1, "chapter", 12, root));
+        let child = r#"{"object_id":11,"book_id":12,"version_id":13,"actor_user_id":14,"recipient_user_id":15}"#;
+        assert!(supported_retry_payload(
+            "reader.chapter.released", 1, "chapter", 11, child
+        ));
+        assert!(!supported_retry_payload(
+            "reader.chapter.released", 1, "chapter", 11, "{}"
+        ));
+        assert!(!supported_retry_payload(
+            "reader.chapter.released", 1, "chapter", 12, child
         ));
     }
 
