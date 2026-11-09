@@ -115,7 +115,7 @@ CREATE FUNCTION s038_wallet_debit_reservation_guard()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE
     mature_unposted BIGINT;
-    refund_hold BIGINT;
+    refund_hold_total BIGINT;
     active_reservations BIGINT;
 BEGIN
     IF NEW.balance_minor>=OLD.balance_minor THEN
@@ -145,13 +145,13 @@ BEGIN
            COALESCE(SUM(CASE WHEN clear_at<=clock_timestamp()
                                    AND refund_hold
                               THEN GREATEST(unposted,0) ELSE 0 END),0)::BIGINT
-    INTO mature_unposted,refund_hold FROM net;
+    INTO mature_unposted,refund_hold_total FROM net;
 
     SELECT COALESCE(SUM(reservation_minor),0)::BIGINT
     INTO active_reservations FROM finance_creator_payout_requests
     WHERE user_id=NEW.user_id AND state='pending';
 
-    IF NEW.balance_minor + mature_unposted - refund_hold < active_reservations THEN
+    IF NEW.balance_minor + mature_unposted - refund_hold_total < active_reservations THEN
         RAISE EXCEPTION 'wallet debit would consume reserved payout or clawback debt'
             USING ERRCODE='P0R38';
     END IF;
