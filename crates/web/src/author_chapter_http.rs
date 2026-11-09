@@ -23,7 +23,7 @@ mod chapter_import;
 mod new_chapter_page;
 mod publisher;
 mod schedule;
-pub(crate) use publisher::PaidChapterPublisher;
+pub(crate) use publisher::{FreeChapterPublisher, PaidChapterPublisher};
 
 #[derive(Clone)]
 struct AuthorChapterState {
@@ -31,6 +31,7 @@ struct AuthorChapterState {
     authoring: PgAuthoring,
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
+    free_author: Option<Arc<dyn FreeChapterPublisher>>,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +74,7 @@ pub(crate) fn router(
     accounts: PgAccounts,
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
+    free_author: Option<Arc<dyn FreeChapterPublisher>>,
 ) -> Router {
     let images = paid_author.as_ref().map(|publisher| {
         crate::author_chapter_images::router(accounts.clone(), cookies.clone(), publisher.clone())
@@ -83,6 +85,7 @@ pub(crate) fn router(
         authoring,
         cookies,
         paid_author,
+        free_author,
     };
     let app = Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
@@ -271,6 +274,25 @@ async fn create_chapter(
     if delayed_publication && !is_public {
         return deny(StatusCode::BAD_REQUEST);
     }
+    // New fresh-install path: no free chapter Markdown is written to PG.
+    // G must verify the actual S3 GET before B publishes an edition.
+    if let Some(publisher) = state.free_author.as_ref() {
+        if delayed_publication {
+            return deny(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        return match publisher.publish_new(actor, &request).await {
+            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+    }
+    // A build with the S3-free feature must never fall back to text in PG.
+    #[cfg(feature = "s3-free")]
+    return deny(StatusCode::SERVICE_UNAVAILABLE);
+    #[cfg(not(feature = "s3-free"))]
     let outcome = if delayed_publication {
         state
             .authoring
