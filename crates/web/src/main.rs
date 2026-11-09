@@ -1,3 +1,4 @@
+mod auth_startup;
 mod book_schedule_worker;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
@@ -378,32 +379,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             storage,
                         ));
                 }
-                // New free Markdown is never persisted in PostgreSQL. Without
-                // an explicitly configured private S3 bucket the s3-free
-                // author's Save fails closed.
                 #[cfg(feature = "s3-free")]
-                let free_author = match env::var("TOR_FREE_S3_BUCKET") {
-                    Ok(bucket) => {
-                        let config =
-                            aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-                        let client = aws_sdk_s3::Client::new(&config);
-                        let store = tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(
-                            client,
-                            bucket.clone(),
-                        )
-                        .map_err(|_| "Invalid TOR_FREE_S3_BUCKET")?;
-                        let publisher = tor_web::free_author_publish::PgFreeAuthorPublisher::new(
-                            tor_books::repositories::free_s3_publish::PgFreeS3Publication::new(
-                                pool.clone(),
-                            ),
-                            store,
-                            bucket,
-                        )?;
-                        Some(publisher)
-                    }
-                    Err(env::VarError::NotPresent) => None,
-                    Err(error) => return Err(error.into()),
-                };
+                let free_author = auth_startup::configured_free_publisher(&catalog).await?;
                 #[cfg(not(feature = "s3-free"))]
                 if env::var_os("TOR_FREE_S3_BUCKET").is_some() {
                     return Err("TOR_FREE_S3_BUCKET requires --features s3-free".into());
@@ -455,105 +432,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 };
                 #[cfg(not(feature = "s3-paid"))]
                 let paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>> = None;
-                if let Some(paid) = paid_storage {
-                    let s3_origin = env::var("TOR_PAID_S3_PUBLIC_ORIGIN")?;
-                    #[cfg(all(feature = "s3-paid", feature = "s3-free"))]
-                    let app = match (paid_author, free_author) {
-                        (Some(author), Some(free)) => {
-                            tor_web::router_with_postgres_reading_auth_paid_grants_browser_author_free(
-                                catalog, reader, accounts, (secure, origin),
-                                (paid, s3_origin),
-                                cover_store.map(|store| (store, cover_worker_enabled)),
-                                author, free,
-                            )
-                        }
-                        (Some(author), None) => {
-                            tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
-                                catalog, reader, accounts, (secure, origin),
-                                (paid, s3_origin),
-                                cover_store.map(|store| (store, cover_worker_enabled)),
-                                author,
-                            )
-                        }
-                        (None, Some(free)) => {
-                            tor_web::router_with_postgres_reading_auth_paid_grants_browser_free_author(
-                                catalog, reader, accounts, (secure, origin),
-                                (paid, s3_origin),
-                                cover_store.map(|store| (store, cover_worker_enabled)),
-                                free,
-                            )
-                        }
-                        (None, None) => tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                            catalog, reader, accounts, secure, origin,
-                            (paid, s3_origin),
-                            cover_store.map(|store| (store, cover_worker_enabled)),
-                        ),
-                    };
-                    #[cfg(all(feature = "s3-paid", not(feature = "s3-free")))]
-                    let app = if let Some(author) = paid_author {
-                        tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
-                            catalog, reader, accounts, (secure, origin),
-                            (paid, s3_origin),
-                            cover_store.map(|store| (store, cover_worker_enabled)),
-                            author,
-                        )
-                    } else {
-                        tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                            catalog, reader, accounts, secure, origin,
-                            (paid, s3_origin),
-                            cover_store.map(|store| (store, cover_worker_enabled)),
-                        )
-                    };
-                    #[cfg(not(feature = "s3-paid"))]
-                    let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                        catalog, reader, accounts, secure, origin,
-                        (paid, s3_origin),
-                        cover_store.map(|store| (store, cover_worker_enabled)),
-                    );
-                    app.map_err(|reason| -> Box<dyn Error> { reason.into() })?
-                } else {
+                auth_startup::AuthInputs {
+                    catalog,
+                    reader,
+                    accounts,
+                    secure,
+                    origin,
+                    covers: cover_store,
+                    cover_worker_enabled,
+                    paid_storage,
+                    #[cfg(feature = "s3-paid")]
+                    paid_author,
                     #[cfg(feature = "s3-free")]
-                    {
-                        if let Some(free) = free_author {
-                            tor_web::router_with_postgres_reading_auth_free_s3(
-                                catalog, reader, accounts, (secure, origin),
-                                cover_store.map(|store| (store, cover_worker_enabled)), free,
-                            )
-                        } else if let Some(store) = cover_store {
-                            if cover_worker_enabled {
-                                tor_web::router_with_postgres_reading_auth_cover_uploads(
-                                    catalog, reader, accounts, secure, origin, store,
-                                )
-                            } else {
-                                tor_web::router_with_postgres_reading_auth_covers(
-                                    catalog, reader, accounts, secure, origin, store,
-                                )
-                            }
-                        } else {
-                            tor_web::router_with_postgres_reading_auth(
-                                catalog, reader, accounts, secure, origin,
-                            )
-                        }
-                    }
-                    #[cfg(not(feature = "s3-free"))]
-                    {
-                        if let Some(store) = cover_store {
-                            if cover_worker_enabled {
-                                tor_web::router_with_postgres_reading_auth_cover_uploads(
-                                    catalog, reader, accounts, secure, origin, store,
-                                )
-                            } else {
-                                tor_web::router_with_postgres_reading_auth_covers(
-                                    catalog, reader, accounts, secure, origin, store,
-                                )
-                            }
-                        } else {
-                            tor_web::router_with_postgres_reading_auth(
-                                catalog, reader, accounts, secure, origin,
-                            )
-                        }
-                    }
+                    free_author,
                 }
+                .router()?
             } else {
                 if let Some(store) = cover_store {
                     tor_web::router_with_postgres_reading_covers(catalog, reader, store)
