@@ -1,6 +1,5 @@
 //! Browser author publishing, only for authenticated owner, no URL collectors.
 #![forbid(unsafe_code)]
-
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
@@ -16,15 +15,12 @@ use tor_books::{
     repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapterRequest},
 };
-
 use crate::auth_cookies::{private_response, CookiePolicy};
-
 mod chapter_import;
 mod new_chapter_page;
 mod publisher;
 mod schedule;
 pub(crate) use publisher::{FreeChapterPublisher, PaidChapterPublisher};
-
 #[derive(Clone)]
 struct AuthorChapterState {
     accounts: PgAccounts,
@@ -33,7 +29,6 @@ struct AuthorChapterState {
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
     free_author: Option<Arc<dyn FreeChapterPublisher>>,
 }
-
 #[derive(Deserialize)]
 struct ChapterForm {
     number: i32,
@@ -47,7 +42,6 @@ struct ChapterForm {
     is_delayed_publication: Option<String>,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct EditChapterForm {
     number: i32,
@@ -57,19 +51,16 @@ struct EditChapterForm {
     command_key: String,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct ReleaseChapterForm {
     expected_revision: i64,
     version_id: i64,
     csrf_token: Option<String>,
 }
-
 #[derive(Deserialize)]
 struct PublishForm {
     csrf_token: Option<String>,
 }
-
 pub(crate) fn router(
     accounts: PgAccounts,
     cookies: CookiePolicy,
