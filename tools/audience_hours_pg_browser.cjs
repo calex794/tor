@@ -178,7 +178,6 @@ function publicCounts(from) {
       await adminPage.setViewportSize({width,height:width===390 ? 844 : 900});
       await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
       await checkReport(adminPage,7);
-      await checkFixtureCells(adminPage,history);
       const hours = adminPage.getByTestId('audience-hours');
       assert.match(await hours.innerText(), /час.*сохран|сохран.*час/);
       assert.ok(!(await hours.innerText()).includes('999999'), 'private-page category excluded');
@@ -186,6 +185,7 @@ function publicCounts(from) {
       await adminPage.screenshot({path:path.join(shots,`audience-hours-${width}.png`)});
       await hours.getByText('Все часы и категории',{exact:true}).click();
       assert.ok(await adminPage.getByTestId('audience-hours-table').isVisible());
+      await checkFixtureCells(adminPage,history);
       assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth<=innerWidth+1), 'hour table must scroll inside its own container');
       await adminPage.getByTestId('audience-hours-table').scrollIntoViewIfNeeded();
       await adminPage.screenshot({path:path.join(shots,`audience-hours-table-${width}.png`)});
