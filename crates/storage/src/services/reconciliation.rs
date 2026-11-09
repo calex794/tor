@@ -52,3 +52,25 @@ pub trait PrivateInventoryLister: Send + Sync {
         continuation: Option<&str>,
     ) -> Result<PrivateInventoryPage, StorageError>;
 }
+
+/// The result of an authenticated HEAD against a canonical private object key.
+/// Missing is returned ONLY for a provider-confirmed 404/NoSuchKey, never 403,
+/// timeouts, invalid credentials or a transport error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegisteredHeadResult {
+    Present,
+    Missing,
+    MetadataMismatch,
+}
+
+/// Private read-only capability for reverse (PostgreSQL -> S3) reconciliation.
+/// No caller-provided S3 path, signed URL, object body or deletion method.
+#[async_trait]
+pub trait PrivateRegisteredHead: Send + Sync {
+    fn private_bucket(&self) -> &str;
+
+    async fn head_registered(
+        &self,
+        object: &tor_contracts::paid_delivery::ObjectRef,
+    ) -> Result<RegisteredHeadResult, StorageError>;
+}

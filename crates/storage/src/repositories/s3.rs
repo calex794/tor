@@ -293,3 +293,59 @@ impl crate::services::reconciliation::PrivateInventoryLister for S3PrivateStore 
         })
     }
 }
+
+/// G-09 reverse reconciliation. Only a known private bucket and an immutable
+/// canonical ObjectRef from PostgreSQL may be checked; no body is downloaded.
+#[async_trait]
+impl crate::services::reconciliation::PrivateRegisteredHead for S3PrivateStore {
+    fn private_bucket(&self) -> &str {
+        &self.bucket
+    }
+
+    async fn head_registered(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<crate::services::reconciliation::RegisteredHeadResult, StorageError> {
+        use crate::services::reconciliation::RegisteredHeadResult;
+        if !Self::valid(object) {
+            return Err(StorageError::Invalid);
+        }
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(Self::key(object))
+            .send()
+            .await;
+        match head {
+            Ok(response) => Ok(if Self::head_is_exact(
+                object,
+                response.content_length(),
+                response.content_type(),
+                response.content_encoding(),
+                response
+                    .metadata()
+                    .and_then(|values| values.get("sha256"))
+                    .map(String::as_str),
+            ) {
+                RegisteredHeadResult::Present
+            } else {
+                RegisteredHeadResult::MetadataMismatch
+            }),
+            Err(error) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let missing = error
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .is_some_and(|code| matches!(code, "NotFound" | "NoSuchKey" | "404"));
+                if missing {
+                    Ok(RegisteredHeadResult::Missing)
+                } else {
+                    // 403/5xx, expired credentials, network failures and any
+                    // unrecognised response are NOT proof that an object is absent.
+                    Err(StorageError::Unavailable)
+                }
+            }
+        }
+    }
+}

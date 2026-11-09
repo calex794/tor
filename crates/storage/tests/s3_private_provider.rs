@@ -313,3 +313,69 @@ async fn g_09_reconciliation_2501_private_list_pages() {
     assert_eq!(pages, vec![1000, 1000, 501]);
     assert_eq!(keys.len(), 2501);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO only"]
+async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
+    use tor_storage::services::reconciliation::{PrivateRegisteredHead, RegisteredHeadResult};
+
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "never test against a production S3 endpoint"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").unwrap();
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").unwrap();
+    let configure = |key: String, password: String| {
+        aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::new(key, password, None, None, "loopback-test"))
+            .endpoint_url(&endpoint)
+            .force_path_style(true)
+            .retry_config(RetryConfig::standard().with_max_attempts(1))
+            .build()
+    };
+    let client = Client::from_conf(configure(access, secret));
+    let bucket = "tor-private-reverse-head-ci";
+    client.create_bucket().bucket(bucket).send().await.unwrap();
+    let store = S3PrivateStore::new(client.clone(), bucket.into()).unwrap();
+    let id = ObjectId::parse("9b000000-0000-4000-8000-000000000001").unwrap();
+    let body = b"immutable ciphertext metadata test bytes";
+    let record = object(body, id);
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(format!("private/chapter-versions/{}.enc", record.object_id.as_str()))
+        .content_type("application/octet-stream")
+        .metadata("sha256", hex::encode(record.sha256_ciphertext))
+        .body(ByteStream::from(body.to_vec()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        store.head_registered(&record).await,
+        Ok(RegisteredHeadResult::Present)
+    );
+    let forged = object(b"forged ciphertext metadata exactly here", record.object_id.clone());
+    assert_eq!(
+        store.head_registered(&forged).await,
+        Ok(RegisteredHeadResult::MetadataMismatch)
+    );
+    let missing = object(
+        body,
+        ObjectId::parse("9b000000-0000-4000-8000-000000000002").unwrap(),
+    );
+    assert_eq!(
+        store.head_registered(&missing).await,
+        Ok(RegisteredHeadResult::Missing)
+    );
+
+    // Authentication failure must NOT be classified as a missing object.
+    let wrong = Client::from_conf(configure("invalid-ci-key".into(), "invalid-ci-secret".into()));
+    let blocked = S3PrivateStore::new(wrong, bucket.into()).unwrap();
+    assert_eq!(
+        blocked.head_registered(&record).await,
+        Err(StorageError::Unavailable)
+    );
+}
