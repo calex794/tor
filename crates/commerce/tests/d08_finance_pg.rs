@@ -398,7 +398,6 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     f.pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_08_single_purchase_posts_exact_credit_and_hold_once() {
