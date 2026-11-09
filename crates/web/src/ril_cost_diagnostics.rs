@@ -41,4 +41,3 @@ pub async fn ril_cost_map_for_diagnostics(
     }
     Some(ranked)
 }
-
