@@ -68,5 +68,4 @@ impl PgNotifications {
             })
             .collect())
     }
-
 }
