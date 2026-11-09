@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 363)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 361)  # Includes the S033 personal routes.
+        self.assertEqual(report["route_bindings"], 368)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 366)  # Includes FLOW administrator audience.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -73,6 +73,17 @@ class RilExposureTests(unittest.TestCase):
         data["routes"].reverse()
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(before, fingerprint(self.root)["sha256"])
+
+    def test_audience_exception_cannot_extend_or_downgrade(self):
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        original = path.read_text(encoding="utf-8")
+        for field, value in (("template", "/admin/audience/export"), ("policy", "session")):
+            data = json.loads(original)
+            row = next(row for row in data["routes"] if row["template"] == "/admin/audience")
+            row[field] = value
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertTrue(any("internal/admin route is not denied" in x
+                                for x in check_repository(self.root)))
 
     def test_change_in_handler_or_security_changes_fingerprint(self):
         before = fingerprint(self.root)["sha256"]
@@ -143,6 +154,21 @@ class RilExposureTests(unittest.TestCase):
         })
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+    def test_s049_free_comment_review_does_not_enable_admin_export(self):
+        self.assertEqual(check_repository(self.root), [])
+        target = self.root / "docs/contracts/ril-route-guards-v1.json"
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        doc["routes"].append({
+            "method": "GET",
+            "template": "/admin/free-comment-reports/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "free_comment_reviews::queue",
+            "policy": "admin_free_comment_reports",
+        })
+        target.write_text(json.dumps(doc), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
 
     def test_s049_paid_appeal_review_does_not_expose_export_route(self):
         self.assertEqual(check_repository(self.root), [])

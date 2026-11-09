@@ -314,7 +314,7 @@
       "method": "GET",
       "template": "/me",
       "source": "crates/web/src/auth.rs",
-      "handler": "me",
+      "handler": "account_home::show",
       "policy": "session"
     },
     {
@@ -2542,6 +2542,41 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "paid_comment_appeals::decide",
       "policy": "admin_paid_comment_appeals"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{chapter_id}/comments/{comment_id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reports::form",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{chapter_id}/comments/{comment_id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reports::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/free-comment-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reviews::queue",
+      "policy": "admin_free_comment_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/free-comment-reports/{report_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_reviews::decide",
+      "policy": "admin_free_comment_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "page",
+      "policy": "administrator"
     }
   ]
 }
