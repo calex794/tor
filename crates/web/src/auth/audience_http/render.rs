@@ -1,15 +1,18 @@
-//! Only numerical reading evidence is rendered; no reader or book identifiers.
+//! Only numerical evidence is rendered; no reader or book identifiers.
+mod sources;
+
 use crate::pages::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_reading::services::audience::{AudienceCounts, AudiencePeriod, AudienceReport};
+use tor_recommendations::services::audience::DiscoveryReport;
 
 fn start(days: i32) -> String {
     let mut body = String::from(
         "<section class=\"section\"><div class=\"container author-width\">\
-         <p class=\"eyebrow\">Администратору сайта</p><h1>Подтверждённое чтение</h1>\
-         <p>Зарегистрированные учётные записи с первым подтверждённым началом или завершением главы за период. \
-         Один читатель учитывается один раз за весь период, даже если читает разные книги.</p>\
+         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
+         <p>Источники переходов к книгам и подтверждённое чтение. \
+         Только общие числа, без истории отдельных читателей.</p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",
@@ -24,16 +27,14 @@ fn start(days: i32) -> String {
         write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
     }
     body.push_str(
-        "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>\
-         <p>Сравниваются два соседних периода одинаковой длительности. Время указано в UTC: \
-         начало включено, конец не включён. Текущий период заканчивается в момент расчёта.</p>",
+        "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
     );
     body
 }
 
 fn finish(mut body: String) -> Html<String> {
     body.push_str(
-        "<section class=\"book-section-card\"><h2>Что означают числа</h2>\
+        "<section class=\"book-section-card\"><h2>Как считается чтение глав</h2>\
          <p>Начало и завершение — подтверждённые системой события чтения главы. \
          Повторные открытия и повторная отправка прогресса не создают новое первое событие.</p>\
          <p>Это число учётных записей с такими событиями, а не все посетители сайта и не число людей. \
@@ -46,20 +47,33 @@ fn finish(mut body: String) -> Html<String> {
          </section><p><a href=\"/me\">Вернуться в личный кабинет</a></p></div></section>",
     );
     layout(
-        "Подтверждённое чтение",
-        "Закрытая сводка подтверждённых событий чтения.",
+        "Аудитория",
+        "Закрытая сводка источников и подтверждённого чтения.",
         &body,
     )
 }
 
-pub(super) fn unavailable(days: i32) -> Html<String> {
+pub(super) fn page(
+    days: i32,
+    reading: Option<&AudienceReport>,
+    discovery: Option<&DiscoveryReport>,
+) -> Html<String> {
     let mut body = start(days);
-    body.push_str("<p role=\"alert\">Сводка временно недоступна. Данные не получены; нулевые значения не подставляются.</p>");
-    finish(body)
-}
-
-pub(super) fn page(report: &AudienceReport) -> Html<String> {
-    let mut body = start(report.days);
+    match discovery {
+        Some(report) => sources::section(&mut body, report),
+        None => body.push_str("<section data-testid=\"audience-sources-unavailable\"><h2>Источники первого чтения книги</h2><p role=\"alert\">Сводка источников временно недоступна. Нулевые значения не подставляются.</p></section>"),
+    }
+    body.push_str(
+        "<h2>Подтверждённое чтение глав</h2>\
+         <p>Зарегистрированные учётные записи с первым подтверждённым началом или завершением главы за период. \
+         Один читатель учитывается один раз за весь период, даже если читает разные книги.</p>\
+         <p>Сравниваются два соседних периода одинаковой длительности. Время указано в UTC: \
+         начало включено, конец не включён. Текущий период заканчивается в момент расчёта.</p>",
+    );
+    let Some(report) = reading else {
+        body.push_str("<p role=\"alert\">Сводка чтения глав временно недоступна. Данные не получены; нулевые значения не подставляются.</p>");
+        return finish(body);
+    };
     write!(
         body,
         "<p>Время расчёта: {}.</p>",
@@ -180,7 +194,7 @@ mod tests {
 
     #[test]
     fn periods_use_report_distinct_counts_without_inventing_retention_or_conversion() {
-        let html = page(&sample()).0;
+        let html = page(7, Some(&sample()), None).0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
         assert!(html.contains("<dd>+1</dd>"));
         assert!(html.contains("datetime=\"2026-11-03T12:00:00Z\""));
@@ -196,20 +210,20 @@ mod tests {
     fn absent_events_do_not_turn_into_zero_readers_or_comparison() {
         let mut report = sample();
         report.previous.counts = None;
-        let html = page(&report).0;
+        let html = page(7, Some(&report), None).0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
         assert!(html.contains("audience-comparison-unavailable"));
         assert!(!html.contains("data-metric=\"readers\">0"));
         report.current.available = false;
-        assert!(!page(&report).0.contains("data-metric=\"readers\""));
-        assert!(unavailable(30).0.contains("role=\"alert\""));
+        assert!(!page(7, Some(&report), None).0.contains("data-metric=\"readers\""));
+        assert!(page(30, None, None).0.contains("role=\"alert\""));
     }
 
     #[test]
     fn timestamp_text_and_attribute_are_escaped() {
         let mut report = sample();
         report.current.from_utc = "\"><script>bad()</script>".into();
-        let html = page(&report).0;
+        let html = page(7, Some(&report), None).0;
         assert!(!html.contains("<script>bad()"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;"));
     }

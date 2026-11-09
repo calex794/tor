@@ -372,6 +372,8 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
