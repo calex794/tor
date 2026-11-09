@@ -21,7 +21,18 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 352);
+    assert_eq!(unique.len(), 353);
+}
+
+#[test]
+fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
+    let route = "/api/v1/admin/jobs/{id}/retry";
+    let passport = classify(Some(route), "POST");
+    assert!(passport.route_known);
+    assert_eq!(passport.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(passport.product_area, ProductArea::Admin);
+    assert_eq!(passport.cost_class, CostClass::Write);
+    assert!(!classify(Some(route), "GET").route_known);
 }
 
 #[test]
