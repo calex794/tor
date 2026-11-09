@@ -25,6 +25,12 @@ pub(super) struct ReportForm {
     reason: String,
     details: String,
 }
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct HistoryQuery {
+    history_before: Option<i64>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DecisionForm {
@@ -144,13 +150,24 @@ pub(super) async fn submit(
     }
 }
 
-pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Response {
+pub(super) async fn queue(
+    State(s): State<ShareState>,
+    Query(query): Query<HistoryQuery>,
+    headers: HeaderMap,
+) -> Response {
     let digest = match session_user(&s, &headers).await {
         Ok(digest) => digest,
         Err(error) => return deny(error),
     };
     let reports = match store(&s).pending(&digest, 50).await {
         Ok(reports) => reports,
+        Err(error) => return deny(status(error)),
+    };
+    let history = match store(&s)
+        .review_history(&digest, query.history_before, 25)
+        .await
+    {
+        Ok(history) => history,
         Err(error) => return deny(status(error)),
     };
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
@@ -196,7 +213,41 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
         )
         .expect("bounded S049 Book report markup");
     }
-    body.push_str("</div></section>");
+    body.push_str("<section aria-label=\"История решений\"><h2>История решений</h2>");
+    if history.items.is_empty() {
+        body.push_str("<p>История решений пока пуста.</p>");
+    }
+    for item in history.items {
+        let target = item.comment_id.map_or_else(
+            || "Жалоба на книгу".to_owned(),
+            |id| format!("Комментарий #{id}"),
+        );
+        write!(
+            body,
+            r#"<article class="me-now-card">
+            <h3>Решение по жалобе #{}</h3>
+            <p>Книга #{} · {} · сотрудник #{}</p>
+            <p>Решение: {} · действие: {} · UTC {}</p>
+            <p>Обоснование: {}</p></article>"#,
+            item.report_id,
+            item.book_id,
+            target,
+            item.reviewer_id,
+            super::escape_html(&item.decision),
+            super::escape_html(&item.moderation_action),
+            super::escape_html(&item.decided_utc),
+            super::escape_html(&item.note),
+        )
+        .expect("bounded S049 immutable review history markup");
+    }
+    if let Some(next) = history.next_cursor {
+        write!(
+            body,
+            r#"<p><a href="/admin/book-reports?history_before={next}">Более ранние решения</a></p>"#,
+        )
+        .expect("bounded S049 history cursor");
+    }
+    body.push_str("</section></div></section>");
     page("Рассмотрение жалоб на книги", &body, &cookies)
 }
 

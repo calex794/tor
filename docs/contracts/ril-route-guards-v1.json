@@ -755,7 +755,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "session_security::logout",
+      "handler": "logout",
       "policy": "csrf_only"
     },
     {
@@ -2479,6 +2479,27 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "comment_appeals::decide",
       "policy": "admin_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/paid-comments/report",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "paid_comment_reports::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/paid-comment-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "paid_comment_reviews::queue",
+      "policy": "admin_paid_comment_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/paid-comment-reports/{report_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "paid_comment_reviews::decide",
+      "policy": "admin_paid_comment_reports"
     },
     {
       "method": "POST",

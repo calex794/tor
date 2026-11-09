@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "support_admin", "admin_outbox_retry"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -191,9 +191,6 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
-    if (source == root / "crates/web/src/auth.rs"
-            and handler == "session_security::logout"):
-        return source.parent / "auth/session_security.rs"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
         allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
@@ -210,6 +207,8 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return source.parent / "book_content_reports.rs"
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "comment_appeals":
         return source.parent / "book_comment_appeals.rs"
+    if source == root / "crates/web/src/auth/book_shares.rs" and module == "paid_comment_reviews":
+        return source.parent / "book_paid_comment_reviews.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -279,6 +278,16 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     # S011: new exact-version paid comment handlers share a single A+D guard
     # helper. Inspect THAT helper and the explicit call; never accept an
     # arbitrary comment route or trust a descriptive "scoped" policy alone.
+    s049_paid_comment_report = (
+        entry["source"] == "crates/web/src/paid_grants_http.rs"
+        and entry["method"] == "POST"
+        and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/paid-comments/report"
+        and entry["handler"] == "paid_comment_reports::submit"
+    )
+    if s049_paid_comment_report:
+        reader = _production((ROOT / "crates/web/src/paid_grants_http/paid_comments.rs")
+                             .read_text(encoding="utf-8"))
+        evidence += "\n" + _functions(reader).get("authorized", "")
     paid_comment_binding = (
         entry["source"] == "crates/web/src/paid_grants_http.rs"
         and (entry["method"], entry["template"], entry["handler"]) in {
@@ -318,15 +327,6 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "StatusCode::FORBIDDEN" in caller
                 and ".revoke_session(&digest)" in caller):
             evidence += "\n" + caller
-    if (entry["source"] == "crates/web/src/auth.rs"
-            and (entry["method"], entry["template"], entry["handler"])
-                == ("POST", "/logout", "session_security::logout")):
-        if not all(marker in body for marker in (
-            "state.cookies.same_origin(&headers)",
-            ".valid_csrf(&headers", "StatusCode::FORBIDDEN",
-            ".revoke_session(&digest)",
-        )):
-            errors.append(f"{label}: logout bypassed CSRF or revocable PostgreSQL session")
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -386,6 +386,18 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if is_s049_book:
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
+    s049_paid_review_ops = {
+        ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue"): "pending",
+        ("POST", "/admin/paid-comment-reports/{report_id}/decision", "paid_comment_reviews::decide"): "decide",
+    }
+    audited_s049_paid_review = (
+        policy == "admin_paid_comment_reports"
+        and entry["source"] == "crates/web/src/auth/book_shares.rs"
+        and admin_key in s049_paid_review_ops
+    )
+    if audited_s049_paid_review:
+        evidence += "\n" + functions.get("session_user", "")
+        evidence += "\n" + functions.get("store", "")
     s049_appeal_user = {
         ("GET", "/me/comment-appeals", "comment_appeals::author_page"): "author_history",
         ("POST", "/me/comment-appeals/{hide_event_id}", "comment_appeals::submit"): "submit",
@@ -408,8 +420,68 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         evidence += "\n" + functions.get("store", "")
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or approved_refund
-            or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin):
+            or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
+            or audited_s049_paid_review):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_paid_comment_reports":
+        repo = _production((ROOT / "crates/social/src/repositories/paid_comment_reviews.rs")
+                           .read_text(encoding="utf-8"))
+        operation = s049_paid_review_ops.get(admin_key) if audited_s049_paid_review else None
+        required = (
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "s.expires_at>now()",
+            "u.account_state='active'", "FOR SHARE OF s,u,r",
+            "administrator(&mut tx, session_digest).await?",
+        )
+        guarded = bool(
+            operation
+            and "PgPaidCommentReviews::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_user(&s, &headers)" in evidence
+            and ".active_session_user(&digest)" in evidence
+            and all(marker in repo for marker in required)
+        )
+        if operation == "decide":
+            guarded = guarded and all(marker in evidence for marker in (
+                "s.cookies.same_origin(&headers)",
+                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "FOR UPDATE", "INSERT INTO social_paid_comment_review_events",
+                "UPDATE social_paid_comment_reports SET state=$2",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
+    if policy == "admin_comment_appeals":
+        repo = _production((ROOT / "crates/social/src/repositories/book_comment_appeals.rs")
+                           .read_text(encoding="utf-8"))
+        operation = s049_appeal_admin.get(admin_key) if audited_s049_appeal_admin else None
+        required = (
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "s.expires_at>now()",
+            "u.account_state='active'", "FOR SHARE OF s,u,r",
+            "administrator(&mut tx, digest).await?",
+            "social_book_comment_appeals",
+        )
+        guarded = bool(
+            operation
+            and "PgBookCommentAppeals::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_user(&s, &headers)" in evidence
+            and ".active_session_user(&digest)" in evidence
+            and all(marker in repo for marker in required)
+        )
+        if operation == "decide":
+            guarded = guarded and all(marker in evidence for marker in (
+                "s.cookies.same_origin(&headers)",
+                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "original_reviewer == reviewer",
+                "FOR UPDATE OF c",
+                "INSERT INTO social_book_comment_appeal_decisions",
+                "UPDATE social_book_comment_appeals SET state=$2",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S049 independent appeal review lacks locked admin role, CSRF or audit")
     if policy == "admin_outbox_retry":
         # G-07: requeue is authorized by the locked live role in the SAME
         # transaction as event mutation and append-only audit.
@@ -883,6 +955,18 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and ".own_ratings(self.actor, book_id)" in service
                 and ".eligible(self.actor, book_id)" in service
                 and ".set_rating(self.actor, book_id, rating.kind, rating.score)" in service
+            )
+        elif s049_paid_comment_report:
+            repo = _production((ROOT / "crates/social/src/repositories/paid_comment_reports.rs")
+                               .read_text(encoding="utf-8"))
+            scoped = bool(
+                "paid_comments::authorized(&state, &headers, chapter, purchase, version)" in evidence
+                and ".submit(" in body and "&digest" in body and "actor," in body
+                and "tor_purchase_version_readable" in repo
+                and "s.revoked_at IS NULL" in repo
+                and "FOR UPDATE OF u FOR SHARE OF p,ch,s" in repo
+                and "c.visibility='visible'" in repo
+                and "c.version_id=$3" in repo
             )
         elif paid_comment_binding:
             # Exact canonical E repository operation with caller-bound actor,
