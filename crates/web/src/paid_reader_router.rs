@@ -116,7 +116,6 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
     )
 }
 
-
 /// Paid signed reading plus fresh free S3 author Save (paid author is disabled).
 #[cfg(feature = "s3-free")]
 pub fn router_with_postgres_reading_auth_paid_grants_browser_free_author(
@@ -202,7 +201,11 @@ fn paid_grants_router(
     ),
     extras: PaidRouterExtras,
 ) -> Result<Router, &'static str> {
-    let PaidRouterExtras { cover, author, free_author } = extras;
+    let PaidRouterExtras {
+        cover,
+        author,
+        free_author,
+    } = extras;
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
@@ -242,6 +245,16 @@ fn paid_grants_router(
                     free,
                 )
             } else {
+                auth::router_with_paid_reader_author(
+                    accounts,
+                    auth_reader,
+                    secure,
+                    public_origin,
+                    covers,
+                    publisher,
+                )
+            }
+            #[cfg(not(feature = "s3-free"))]
             auth::router_with_paid_reader_author(
                 accounts,
                 auth_reader,
@@ -250,13 +263,17 @@ fn paid_grants_router(
                 covers,
                 publisher,
             )
-            }
-            #[cfg(not(feature = "s3-free"))]
-            auth::router_with_paid_reader_author(accounts, auth_reader, secure, public_origin, covers, publisher)
         } else {
             #[cfg(feature = "s3-free")]
             if let Some(free) = free_author {
-                auth::router_with_paid_reader_free_author(accounts, auth_reader, secure, public_origin, covers, free)
+                auth::router_with_paid_reader_free_author(
+                    accounts,
+                    auth_reader,
+                    secure,
+                    public_origin,
+                    covers,
+                    free,
+                )
             } else {
                 auth::router_with_paid_reader(accounts, auth_reader, secure, public_origin, covers)
             }
