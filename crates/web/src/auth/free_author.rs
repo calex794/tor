@@ -3,7 +3,7 @@ use super::{router_inner, CoverObjectStore, PgAccounts, PgReader, Router};
 use crate::author_chapter_http::{FreeChapterPublisher, PaidChapterPublisher};
 use std::sync::Arc;
 
-pub(super) fn router_with_free_author(
+pub(crate) fn router_with_free_author(
     accounts: PgAccounts,
     reader: PgReader,
     secure: bool,
@@ -22,7 +22,7 @@ pub(super) fn router_with_free_author(
     )
 }
 
-pub(super) fn router_with_paid_reader_free_author(
+pub(crate) fn router_with_paid_reader_free_author(
     accounts: PgAccounts,
     reader: PgReader,
     secure: bool,
@@ -41,7 +41,7 @@ pub(super) fn router_with_paid_reader_free_author(
     )
 }
 
-pub(super) fn router_with_paid_and_free_author(
+pub(crate) fn router_with_paid_and_free_author(
     accounts: PgAccounts,
     reader: PgReader,
     secure: bool,

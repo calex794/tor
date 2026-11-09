@@ -62,16 +62,13 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
             )
             .await;
         if result == Err(AuthorError::Conflict) {
-            // Identical retries can race with another matching upload.
+            // A racing identical request succeeds only for this exact published edition.
             let newest = self.repository.prepare_new(actor, request).await?;
-            if newest == pending
-                || (newest.chapter_id == pending.chapter_id
-                    && newest.version_id == pending.version_id
-                    && newest.published)
+            if newest.chapter_id == pending.chapter_id
+                && newest.version_id == pending.version_id
+                && newest.published
             {
-                if newest.published {
-                    return Ok(());
-                }
+                return Ok(());
             }
         }
         result
