@@ -18,9 +18,8 @@ pub struct AuthInputs {
     pub cover_worker_enabled: bool,
     pub paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>>,
     #[cfg(feature = "s3-paid")]
-    pub paid_author: Option<
-        tor_web::PgPaidAuthorPublisher<tor_storage::repositories::s3::S3PrivateStore>,
-    >,
+    pub paid_author:
+        Option<tor_web::PgPaidAuthorPublisher<tor_storage::repositories::s3::S3PrivateStore>>,
     #[cfg(feature = "s3-free")]
     pub free_author: Option<
         tor_web::free_author_publish::PgFreeAuthorPublisher<
@@ -74,28 +73,47 @@ impl AuthInputs {
                 let result = match (self.paid_author, self.free_author) {
                     (Some(author), Some(free)) => {
                         tor_web::router_with_postgres_reading_auth_paid_grants_browser_author_free(
-                            catalog, reader, accounts, (secure, origin),
-                            (paid, s3_origin), covers, author, free,
+                            catalog,
+                            reader,
+                            accounts,
+                            (secure, origin),
+                            (paid, s3_origin),
+                            covers,
+                            author,
+                            free,
                         )
                     }
                     (Some(author), None) => {
                         tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
-                            catalog, reader, accounts, (secure, origin),
-                            (paid, s3_origin), covers, author,
+                            catalog,
+                            reader,
+                            accounts,
+                            (secure, origin),
+                            (paid, s3_origin),
+                            covers,
+                            author,
                         )
                     }
                     (None, Some(free)) => {
                         tor_web::router_with_postgres_reading_auth_paid_grants_browser_free_author(
-                            catalog, reader, accounts, (secure, origin),
-                            (paid, s3_origin), covers, free,
+                            catalog,
+                            reader,
+                            accounts,
+                            (secure, origin),
+                            (paid, s3_origin),
+                            covers,
+                            free,
                         )
                     }
-                    (None, None) => {
-                        tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                            catalog, reader, accounts, secure, origin,
-                            (paid, s3_origin), covers,
-                        )
-                    }
+                    (None, None) => tor_web::router_with_postgres_reading_auth_paid_grants_browser(
+                        catalog,
+                        reader,
+                        accounts,
+                        secure,
+                        origin,
+                        (paid, s3_origin),
+                        covers,
+                    ),
                 };
                 return result.map_err(|reason| reason.into());
             }
@@ -103,12 +121,23 @@ impl AuthInputs {
             {
                 let result = if let Some(author) = self.paid_author {
                     tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
-                        catalog, reader, accounts, (secure, origin),
-                        (paid, s3_origin), covers, author,
+                        catalog,
+                        reader,
+                        accounts,
+                        (secure, origin),
+                        (paid, s3_origin),
+                        covers,
+                        author,
                     )
                 } else {
                     tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                        catalog, reader, accounts, secure, origin, (paid, s3_origin), covers,
+                        catalog,
+                        reader,
+                        accounts,
+                        secure,
+                        origin,
+                        (paid, s3_origin),
+                        covers,
                     )
                 };
                 return result.map_err(|reason| reason.into());
@@ -116,7 +145,13 @@ impl AuthInputs {
             #[cfg(not(feature = "s3-paid"))]
             {
                 return tor_web::router_with_postgres_reading_auth_paid_grants_browser(
-                    catalog, reader, accounts, secure, origin, (paid, s3_origin), covers,
+                    catalog,
+                    reader,
+                    accounts,
+                    secure,
+                    origin,
+                    (paid, s3_origin),
+                    covers,
                 )
                 .map_err(|reason| reason.into());
             }
@@ -124,7 +159,12 @@ impl AuthInputs {
         #[cfg(feature = "s3-free")]
         if let Some(free) = self.free_author {
             return Ok(tor_web::router_with_postgres_reading_auth_free_s3(
-                catalog, reader, accounts, (secure, origin), covers, free,
+                catalog,
+                reader,
+                accounts,
+                (secure, origin),
+                covers,
+                free,
             ));
         }
         if let Some((store, enabled)) = covers {
@@ -162,11 +202,9 @@ pub async fn configured_free_publisher(
     };
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let client = aws_sdk_s3::Client::new(&config);
-    let store = tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(
-        client,
-        bucket.clone(),
-    )
-    .map_err(|_| "Invalid TOR_FREE_S3_BUCKET")?;
+    let store =
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore::new(client, bucket.clone())
+            .map_err(|_| "Invalid TOR_FREE_S3_BUCKET")?;
     let publisher = tor_web::free_author_publish::PgFreeAuthorPublisher::new(
         tor_books::repositories::free_s3_publish::PgFreeS3Publication::new(catalog.pool()),
         store,
