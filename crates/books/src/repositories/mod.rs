@@ -1,4 +1,5 @@
 pub mod book_members;
+pub mod free_s3_publish;
 pub(crate) mod chapter_number;
 pub mod cover_private_cleanup;
 pub mod cover_publication_ops;
