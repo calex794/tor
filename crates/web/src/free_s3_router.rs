@@ -22,6 +22,11 @@ pub fn router_with_postgres_reading_auth_free_s3(
         None => (None, false),
     };
     admin_reader_router::authenticated_postgres_reader_with_free_s3(
-        catalog, reader, accounts, origin, (objects, upload), Arc::new(free),
+        catalog,
+        reader,
+        accounts,
+        origin,
+        (objects, upload),
+        Arc::new(free),
     )
 }
