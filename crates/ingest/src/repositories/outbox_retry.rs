@@ -26,7 +26,17 @@ pub struct PgOutboxAdminRetry {
 
 // Row order matches the locked outbox_events SELECT below.
 type RetryCandidateRow = (
-    String, Vec<String>, i64, String, i64, String, bool, bool, bool, i32, i64,
+    String,
+    Vec<String>,
+    i64,
+    String,
+    i64,
+    String,
+    bool,
+    bool,
+    bool,
+    i32,
+    i64,
 );
 
 fn valid_event_id(id: &str) -> bool {
@@ -278,9 +288,19 @@ mod tests {
     #[test]
     fn g_07_rejects_poison_payloads_before_operator_requeue() {
         let root = r#"{"chapter_id":11,"book_id":12,"version_id":13,"first_release":true,"published_at":"2026-11-09T19:00:00Z"}"#;
-        assert!(supported_retry_payload("ChapterPublished", 1, "chapter", 11, root));
+        assert!(supported_retry_payload(
+            "ChapterPublished",
+            1,
+            "chapter",
+            11,
+            root
+        ));
         assert!(!supported_retry_payload(
-            "ChapterPublished", 1, "chapter", 11, "{}"
+            "ChapterPublished",
+            1,
+            "chapter",
+            11,
+            "{}"
         ));
         assert!(!supported_retry_payload(
             "ChapterPublished",
@@ -289,17 +309,41 @@ mod tests {
             11,
             r#"{"chapter_id":11}"#,
         ));
-        assert!(!supported_retry_payload("ChapterPublished", 2, "chapter", 11, root));
-        assert!(!supported_retry_payload("ChapterPublished", 1, "chapter", 12, root));
+        assert!(!supported_retry_payload(
+            "ChapterPublished",
+            2,
+            "chapter",
+            11,
+            root
+        ));
+        assert!(!supported_retry_payload(
+            "ChapterPublished",
+            1,
+            "chapter",
+            12,
+            root
+        ));
         let child = r#"{"object_id":11,"book_id":12,"version_id":13,"actor_user_id":14,"recipient_user_id":15}"#;
         assert!(supported_retry_payload(
-            "reader.chapter.released", 1, "chapter", 11, child
+            "reader.chapter.released",
+            1,
+            "chapter",
+            11,
+            child
         ));
         assert!(!supported_retry_payload(
-            "reader.chapter.released", 1, "chapter", 11, "{}"
+            "reader.chapter.released",
+            1,
+            "chapter",
+            11,
+            "{}"
         ));
         assert!(!supported_retry_payload(
-            "reader.chapter.released", 1, "chapter", 12, child
+            "reader.chapter.released",
+            1,
+            "chapter",
+            12,
+            child
         ));
     }
 
