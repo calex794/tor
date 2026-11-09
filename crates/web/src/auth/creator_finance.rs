@@ -49,7 +49,7 @@ fn rub_to_minor(input: &str) -> Option<i64> {
     if trimmed.is_empty() || trimmed.len() > 16 {
         return None;
     }
-    let (whole, fraction) = match trimmed.split_once(['.', ',']) {
+    let (whole, fraction) = match trimmed.split_once(|c| c == '.' || c == ',') {
         Some((whole, fraction)) => (whole, fraction),
         None => (trimmed, "00"),
     };
@@ -68,8 +68,8 @@ fn rub_to_minor(input: &str) -> Option<i64> {
     } else {
         fraction.parse().ok()?
     };
-    whole.checked_mul(100)?.checked_add(fraction)?.checked_div(1)
-        .filter(|value| (1..=1_000_000_000_000).contains(value))
+    let minor = whole.checked_mul(100)?.checked_add(fraction)?;
+    (1..=1_000_000_000_000).contains(&minor).then_some(minor)
 }
 
 fn noindex(mut response: Response) -> Response {
