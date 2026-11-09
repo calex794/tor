@@ -50,10 +50,10 @@ impl AuthInputs {
                 })
                 .transpose()?;
             let base = self.router_base()?;
-            return Ok(match free_routes {
-                Some(routes) => base.merge(routes),
+            Ok(match free_routes {
+                Some(routes) => base.merge(tor_web::instrument_additional_routes(routes)),
                 None => base,
-            });
+            })
         }
         #[cfg(not(feature = "s3-free"))]
         self.router_base()
