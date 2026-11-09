@@ -3,7 +3,7 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{DefaultBodyLimit, Form, State},
+    extract::{DefaultBodyLimit, Form, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Html, Redirect, Response},
     routing::get,
@@ -15,9 +15,32 @@ use tor_accounts::services::security::generate_session_token;
 use tor_commerce::{
     domain::money::IdempotencyKey,
     repositories::creator_finance::{
-        CreatorFinanceError, CreatorFinanceTotals, CreatorPayoutRequest, PgCreatorFinance,
+        CreatorEarningLine, CreatorFinanceError, CreatorFinanceTotals, CreatorPayoutRequest,
+        CreatorRefundLine, PgCreatorFinance,
     },
 };
+
+#[derive(Deserialize, Default)]
+struct FinanceQuery {
+    tab: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FinanceTab {
+    Stats,
+    Refunds,
+    Payouts,
+}
+
+impl FinanceTab {
+    fn parse(tab: Option<&str>) -> Self {
+        match tab {
+            Some("refunds") => Self::Refunds,
+            Some("payouts") => Self::Payouts,
+            _ => Self::Stats,
+        }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -96,9 +119,12 @@ fn shell(content: &str) -> Html<String> {
 
 fn render(
     totals: &CreatorFinanceTotals,
+    earnings: &[CreatorEarningLine],
+    refunds: &[CreatorRefundLine],
     history: &[CreatorPayoutRequest],
     csrf: &str,
     allow_requests: bool,
+    tab: FinanceTab,
 ) -> Html<String> {
     let mut rows = String::new();
     for row in history {
@@ -137,6 +163,64 @@ fn render(
          Это не блокирует просмотр уже начисленного дохода.</p>"
             .to_owned()
     };
+    // In NEwBOO the finance area has three tabs. Render only the actor-bound,
+    // bounded read model selected by the visitor. Neither a book title nor
+    // another user's share or any buyer identity is projected.
+    let mut details = String::new();
+    match tab {
+        FinanceTab::Stats => {
+            details.push_str(&format!("<h2>Резервирование</h2>{form}"));
+            details.push_str("<h2>Последние начисления</h2><ul>");
+            for line in earnings {
+                let status = match line.status.as_str() {
+                    "mature" => "Созрело",
+                    "immature" => "Удержание до созревания",
+                    "refund_hold" => "Ожидается решение по возврату",
+                    "reversed" => "Подтверждён возврат",
+                    _ => "Статус не подтверждён",
+                };
+                write!(
+                    details,
+                    "<li>Покупка №{} · доля {}% · начислено {} · возвращено {} \
+                     · {} UTC · {status}</li>",
+                    line.purchase_id,
+                    line.share_percent,
+                    rub(line.amount_minor),
+                    rub(line.reversed_minor),
+                    pages::escape_html(&line.earned_utc),
+                )
+                .expect("bounded earning rows");
+            }
+            if earnings.is_empty() {
+                details.push_str("<li>Подтверждённых начислений пока нет.</li>");
+            }
+            details.push_str("</ul><p>Показаны последние 50 начислений.</p>");
+        }
+        FinanceTab::Refunds => {
+            details.push_str("<h2>Возвраты авторских начислений</h2><ul>");
+            for line in refunds {
+                write!(
+                    details,
+                    "<li>Покупка №{} · удержано {} · {} UTC</li>",
+                    line.purchase_id,
+                    rub(line.amount_minor),
+                    pages::escape_html(&line.reversed_utc)
+                )
+                .expect("bounded refund rows");
+            }
+            if refunds.is_empty() {
+                details.push_str("<li>Подтверждённых возвратов пока нет.</li>");
+            }
+            details.push_str("</ul><p>Показаны последние 50 возвратов.</p>");
+        }
+        FinanceTab::Payouts => {
+            details.push_str(&format!(
+                "<h2>История заявок на резерв</h2><ul>{rows}</ul>\
+                 <p>Показаны последние 30 заявок. Ни одна заявка не является\
+                 подтверждением банковской выплаты.</p>"
+            ));
+        }
+    }
     shell(&format!(
         "<p>Здесь учитываются только подтверждённые доли дохода от покупок глав\
          в действующем финансовом контуре. Баланс читательского кошелька не является\
@@ -153,8 +237,11 @@ fn render(
          <p>Потенциально доступная сумма — внутренний расчёт, не обещание выплаты.\
          До подтверждения договорных условий и платёжного провайдера\
          реальные перечисления отключены.</p>\
-         <h2>Заявка на резерв</h2>{form}\
-         <h2>История заявок</h2><ul>{rows}</ul>",
+         <nav aria-label=\"Разделы финансов\">\
+         <a href=\"/me/finance?tab=stats\">Начисления</a> · \
+         <a href=\"/me/finance?tab=refunds\">Возвраты</a> · \
+         <a href=\"/me/finance?tab=payouts\">Заявки</a></nav>\
+         {details}",
         rub(totals.gross_minor),
         rub(totals.reversed_minor),
         rub(totals.immature_minor),
@@ -176,7 +263,11 @@ fn request_error(error: CreatorFinanceError) -> StatusCode {
     }
 }
 
-async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+async fn page(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<FinanceQuery>,
+) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(id)) => id,
         Ok(None) => return noindex(private_response(Redirect::to("/login"), &[])),
@@ -187,13 +278,42 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(totals) => totals,
         Err(e) => return deny(request_error(e)),
     };
-    let history = match repo.history(actor).await {
-        Ok(history) => history,
-        Err(e) => return deny(request_error(e)),
+    let tab = FinanceTab::parse(query.tab.as_deref());
+    let earnings = if tab == FinanceTab::Stats {
+        match repo.recent_earnings(actor).await {
+            Ok(rows) => rows,
+            Err(e) => return deny(request_error(e)),
+        }
+    } else {
+        Vec::new()
+    };
+    let refunds = if tab == FinanceTab::Refunds {
+        match repo.recent_refunds(actor).await {
+            Ok(rows) => rows,
+            Err(e) => return deny(request_error(e)),
+        }
+    } else {
+        Vec::new()
+    };
+    let history = if tab == FinanceTab::Payouts {
+        match repo.history(actor).await {
+            Ok(rows) => rows,
+            Err(e) => return deny(request_error(e)),
+        }
+    } else {
+        Vec::new()
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     noindex(private_response(
-        render(&totals, &history, &csrf, reservations_enabled()),
+        render(
+            &totals,
+            &earnings,
+            &refunds,
+            &history,
+            &csrf,
+            reservations_enabled(),
+            tab,
+        ),
         &cookies,
     ))
 }
@@ -232,7 +352,9 @@ async fn submit(
 
 #[cfg(test)]
 mod tests {
-    use super::{render, rub_to_minor, CreatorFinanceTotals};
+    use super::{
+        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorRefundLine, FinanceTab,
+    };
 
     #[test]
     fn s038_strict_minor_units_without_floating_rounding() {
@@ -242,6 +364,42 @@ mod tests {
         for raw in ["0", "-1", "1e2", "1.009", "1..00", "", "NaN"] {
             assert_eq!(rub_to_minor(raw), None);
         }
+    }
+
+    #[test]
+    fn s038_newboo_tabs_show_only_owner_financial_line_facts() {
+        let totals = CreatorFinanceTotals {
+            gross_minor: 200,
+            reversed_minor: 50,
+            immature_minor: 0,
+            mature_minor: 150,
+            open_refund_hold_minor: 0,
+            reserved_minor: 0,
+            available_minor: 150,
+        };
+        let earned = CreatorEarningLine {
+            purchase_id: 38,
+            amount_minor: 200,
+            share_percent: 60,
+            reversed_minor: 50,
+            status: "reversed".into(),
+            earned_utc: "2026-11-09 10:00".into(),
+        };
+        let refund = CreatorRefundLine {
+            purchase_id: 38,
+            amount_minor: 50,
+            reversed_utc: "2026-11-09 11:00".into(),
+        };
+        let stats = render(&totals, &[earned], &[], &[], "csrf", false, FinanceTab::Stats).0;
+        assert!(stats.contains("Покупка №38"));
+        assert!(stats.contains("доля 60%"));
+        assert!(stats.contains("Подтверждён возврат"));
+        assert!(stats.contains("href=\"/me/finance?tab=refunds\""));
+        assert!(!stats.contains("username"));
+        let refunds = render(&totals, &[], &[refund], &[], "csrf", false, FinanceTab::Refunds).0;
+        assert!(refunds.contains("Покупка №38 · удержано 0.50 RUB"));
+        assert!(!refunds.contains("доля 60%"));
+        assert!(!refunds.contains("name=\"intent_key\""));
     }
 
     #[test]
@@ -255,7 +413,7 @@ mod tests {
             reserved_minor: 0,
             available_minor: 0,
         };
-        let html = render(&totals, &[], "csrf", false).0;
+        let html = render(&totals, &[], &[], &[], "csrf", false, FinanceTab::Stats).0;
         assert!(html.contains("платёжного провайдера"));
         assert!(!html.contains("Создать заявку на резерв</button>"));
         assert!(!html.contains("name=\"intent_key\""));
