@@ -27,7 +27,7 @@ pub struct RefundPurchase {
     pub chapter: String,
     pub amount_minor: i64,
     pub acquired: String,
-    pub batch_position: Option<i32>,
+    pub batch_position: Option<i16>,
     pub first_exposed: bool,
     pub revoked: bool,
     pub request_id: Option<i64>,
