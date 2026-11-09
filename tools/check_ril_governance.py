@@ -191,6 +191,9 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
+    if (source == root / "crates/web/src/auth.rs"
+            and handler == "session_security::logout"):
+        return source.parent / "auth/session_security.rs"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
         allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
@@ -327,6 +330,26 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "StatusCode::FORBIDDEN" in caller
                 and ".revoke_session(&digest)" in caller):
             evidence += "\n" + caller
+    if (entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+            == ("POST", "/logout", "logout")
+            and "session_security::logout(State(state), headers, Form(form)).await" in body):
+        sibling = ROOT / "crates/web/src/auth/session_security.rs"
+        caller = _functions(sibling.read_text(encoding="utf-8")).get("logout", "")
+        if ("state.cookies.same_origin(&headers)" in caller
+                and "valid_csrf(&headers" in caller
+                and "StatusCode::FORBIDDEN" in caller
+                and ".revoke_session(&digest)" in caller):
+            evidence += "\n" + caller
+    if (entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+                == ("POST", "/logout", "session_security::logout")):
+        if not all(marker in body for marker in (
+            "state.cookies.same_origin(&headers)",
+            ".valid_csrf(&headers", "StatusCode::FORBIDDEN",
+            ".revoke_session(&digest)",
+        )):
+            errors.append(f"{label}: logout bypassed CSRF or revocable PostgreSQL session")
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
