@@ -174,6 +174,52 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
       card.append(jump);
     }
     card.append(content);
+    // The server binds a complaint to this exact purchased edition again.
+    // Never send a body or selection quote back in a report.
+    const reportBox = node("details");
+    const reportSummary = node("summary", "Пожаловаться на комментарий");
+    const reportForm = node("form");
+    const reason = node("select");
+    reason.setAttribute("aria-label", "Причина жалобы");
+    for (const [value, label] of [
+      ["spam", "Спам"], ["abuse", "Оскорбления или угрозы"],
+      ["misleading", "Недостоверные сведения"], ["other", "Другое"]
+    ]) {
+      const option = node("option", label); option.value = value; reason.append(option);
+    }
+    const details = node("textarea");
+    details.maxLength = 500;
+    details.placeholder = "Обоснование жалобы (необязательно)";
+    details.setAttribute("aria-label", "Обоснование жалобы");
+    const reportStatus = node("p");
+    reportStatus.setAttribute("role", "status");
+    const sendReport = node("button", "Отправить жалобу");
+    sendReport.type = "submit";
+    reportForm.append(reason, details, sendReport, reportStatus);
+    reportBox.append(reportSummary, reportForm);
+    const intent = newKey();
+    reportForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      sendReport.disabled = true;
+      try {
+        const result = await fetch(url + "/report", {
+          method:"POST", credentials:"same-origin", cache:"no-store",
+          headers:headers(),
+          body:JSON.stringify({
+            purchase_id:purchase, version_id:version, comment_id:item.id,
+            reason:reason.value, details:details.value.trim(), command_key:intent
+          })
+        });
+        if (!result.ok) throw new Error("report denied");
+        reportStatus.textContent = "Жалоба зарегистрирована.";
+        reportBox.open = true;
+        reportForm.remove();
+      } catch {
+        reportStatus.textContent = "Жалоба не отправлена. Проверьте право чтения.";
+        sendReport.disabled = false;
+      }
+    });
+    card.append(reportBox);
     if (!item.parent_id) {
       const reply = node("button", "Ответить");
       reply.type = "button";

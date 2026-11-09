@@ -276,6 +276,16 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     # S011: new exact-version paid comment handlers share a single A+D guard
     # helper. Inspect THAT helper and the explicit call; never accept an
     # arbitrary comment route or trust a descriptive "scoped" policy alone.
+    s049_paid_comment_report = (
+        entry["source"] == "crates/web/src/paid_grants_http.rs"
+        and entry["method"] == "POST"
+        and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/paid-comments/report"
+        and entry["handler"] == "paid_comment_reports::submit"
+    )
+    if s049_paid_comment_report:
+        reader = _production((ROOT / "crates/web/src/paid_grants_http/paid_comments.rs")
+                             .read_text(encoding="utf-8"))
+        evidence += "\n" + _functions(reader).get("authorized", "")
     paid_comment_binding = (
         entry["source"] == "crates/web/src/paid_grants_http.rs"
         and (entry["method"], entry["template"], entry["handler"]) in {
@@ -845,6 +855,18 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and ".own_ratings(self.actor, book_id)" in service
                 and ".eligible(self.actor, book_id)" in service
                 and ".set_rating(self.actor, book_id, rating.kind, rating.score)" in service
+            )
+        elif s049_paid_comment_report:
+            repo = _production((ROOT / "crates/social/src/repositories/paid_comment_reports.rs")
+                               .read_text(encoding="utf-8"))
+            scoped = bool(
+                "paid_comments::authorized(&state, &headers, chapter, purchase, version)" in evidence
+                and ".submit(" in body and "&digest" in body and "actor," in body
+                and "tor_purchase_version_readable" in repo
+                and "s.revoked_at IS NULL" in repo
+                and "FOR UPDATE OF u FOR SHARE OF p,ch,s" in repo
+                and "c.visibility='visible'" in repo
+                and "c.version_id=$3" in repo
             )
         elif paid_comment_binding:
             # Exact canonical E repository operation with caller-bound actor,
