@@ -35,7 +35,10 @@ fn pg(url: &str, sql: &str) -> String {
             sql,
         ])
         .env("PGCONNECT_TIMEOUT", "5")
-        .env("PGOPTIONS", "-c statement_timeout=8000 -c lock_timeout=5000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=8000 -c lock_timeout=5000",
+        )
         .output()
         .expect("disposable PostgreSQL fixture requires psql");
     assert!(
