@@ -445,6 +445,8 @@ jobs:
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 TOR_REFUND_APPROVAL_HTTP_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
           env -u TOR_S039_PAYOUT_REJECT_HTTP_ENABLED cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_disabled_by_default -- --ignored --test-threads=1
           TOR_S039_PAYOUT_REJECT_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_admin_role_csrf_idempotent_rejection -- --ignored --test-threads=1
+          env -u TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_admin_only_and_no_wallet_movement -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
