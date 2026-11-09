@@ -57,8 +57,8 @@ pub(super) async fn author_page(State(s): State<ShareState>, headers: HeaderMap)
     let mut body = String::from(
         r#"<section class="section"><div class="container">
         <h1>Обжалование скрытых комментариев</h1>
-        <p>Доступны только ваши комментарии к книгам, скрытые решением администратора.
-        Другой администратор рассматривает заявление. Подача не восстанавливает комментарий автоматически.</p>"#,
+        <p>Доступны только ваши комментарии к книгам, скрытые решением модератора сайта или администратора.
+        Апелляцию рассматривает администратор, не принимавший исходное решение. Подача не восстанавливает комментарий автоматически.</p>"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Таких решений по вашим комментариям нет.</p>");
@@ -136,7 +136,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
     let mut body = String::from(
         r#"<section class="section"><div class="container">
         <h1>Апелляции по скрытым комментариям книг</h1>
-        <p>Только администратор. Первоначальный администратор не вправе пересматривать своё решение.
+        <p>Только администратор. Сотрудник, скрывший комментарий, не вправе пересматривать своё решение.
         Восстановление — отдельное явное решение, не следствие подачи обращения.</p>
         <p><a href="/admin/book-reports">К очереди жалоб</a></p>"#,
     );
@@ -148,7 +148,7 @@ pub(super) async fn queue(State(s): State<ShareState>, headers: HeaderMap) -> Re
             body,
             r#"<article class="me-now-card"><h2>Апелляция #{}</h2>
             <p>Книга #{} · комментарий #{} · исходное решение #{}
-            · автор #{} · первый администратор #{}</p>
+            · автор #{} · скрыл сотрудник #{}</p>
             <p>Обоснование: {}</p>
             <form method="post" action="/admin/book-comment-appeals/{}/decision">
             <input type="hidden" name="csrf_token" value="{}">
