@@ -18,6 +18,8 @@ use tor_accounts::{
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
+#[path = "s049_free_comment_appeals.rs"]
+mod free_appeals;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn pg(url: &str, sql: &str) -> String {
@@ -524,6 +526,18 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
          SET decision='dismissed' WHERE report_id={report_id}"
         ),
     );
+    eprintln!("S049_FREE_APPEAL testing independent author appeal");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        free_appeals::check(
+            &url,
+            &app,
+            (comment, hide_report_id, admin),
+            (&cookie, &admin_cookie, &moderator_cookie, &csrf),
+        ),
+    )
+    .await
+    .expect("S049 free comment independent appeal acceptance exceeded 60s");
     pg(
         &url,
         &format!(

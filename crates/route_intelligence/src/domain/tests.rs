@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 365);
+    assert_eq!(unique.len(), 369);
 }
 
 #[test]
@@ -408,4 +408,27 @@ fn s049_free_comment_admin_review_routes_are_not_general_moderator_routes() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/free-comment-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_independent_free_comment_appeals_route_guard_distinction() {
+    for (template, method) in [
+        ("/me/free-comment-appeals", "GET"),
+        ("/me/free-comment-appeals/{hide_event_id}", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Dashboard);
+    }
+    for (template, method) in [
+        ("/admin/free-comment-appeals", "GET"),
+        ("/admin/free-comment-appeals/{appeal_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/free-comment-appeals"), "POST").route_known);
 }
