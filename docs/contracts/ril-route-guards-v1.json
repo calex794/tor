@@ -2605,6 +2605,27 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::decide",
       "policy": "admin_free_comment_appeals"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/chapters/{id}/free-grant",
+      "source": "crates/web/src/free_reader_http.rs",
+      "handler": "grant",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-free-progress-s3.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::free_s3_progress_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-free-s3-reader.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::free_s3_reader_script",
+      "policy": "public"
     }
   ]
 }

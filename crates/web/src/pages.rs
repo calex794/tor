@@ -449,6 +449,14 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
 }
 
 /// Public free-reader display settings only.
+mod free_s3_assets;
+pub async fn free_s3_progress_script() -> impl IntoResponse {
+    free_s3_assets::free_s3_progress_script().await
+}
+pub async fn free_s3_reader_script() -> impl IntoResponse {
+    free_s3_assets::free_s3_reader_script().await
+}
+
 pub async fn free_reader_script() -> impl IntoResponse {
     (
         [

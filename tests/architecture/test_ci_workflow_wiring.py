@@ -328,7 +328,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_rust = job_sections((WORKFLOWS / "rust-demo.yml").read_text())["demo"]
         manual_cover = job_sections((WORKFLOWS / "tor-cover-s3.yml").read_text())["s3-cover-build"]
         manual_pg = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
-        clippy = "cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings"
+        clippy = "cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import,s3-free' -- -D warnings"
         rust_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}"""
         cover_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}"""
         pg_gate = """${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}"""

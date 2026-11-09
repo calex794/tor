@@ -260,6 +260,10 @@ pub(super) async fn confirm(
     headers: HeaderMap,
     Json(input): Json<ImportInput>,
 ) -> Response {
+    // Import writes must never persist full chapter bodies to PG in S3-only mode.
+    if cfg!(feature = "s3-free") {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
     if !state.cookies.same_origin(&headers)
         || !state.cookies.valid_csrf(&headers, &input.csrf_token)
     {

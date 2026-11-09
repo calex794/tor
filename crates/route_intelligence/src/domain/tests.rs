@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 370);
+    assert_eq!(unique.len(), 373);
 }
 
 #[test]
@@ -431,4 +431,23 @@ fn s049_independent_free_comment_appeals_route_guard_distinction() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/free-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn s349_free_grant_and_static_scripts_have_correct_costs() {
+    let grant = classify(Some("/api/v1/chapters/{id}/free-grant"), "GET");
+    assert!(grant.route_known);
+    assert_eq!(grant.cost_class, CostClass::ExpensiveRead);
+    assert_eq!(grant.product_area, ProductArea::Reading);
+    assert!(!classify(Some("/api/v1/chapters/{id}/free-grant"), "POST").route_known);
+    for path in [
+        "/assets/newboo-free-progress-s3.js",
+        "/assets/newboo-free-s3-reader.js",
+    ] {
+        let asset = classify(Some(path), "GET");
+        assert!(asset.route_known);
+        assert_eq!(asset.traffic_surface, TrafficSurface::Static);
+        assert_eq!(asset.cost_class, CostClass::Free);
+        assert!(!classify(Some(path), "POST").route_known);
+    }
 }

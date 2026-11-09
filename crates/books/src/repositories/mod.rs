@@ -6,6 +6,7 @@ pub mod cover_publications;
 pub mod cover_review;
 pub mod cover_slots;
 pub mod cover_source_cleanup;
+pub mod free_s3_publish;
 pub mod personal_books;
 pub mod recommendation_policy;
 pub mod translation_team_analytics;

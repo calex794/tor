@@ -118,58 +118,22 @@ mod teams;
 mod text_issues;
 mod types;
 use types::*;
-pub(crate) fn router(
-    accounts: PgAccounts,
-    reader: PgReader,
-    secure: bool,
-    origin: String,
-) -> Router {
-    router_inner(accounts, reader, secure, origin, None, false, None)
-}
-pub(crate) fn router_with_cover_uploads(
-    accounts: PgAccounts,
-    reader: PgReader,
-    secure: bool,
-    origin: String,
-    storage: Arc<dyn CoverObjectStore>,
-) -> Router {
-    router_inner(accounts, reader, secure, origin, Some(storage), false, None)
-}
-pub(crate) fn router_with_paid_reader(
-    accounts: PgAccounts,
-    reader: PgReader,
-    secure: bool,
-    origin: String,
-    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
-) -> Router {
-    router_inner(
-        accounts,
-        reader,
-        secure,
-        origin,
-        cover_upload_storage,
-        true,
-        None,
-    )
-}
-pub(crate) fn router_with_paid_reader_author(
-    accounts: PgAccounts,
-    reader: PgReader,
-    secure: bool,
-    origin: String,
-    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
-    author: Arc<dyn author_chapter_http::PaidChapterPublisher>,
-) -> Router {
-    router_inner(
-        accounts,
-        reader,
-        secure,
-        origin,
-        cover_upload_storage,
-        true,
-        Some(author),
-    )
-}
+mod constructors;
+pub(crate) use constructors::{
+    router, router_with_cover_uploads, router_with_paid_reader, router_with_paid_reader_author,
+};
+#[cfg(feature = "s3-free")]
+mod free_author;
+#[cfg(feature = "s3-free")]
+pub(crate) use free_author::{
+    router_with_free_author, router_with_paid_and_free_author, router_with_paid_reader_free_author,
+};
+
+type AuthorPublishers = (
+    Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
+    Option<Arc<dyn author_chapter_http::FreeChapterPublisher>>,
+);
+
 fn router_inner(
     accounts: PgAccounts,
     reader: PgReader,
@@ -177,8 +141,9 @@ fn router_inner(
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
     paid_reader_available: bool,
-    paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
+    authors: AuthorPublishers,
 ) -> Router {
+    let (paid_author, free_author) = authors;
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
@@ -186,7 +151,7 @@ fn router_inner(
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
-        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author, free_author);
     let social_routes = personal_books::router(accounts.clone(), cookies.clone())
         .merge(teams::router(accounts.clone(), cookies.clone()))
         .merge(collections::router(accounts.clone(), cookies.clone()))

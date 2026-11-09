@@ -30,3 +30,9 @@ pub(crate) trait PaidChapterPublisher: Send + Sync {
         Err(AuthorError::Unavailable)
     }
 }
+
+#[async_trait]
+pub(crate) trait FreeChapterPublisher: Send + Sync {
+    /// Public-book Save is available only after a verified S3 PUT/GET.
+    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+}
