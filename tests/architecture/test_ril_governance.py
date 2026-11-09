@@ -48,6 +48,18 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_audience_rejects_removed_administrator_check(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        self.assert_detected("missing independent administrator role guard")
+
+    def test_audience_cannot_downgrade_to_a_normal_session(self):
+        path = self.root / INVENTORY
+        inventory = json.loads(path.read_text(encoding="utf-8"))
+        row = next(row for row in inventory["routes"] if row["template"] == "/admin/audience")
+        row["policy"] = "session"
+        path.write_text(json.dumps(inventory), encoding="utf-8")
+        self.assert_detected("FLOW audience must remain administrator-only")
+
     def test_admin_mail_cannot_read_with_unverified_digest(self):
         self.mutate(
             "crates/web/src/auth/admin_mail.rs",

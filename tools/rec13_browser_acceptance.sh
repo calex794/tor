@@ -57,3 +57,6 @@ ci_rec_step_done "http_ready"
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
 ci_rec_step_done "browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_pg_browser.cjs
+ci_rec_step_done "audience_browser_acceptance"
