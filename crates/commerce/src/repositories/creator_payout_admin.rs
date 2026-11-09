@@ -70,7 +70,11 @@ impl PgCreatorPayoutAdmin {
         if before.is_some_and(|id| id <= 0) {
             return Err(PayoutAdminError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| PayoutAdminError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
         let admin = Self::active_administrator(&mut tx, session_digest).await?;
         let rows: Vec<(i64, i64, i64, String, String)> = sqlx::query_as(
             "SELECT id,user_id,amount_minor,state,
@@ -91,10 +95,21 @@ impl PgCreatorPayoutAdmin {
         .execute(&mut *tx)
         .await
         .map_err(|_| PayoutAdminError::Unavailable)?;
-        tx.commit().await.map_err(|_| PayoutAdminError::Unavailable)?;
-        Ok(rows.into_iter().map(|(id,user_id,amount_minor,state,created_utc)| {
-            PayoutAdminRow {id,user_id,amount_minor,state,created_utc}
-        }).collect())
+        tx.commit()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, user_id, amount_minor, state, created_utc)| PayoutAdminRow {
+                    id,
+                    user_id,
+                    amount_minor,
+                    state,
+                    created_utc,
+                },
+            )
+            .collect())
     }
 
     /// Atomically reject one pending request and release its reservation.
@@ -108,10 +123,14 @@ impl PgCreatorPayoutAdmin {
         reason: &str,
     ) -> Result<PayoutRejectReceipt, PayoutAdminError> {
         let reason = reason.trim();
-        if request_id <= 0 || reason.is_empty() || reason.chars().count()>500 {
+        if request_id <= 0 || reason.is_empty() || reason.chars().count() > 500 {
             return Err(PayoutAdminError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| PayoutAdminError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
         let admin = Self::active_administrator(&mut tx, session_digest).await?;
         let row: Option<(String, Option<i64>, Option<String>)> = sqlx::query_as(
             "SELECT state,decision_actor_id,decision_reason
@@ -122,13 +141,16 @@ impl PgCreatorPayoutAdmin {
         .await
         .map_err(|_| PayoutAdminError::Unavailable)?;
         let (state, prior_actor, prior_reason) = row.ok_or(PayoutAdminError::NotFound)?;
-        if state=="rejected" {
-            if prior_actor!=Some(admin) || prior_reason.as_deref()!=Some(reason) {
+        if state == "rejected" {
+            if prior_actor != Some(admin) || prior_reason.as_deref() != Some(reason) {
                 return Err(PayoutAdminError::Conflict);
             }
-            return Ok(PayoutRejectReceipt {request_id,replayed:true});
+            return Ok(PayoutRejectReceipt {
+                request_id,
+                replayed: true,
+            });
         }
-        if state!="pending" {
+        if state != "pending" {
             return Err(PayoutAdminError::Conflict);
         }
         sqlx::query(
@@ -137,7 +159,9 @@ impl PgCreatorPayoutAdmin {
                  decision_actor_id=$2,decision_reason=$3
              WHERE id=$1 AND state='pending'",
         )
-        .bind(request_id).bind(admin).bind(reason)
+        .bind(request_id)
+        .bind(admin)
+        .bind(reason)
         .execute(&mut *tx)
         .await
         .map_err(|_| PayoutAdminError::Unavailable)?;
@@ -146,11 +170,17 @@ impl PgCreatorPayoutAdmin {
              (admin_user_id,payout_request_id,action)
              VALUES($1,$2,'reject')",
         )
-        .bind(admin).bind(request_id)
+        .bind(admin)
+        .bind(request_id)
         .execute(&mut *tx)
         .await
         .map_err(|_| PayoutAdminError::Unavailable)?;
-        tx.commit().await.map_err(|_| PayoutAdminError::Unavailable)?;
-        Ok(PayoutRejectReceipt {request_id,replayed:false})
+        tx.commit()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
+        Ok(PayoutRejectReceipt {
+            request_id,
+            replayed: false,
+        })
     }
 }

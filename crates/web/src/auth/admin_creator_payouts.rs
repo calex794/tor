@@ -185,8 +185,7 @@ async fn reject(
         Ok(form) => form,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -221,10 +220,10 @@ mod tests {
         assert!(!html.contains("name=\"amount_minor\""));
         assert!(!html.contains("Подтвердить выплату"));
         row.state = "rejected".into();
-        assert!(!render_request(&row,"csrf",true).contains("<form"));
+        assert!(!render_request(&row, "csrf", true).contains("<form"));
         row.state = "pending".into();
-        assert!(!render_request(&row,"csrf",false).contains("<form"));
-        row.created_utc="<script>bad</script>".into();
-        assert!(!render_request(&row,"csrf",true).contains("<script>"));
+        assert!(!render_request(&row, "csrf", false).contains("<form"));
+        row.created_utc = "<script>bad</script>".into();
+        assert!(!render_request(&row, "csrf", true).contains("<script>"));
     }
 }
