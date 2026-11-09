@@ -318,20 +318,22 @@ impl crate::services::reconciliation::PrivateRegisteredHead for S3PrivateStore {
             .send()
             .await;
         match head {
-            Ok(response) => Ok(if Self::head_is_exact(
-                object,
-                response.content_length(),
-                response.content_type(),
-                response.content_encoding(),
-                response
-                    .metadata()
-                    .and_then(|values| values.get("sha256"))
-                    .map(String::as_str),
-            ) {
-                RegisteredHeadResult::Present
-            } else {
-                RegisteredHeadResult::MetadataMismatch
-            }),
+            Ok(response) => Ok(
+                if Self::head_is_exact(
+                    object,
+                    response.content_length(),
+                    response.content_type(),
+                    response.content_encoding(),
+                    response
+                        .metadata()
+                        .and_then(|values| values.get("sha256"))
+                        .map(String::as_str),
+                ) {
+                    RegisteredHeadResult::Present
+                } else {
+                    RegisteredHeadResult::MetadataMismatch
+                },
+            ),
             Err(error) => {
                 use aws_sdk_s3::error::ProvideErrorMetadata;
                 let missing = error

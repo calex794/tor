@@ -49,19 +49,32 @@ impl PgRegisteredAudit {
         if !valid_private_bucket(bucket) {
             return Err(InventoryError::Invalid);
         }
-        let row: Option<(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, bool, bool)> =
-            sqlx::query_as(
-                "SELECT cycle,expected,scanned,has_ref,healthy,missing,
+        let row: Option<(
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            bool,
+            bool,
+        )> = sqlx::query_as(
+            "SELECT cycle,expected,scanned,has_ref,healthy,missing,
                         referenced_missing,mismatch,recently_pending,
                         unknown_attempts,retries,exhausted,completed
                    FROM g09_registered_object_scans
                   WHERE bucket=$1 AND scope=$2",
-            )
-            .bind(bucket)
-            .bind(scope.kind())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| InventoryError::Unavailable)?;
+        )
+        .bind(bucket)
+        .bind(scope.kind())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| InventoryError::Unavailable)?;
         Ok(row.map(|v| RegisteredAuditProgress {
             cycle: v.0,
             expected: v.1,
@@ -141,18 +154,32 @@ impl PgRegisteredAudit {
         let mut findings = Vec::with_capacity(rows.len());
         let mut last_id = cursor;
         for row in &rows {
-            let id: String = row.try_get("object_id").map_err(|_| InventoryError::Unavailable)?;
-            let bytes: i64 = row.try_get("size_bytes").map_err(|_| InventoryError::Unavailable)?;
-            let digest: Vec<u8> =
-                row.try_get("sha256_ciphertext").map_err(|_| InventoryError::Unavailable)?;
-            let state: String = row.try_get("state").map_err(|_| InventoryError::Unavailable)?;
-            let fresh: bool = row.try_get("fresh").map_err(|_| InventoryError::Unavailable)?;
-            let has_ref: bool = row.try_get("has_ref").map_err(|_| InventoryError::Unavailable)?;
+            let id: String = row
+                .try_get("object_id")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let bytes: i64 = row
+                .try_get("size_bytes")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let digest: Vec<u8> = row
+                .try_get("sha256_ciphertext")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let state: String = row
+                .try_get("state")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let fresh: bool = row
+                .try_get("fresh")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let has_ref: bool = row
+                .try_get("has_ref")
+                .map_err(|_| InventoryError::Unavailable)?;
             let kind = match scope {
                 PrivateScope::Chapter => EncryptedObjectKind::Chapter,
                 PrivateScope::ChapterAsset => EncryptedObjectKind::ChapterAsset,
             };
-            let hash: [u8; 32] = digest.as_slice().try_into().map_err(|_| InventoryError::Invalid)?;
+            let hash: [u8; 32] = digest
+                .as_slice()
+                .try_into()
+                .map_err(|_| InventoryError::Invalid)?;
             let object_id = ObjectId::parse(&id).map_err(|_| InventoryError::Invalid)?;
             let key = PrivateObjectKey::for_object(kind, &object_id);
             let object = ObjectRef::new(
@@ -190,7 +217,11 @@ impl PgRegisteredAudit {
             last_id = Some(id);
         }
 
-        let mut tx = self.pool.begin().await.map_err(|_| InventoryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InventoryError::Unavailable)?;
         let owns: Option<i64> = sqlx::query_scalar(
             "SELECT lease_epoch FROM g09_registered_object_scans
               WHERE bucket=$1 AND scope=$2 AND cycle=$3 AND lease_epoch=$4

@@ -346,7 +346,10 @@ async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
     client
         .put_object()
         .bucket(bucket)
-        .key(format!("private/chapter-versions/{}.enc", record.object_id.as_str()))
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            record.object_id.as_str()
+        ))
         .content_type("application/octet-stream")
         .metadata("sha256", hex::encode(record.sha256_ciphertext))
         .body(ByteStream::from(body.to_vec()))
@@ -357,7 +360,10 @@ async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
         store.head_registered(&record).await,
         Ok(RegisteredHeadResult::Present)
     );
-    let forged = object(b"forged ciphertext metadata exactly here", record.object_id.clone());
+    let forged = object(
+        b"forged ciphertext metadata exactly here",
+        record.object_id.clone(),
+    );
     assert_eq!(
         store.head_registered(&forged).await,
         Ok(RegisteredHeadResult::MetadataMismatch)
@@ -372,7 +378,10 @@ async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
     );
 
     // Authentication failure must NOT be classified as a missing object.
-    let wrong = Client::from_conf(configure("invalid-ci-key".into(), "invalid-ci-secret".into()));
+    let wrong = Client::from_conf(configure(
+        "invalid-ci-key".into(),
+        "invalid-ci-secret".into(),
+    ));
     let blocked = S3PrivateStore::new(wrong, bucket.into()).unwrap();
     assert_eq!(
         blocked.head_registered(&record).await,
