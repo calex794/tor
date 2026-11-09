@@ -1,7 +1,7 @@
 //! S349: free S3 reference only binds exact B edition and is immutable.
 //! This is deliberately NOT publication and NOT an entitlement test.
-use sqlx::PgPool;
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
