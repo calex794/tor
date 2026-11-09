@@ -39,6 +39,7 @@ mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;
@@ -183,6 +184,7 @@ fn router_inner(
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
+    let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -261,7 +263,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
-        .route("/me", get(me))
+        .route("/me", get(account_home::show))
         .merge(creator_follows::router().merge(creator_finance::router()))
         .route(
             "/me/books/{id}/follow-creator",
@@ -441,21 +443,12 @@ fn router_inner(
         .merge(chapter_routes)
         .merge(social_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
-    let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
+    let app = app
+        .merge(crate::recommendation_http::routes(rec_runtime.clone()))
+        .merge(audience_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
-async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    account_home::page(state, headers, user_id).await
-}
+
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
