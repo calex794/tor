@@ -187,7 +187,8 @@ async fn s039_quote_http_admin_only_and_no_wallet_movement() {
     assert!(markup.contains("Резерв других заявок: 300 коп."));
     assert!(markup.contains("Доступно без резерва этой заявки: 700 коп."));
     assert!(markup.contains("не подтверждение"));
-    assert!(!markup.contains("<form"));
+    assert!(!markup.contains("Подтвердить выплату"));
+    assert!(!markup.contains(&format!("action=\"/admin/finance/payouts/{id}/approve\"")));
     assert_eq!(
         pg(
             &url,
