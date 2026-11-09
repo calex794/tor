@@ -16,24 +16,29 @@ pub(super) fn render(body: &mut String, report: &FlowHourlyReport) {
     body.push_str(
         "<figure class=\"audience-hours-chart\"><figcaption>Сохранённые просмотры четырёх категорий по часам</figcaption>\
          <p class=\"audience-hours-legend\"><span class=\"audience-hours-current-key\">Текущий период</span> \
-         <span class=\"audience-hours-previous-key\">Предыдущий период</span></p>\
-         <svg viewBox=\"0 0 640 128\" role=\"img\" aria-labelledby=\"audience-hours-chart-title\">\
+         <span class=\"audience-hours-previous-key\">Предыдущий период</span></p>",
+    );
+    write!(body, "<div class=\"audience-hours-plot\"><div class=\"audience-hours-scale\"><span>{ceiling}</span><span>0</span></div>")
+        .expect("String");
+    body.push_str(
+        "<svg viewBox=\"0 0 640 100\" preserveAspectRatio=\"none\" role=\"img\" aria-labelledby=\"audience-hours-chart-title\">\
          <title id=\"audience-hours-chart-title\">Сравнение сохранённых просмотров. \
          Разрывы линий означают отсутствие записей; точные числа приведены в таблице ниже.</title>\
          <path d=\"M30 88H630\" class=\"audience-hours-axis\"/>",
     );
-    write!(
-        body,
-        "<text x=\"30\" y=\"12\">{ceiling}</text><text x=\"15\" y=\"92\">0</text>"
-    )
-    .expect("String");
     series(body, &current, ceiling, "audience-hours-line-current");
     series(body, &previous, ceiling, "audience-hours-line-previous");
+    body.push_str("</svg>");
     if let (Some(first), Some(last)) = (report.current.hours.first(), report.current.hours.last()) {
-        write!(body, "<text x=\"30\" y=\"116\">{}</text><text x=\"630\" y=\"116\" text-anchor=\"end\">{}</text>",
-            super::short_hour(&first.hour_utc), super::short_hour(&last.hour_utc)).expect("String");
+        write!(
+            body,
+            "<div class=\"audience-hours-times\"><span>{}</span><span>{}</span></div>",
+            super::short_hour(&first.hour_utc),
+            super::short_hour(&last.hour_utc)
+        )
+        .expect("String");
     }
-    body.push_str("</svg><p>Пустые участки — нет записей. Точки показывают сумму сохранённых категорий; она может быть неполной.</p></figure>");
+    body.push_str("</div><p>Пустые участки — нет записей. Точки показывают сумму сохранённых категорий; она может быть неполной.</p></figure>");
 }
 
 fn totals(hours: &[FlowHour]) -> Vec<Option<i128>> {

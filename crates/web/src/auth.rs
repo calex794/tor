@@ -35,6 +35,7 @@ use tor_reading::services::{
 mod access_audit;
 mod account_form_http;
 mod account_home;
+mod admin_creator_payouts;
 mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
@@ -276,6 +277,7 @@ fn router_inner(
         .merge(admin_mail_routes::router())
         .merge(admin_jobs::router())
         .merge(admin_refund_review::router())
+        .merge(admin_creator_payouts::router())
         .merge(moderation_books::router())
         .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))

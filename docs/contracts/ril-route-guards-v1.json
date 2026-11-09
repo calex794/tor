@@ -2612,6 +2612,20 @@
       "source": "crates/web/src/auth/admin_jobs.rs",
       "handler": "retry",
       "policy": "admin_outbox_retry"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/payouts",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "queue",
+      "policy": "admin_payout"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/payouts/{id}/reject",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "reject",
+      "policy": "admin_payout"
     }
   ]
 }
