@@ -28,4 +28,3 @@ pub async fn free_s3_progress_script() -> impl IntoResponse {
         include_str!("../../assets/newboo-free-progress.js"),
     )
 }
-

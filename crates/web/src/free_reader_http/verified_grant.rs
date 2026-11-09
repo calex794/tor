@@ -40,8 +40,7 @@ mod tests {
     }
 
     fn signed() -> SecretValue {
-        SecretValue::new("https://s3.example.invalid/private?X-Amz-Signature=test".into())
-            .unwrap()
+        SecretValue::new("https://s3.example.invalid/private?X-Amz-Signature=test".into()).unwrap()
     }
 
     #[tokio::test]
