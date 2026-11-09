@@ -71,6 +71,8 @@ pub use paid_author_assets::PgPaidAuthorAssets;
 pub use paid_author_publish::PgPaidAuthorPublisher;
 #[cfg(feature = "s3-paid")]
 pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author;
+#[cfg(all(feature = "s3-paid", feature = "s3-free"))]
+pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author_free;
 pub use paid_reader_router::{
     router_with_postgres_reading_auth_paid_grants,
     router_with_postgres_reading_auth_paid_grants_browser,
