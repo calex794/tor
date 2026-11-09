@@ -152,6 +152,20 @@ pub(super) async fn check(
         ),
         1
     );
+    let pending_delete = sqlx::query("DELETE FROM social_paid_comment_appeals WHERE id=$1")
+        .bind(appeal_id)
+        .execute(accounts.pool())
+        .await
+        .expect_err("pending paid comment appeal evidence must be immutable");
+    assert_eq!(
+        pending_delete
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23514"),
+        "the database trigger must reject deletion of an undecided appeal",
+    );
+
     eprintln!("S049_PAID_APPEAL persisted author submission");
     let pending = read_page(app, admin_path, Some(&reviewer_cookie)).await;
     assert_eq!(pending.status(), StatusCode::OK);
