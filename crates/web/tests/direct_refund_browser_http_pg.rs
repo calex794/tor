@@ -205,18 +205,10 @@ async fn s036_admin_support_search_exact_purchase_prepare_approve_and_replay() {
             "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
         ),
     );
-    // This policy is a test-only fixture. It is never installed for actual users.
-    let legal = format!("ci:s036:legal:{nonce}");
+    // No approved consumer refund policy: only the support-linked,
+    // administrator-authorized exception can reverse this exact purchase.
+    let legal = format!("ci:s036:unapproved:{nonce}");
     let terms = format!("ci:s036:terms:{nonce}");
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO finance_direct_refund_policy_catalog
-             (version,approval_reference,approved_by_user_id,approved_at,effective_at,window_seconds)
-             VALUES('{legal}','ci:s036:approval:{nonce}',{owner},
-                    now()-INTERVAL '2 days',now()-INTERVAL '1 day',86400)"
-        ),
-    );
     pg(
         &url,
         &format!(
