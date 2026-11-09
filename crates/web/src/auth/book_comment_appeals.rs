@@ -27,7 +27,10 @@ pub(super) struct DecisionForm {
 }
 
 async fn session_user(s: &ShareState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
-    let token = s.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = s
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let digest = session_token_digest(&token);
     s.accounts
         .active_session_user(&digest)
