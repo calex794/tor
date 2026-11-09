@@ -56,8 +56,8 @@ fn dead_event(url: &str, key: &str) -> String {
             "INSERT INTO outbox_events (
                 event_type,schema_version,aggregate_kind,aggregate_id,
                 dedupe_key,payload,required_consumers,attempts,lease_epoch,dead_at)
-             VALUES ('GAdminRetryPG',1,'book',0,'{key}','{{}}'::jsonb,
-                     ARRAY['g-admin-one','g-admin-two'],12,7,clock_timestamp())
+             VALUES ('ChapterPublished',1,'chapter',0,'{key}','{{}}'::jsonb,
+                     ARRAY['chapter_release_fanout_v1'],12,7,clock_timestamp())
              RETURNING id"
         ),
     )
@@ -143,7 +143,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         &url,
         &format!(
             "INSERT INTO event_deliveries(consumer,event_id)
-             VALUES('g-admin-one','{event_id}'::uuid)"
+             VALUES('legacy-fanout-v0','{event_id}'::uuid)"
         ),
     );
 
@@ -260,6 +260,72 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     assert!(statuses.contains(&StatusCode::CONFLICT));
 
     eprintln!("G07_RETRY_STAGE concurrency checked");
+    // Unsupported jobs remain dead-lettered, without successful audit rows.
+    let unknown = dead_event(&url, &format!("g-admin-unknown-{nonce}"));
+    pg(
+        &url,
+        &format!("UPDATE outbox_events SET event_type='payment.capture' WHERE id='{unknown}'::uuid"),
+    );
+    assert_eq!(
+        request(&app, &unknown, Some(&session), &csrf, Some(&csrf), ORIGIN)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let external = dead_event(&url, &format!("g-admin-external-{nonce}"));
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET required_consumers=ARRAY['external_mail']::text[]
+             WHERE id='{external}'::uuid"
+        ),
+    );
+    assert_eq!(
+        request(&app, &external, Some(&session), &csrf, Some(&csrf), ORIGIN)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM g_outbox_admin_retry_audit
+                 WHERE event_id IN ('{unknown}'::uuid, '{external}'::uuid)"
+            ),
+        ),
+        "0",
+        "rejected retries must not generate success audit rows"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE id IN ('{unknown}'::uuid, '{external}'::uuid)
+                   AND dead_at IS NOT NULL AND attempts=12 AND lease_epoch=7"
+            ),
+        ),
+        "2",
+        "rejected retries cannot change original event state"
+    );
+    let child = dead_event(&url, &format!("g-admin-child-{nonce}"));
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET event_type='reader.chapter.released',
+             required_consumers=ARRAY['user_notifications']::text[]
+             WHERE id='{child}'::uuid"
+        ),
+    );
+    assert_eq!(
+        request(&app, &child, Some(&session), &csrf, Some(&csrf), ORIGIN)
+            .await
+            .0,
+        StatusCode::ACCEPTED,
+        "the reviewed in-app notification handler must remain retryable"
+    );
+
     let active = dead_event(&url, &format!("g-admin-active-{nonce}"));
     pg(
         &url,
@@ -313,5 +379,38 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "one successful retry must have exactly one append-only audit row"
     );
     eprintln!("G07_RETRY_STAGE done");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT admin_user_id FROM g_outbox_admin_retry_audit
+                 WHERE event_id='{event_id}'::uuid"
+            ),
+        ),
+        actor_id.to_string(),
+        "every retry must identify its administrator"
+    );
+    // Audit immutability is enforced in PostgreSQL, not just an API convention.
+    let mutation = sqlx::query(
+        "UPDATE g_outbox_admin_retry_audit SET previous_attempts=0
+         WHERE event_id=$1::uuid",
+    )
+    .bind(&event_id)
+    .execute(&pool)
+    .await;
+    assert!(
+        mutation.unwrap_err().to_string().contains("append-only"),
+        "UPDATE of the retry audit must be blocked by the database trigger"
+    );
+    let deletion = sqlx::query(
+        "DELETE FROM g_outbox_admin_retry_audit WHERE event_id=$1::uuid",
+    )
+    .bind(&event_id)
+    .execute(&pool)
+    .await;
+    assert!(
+        deletion.unwrap_err().to_string().contains("append-only"),
+        "DELETE of the retry audit must be blocked by the database trigger"
+    );
     pool.close().await;
 }

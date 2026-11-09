@@ -35,6 +35,19 @@ fn valid_event_id(id: &str) -> bool {
         })
 }
 
+/// Only in-app projection handlers reviewed for deduplicated replay.
+/// Do not requeue financial, external-delivery or unknown job families.
+fn supported_retry_event(event_type: &str, consumers: &[String]) -> bool {
+    if consumers.len() != 1 {
+        return false;
+    }
+    matches!(
+        (event_type, consumers[0].as_str()),
+        ("ChapterPublished", "chapter_release_fanout_v1")
+            | ("reader.chapter.released", "user_notifications")
+    )
+}
+
 impl PgOutboxAdminRetry {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -82,8 +95,9 @@ impl PgOutboxAdminRetry {
         // A row lock serializes manual retries with worker acknowledgements.
         // An active lease is never overridden; an expired one is fenced by
         // incrementing lease_epoch before making the event due again.
-        let event: Option<(bool, bool, bool, i32, i64)> = sqlx::query_as(
-            "SELECT delivered_at IS NOT NULL,
+        let event: Option<(String, Vec<String>, bool, bool, bool, i32, i64)> = sqlx::query_as(
+            "SELECT event_type,required_consumers,
+                    delivered_at IS NOT NULL,
                     dead_at IS NOT NULL,
                     COALESCE(lease_until>clock_timestamp(),false),
                     attempts,lease_epoch
@@ -95,13 +109,22 @@ impl PgOutboxAdminRetry {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AdminRetryError::Unavailable)?;
-        let Some((delivered, dead, active_lease, previous_attempts, previous_epoch)) = event else {
+        let Some((
+            event_type,
+            consumers,
+            delivered,
+            dead,
+            active_lease,
+            previous_attempts,
+            previous_epoch,
+        )) = event
+        else {
             tx.rollback()
                 .await
                 .map_err(|_| AdminRetryError::Unavailable)?;
             return Err(AdminRetryError::NotFound);
         };
-        if delivered || !dead || active_lease {
+        if !supported_retry_event(&event_type, &consumers) || delivered || !dead || active_lease {
             // A rejected operator action must release the administrator role
             // SHARE lock before returning an HTTP response. SQLx rollback on
             // Drop is asynchronous; callers may immediately revoke that role.
@@ -157,7 +180,30 @@ impl PgOutboxAdminRetry {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_event_id;
+    use super::{supported_retry_event, valid_event_id};
+
+    #[test]
+    fn g_07_admin_retry_only_accepts_reviewed_internal_consumers() {
+        assert!(supported_retry_event(
+            "ChapterPublished",
+            &["chapter_release_fanout_v1".to_string()]
+        ));
+        assert!(supported_retry_event(
+            "reader.chapter.released",
+            &["user_notifications".to_string()]
+        ));
+        for (kind, consumer) in [
+            ("payment.capture", "user_notifications"),
+            ("ChapterPublished", "external_mail"),
+            ("reader.chapter.released", "external_mail"),
+        ] {
+            assert!(!supported_retry_event(kind, &[consumer.to_string()]));
+        }
+        assert!(!supported_retry_event(
+            "ChapterPublished",
+            &["chapter_release_fanout_v1".to_string(), "external_mail".to_string()]
+        ));
+    }
 
     #[test]
     fn g_07_retry_requires_one_canonical_uuid_path_component() {
