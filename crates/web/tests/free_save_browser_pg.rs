@@ -39,11 +39,37 @@ fn pg(url: &str, sql: &str) -> String {
         .env("PGOPTIONS", "-c statement_timeout=15000")
         .output()
         .expect("PostgreSQL client is required for isolated PG fixture");
-    assert!(
-        result.status.success(),
-        "fixture failed: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    if !result.status.success() {
+        // Observe the *other* transaction still holding the book FK's
+        // KEY SHARE conflict; never disable the constraint or retry blindly.
+        let diagnosis = Command::new("psql")
+            .args([
+                "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+                "--dbname", url, "--command",
+                "SELECT pid::text || ' | ' || coalesce(state,'') || ' | ' ||
+                        coalesce(wait_event_type,'') || ':' || coalesce(wait_event,'') ||
+                        ' | xact_age=' || coalesce((clock_timestamp()-xact_start)::text,'') ||
+                        ' | blockers=' || pg_blocking_pids(pid)::text || ' | ' ||
+                        left(replace(query,chr(10),' '),240)
+                 FROM pg_stat_activity
+                 WHERE datname=current_database() AND pid<>pg_backend_pid()
+                 ORDER BY pid",
+            ])
+            .env("PGCONNECT_TIMEOUT", "5")
+            .output();
+        let activity = diagnosis.as_ref().map(|out| {
+            format!(
+                "stdout: {}; stderr: {}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        });
+        panic!(
+            "isolated PG fixture failed: {}\nPostgreSQL active transactions: {}",
+            String::from_utf8_lossy(&result.stderr),
+            activity.unwrap_or_else(|error| format!("diagnostics unavailable: {error}"))
+        );
+    }
     String::from_utf8(result.stdout).unwrap().trim().to_owned()
 }
 
