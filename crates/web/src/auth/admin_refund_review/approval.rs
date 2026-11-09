@@ -3,8 +3,6 @@
 //! before the existing D-06 PostgreSQL transaction. No external payout API.
 use super::super::{deny, session_user, AuthState};
 use super::page_shell;
-#[cfg(test)]
-use super::AdminRefundRequest;
 use axum::{
     extract::{rejection::FormRejection, Form, State},
     http::{HeaderMap, StatusCode},
@@ -31,58 +29,6 @@ pub(super) struct ApprovalForm {
 pub(super) fn enabled(state: &AuthState) -> bool {
     state.paid_checkout_enabled
         && std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref() == Ok("1")
-}
-
-#[cfg(test)]
-pub(super) fn form(row: &AdminRefundRequest, csrf: &str) -> String {
-    if row.state != "pending"
-        || row.policy_version.is_none()
-        || row.deadline_utc.is_none()
-        || row.first_exposed
-        || row.revoked
-    {
-        return String::new();
-    }
-    format!(
-        r#"<form method="post" action="/admin/finance/refunds/approve" autocomplete="off">
-           <input type="hidden" name="request_id" value="{}">
-           <input type="hidden" name="expected_revision" value="{}">
-           <input type="hidden" name="csrf_token" value="{}">
-           <label>Причина административного решения
-             <textarea name="reason" maxlength="1000" required></textarea>
-           </label>
-           <label>Подтверждение текущим паролем администратора
-             <input type="password" name="current_password"
-                    autocomplete="current-password" required>
-           </label>
-           <p>Разрешён только внутренний возврат в кошелёк по утверждённой
-           политике. Срок, открытие главы, версию решения и бухгалтерский
-           баланс сервер повторно проверит в одной транзакции.</p>
-           <button type="submit">Подтвердить внутренний возврат</button></form>"#,
-        row.id,
-        row.revision,
-        crate::pages::escape_html(csrf)
-    )
-}
-
-pub(super) fn support_form(request: i64, revision: i64, csrf: &str) -> String {
-    format!(
-        r#"<form method="post" action="/admin/finance/refunds/approve" autocomplete="off">
-        <h3>Подтверждение возврата №{request}</h3>
-        <input type="hidden" name="request_id" value="{request}">
-        <input type="hidden" name="expected_revision" value="{revision}">
-        <input type="hidden" name="csrf_token" value="{}">
-        <label>Причина решения администратора
-          <textarea name="reason" maxlength="1000" required></textarea></label>
-        <label>Текущий пароль администратора
-          <input type="password" name="current_password"
-                 autocomplete="current-password" required></label>
-        <p>Подтверждение зачислит историческую сумму во внутренний кошелёк,
-        отзовёт дальнейший доступ к выбранной главе и оставит неизменяемый
-        финансовый след. Уже выданный текст невозможно изъять у читателя.</p>
-        <button type="submit">Подтвердить возврат</button></form>"#,
-        crate::pages::escape_html(csrf)
-    )
 }
 
 fn positive(raw: &str) -> Option<i64> {
@@ -272,38 +218,17 @@ pub(super) async fn submit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn s036_approval_form_is_eligible_only_and_omits_sensitive_authority_fields() {
-        let row = AdminRefundRequest {
-            id: 7,
-            purchase_id: 9,
-            buyer_user_id: 12,
-            buyer_name: "Name".into(),
-            book_title: "Book".into(),
-            chapter_title: "Chapter".into(),
-            amount_minor: 300,
-            reason: "Buyer reason".into(),
-            state: "pending".into(),
-            revision: 3,
-            policy_version: Some("policy".into()),
-            deadline_utc: Some("2026-11-03".into()),
-            created_utc: "2026-11-03".into(),
-            first_exposed: false,
-            revoked: false,
-        };
-        let markup = form(&row, "csrf");
-        assert!(markup.contains("name=\"request_id\" value=\"7\""));
-        assert!(markup.contains("name=\"expected_revision\" value=\"3\""));
+    fn s036_support_confirmation_is_scoped_to_request_and_revision() {
+        let markup = support_form(31, 2, "csrf");
+        assert!(markup.contains("name=\"request_id\" value=\"31\""));
+        assert!(markup.contains("name=\"expected_revision\" value=\"2\""));
         assert!(markup.contains("name=\"current_password\""));
+        assert!(markup.contains("name=\"csrf_token\""));
         assert!(!markup.contains("name=\"buyer_user_id\""));
         assert!(!markup.contains("name=\"amount_minor\""));
         assert!(!markup.contains("name=\"decision_actor\""));
-        let mut unavailable = row;
-        unavailable.first_exposed = true;
-        assert!(form(&unavailable, "csrf").is_empty());
-        unavailable.first_exposed = false;
-        unavailable.policy_version = None;
-        assert!(form(&unavailable, "csrf").is_empty());
         assert!(positive("0").is_none());
         assert!(positive("-1").is_none());
         assert_eq!(positive("0008"), Some(8));
