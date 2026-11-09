@@ -144,12 +144,14 @@ impl PgCreatorFinance {
         .map_err(|_| CreatorFinanceError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, amount_minor, state, created_utc)| CreatorPayoutRequest {
-                id,
-                amount_minor,
-                state,
-                created_utc,
-            })
+            .map(
+                |(id, amount_minor, state, created_utc)| CreatorPayoutRequest {
+                    id,
+                    amount_minor,
+                    state,
+                    created_utc,
+                },
+            )
             .collect())
     }
 
