@@ -113,6 +113,21 @@ module.exports = async (browser, base, out) => {
       await b.page.waitForURL('**' + conversation);
       await b.page.goto(base + '/notifications');
       assert((await b.page.locator('[data-notification-id="' + notificationId + '"]').innerText()).includes('Прочитано'));
+      // S018: yesterday's on-site release digest must never borrow private mail
+      // text, current-day events, or another reader's notification projection.
+      await b.page.goto(base + '/notifications?tab=digest');
+      assert(await b.page.getByRole('heading', { name: 'Сводка новых глав за вчера (UTC)' }).isVisible());
+      assert.equal(await b.page.locator('[data-digest-notification-id]').count(), 0,
+        'only completed previous-day chapter releases can appear');
+      assert(!(await b.page.locator('main').innerText()).includes(marker),
+        'private mail body must not enter the digest');
+      assert((await b.page.locator('main').innerText()).includes('не отправка письма'),
+        'on-site digest must not claim external delivery');
+      const digestSizes = await b.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+      assert(digestSizes[0] <= digestSizes[1] + 1, 'digest has no horizontal overflow');
+      await c.page.goto(base + '/notifications?tab=digest');
+      assert.equal(await c.page.locator('[data-digest-notification-id]').count(), 0,
+        'unrelated recipient cannot see another reader digest');
       await b.page.goto(base + conversation);
       assert.equal(await b.page.locator('#mail-messages img, #mail-messages script').count(), 0);
       assert.equal(await b.page.evaluate(() => window.mailXss), undefined);
