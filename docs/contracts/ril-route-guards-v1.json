@@ -2570,6 +2570,13 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_reviews::decide",
       "policy": "admin_free_comment_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/refunds/reject",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "rejection::submit",
+      "policy": "admin_refund_reject"
     }
   ]
 }
