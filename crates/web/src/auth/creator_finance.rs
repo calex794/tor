@@ -177,6 +177,7 @@ fn render(
                     "immature" => "Удержание до созревания",
                     "refund_hold" => "Ожидается решение по возврату",
                     "reversed" => "Подтверждён возврат",
+                    "swapped" => "Начисление отменено обменом главы",
                     _ => "Статус не подтверждён",
                 };
                 write!(
@@ -410,6 +411,25 @@ mod tests {
         assert!(stats.contains("Покупка №38"));
         assert!(stats.contains("доля 60%"));
         assert!(stats.contains("Подтверждён возврат"));
+        let swapped = CreatorEarningLine {
+            purchase_id: 39,
+            amount_minor: 200,
+            share_percent: 60,
+            reversed_minor: 200,
+            status: "swapped".into(),
+            earned_utc: "2026-11-09 10:00".into(),
+        };
+        let swap_html = render(
+            &totals,
+            &[swapped],
+            &[],
+            &[],
+            "csrf",
+            false,
+            FinanceTab::Stats,
+        )
+        .0;
+        assert!(swap_html.contains("Начисление отменено обменом главы"));
         assert!(stats.contains("Единый расчёт по модели NEwBOO"));
         assert!(stats.contains("Общий расчётный баланс"));
         assert!(stats.contains("href=\"/me/finance?tab=refunds\""));
