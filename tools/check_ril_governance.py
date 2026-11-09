@@ -522,6 +522,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
         ))
         persistence_guard = all(token in repo for token in (
+            "supported_retry_event", "ChapterPublished", "reader.chapter.released",
+            "chapter_release_fanout_v1", "user_notifications",
             "FOR SHARE OF s,u,r", "u.account_state='active'",
             "r.role='administrator' AND r.is_active",
             "s.revoked_at IS NULL", "FOR UPDATE",
