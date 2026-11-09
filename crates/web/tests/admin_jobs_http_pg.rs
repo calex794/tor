@@ -264,7 +264,9 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     let unknown = dead_event(&url, &format!("g-admin-unknown-{nonce}"));
     pg(
         &url,
-        &format!("UPDATE outbox_events SET event_type='payment.capture' WHERE id='{unknown}'::uuid"),
+        &format!(
+            "UPDATE outbox_events SET event_type='payment.capture' WHERE id='{unknown}'::uuid"
+        ),
     );
     assert_eq!(
         request(&app, &unknown, Some(&session), &csrf, Some(&csrf), ORIGIN)
@@ -402,12 +404,10 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         mutation.unwrap_err().to_string().contains("append-only"),
         "UPDATE of the retry audit must be blocked by the database trigger"
     );
-    let deletion = sqlx::query(
-        "DELETE FROM g_outbox_admin_retry_audit WHERE event_id=$1::uuid",
-    )
-    .bind(&event_id)
-    .execute(&pool)
-    .await;
+    let deletion = sqlx::query("DELETE FROM g_outbox_admin_retry_audit WHERE event_id=$1::uuid")
+        .bind(&event_id)
+        .execute(&pool)
+        .await;
     assert!(
         deletion.unwrap_err().to_string().contains("append-only"),
         "DELETE of the retry audit must be blocked by the database trigger"
