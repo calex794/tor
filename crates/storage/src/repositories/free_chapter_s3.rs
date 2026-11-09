@@ -10,9 +10,7 @@ use crate::{
     domain::provider::{valid_private_bucket, StorageError},
     services::{
         crypto::sha256_bytes,
-        free_chapter::{
-            FreeChapterObject, FreeChapterStore, FREE_MARKDOWN_CONTENT_TYPE,
-        },
+        free_chapter::{FreeChapterObject, FreeChapterStore, FREE_MARKDOWN_CONTENT_TYPE},
     },
 };
 
@@ -99,12 +97,13 @@ impl FreeChapterStore for S3FreeChapterStore {
             Ok(_) => Ok(()),
             Err(error) => {
                 use aws_sdk_s3::error::ProvideErrorMetadata;
-                let conflict = error
-                    .as_service_error()
-                    .and_then(|s| s.code())
-                    .is_some_and(|code| {
-                        matches!(code, "PreconditionFailed" | "ConditionalRequestConflict")
-                    });
+                let conflict =
+                    error
+                        .as_service_error()
+                        .and_then(|s| s.code())
+                        .is_some_and(|code| {
+                            matches!(code, "PreconditionFailed" | "ConditionalRequestConflict")
+                        });
                 Err(if conflict {
                     StorageError::Conflict
                 } else {
@@ -136,7 +135,10 @@ impl FreeChapterStore for S3FreeChapterStore {
             return Err(StorageError::Corrupt);
         }
         // Even a lying Content-Length cannot make this reader allocate >200 KB.
-        let mut reader = response.body.into_async_read().take(object.size_bytes() + 1);
+        let mut reader = response
+            .body
+            .into_async_read()
+            .take(object.size_bytes() + 1);
         let mut bytes = Vec::with_capacity((object.size_bytes() as usize).min(65_536));
         reader
             .read_to_end(&mut bytes)
