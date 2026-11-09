@@ -469,6 +469,130 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     );
     let author_final = body(send(&app, "GET", author_path, &author, "").await).await;
     assert!(author_final.contains("Комментарий восстановлен"));
+    // Moderator-originated hiding is also appealable. The independent reviewer
+    // must be a site administrator, but need not be the second admin from above.
+    let second_report_post = report_post.replace(&report_key, &"M".repeat(43));
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("/books/{book}/report"),
+            &format!("{reporter}; {report_cookie}"),
+            &second_report_post
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let mod_report: i64 = pg(
+        &format!(
+            "SELECT id FROM social_book_content_reports
+             WHERE comment_id={comment} AND state='pending'"
+        ),
+        true,
+    )
+    .parse()
+    .unwrap();
+    let mod_queue = send(&app, "GET", "/admin/book-reports", &moderator, "").await;
+    assert_eq!(mod_queue.status(), StatusCode::OK);
+    let mod_queue_cookie = cookie(&mod_queue, "tor-dev-csrf=");
+    let mod_queue_csrf = field(&body(mod_queue).await, "csrf_token");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("/admin/book-reports/{mod_report}/decision"),
+            &format!("{moderator}; {mod_queue_cookie}"),
+            &format!(
+                "decision=hide_comment&note=Moderator+review&csrf_token={mod_queue_csrf}"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &format!("SELECT visibility FROM discussion_comments WHERE id={comment}"),
+            true
+        ),
+        "hidden"
+    );
+    let mod_hide_event: i64 = pg(
+        &format!(
+            "SELECT id FROM social_book_content_review_events
+             WHERE report_id={mod_report} AND reviewer_user_id={mod_id}
+               AND moderation_action='hide_book_comment'"
+        ),
+        true,
+    )
+    .parse()
+    .unwrap();
+    let second_appeal_page = send(&app, "GET", author_path, &author, "").await;
+    assert_eq!(second_appeal_page.status(), StatusCode::OK);
+    let second_appeal_cookie = cookie(&second_appeal_page, "tor-dev-csrf=");
+    let second_appeal_html = body(second_appeal_page).await;
+    assert!(second_appeal_html.contains(&format!("решение #{mod_hide_event}")));
+    let second_appeal_csrf = field(&second_appeal_html, "csrf_token");
+    let second_appeal_command = field(&second_appeal_html, "command_key");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{author_path}/{mod_hide_event}"),
+            &format!("{author}; {second_appeal_cookie}"),
+            &format!(
+                "reason=Moderator+decision+needs+independent+review&csrf_token={second_appeal_csrf}&command_key={second_appeal_command}"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let second_appeal: i64 = pg(
+        &format!(
+            "SELECT id FROM social_book_comment_appeals
+             WHERE hide_event_id={mod_hide_event} AND state='pending'"
+        ),
+        true,
+    )
+    .parse()
+    .unwrap();
+    let first_review_page = send(&app, "GET", queue, &first, "").await;
+    assert_eq!(first_review_page.status(), StatusCode::OK);
+    let first_review_cookie = cookie(&first_review_page, "tor-dev-csrf=");
+    let first_review_csrf = field(&body(first_review_page).await, "csrf_token");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("{queue}/{second_appeal}/decision"),
+            &format!("{first}; {first_review_cookie}"),
+            &format!(
+                "decision=restored&note=Independent+review&csrf_token={first_review_csrf}"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &format!(
+                "SELECT decision FROM social_book_comment_appeal_decisions
+                 WHERE appeal_id={second_appeal} AND reviewer_user_id={first_id}"
+            ),
+            true
+        ),
+        "restored"
+    );
+    assert_eq!(
+        pg(
+            &format!("SELECT visibility FROM discussion_comments WHERE id={comment}"),
+            true
+        ),
+        "visible"
+    );
     // No test-only administrator may contaminate A's last-administrator checks.
     pg(
         &format!(
