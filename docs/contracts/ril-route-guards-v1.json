@@ -2500,6 +2500,20 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "paid_comment_reviews::decide",
       "policy": "admin_paid_comment_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/me/finance",
+      "source": "crates/web/src/auth/creator_finance.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/finance",
+      "source": "crates/web/src/auth/creator_finance.rs",
+      "handler": "submit",
+      "policy": "session"
     }
   ]
 }
