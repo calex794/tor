@@ -45,8 +45,7 @@ pub(super) async fn submit(
         Ok(form) => form,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -64,13 +63,18 @@ pub(super) async fn submit(
     let repo = PgSupportRefunds::new(state.accounts.pool().clone());
     match repo
         .prepare_once(
-            &digest, buyer, purchase, conversation,
-            &form.command_key, &form.reason,
+            &digest,
+            buyer,
+            purchase,
+            conversation,
+            &form.command_key,
+            &form.reason,
         )
         .await
     {
         Ok(_) => private_response(
-            Redirect::to(&format!("/admin/finance/refunds/user/{buyer}")), &[]
+            Redirect::to(&format!("/admin/finance/refunds/user/{buyer}")),
+            &[],
         ),
         Err(err) => response_error(err),
     }
