@@ -83,8 +83,8 @@ BEGIN
           AND fp.platform_fee_minor=NEW.platform_reversal_minor
           AND fp.creator_pool_minor=NEW.creator_reversal_minor
           AND pc.amount_minor=NEW.platform_reversal_minor
-          AND fp.refund_policy_version=p.refund_policy_version
-          AND fp.refund_deadline_at=p.refund_deadline_at
+          AND fp.refund_policy_version IS NOT DISTINCT FROM p.refund_policy_version
+          AND fp.refund_deadline_at IS NOT DISTINCT FROM p.refund_deadline_at
           AND q.state='approved'
           AND q.decided_at IS NOT NULL
           AND (
