@@ -155,7 +155,10 @@ fn intervals(report: &AudienceReport) {
         let until = DateTime::parse_from_rfc3339(&period.until_utc).unwrap();
         assert_eq!(from.offset().local_minus_utc(), 0);
         assert_eq!(until.offset().local_minus_utc(), 0);
-        assert_eq!((until - from).num_seconds(), i64::from(report.days) * 86_400);
+        assert_eq!(
+            (until - from).num_seconds(),
+            i64::from(report.days) * 86_400
+        );
         assert!(until <= Utc::now());
     }
 }

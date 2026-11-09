@@ -14,10 +14,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_reading::{
-    repositories::audience::PgAudience,
-    services::audience::AudienceError,
-};
+use tor_reading::{repositories::audience::PgAudience, services::audience::AudienceError};
 
 #[derive(Clone)]
 struct AudienceState {
@@ -101,10 +98,9 @@ async fn page(
     match timeout_at(deadline, state.store.report(days)).await {
         Ok(Ok(report)) => secure(render::page(&report)),
         Ok(Err(AudienceError::Invalid)) => secure(StatusCode::BAD_REQUEST),
-        Ok(Err(AudienceError::Unavailable)) | Err(_) => secure((
-            StatusCode::SERVICE_UNAVAILABLE,
-            render::unavailable(days),
-        )),
+        Ok(Err(AudienceError::Unavailable)) | Err(_) => {
+            secure((StatusCode::SERVICE_UNAVAILABLE, render::unavailable(days)))
+        }
     }
 }
 
@@ -121,7 +117,15 @@ mod tests {
             let query = Query::<AudienceQuery>::try_from_uri(&uri).unwrap();
             assert_eq!(query.days(), Ok(days));
         }
-        for raw in ["days=0", "days=-1", "days=8", "days=91", "days=abc", "days=7&days=1", "reader=8"] {
+        for raw in [
+            "days=0",
+            "days=-1",
+            "days=8",
+            "days=91",
+            "days=abc",
+            "days=7&days=1",
+            "reader=8",
+        ] {
             let uri: Uri = format!("/admin/audience?{raw}").parse().unwrap();
             let result = Query::<AudienceQuery>::try_from_uri(&uri)
                 .map_err(|_| StatusCode::BAD_REQUEST)
@@ -132,12 +136,21 @@ mod tests {
 
     #[test]
     fn success_and_errors_are_private_and_not_indexable() {
-        for status in [StatusCode::OK, StatusCode::BAD_REQUEST, StatusCode::UNAUTHORIZED, StatusCode::FORBIDDEN, StatusCode::SERVICE_UNAVAILABLE] {
+        for status in [
+            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
             let response = secure(status);
             assert_eq!(response.status(), status);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
             assert_eq!(response.headers()["x-robots-tag"], "noindex, nofollow");
-            assert!(response.headers()["content-security-policy"].to_str().unwrap().contains("script-src 'none'"));
+            assert!(response.headers()["content-security-policy"]
+                .to_str()
+                .unwrap()
+                .contains("script-src 'none'"));
         }
     }
 }

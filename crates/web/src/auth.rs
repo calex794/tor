@@ -35,10 +35,10 @@ use tor_reading::services::{
 mod access_audit;
 mod account_form_http;
 mod account_home;
-mod audience_http;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
 mod batch_checkout_browser;

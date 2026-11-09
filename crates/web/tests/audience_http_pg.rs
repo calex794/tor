@@ -27,8 +27,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url,
-            "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("disposable PostgreSQL client");
@@ -132,9 +140,11 @@ async fn progress(
     if response.status() != StatusCode::OK {
         return Err(response.status());
     }
-    Ok(serde_json::from_str::<Value>(&page(response).await).unwrap()["revision"]
-        .as_i64()
-        .unwrap())
+    Ok(
+        serde_json::from_str::<Value>(&page(response).await).unwrap()["revision"]
+            .as_i64()
+            .unwrap(),
+    )
 }
 
 #[tokio::test]
@@ -145,7 +155,10 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let password = hash_password("AudienceHttpTestPassword2026").unwrap();
     let mut users = Vec::new();
     let mut cookies = Vec::new();
@@ -173,7 +186,11 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         "INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator'),({moderator},'moderator')"
     ));
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool.clone()), accounts.clone(), false, ORIGIN.to_owned(),
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
     );
     for (cookie, status) in [
         ("", StatusCode::UNAUTHORIZED),
@@ -197,26 +214,78 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
          VALUES('ci:audience:http:{stamp}','ru','AUDIENCE-HIDDEN-TITLE-{stamp}','public',{reader},'basic') RETURNING id"
     )).parse().unwrap();
-    let chapter: i64 = pg(&url, &format!(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES({book},1,'Audience fixture chapter','public','free',0) RETURNING id"
-    )).parse().unwrap();
-    let version: i64 = pg(&url, &format!(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES({chapter},1,'Audience text') RETURNING id"
-    )).parse().unwrap();
-    pg(&url, &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"));
-    assert_eq!(call(&app, "GET", &format!("/reader/{chapter}"), &cookies[1], "", "").await.status(), StatusCode::OK);
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("/reader/{chapter}"),
+            &cookies[1],
+            "",
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
     let opened = page(call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await).await;
-    assert_eq!(metric(&opened, "current", "starts"), metric(&before, "current", "starts"));
-    assert_eq!(metric(&opened, "current", "completions"), metric(&before, "current", "completions"));
+    assert_eq!(
+        metric(&opened, "current", "starts"),
+        metric(&before, "current", "starts")
+    );
+    assert_eq!(
+        metric(&opened, "current", "completions"),
+        metric(&before, "current", "completions")
+    );
 
     let csrf = generate_session_token();
     let reader_cookie = format!("{}; tor-dev-csrf={csrf}", cookies[1]);
-    let revision = progress(&app, &reader_cookie, &csrf, chapter, version, (3, 0)).await.unwrap();
-    let revision = progress(&app, &reader_cookie, &csrf, chapter, version, (13, revision)).await.unwrap();
+    let revision = progress(&app, &reader_cookie, &csrf, chapter, version, (3, 0))
+        .await
+        .unwrap();
+    let revision = progress(
+        &app,
+        &reader_cookie,
+        &csrf,
+        chapter,
+        version,
+        (13, revision),
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        progress(&app, &reader_cookie, &csrf, chapter, version, (13, revision)).await,
+        progress(
+            &app,
+            &reader_cookie,
+            &csrf,
+            chapter,
+            version,
+            (13, revision)
+        )
+        .await,
         Err(StatusCode::CONFLICT),
         "repeating the same position must not create another first reading fact"
     );
@@ -224,27 +293,52 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}")), "1");
     let source = pg(&url, &format!("SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}"));
     // The report contains only canonical numbers even after content is private.
-    pg(&url, &format!("UPDATE books SET visibility='private' WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility='private' WHERE id={book}"),
+    );
     let after = call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await;
     assert_eq!(after.status(), StatusCode::OK);
     private(&after);
     let after = page(after).await;
     for metric_name in ["starts", "completions", "readers"] {
-        assert_eq!(metric(&after, "current", metric_name), metric(&before, "current", metric_name) + 1);
-        assert_eq!(metric(&after, "previous", metric_name), metric(&before, "previous", metric_name));
+        assert_eq!(
+            metric(&after, "current", metric_name),
+            metric(&before, "current", metric_name) + 1
+        );
+        assert_eq!(
+            metric(&after, "previous", metric_name),
+            metric(&before, "previous", metric_name)
+        );
     }
     assert!(!after.contains("AUDIENCE-HIDDEN-TITLE"));
     assert!(!after.contains(&source));
     assert!(!after.contains(&format!("audience-reader-{stamp}@example.invalid")));
     assert!(!after.contains("Audience text"));
     for days in [1, 30, 90] {
-        let response = call(&app, "GET", &format!("/admin/audience?days={days}"), &cookies[0], "", "").await;
+        let response = call(
+            &app,
+            "GET",
+            &format!("/admin/audience?days={days}"),
+            &cookies[0],
+            "",
+            "",
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         private(&response);
         assert!(page(response).await.contains("audience-current"));
     }
     for query in ["days=0", "days=365", "days=bad", "unexpected=1"] {
-        let response = call(&app, "GET", &format!("/admin/audience?{query}"), &cookies[0], "", "").await;
+        let response = call(
+            &app,
+            "GET",
+            &format!("/admin/audience?{query}"),
+            &cookies[0],
+            "",
+            "",
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         private(&response);
     }
@@ -253,7 +347,10 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
     private(&revoked);
     pg(&url, &format!("UPDATE account_roles SET is_active=true WHERE user_id={admin} AND role='administrator'"));
-    accounts.revoke_session(&session_token_digest(&tokens[0])).await.unwrap();
+    accounts
+        .revoke_session(&session_token_digest(&tokens[0]))
+        .await
+        .unwrap();
     let revoked = call(&app, "GET", "/admin/audience", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     private(&revoked);

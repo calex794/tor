@@ -14,7 +14,12 @@ fn start(days: i32) -> String {
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",
     );
-    for (value, label) in [(1, "1 день"), (7, "7 дней"), (30, "30 дней"), (90, "90 дней")] {
+    for (value, label) in [
+        (1, "1 день"),
+        (7, "7 дней"),
+        (30, "30 дней"),
+        (90, "90 дней"),
+    ] {
         let selected = if days == value { " selected" } else { "" };
         write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
     }
@@ -40,7 +45,11 @@ fn finish(mut body: String) -> Html<String> {
          <p>Показаны только общие числа, без имён читателей, названий книг и истории отдельных пользователей.</p>\
          </section><p><a href=\"/me\">Вернуться в личный кабинет</a></p></div></section>",
     );
-    layout("Подтверждённое чтение", "Закрытая сводка подтверждённых событий чтения.", &body)
+    layout(
+        "Подтверждённое чтение",
+        "Закрытая сводка подтверждённых событий чтения.",
+        &body,
+    )
 }
 
 pub(super) fn unavailable(days: i32) -> Html<String> {
@@ -51,7 +60,12 @@ pub(super) fn unavailable(days: i32) -> Html<String> {
 
 pub(super) fn page(report: &AudienceReport) -> Html<String> {
     let mut body = start(report.days);
-    write!(body, "<p>Время расчёта: {}.</p>", time(&report.measured_at_utc)).expect("String");
+    write!(
+        body,
+        "<p>Время расчёта: {}.</p>",
+        time(&report.measured_at_utc)
+    )
+    .expect("String");
     period(&mut body, "current", "Текущий период", &report.current);
     period(&mut body, "previous", "Предыдущий период", &report.previous);
     match (
@@ -76,7 +90,11 @@ pub(super) fn page(report: &AudienceReport) -> Html<String> {
 }
 
 fn time(value: &str) -> String {
-    format!("<time datetime=\"{}\">{} UTC</time>", escape_html(value), escape_html(&value.trim_end_matches('Z').replace('T', " ")))
+    format!(
+        "<time datetime=\"{}\">{} UTC</time>",
+        escape_html(value),
+        escape_html(&value.trim_end_matches('Z').replace('T', " "))
+    )
 }
 
 fn period(body: &mut String, key: &str, title: &str, period: &AudiencePeriod) {
@@ -94,13 +112,33 @@ fn period(body: &mut String, key: &str, title: &str, period: &AudiencePeriod) {
 fn counts_list(body: &mut String, counts: &AudienceCounts) {
     body.push_str("<dl>");
     for (key, label, value) in [
-        ("readers", "Учётные записи с событиями за весь период", counts.unique_readers),
+        (
+            "readers",
+            "Учётные записи с событиями за весь период",
+            counts.unique_readers,
+        ),
         ("starts", "Первые подтверждённые начала глав", counts.starts),
-        ("started-readers", "Учётные записи с началом главы", counts.unique_started),
-        ("completions", "Первые подтверждённые завершения глав", counts.completions),
-        ("completed-readers", "Учётные записи с завершением главы", counts.unique_completed),
+        (
+            "started-readers",
+            "Учётные записи с началом главы",
+            counts.unique_started,
+        ),
+        (
+            "completions",
+            "Первые подтверждённые завершения глав",
+            counts.completions,
+        ),
+        (
+            "completed-readers",
+            "Учётные записи с завершением главы",
+            counts.unique_completed,
+        ),
     ] {
-        write!(body, "<dt>{label}</dt><dd data-metric=\"{key}\">{value}</dd>").expect("String");
+        write!(
+            body,
+            "<dt>{label}</dt><dd data-metric=\"{key}\">{value}</dd>"
+        )
+        .expect("String");
     }
     body.push_str("</dl>");
 }
@@ -117,13 +155,25 @@ mod tests {
                 from_utc: "2026-11-03T12:00:00Z".into(),
                 until_utc: "2026-11-10T12:00:00Z".into(),
                 available: true,
-                counts: Some(AudienceCounts { starts: 9, completions: 12, unique_readers: 5, unique_started: 3, unique_completed: 4 }),
+                counts: Some(AudienceCounts {
+                    starts: 9,
+                    completions: 12,
+                    unique_readers: 5,
+                    unique_started: 3,
+                    unique_completed: 4,
+                }),
             },
             previous: AudiencePeriod {
                 from_utc: "2026-10-27T12:00:00Z".into(),
                 until_utc: "2026-11-03T12:00:00Z".into(),
                 available: true,
-                counts: Some(AudienceCounts { starts: 5, completions: 6, unique_readers: 4, unique_started: 4, unique_completed: 2 }),
+                counts: Some(AudienceCounts {
+                    starts: 5,
+                    completions: 6,
+                    unique_readers: 4,
+                    unique_started: 4,
+                    unique_completed: 2,
+                }),
             },
         }
     }

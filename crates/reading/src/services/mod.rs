@@ -96,5 +96,5 @@ pub mod sync;
 
 pub mod paid_delivery;
 
-pub mod notification_preferences;
 pub mod audience;
+pub mod notification_preferences;
