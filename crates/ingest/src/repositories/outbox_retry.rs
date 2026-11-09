@@ -23,6 +23,9 @@ pub struct PgOutboxAdminRetry {
     pool: PgPool,
 }
 
+// Row order matches the locked outbox_events SELECT below.
+type RetryCandidateRow = (String, Vec<String>, bool, bool, bool, i32, i64);
+
 fn valid_event_id(id: &str) -> bool {
     let bytes = id.as_bytes();
     bytes.len() == 36
@@ -95,7 +98,7 @@ impl PgOutboxAdminRetry {
         // A row lock serializes manual retries with worker acknowledgements.
         // An active lease is never overridden; an expired one is fenced by
         // incrementing lease_epoch before making the event due again.
-        let event: Option<(String, Vec<String>, bool, bool, bool, i32, i64)> = sqlx::query_as(
+        let event: Option<RetryCandidateRow> = sqlx::query_as(
             "SELECT event_type,required_consumers,
                     delivered_at IS NOT NULL,
                     dead_at IS NOT NULL,
