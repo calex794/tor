@@ -69,6 +69,10 @@ AUDITED_REFUND_ADMIN = {
     ("GET", "/admin/finance/refunds", "page", "admin_refund"),
     ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
 }
+AUDITED_PAYOUT_ADMIN = {
+    ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
+    ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
+}
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),
     ("GET", "/admin/support/{id}", "page", "support_admin"),
@@ -136,6 +140,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
                              and key in AUDITED_SUPPORT_ADMIN)
             allow_refund = (row["source"] == "crates/web/src/auth/admin_refund_review.rs"
                             and key in AUDITED_REFUND_ADMIN)
+            allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
+                            and key in AUDITED_PAYOUT_ADMIN)
             allow_s049 = (row["source"] == "crates/web/src/auth/book_shares.rs"
                           and key in AUDITED_S049_ADMIN)
             allow_book = (row["source"] == "crates/web/src/auth/book_shares.rs"
@@ -154,7 +160,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
-            if not (allow_mail or allow_support or allow_refund or allow_s049 or allow_book
+            if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
                     or allow_audience or allow_free_appeal):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
