@@ -42,6 +42,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_http_pg/s034_toc_window.rs"]
 mod s034_toc_window;
+#[path = "paid_grants_http_pg/s049_paid_comment_reports.rs"]
+mod s049_paid_comment_reports;
 #[path = "paid_grants_http_pg/s065_role_matrix.rs"]
 mod s065_role_matrix;
 #[path = "paid_grants_http_pg/s065_unsealed.rs"]
@@ -80,15 +82,12 @@ fn pg(url: &str, sql: &str) -> String {
     );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
-
 fn scalar(url: &str, sql: &str) -> i64 {
     pg(url, sql).parse().expect("one integer PostgreSQL result")
 }
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
-
 async fn account(accounts: &PgAccounts, email: &str) -> (i64, String) {
     let token = generate_session_token();
     let hash = hash_password("S034VeryStrongTestPassword2026").unwrap();
@@ -104,14 +103,12 @@ async fn account(accounts: &PgAccounts, email: &str) -> (i64, String) {
         .unwrap();
     (id, token)
 }
-
 #[derive(Default)]
 struct FakeG {
     signed: AtomicUsize,
     // Test-only barrier allows a refund to commit after G begins signing.
     pause_next: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
-
 #[async_trait]
 impl PrivateObjectDeliveryPort for FakeG {
     async fn grant_verified_object(
@@ -150,11 +147,9 @@ impl PrivateObjectDeliveryPort for FakeG {
         self.grant_verified_object(object, ttl).await
     }
 }
-
 fn route(chapter: i64) -> String {
     format!("{ENDPOINT}{chapter}/delivery-grants")
 }
-
 async fn send(
     app: &Router,
     path: &str,
@@ -185,7 +180,6 @@ async fn send(
         .await
         .unwrap()
 }
-
 async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response {
     let mut request = Request::builder().uri(path).method("GET");
     if let Some(session) = session {
@@ -196,7 +190,6 @@ async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response 
         .await
         .unwrap()
 }
-
 // C-12: scan exact UTF-8 markers for paid text, private image references,
 // scoped keys and signed S3 URLs on all denied reader surfaces.
 fn has_private_reader_material(body: &[u8]) -> bool {
@@ -211,7 +204,6 @@ fn has_private_reader_material(body: &[u8]) -> bool {
         .iter()
         .any(|needle| body.windows(needle.len()).any(|part| part == *needle))
 }
-
 #[test]
 fn c12_denied_reader_scan_detects_exact_s3_signature_bytes() {
     assert_eq!(b"X-Amz-Signature".len(), 15);
@@ -220,7 +212,6 @@ fn c12_denied_reader_scan_detects_exact_s3_signature_bytes() {
     assert!(has_private_reader_material(b"ciphertext_url"));
     assert!(!has_private_reader_material(b"public-only response"));
 }
-
 /// S065 / C-12: the historical NEwBOO reader aliases must not become an
 /// alternative entitlement. Only the D-checked paid grant may sign G objects.
 /// Legacy endpoints are *not* implemented in TOR; a 404 proves absence on
@@ -357,12 +348,10 @@ async fn s065_alternate_reader_access_matrix(
     assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
     assert!(to_bytes(denied.into_body(), 8192).await.unwrap().is_empty());
 }
-
 async fn json_body(reply: Response) -> Value {
     let bytes = to_bytes(reply.into_body(), 8192).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
-
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL TEST_DATABASE_URL ending /tor_ci"]
 async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
@@ -619,6 +608,14 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         purchase_id,
         &buyer_cookie,
         &author_cookie,
+    )
+    .await;
+    s049_paid_comment_reports::check(
+        &url,
+        &browser,
+        (buyer, author, &buyer_cookie, &author_cookie),
+        (book, chapter, version, purchase_id),
+        (&csrf, &author_csrf),
     )
     .await;
     s065_alternate_reader_access_matrix(

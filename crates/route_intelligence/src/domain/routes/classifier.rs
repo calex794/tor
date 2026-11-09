@@ -364,6 +364,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/comment-appeals/{hide_event_id}"), "POST") => Some(349),
         (Some("/admin/book-comment-appeals"), "GET") => Some(350),
         (Some("/admin/book-comment-appeals/{appeal_id}/decision"), "POST") => Some(351),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments/report"), "POST") => Some(352),
         _ => None,
     };
     index

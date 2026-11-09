@@ -9,6 +9,7 @@ mod asset_grants;
 mod chapter_grants;
 mod layer_reader;
 mod layer_toc;
+mod paid_comment_reports;
 mod paid_comments;
 mod text_issues;
 mod toc_window;
@@ -50,7 +51,6 @@ use tor_contracts::paid_delivery::{
     PrivateObjectDeliveryPort,
 };
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
-
 const WINDOW: Duration = Duration::from_secs(60);
 const MAX_GRANTS_PER_ACTOR: u8 = 12;
 const MAX_ACTORS: usize = 8192;
@@ -60,7 +60,6 @@ const MAX_CONCURRENT_SIGNINGS: usize = 4;
 struct RateLimits {
     actors: HashMap<i64, (Instant, u8)>,
 }
-
 impl RateLimits {
     fn allow(&mut self, actor: i64, now: Instant) -> bool {
         if !self.actors.contains_key(&actor) && self.actors.len() >= MAX_ACTORS {
@@ -101,7 +100,6 @@ struct GrantState {
     reader_s3_origin: Option<String>,
     layer_reader_enabled: bool,
 }
-
 /// This capability never needs G, KEKs or a purchased-content grant.
 /// Keep it separable from GrantState so the default PG/auth runtime can
 /// inspect current unsealed drafts without enabling private S3 storage.
@@ -127,7 +125,6 @@ struct ReaderQuery {
 struct PurchaseListQuery {
     after: Option<String>,
 }
-
 /// Only operator-owned HTTPS origins can reach CSP/connect-src. Loopback HTTP
 /// is allowed exclusively for isolated browser tests and local development.
 pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
@@ -166,11 +163,9 @@ struct GrantBody {
     purchase_id: Option<String>,
     source: Option<GrantSource>,
 }
-
 fn layer_reader_feature_enabled(origin: Option<&str>, flag: Option<&str>) -> bool {
     origin.is_some() && flag == Some("1")
 }
-
 fn positive(raw: &str) -> Option<PositiveId> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -179,7 +174,6 @@ fn positive(raw: &str) -> Option<PositiveId> {
         .ok()
         .and_then(|value| PositiveId::new(value).ok())
 }
-
 fn status(error: DeliveryError) -> StatusCode {
     match error {
         DeliveryError::Unauthenticated => StatusCode::UNAUTHORIZED,
@@ -191,11 +185,9 @@ fn status(error: DeliveryError) -> StatusCode {
         DeliveryError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
     }
 }
-
 fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
 }
-
 /// The page contains only a generic reader shell. D is checked here and
 /// again in the POST; the browser never receives a bearer grant in HTML.
 async fn paid_reader(
@@ -505,6 +497,10 @@ fn router_inner(
                 get(paid_comments::list)
                     .post(paid_comments::submit)
                     .layer(DefaultBodyLimit::max(4096)),
+            )
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/paid-comments/report",
+                post(paid_comment_reports::submit).layer(DefaultBodyLimit::max(4096)),
             )
             .route("/me/purchases", get(purchased_library));
     }
