@@ -18,6 +18,36 @@ struct Fixture {
     digest: [u8; 32],
 }
 
+
+impl Fixture {
+    /// The PostgreSQL runtime reuses tor_ci across suites. Never leave an
+    /// active synthetic administrator behind: A-04/A-05 validates that a real
+    /// last administrator cannot be removed.
+    async fn finish(self) {
+        let changed = sqlx::query(
+            "UPDATE account_roles SET is_active=false
+             WHERE user_id=$1 AND role='administrator'",
+        )
+        .bind(self.admin)
+        .execute(&self.pool)
+        .await
+        .expect("S039 synthetic administrator cleanup")
+        .rows_affected();
+        assert_eq!(changed, 1, "S039 fixture administrator role must exist");
+        let active: bool = sqlx::query_scalar(
+            "SELECT is_active FROM account_roles
+             WHERE user_id=$1 AND role='administrator'",
+        )
+        .bind(self.admin)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        assert!(!active, "never pollute subsequent A-04 last-admin tests");
+        // Preserve the audit and request rows; only revoke the synthetic role.
+        self.finish().await;
+    }
+}
+
 async fn fixture(scenario: &str) -> Fixture {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL tor_ci required");
     assert!(
@@ -187,7 +217,7 @@ async fn d_09_reject_exactly_once_releases_reservation_without_wallet_debit() {
     .execute(&f.pool)
     .await
     .is_err());
-    f.pool.close().await;
+    f.finish().await;
 }
 
 #[tokio::test]
@@ -250,7 +280,7 @@ async fn d_09_reject_denies_non_admin_expired_and_revoked_sessions() {
     .await
     .unwrap();
     assert_eq!(count, 0);
-    f.pool.close().await;
+    f.finish().await;
 }
 
 #[tokio::test]
@@ -287,5 +317,5 @@ async fn d_09_reject_audit_failure_rolls_back_terminal_state() {
         finance.totals(f.applicant).await.unwrap().reserved_minor,
         600
     );
-    f.pool.close().await;
+    f.finish().await;
 }
