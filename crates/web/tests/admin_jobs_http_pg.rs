@@ -49,6 +49,40 @@ fn pg(url: &str, sql: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+/// Test PostgreSQL trigger enforcement without adding a new web-crate dependency.
+fn pg_audit_mutation_rejected(url: &str, sql: &str) {
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    let output = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .env("PGCONNECT_TIMEOUT", "5")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=8000 -c lock_timeout=5000",
+        )
+        .output()
+        .expect("disposable PostgreSQL audit fixture requires psql");
+    assert!(
+        !output.status.success(),
+        "unauthorized mutation of retry audit unexpectedly succeeded"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("append-only"),
+        "expected audit immutability trigger error; got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn dead_event(url: &str, key: &str) -> String {
     pg(
         url,
@@ -392,25 +426,19 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         actor_id.to_string(),
         "every retry must identify its administrator"
     );
-    // Audit immutability is enforced in PostgreSQL, not just an API convention.
-    let mutation = sqlx::query(
-        "UPDATE g_outbox_admin_retry_audit SET previous_attempts=0
-         WHERE event_id=$1::uuid",
-    )
-    .bind(&event_id)
-    .execute(&pool)
-    .await;
-    assert!(
-        mutation.unwrap_err().to_string().contains("append-only"),
-        "UPDATE of the retry audit must be blocked by the database trigger"
+    // The append-only trigger rejects both UPDATE and DELETE at PostgreSQL.
+    pg_audit_mutation_rejected(
+        &url,
+        &format!(
+            "UPDATE g_outbox_admin_retry_audit SET previous_attempts=0
+             WHERE event_id='{event_id}'::uuid"
+        ),
     );
-    let deletion = sqlx::query("DELETE FROM g_outbox_admin_retry_audit WHERE event_id=$1::uuid")
-        .bind(&event_id)
-        .execute(&pool)
-        .await;
-    assert!(
-        deletion.unwrap_err().to_string().contains("append-only"),
-        "DELETE of the retry audit must be blocked by the database trigger"
+    pg_audit_mutation_rejected(
+        &url,
+        &format!(
+            "DELETE FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"
+        ),
     );
     pool.close().await;
 }
