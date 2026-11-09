@@ -8,5 +8,5 @@ s = p.read_text()
 if '#![cfg(feature = "pg")]' not in s:
     s = s.replace('use sqlx::', '#![cfg(feature = "pg")]\nuse sqlx::', 1)
     p.write_text(s)
-# Export only clean public PostgreSQL18/MinIO/Playwright runtime tools.
+# Export public PostgreSQL18/MinIO/Playwright tools with dereferenced PG share files.
 # Workflow edits use the separately authorized repository connector.
