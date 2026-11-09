@@ -249,8 +249,8 @@ static ROUTES: [RouteRegistration; 373] = [
     RouteRegistration::new("/me/books/{id}/settings/sources", "POST", "/me/", Prefix, Page, Dashboard, Write), // 236
     RouteRegistration::new("/read/admin/{chapter_id}", "GET", "/read/", Prefix, TrafficSurface::Admin, Reading, Read), // 237
     RouteRegistration::new("/assets/newboo-admin-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 238
-    RouteRegistration::new("/me/refunds", "GET", "/me/", Exact, Page, ProductArea::Billing, Read), // 239
-    RouteRegistration::new("/me/refunds", "POST", "/me/", Exact, Page, ProductArea::Billing, Write), // 240
+    RouteRegistration::new("/admin/finance/refunds/user/{id}", "GET", "/admin/finance/", Prefix, TrafficSurface::Admin, ProductArea::Billing, Read), // 239
+    RouteRegistration::new("/admin/finance/refunds/prepare", "POST", "/admin/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Write), // 240
     RouteRegistration::new("/admin/finance/refunds", "GET", "/admin/finance/", Exact, TrafficSurface::Admin, ProductArea::Billing, Read), // 241
     RouteRegistration::new("/assets/book-title-suggestions.js", "GET", "/assets/", Exact, Static, System, Free), // 242
     RouteRegistration::new("/me/books/title-suggestions", "GET", "/me/", Prefix, Api, Dashboard, Read), // 243

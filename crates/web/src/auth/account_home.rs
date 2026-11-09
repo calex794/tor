@@ -58,7 +58,7 @@ pub(super) async fn page(
         false,
     );
     let audience_link = if administrator {
-        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a>"
+        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
     } else {
         ""
     };
