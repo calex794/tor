@@ -15,11 +15,13 @@ use serde::Serialize;
 use std::time::Duration;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_contracts::paid_delivery::SecretValue;
-use tor_reading::repositories::free_s3_ref::PgFreeS3Ref;
+use tor_reading::repositories::free_s3_ref::{FreeS3Ref, PgFreeS3Ref};
 use tor_storage::{
     repositories::free_chapter_s3::S3FreeChapterStore,
     services::free_chapter::{FreeChapterObject, FreeChapterStore},
 };
+
+mod verified_grant;
 
 #[derive(Clone)]
 struct FreeGrantState {
@@ -80,46 +82,23 @@ async fn grant(
         .cookies
         .session_token(&headers)
         .map(|token| session_token_digest(&token));
-    let record = match state.references.for_session(id, digest.as_ref()).await {
-        Ok(Some(record)) => record,
-        Ok(None) => return private_response(StatusCode::NOT_FOUND, &[]),
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    if record.bucket != state.bucket {
-        return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-    }
-    let object = match FreeChapterObject::from_metadata(
-        record.chapter_id,
-        record.version_id,
-        record.sha256,
-        record.size_bytes,
-    ) {
-        Ok(object) => object,
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    let signed = match state
-        .store
-        .presign_verified(&object, Duration::from_secs(90))
-        .await
+    // Recheck AFTER the external S3 call: a hide, age revocation or edition
+    // change during HEAD/signing must never release the stale capability.
+    let (record, signed) = match verified_grant::issue(
+        || async {
+            state
+                .references
+                .for_session(id, digest.as_ref())
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+        },
+        |record| sign(&state, record),
+    )
+    .await
     {
-        Ok(signed) => signed,
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Ok(grant) => grant,
+        Err(status) => return private_response(status, &[]),
     };
-    // Never return a signed internal/private endpoint to the browser.
-    let raw = serde_json::to_value(&signed).ok();
-    let Some(url) = raw.as_ref().and_then(serde_json::Value::as_str) else {
-        return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-    };
-    let Ok(parsed) = url.parse::<Uri>() else {
-        return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-    };
-    let actual = parsed
-        .authority()
-        .zip(parsed.scheme_str())
-        .map(|(authority, scheme)| format!("{scheme}://{authority}"));
-    if actual.as_deref() != Some(state.s3_origin.as_str()) {
-        return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
-    }
     let sha256 = record
         .sha256
         .iter()
@@ -143,4 +122,36 @@ async fn grant(
         HeaderValue::from_static("noindex, nofollow"),
     );
     response
+}
+
+async fn sign(state: &FreeGrantState, record: FreeS3Ref) -> Result<SecretValue, StatusCode> {
+    if record.bucket != state.bucket {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let object = FreeChapterObject::from_metadata(
+        record.chapter_id,
+        record.version_id,
+        record.sha256,
+        record.size_bytes,
+    )
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let signed = state
+        .store
+        .presign_verified(&object, Duration::from_secs(90))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // Never return a signed internal/private endpoint to the browser.
+    let raw = serde_json::to_value(&signed).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let url = raw.as_str().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let parsed = url
+        .parse::<Uri>()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let actual = parsed
+        .authority()
+        .zip(parsed.scheme_str())
+        .map(|(authority, scheme)| format!("{scheme}://{authority}"));
+    if actual.as_deref() != Some(state.s3_origin.as_str()) {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(signed)
 }
