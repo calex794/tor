@@ -1,5 +1,6 @@
 //! G-07 / S066: one audited, administrator-only dead-letter requeue.
 //! Never dispatch here, delete receipts or bypass the shared outbox.
+//! Retrying an internal event requires a complete versioned envelope.
 use serde_json::Value;
 use sqlx::PgPool;
 
