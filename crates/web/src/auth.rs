@@ -129,6 +129,11 @@ pub(crate) use free_author::{
     router_with_free_author, router_with_paid_and_free_author, router_with_paid_reader_free_author,
 };
 
+type AuthorPublishers = (
+    Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
+    Option<Arc<dyn author_chapter_http::FreeChapterPublisher>>,
+);
+
 fn router_inner(
     accounts: PgAccounts,
     reader: PgReader,
@@ -136,10 +141,7 @@ fn router_inner(
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
     paid_reader_available: bool,
-    authors: (
-        Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
-        Option<Arc<dyn author_chapter_http::FreeChapterPublisher>>,
-    ),
+    authors: AuthorPublishers,
 ) -> Router {
     let (paid_author, free_author) = authors;
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
