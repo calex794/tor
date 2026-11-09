@@ -21,9 +21,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply the explicit reviewed patch and format committed Rust
+      - name: Apply explicit source patch
         run: |
-          python3 tools/s349_workbench.py
+          PYTHONDONTWRITEBYTECODE=1 python3 tools/s349_workbench.py
           cargo fmt --all
           git diff --check
       - name: Commit to the same development branch only
@@ -37,22 +37,35 @@ jobs:
           git commit -m 'S349: apply explicit completion patch and Rust formatting'
           auth=$(printf 'x-access-token:%s' "$TASK_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/s349-free-chapter-s3-storage-20261109
-      - name: Fetch public Rust dependencies for isolated offline validation
+      - name: Export clean public PostgreSQL and MinIO tools (no data or secrets)
         if: hashFiles('tools/s349_export_toolchain') != ''
         run: |
-          cargo fetch --target x86_64-unknown-linux-gnu
-          tar -czf "$RUNNER_TEMP/s349-offline-tools.tar.gz" -C "$HOME" .rustup/toolchains/stable-x86_64-unknown-linux-gnu .cargo/registry
-          cp Cargo.lock "$RUNNER_TEMP/s349-Cargo.lock"
+          mkdir -p "$RUNNER_TEMP/services/pg/lib" "$RUNNER_TEMP/services/pg/share" "$RUNNER_TEMP/services/browser"
+          docker pull postgres:18
+          cid=$(docker create postgres:18)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/usr/lib/postgresql/18/bin" "$RUNNER_TEMP/services/pg/bin"
+          docker cp "$cid:/usr/lib/postgresql/18/lib/." "$RUNNER_TEMP/services/pg/lib/"
+          docker cp "$cid:/usr/share/postgresql/18/." "$RUNNER_TEMP/services/pg/share/"
+          docker run --rm postgres:18 bash -c 'ldd /usr/lib/postgresql/18/bin/* /usr/lib/postgresql/18/lib/*.so 2>/dev/null | grep -Eo "/[^ ]+" | grep -v "^/usr/lib/postgresql" | sort -u' > "$RUNNER_TEMP/pg-libraries.txt"
+          while read -r library; do docker cp -L "$cid:$library" "$RUNNER_TEMP/services/pg/lib/"; done < "$RUNNER_TEMP/pg-libraries.txt"
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl -fLsS --retry 3 "$url/$release" -o "$RUNNER_TEMP/services/minio"
+          curl -fLsS --retry 3 "$url/$release.sha256sum" -o "$RUNNER_TEMP/minio.sha256"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/minio.sha256" | head -n 1)
+          test "$(sha256sum "$RUNNER_TEMP/services/minio" | cut -d ' ' -f1)" = "$expected"
+          chmod 755 "$RUNNER_TEMP/services/minio"
+          npm install --prefix "$RUNNER_TEMP/services/browser" --no-save playwright@1.56.1
+          tar -czf "$RUNNER_TEMP/s349-services.tar.gz" -C "$RUNNER_TEMP/services" .
       - uses: actions/upload-artifact@v4
         if: hashFiles('tools/s349_export_toolchain') != ''
         with:
-          name: s349-offline-validation-tools
-          path: |
-            ${{ runner.temp }}/s349-offline-tools.tar.gz
-            ${{ runner.temp }}/s349-Cargo.lock
+          name: s349-offline-services
+          path: ${{ runner.temp }}/s349-services.tar.gz
           retention-days: 1
           if-no-files-found: error
-      - name: Export the committed source for exact-head inspection
+      - name: Export committed source
         run: git archive --format=tar.gz --output="$RUNNER_TEMP/s349-source.tar.gz" HEAD
       - uses: actions/upload-artifact@v4
         with:
