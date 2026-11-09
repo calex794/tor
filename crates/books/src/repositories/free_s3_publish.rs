@@ -85,7 +85,7 @@ impl PgFreeS3Publication {
         .map_err(write_error)?;
         match visibility.as_deref() {
             None => return Err(AuthorError::Missing),
-            Some("public") => (),
+            Some("public" | "draft") => (),
             _ => return Err(AuthorError::Conflict),
         }
 
@@ -204,9 +204,9 @@ impl PgFreeS3Publication {
             return Err(AuthorError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(write_error)?;
-        let owner: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books WHERE id=$1 AND owner_user_id=$2
-               AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+        let book_visibility: Option<String> = sqlx::query_scalar(
+            "SELECT visibility FROM books WHERE id=$1 AND owner_user_id=$2
+               AND visibility IN ('public','draft') AND NOT admin_hold AND NOT is_deleted
              FOR UPDATE",
         )
         .bind(book_id)
@@ -214,9 +214,9 @@ impl PgFreeS3Publication {
         .fetch_optional(&mut *tx)
         .await
         .map_err(write_error)?;
-        if owner.is_none() {
+        let Some(book_visibility) = book_visibility else {
             return Err(AuthorError::Missing);
-        }
+        };
         let chapter_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM chapters WHERE id=$1 AND book_id=$2
              AND access_level='free' AND price_amount=0
@@ -298,16 +298,18 @@ impl PgFreeS3Publication {
         .execute(&mut *tx)
         .await
         .map_err(write_error)?;
-        sqlx::query(
-            "INSERT INTO chapter_first_release_events
-             (chapter_id,version_id,creator_user_id) VALUES($1,$2,$3)",
-        )
-        .bind(chapter_id)
-        .bind(version_id)
-        .bind(actor)
-        .execute(&mut *tx)
-        .await
-        .map_err(write_error)?;
+        if book_visibility == "public" {
+            sqlx::query(
+                "INSERT INTO chapter_first_release_events
+                 (chapter_id,version_id,creator_user_id) VALUES($1,$2,$3)",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .bind(actor)
+            .execute(&mut *tx)
+            .await
+            .map_err(write_error)?;
+        }
         sqlx::query(
             "UPDATE chapters SET visibility='public'
              WHERE id=$1 AND visibility='draft'",
