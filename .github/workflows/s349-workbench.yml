@@ -1,0 +1,62 @@
+name: S349 isolated workbench
+on:
+  push:
+    branches: [feat/s349-free-chapter-s3-storage-20261109]
+    paths: [tools/s349_workbench.py]
+permissions:
+  contents: write
+concurrency:
+  group: s349-isolated-workbench
+  cancel-in-progress: false
+jobs:
+  apply-and-package:
+    if: github.repository == 'calex794/tor' && github.ref == 'refs/heads/feat/s349-free-chapter-s3-storage-20261109'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply the explicit reviewed patch and format committed Rust
+        run: |
+          python3 tools/s349_workbench.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit to the same development branch only
+        env:
+          TASK_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet && test -z "$(git ls-files --others --exclude-standard)"; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'S349: apply explicit completion patch and Rust formatting'
+          auth=$(printf 'x-access-token:%s' "$TASK_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/feat/s349-free-chapter-s3-storage-20261109
+      - name: Fetch public Rust dependencies for isolated offline validation
+        if: hashFiles('tools/s349_export_toolchain') != ''
+        run: |
+          cargo fetch --target x86_64-unknown-linux-gnu
+          tar -czf "$RUNNER_TEMP/s349-offline-tools.tar.gz" -C "$HOME" .rustup/toolchains/stable-x86_64-unknown-linux-gnu .cargo/registry
+          cp Cargo.lock "$RUNNER_TEMP/s349-Cargo.lock"
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('tools/s349_export_toolchain') != ''
+        with:
+          name: s349-offline-validation-tools
+          path: |
+            ${{ runner.temp }}/s349-offline-tools.tar.gz
+            ${{ runner.temp }}/s349-Cargo.lock
+          retention-days: 1
+          if-no-files-found: error
+      - name: Export the committed source for exact-head inspection
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/s349-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s349-workbench-source
+          path: ${{ runner.temp }}/s349-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
