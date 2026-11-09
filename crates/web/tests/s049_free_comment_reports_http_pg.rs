@@ -18,7 +18,7 @@ use tor_accounts::{
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
-#[path = "s049_free_comment_appeals.rs"]
+#[path = "support/s049_free_comment_appeals.rs"]
 mod free_appeals;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
