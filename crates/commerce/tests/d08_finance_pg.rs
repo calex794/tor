@@ -360,9 +360,11 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     );
     assert!(matches!(
         checkout.checkout_batch_once(&buy_batch(&f, 'V')).await,
-        Err(tor_commerce::domain::batch_checkout::BatchCheckoutError::Checkout(
-            CheckoutError::InsufficientBalance
-        ))
+        Err(
+            tor_commerce::domain::batch_checkout::BatchCheckoutError::Checkout(
+                CheckoutError::InsufficientBalance
+            )
+        )
     ));
     assert_eq!(balance(&f).await, 750);
     assert_eq!(
