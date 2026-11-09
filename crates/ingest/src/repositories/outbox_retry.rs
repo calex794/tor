@@ -71,8 +71,13 @@ impl PgOutboxAdminRetry {
         .bind(session_digest.as_slice())
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| AdminRetryError::Unavailable)?
-        .ok_or(AdminRetryError::Forbidden)?;
+        .map_err(|_| AdminRetryError::Unavailable)?;
+        let Some(admin) = admin else {
+            tx.rollback()
+                .await
+                .map_err(|_| AdminRetryError::Unavailable)?;
+            return Err(AdminRetryError::Forbidden);
+        };
 
         // A row lock serializes manual retries with worker acknowledgements.
         // An active lease is never overridden; an expired one is fenced by
@@ -91,15 +96,27 @@ impl PgOutboxAdminRetry {
         .await
         .map_err(|_| AdminRetryError::Unavailable)?;
         let Some((delivered, dead, active_lease, previous_attempts, previous_epoch)) = event else {
+            tx.rollback()
+                .await
+                .map_err(|_| AdminRetryError::Unavailable)?;
             return Err(AdminRetryError::NotFound);
         };
         if delivered || !dead || active_lease {
+            // A rejected operator action must release the administrator role
+            // SHARE lock before returning an HTTP response. SQLx rollback on
+            // Drop is asynchronous; callers may immediately revoke that role.
+            tx.rollback()
+                .await
+                .map_err(|_| AdminRetryError::Unavailable)?;
             return Err(AdminRetryError::NotRetryable);
         }
 
-        let new_epoch = previous_epoch
-            .checked_add(1)
-            .ok_or(AdminRetryError::NotRetryable)?;
+        let Some(new_epoch) = previous_epoch.checked_add(1) else {
+            tx.rollback()
+                .await
+                .map_err(|_| AdminRetryError::Unavailable)?;
+            return Err(AdminRetryError::NotRetryable);
+        };
         sqlx::query(
             "UPDATE outbox_events
              SET dead_at=NULL, attempts=0, next_attempt_at=clock_timestamp(),
