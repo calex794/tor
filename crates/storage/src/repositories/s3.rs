@@ -283,7 +283,8 @@ impl crate::services::reconciliation::PrivateInventoryLister for S3PrivateStore 
                 size_bytes: entry.size(),
                 modified_at: entry
                     .last_modified()
-                    .and_then(|date| date.to_system_time().ok()),
+                    .and_then(|date| u64::try_from(date.secs()).ok())
+                    .and_then(|secs| std::time::UNIX_EPOCH.checked_add(Duration::from_secs(secs))),
             })
             .collect();
         Ok(PrivateInventoryPage {
