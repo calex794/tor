@@ -1,6 +1,7 @@
 pub mod admin_reader_audit;
 pub mod admin_reader_entitlements;
 pub mod checkout;
+pub mod creator_finance;
 pub mod direct_exposure;
 pub mod direct_swaps;
 pub mod entitlements;

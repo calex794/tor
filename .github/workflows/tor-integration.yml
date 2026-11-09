@@ -412,6 +412,7 @@ jobs:
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d08_finance_pg s038_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           ci_pg_phase_done "commerce_support"
@@ -439,7 +440,7 @@ jobs:
           cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
-          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --nocapture --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
             TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
