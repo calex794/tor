@@ -432,7 +432,12 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
     assert_eq!(unified.reserved_minor, 60);
     assert_eq!(unified.available_minor, 1140);
     let wallet_key = IdempotencyKey::parse(&format!("{}8", "W".repeat(42))).unwrap();
-    assert!(repo.reserve_once(f.owner, 800, &wallet_key).await.unwrap().created);
+    assert!(
+        repo.reserve_once(f.owner, 800, &wallet_key)
+            .await
+            .unwrap()
+            .created
+    );
     assert_eq!(repo.totals(f.owner).await.unwrap().available_minor, 340);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
