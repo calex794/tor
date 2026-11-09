@@ -50,6 +50,12 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
+#[cfg(feature = "s3-free")]
+pub mod free_author_publish;
+#[cfg(feature = "s3-free")]
+pub mod free_reader_http;
+#[cfg(feature = "s3-free")]
+mod free_s3_router;
 mod observability;
 mod operator_overview;
 mod operator_traces;
@@ -58,12 +64,6 @@ mod pages;
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
-#[cfg(feature = "s3-free")]
-pub mod free_author_publish;
-#[cfg(feature = "s3-free")]
-pub mod free_reader_http;
-#[cfg(feature = "s3-free")]
-mod free_s3_router;
 #[cfg(feature = "s3-free")]
 pub use free_s3_router::router_with_postgres_reading_auth_free_s3;
 mod paid_grants_http;
@@ -491,8 +491,14 @@ fn make_router_with_paid_checkout(
             "/assets/newboo-free-reader.js",
             get(pages::free_reader_script),
         )
-        .route("/assets/newboo-free-s3-reader.js", get(pages::free_s3_reader_script))
-        .route("/assets/newboo-free-progress-s3.js", get(pages::free_s3_progress_script))
+        .route(
+            "/assets/newboo-free-s3-reader.js",
+            get(pages::free_s3_reader_script),
+        )
+        .route(
+            "/assets/newboo-free-progress-s3.js",
+            get(pages::free_s3_progress_script),
+        )
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
