@@ -198,5 +198,30 @@ async fn d_06_swap_reconciles_wallet_platform_and_creator_balances() {
         "the reader pays only for the final chapter"
     );
     assert_eq!(receipt.balance_after, wallet);
+
+    // S038 / NEwBOO: a swapped-out source is NOT creator income twice.
+    // The replacement sale remains earned but is not mature yet.
+    let creator: i64 = sqlx::query_scalar(
+        "SELECT user_id FROM finance_creator_earnings WHERE purchase_id=$1",
+    )
+    .bind(intent.source_purchase_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let finance = tor_commerce::repositories::creator_finance::PgCreatorFinance::new(pool.clone());
+    let statement = finance.totals(creator).await.unwrap();
+    assert_eq!(statement.reversed_minor, reversed_creator);
+    assert_eq!(statement.combined_balance_minor, target_creator);
+    assert_eq!(statement.available_minor, 0);
+    assert!(finance
+        .recent_earnings(creator)
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.purchase_id == intent.source_purchase_id && row.status == "swapped"));
+    let credit = tor_commerce::repositories::creator_wallet_credits::PgCreatorWalletCredits::new(
+        pool.clone(),
+    );
+    assert_eq!(credit.settle_mature_once(creator, 20).await.unwrap(), 0);
     pool.close().await;
 }
