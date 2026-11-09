@@ -210,9 +210,11 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     private(&before);
     let before = page(before).await;
 
+    // Reading needs no author ownership. An unowned catalogue fixture avoids
+    // creating immutable revenue-share history unrelated to this C scenario.
     let book: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
-         VALUES('ci:audience:http:{stamp}','ru','AUDIENCE-HIDDEN-TITLE-{stamp}','public',{reader},'basic') RETURNING id"
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         VALUES('ci:audience:http:{stamp}','ru','AUDIENCE-HIDDEN-TITLE-{stamp}','public','basic') RETURNING id"
     )).parse().unwrap();
     let chapter: i64 = pg(
         &url,
@@ -292,10 +294,10 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_starts WHERE user_id={reader} AND chapter_id={chapter}")), "1");
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}")), "1");
     let source = pg(&url, &format!("SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}"));
-    // The report contains only canonical numbers even after content is private.
+    // A real administrative hold hides content without rewriting past C facts.
     pg(
         &url,
-        &format!("UPDATE books SET visibility='private' WHERE id={book}"),
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
     let after = call(&app, "GET", "/admin/audience?days=7", &cookies[0], "", "").await;
     assert_eq!(after.status(), StatusCode::OK);
@@ -361,5 +363,19 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&failed);
     assert!(!page(failed).await.contains("data-metric="));
-    pg(&url, &format!("DELETE FROM account_roles WHERE user_id IN({admin},{reader},{moderator}); DELETE FROM books WHERE id={book}; DELETE FROM users WHERE id IN({admin},{reader},{moderator})"));
+    pg(
+        &url,
+        &format!(
+            "BEGIN;
+         DELETE FROM account_roles WHERE user_id IN({admin},{reader},{moderator});
+         DELETE FROM reader_book_positions WHERE book_id={book};
+         DELETE FROM reader_chapter_starts WHERE book_id={book};
+         DELETE FROM reader_chapter_completions WHERE book_id={book};
+         DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id={book});
+         DELETE FROM book_members WHERE book_id={book};
+         DELETE FROM books WHERE id={book};
+         DELETE FROM users WHERE id IN({admin},{reader},{moderator});
+         COMMIT"
+        ),
+    );
 }

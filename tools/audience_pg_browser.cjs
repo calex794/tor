@@ -106,8 +106,9 @@ async function periodBoundaries(page, days) {
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'), 200);
     const before = await numbers(adminPage);
 
-    book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
-      VALUES('ci:audience:browser:${run}','ru','AUDIENCE-PRIVATE-SENTINEL-${run}','public',${reader},'basic') RETURNING id`);
+    // Public reading does not need an owner or unrelated immutable share history.
+    book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+      VALUES('ci:audience:browser:${run}','ru','AUDIENCE-PRIVATE-SENTINEL-${run}','public','basic') RETURNING id`);
     const chapter = scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
       VALUES(${book},1,'Audience browser chapter','public','free',0) RETURNING id`);
     const version = scalar(`INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
@@ -134,7 +135,7 @@ async function periodBoundaries(page, days) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${reader} AND chapter_id=${chapter}`), 1);
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${reader} AND chapter_id=${chapter}`), 1);
     const event = sql(`SELECT source_event_id FROM reader_chapter_completions WHERE user_id=${reader} AND chapter_id=${chapter}`);
-    sql(`UPDATE books SET visibility='private' WHERE id=${book}`);
+    sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);
 
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width === 390 ? 844 : 900});
@@ -156,15 +157,31 @@ async function periodBoundaries(page, days) {
       await adminPage.waitForURL('**/admin/audience?days=30');
       await periodBoundaries(adminPage, 30);
     }
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=90'), 200);
-    await periodBoundaries(adminPage, 90);
-    assert.equal(await adminPage.locator('select[name="days"]').inputValue(), '90');
+    for (const days of [1,90]) {
+      await privateResponse(await adminPage.goto(base+`/admin/audience?days=${days}`), 200);
+      await periodBoundaries(adminPage, days);
+      assert.equal(await adminPage.locator('select[name="days"]').inputValue(), String(days));
+    }
+    sql(`UPDATE account_roles SET is_active=false WHERE user_id=${administrator} AND role='administrator'`);
+    await privateResponse(await adminPage.goto(base+'/admin/audience'), 403);
+    assert.equal(await adminPage.locator('[data-metric]').count(), 0,
+      'revoked administrator must not receive audience data');
+    assert.equal((await adminPage.goto(base+'/me')).status(), 200);
+    assert.equal(await adminPage.locator('a[href="/admin/audience"]').count(), 0,
+      'revoked administrator must lose the report link without losing their session');
     assert.deepEqual(errors, []);
-    console.log('FLOW audience browser PASS: actual C progress/replay, admin role, private aggregates, 7/30/90 periods, 390/1440 px');
+    console.log('FLOW audience browser PASS: actual C progress/replay, live admin role/revocation, private aggregates, 1/7/30/90 periods, 390/1440 px');
   } finally {
     if (browser) await browser.close();
     if (administrator) sql(`DELETE FROM account_roles WHERE user_id=${administrator}`);
-    if (book) sql(`DELETE FROM books WHERE id=${book}`);
+    if (book) sql(`BEGIN;
+      DELETE FROM reader_book_positions WHERE book_id=${book};
+      DELETE FROM reader_chapter_starts WHERE book_id=${book};
+      DELETE FROM reader_chapter_completions WHERE book_id=${book};
+      DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id=${book});
+      DELETE FROM book_members WHERE book_id=${book};
+      DELETE FROM books WHERE id=${book};
+      COMMIT`);
     sql(`DELETE FROM users WHERE email_normalized IN('${adminEmail}','${readerEmail}')`);
   }
 })().catch(error => {console.error(error);process.exitCode=1;});
