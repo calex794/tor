@@ -124,7 +124,7 @@ impl PgCreatorFinance {
         Self { pool }
     }
 
-    async fn totals_in(
+    pub(crate) async fn totals_in(
         tx: &mut Transaction<'_, Postgres>,
         user_id: i64,
     ) -> Result<CreatorFinanceTotals, CreatorFinanceError> {
