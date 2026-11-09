@@ -338,7 +338,7 @@ impl PgDirectRefundApprovals {
             return Err(DirectRefundApproveError::UnverifiedPurchase);
         }
         let within_deadline: bool = sqlx::query_scalar(
-            "SELECT clock_timestamp() <= refund_deadline_at
+            "SELECT COALESCE(clock_timestamp() <= refund_deadline_at,FALSE)
              FROM chapter_purchase_facts WHERE id=$1",
         )
         .bind(purchase_id)
