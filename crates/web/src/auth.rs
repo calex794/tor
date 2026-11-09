@@ -69,6 +69,7 @@ mod checkout_browser;
 mod collections;
 mod complete_chapter;
 mod continuation_demand;
+mod creator_finance;
 mod creator_follows;
 mod direct_swap_browser;
 mod follow_read_state;
@@ -261,7 +262,7 @@ fn router_inner(
         )
         .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
-        .merge(creator_follows::router())
+        .merge(creator_follows::router().merge(creator_finance::router()))
         .route(
             "/me/books/{id}/follow-creator",
             post(book_follow_actions::follow_creator),

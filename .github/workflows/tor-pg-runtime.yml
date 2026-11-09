@@ -326,6 +326,7 @@ jobs:
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d08_finance_pg s038_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           ci_pg_phase_done "commerce_support"
