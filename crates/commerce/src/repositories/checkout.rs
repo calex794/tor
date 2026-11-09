@@ -20,8 +20,17 @@ pub struct PgCheckout {
     creator_posting_enabled: bool,
 }
 
-fn unavailable(_: sqlx::Error) -> CheckoutError {
-    CheckoutError::Unavailable
+fn unavailable(error: sqlx::Error) -> CheckoutError {
+    if error
+        .as_database_error()
+        .and_then(|db| db.code())
+        .as_deref()
+        == Some("P0R38")
+    {
+        CheckoutError::InsufficientBalance
+    } else {
+        CheckoutError::Unavailable
+    }
 }
 
 impl PgCheckout {
