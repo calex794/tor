@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Write};
-use tor_social::repositories::notifications::PgNotifications;
+use tor_social::repositories::notifications::{DailyChapterDigestEntry, PgNotifications};
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
@@ -72,6 +72,46 @@ fn safe_next_url(raw: Option<&str>) -> &str {
     next
 }
 
+/// Summary of already-visible release facts. Never read or mirror a
+/// notification body, raw chapter text, hidden book or recipient identity.
+fn render_previous_day_digest(entries: &[DailyChapterDigestEntry]) -> axum::response::Html<String> {
+    let mut cards = String::new();
+    for row in entries.iter().take(50) {
+        write!(
+            cards,
+            "<article class=\"me-now-card\" data-digest-notification-id=\"{}\">\
+             <a href=\"/reader/{}\">Новая глава в книге «{}»</a>\
+             <time>{} UTC</time></article>",
+            row.notification_id,
+            row.chapter_id,
+            pages::escape_html(&row.book_title),
+            pages::escape_html(&row.released_utc)
+        )
+        .expect("bounded release digest HTML");
+    }
+    if cards.is_empty() {
+        cards.push_str("<p>За предыдущие завершённые сутки доступных выпусков нет.</p>");
+    }
+    if entries.len() > 50 {
+        cards.push_str("<p>Показаны последние 50 выпусков. Остальные доступны в уведомлениях.</p>");
+    }
+    let body = format!(
+        "<section class=\"me-page\"><div class=\"container\">\
+         <header class=\"ui-page-header\"><h1>Сводка новых глав за вчера (UTC)</h1></header>\
+         <p>Сводка составлена по уже доставленным вам уведомлениям за предыдущие\
+         завершённые сутки UTC. При открытии действующие права проверяются снова.\
+         Здесь нет текстов глав, комментариев и сообщений.</p>\
+         <p>Это просмотр внутри сайта, не отправка письма или сообщения.\
+         <a href=\"/me/notification-settings\">Настройки будущей внешней доставки</a>\
+         не меняют доступ к этой странице.</p>\
+         <nav><a href=\"/notifications\">Все уведомления</a>\
+         · <a href=\"/me/inbox\">Обсуждения</a></nav>\
+         <section class=\"me-section\" aria-label=\"Вчерашние выпуски\">{cards}</section>\
+         </div></section>"
+    );
+    pages::layout("Дайджест новых глав", "Личная сводка опубликованных глав.", &body)
+}
+
 pub(super) async fn page(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -93,6 +133,7 @@ pub(super) async fn page(
         "releases" => "releases",
         "system" => "system",
         "discussions" => "discussions",
+        "digest" => "digest",
         _ => "notifications",
     };
     // E-03 already owns the actor-scoped discussion Inbox; do not duplicate
@@ -101,6 +142,13 @@ pub(super) async fn page(
         return private_response(Redirect::to("/me/inbox"), &[]);
     }
     let store = PgNotifications::new(state.accounts.pool().clone());
+    if tab == "digest" {
+        let entries = match store.previous_day_chapter_digest(actor, 51).await {
+            Ok(entries) => entries,
+            Err(e) => return deny(super::mail::status(e)),
+        };
+        return private_response(render_previous_day_digest(&entries), &[]);
+    }
     let rows = match store.list_section(actor, query.before, 50, tab).await {
         Ok(rows) => rows,
         Err(e) => return deny(super::mail::status(e)),
@@ -116,6 +164,7 @@ pub(super) async fn page(
         ("notifications", "Все", "/notifications"),
         ("discussions", "Обсуждения", "/me/inbox"),
         ("releases", "Релизы", "/notifications?tab=releases"),
+        ("digest", "Сводка за вчера", "/notifications?tab=digest"),
         ("system", "Система", "/notifications?tab=system"),
     ] {
         let active = if value == tab { " is-active" } else { "" };
@@ -295,6 +344,26 @@ pub(super) async fn save_preferences(
 #[cfg(test)]
 mod tests {
     use super::safe_next_url;
+
+    #[test]
+    fn s018_digest_escapes_private_titles_and_never_embeds_payload() {
+        let entries = vec![DailyChapterDigestEntry {
+            notification_id: 26,
+            chapter_id: 17,
+            book_title: "<img src=x onerror=alert(1)>".to_owned(),
+            released_utc: "2026-11-08 17:02".to_owned(),
+        }];
+        let html = render_previous_day_digest(&entries).0;
+        assert!(html.contains("href=\"/reader/17\""));
+        assert!(html.contains("data-digest-notification-id=\"26\""));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img"));
+        assert!(html.contains("внутри сайта"));
+        assert!(!html.contains("name=\"body\""));
+        assert!(!html.contains("<script"));
+        let empty = render_previous_day_digest(&[]).0;
+        assert!(empty.contains("доступных выпусков нет"));
+    }
 
     #[test]
     fn e08_source_notification_next_is_local_and_bounded() {
