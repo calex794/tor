@@ -1,4 +1,5 @@
 //! S349: additive free S3 receipt schema; no existing reader or author path changes.
+#![cfg(feature = "pg")]
 use sqlx::{PgPool, Row};
 
 #[tokio::test]
