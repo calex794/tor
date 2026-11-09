@@ -449,6 +449,6 @@ fn s039_admin_quote_is_private_read_without_an_http_post() {
     let quote = classify(Some("/admin/finance/payouts/{id}/quote"), "GET");
     assert!(quote.route_known);
     assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
-    assert_eq!(quote.cost_class, CostClass::Read);
+    assert_eq!(quote.cost_class, CostClass::CheapRead);
     assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
 }
