@@ -28,12 +28,18 @@ impl PgPaidCommentReports {
     ) -> Result<i64, BookShareError> {
         let (purchase, chapter, version, comment) = target;
         let details = details.trim();
-        if actor <= 0 || purchase <= 0 || chapter <= 0 || version <= 0 || comment <= 0
+        if actor <= 0
+            || purchase <= 0
+            || chapter <= 0
+            || version <= 0
+            || comment <= 0
             || !matches!(reason, "spam" | "abuse" | "misleading" | "other")
-            || details.chars().count() > 500 || details.contains('\0')
+            || details.chars().count() > 500
+            || details.contains('\0')
             || command_key.len() != 43
-            || !command_key.bytes().all(|b|
-                b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || !command_key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
             return Err(BookShareError::Invalid);
         }
@@ -88,9 +94,11 @@ impl PgPaidCommentReports {
         .bind(command_key)
         .fetch_optional(&mut *tx)
         .await?;
-        if let Some((id, old_chapter, old_version, old_comment, old_reason, old_details)) = previous {
+        if let Some((id, old_chapter, old_version, old_comment, old_reason, old_details)) = previous
+        {
             if (old_chapter, old_version, old_comment) != (chapter, version, comment)
-                || old_reason != reason || old_details != details
+                || old_reason != reason
+                || old_details != details
             {
                 return Err(BookShareError::Conflict);
             }

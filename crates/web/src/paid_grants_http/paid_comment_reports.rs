@@ -88,9 +88,11 @@ mod tests {
         assert!(serde_json::from_str::<ReportInput>(value).is_ok());
         assert!(serde_json::from_str::<ReportInput>(
             &value.replace("\"reason\":\"spam\"", "\"user_id\":11,\"reason\":\"spam\"")
-        ).is_err());
+        )
+        .is_err());
         assert!(serde_json::from_str::<ReportInput>(
             &value.replace("\"comment_id\":\"9\"", "\"comment_id\":null")
-        ).is_err());
+        )
+        .is_err());
     }
 }

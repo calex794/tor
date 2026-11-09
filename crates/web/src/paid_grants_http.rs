@@ -9,8 +9,8 @@ mod asset_grants;
 mod chapter_grants;
 mod layer_reader;
 mod layer_toc;
-mod paid_comments;
 mod paid_comment_reports;
+mod paid_comments;
 mod text_issues;
 mod toc_window;
 

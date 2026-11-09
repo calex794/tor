@@ -611,8 +611,11 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     )
     .await;
     s049_paid_comment_reports::check(
-        &url, &browser, (buyer, author, &buyer_cookie, &author_cookie),
-        (book, chapter, version, purchase_id), (&csrf, &author_csrf),
+        &url,
+        &browser,
+        (buyer, author, &buyer_cookie, &author_cookie),
+        (book, chapter, version, purchase_id),
+        (&csrf, &author_csrf),
     )
     .await;
     s065_alternate_reader_access_matrix(
