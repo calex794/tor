@@ -471,5 +471,16 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "0",
         "synthetic retry fixtures cannot leak into later delivery/fanout tests"
     );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM g_outbox_admin_retry_audit
+                 WHERE event_id IN ({fake_ids})"
+            ),
+        ),
+        "3",
+        "the three successful retries retain immutable administrator audit records"
+    );
     pool.close().await;
 }
