@@ -206,8 +206,7 @@ async fn submit(
     if !reservations_enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
