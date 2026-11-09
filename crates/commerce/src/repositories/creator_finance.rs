@@ -1,4 +1,4 @@
-//! S038 / FIN-02: origin-aware creator finance and pending reservations.
+//! S038 / FIN-02: NEwBOO-compatible unified wallet payout capacity.
 //! This module never transfers money, debits a wallet or confirms a payout.
 #![forbid(unsafe_code)]
 
@@ -18,6 +18,8 @@ pub enum CreatorFinanceError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CreatorFinanceTotals {
+    pub wallet_balance_minor: i64,
+    pub combined_balance_minor: i64,
     pub gross_minor: i64,
     pub reversed_minor: i64,
     pub immature_minor: i64,
@@ -96,9 +98,17 @@ const BALANCE_SQL: &str = r#"
       FROM finance_creator_payout_requests
       WHERE user_id=$1 AND state='pending'
     )
-    SELECT t.gross,t.reversed,t.immature,t.mature,t.refund_hold,r.reserved,
-           GREATEST(0,t.mature-t.refund_hold-r.reserved)::BIGINT AS available
+    SELECT w.wallet_balance,
+           (w.wallet_balance+t.gross-t.reversed)::BIGINT AS combined_balance,
+           t.gross,t.reversed,t.immature,t.mature,t.refund_hold,r.reserved,
+           GREATEST(0,w.wallet_balance+t.mature-t.refund_hold-r.reserved)::BIGINT
+             AS available
     FROM totals t CROSS JOIN reservations r
+    CROSS JOIN (
+       SELECT COALESCE(
+         (SELECT balance_minor FROM reader_wallet_accounts
+          WHERE user_id=$1 AND currency='RUB'),0)::BIGINT AS wallet_balance
+    ) w
 "#;
 
 impl PgCreatorFinance {
@@ -110,24 +120,27 @@ impl PgCreatorFinance {
         tx: &mut Transaction<'_, Postgres>,
         user_id: i64,
     ) -> Result<CreatorFinanceTotals, CreatorFinanceError> {
-        let row: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(BALANCE_SQL)
+        let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(BALANCE_SQL)
             .bind(user_id)
             .fetch_one(&mut **tx)
             .await
             .map_err(|_| CreatorFinanceError::Unavailable)?;
         Ok(CreatorFinanceTotals {
-            gross_minor: row.0,
-            reversed_minor: row.1,
-            immature_minor: row.2,
-            mature_minor: row.3,
-            open_refund_hold_minor: row.4,
-            reserved_minor: row.5,
-            available_minor: row.6,
+            wallet_balance_minor: row.0,
+            combined_balance_minor: row.1,
+            gross_minor: row.2,
+            reversed_minor: row.3,
+            immature_minor: row.4,
+            mature_minor: row.5,
+            open_refund_hold_minor: row.6,
+            reserved_minor: row.7,
+            available_minor: row.8,
         })
     }
 
-    /// Historical finance rights survive leaving a Book team. No role,
-    /// currently owned Book or buyer-wallet balance is queried.
+    /// NEwBOO financial statement: unified wallet value plus creator credits,
+    /// including funds introduced through verified wallet funding. Historical
+    /// creator earnings remain visible after team membership changes.
     pub async fn totals(&self, user_id: i64) -> Result<CreatorFinanceTotals, CreatorFinanceError> {
         if user_id <= 0 {
             return Err(CreatorFinanceError::Invalid);
@@ -274,7 +287,7 @@ impl PgCreatorFinance {
             return Err(CreatorFinanceError::Invalid);
         }
         let mut hash = Sha256::new();
-        hash.update(b"tor.s038.creator.payout.pending.v1");
+        hash.update(b"tor.s038.unified.wallet.payout.pending.v1");
         hash.update(actor.to_be_bytes());
         hash.update(amount_minor.to_be_bytes());
         let digest = hash.finalize();
@@ -292,6 +305,22 @@ impl PgCreatorFinance {
         .await
         .map_err(|_| CreatorFinanceError::Unavailable)?;
         if active.is_none() {
+            return Err(CreatorFinanceError::Forbidden);
+        }
+        // Match NEwBOO's current-participant access check for NEW requests,
+        // without concealing historical balances and statements from former members.
+        let participant: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM books b WHERE b.owner_user_id=$1
+                UNION ALL
+                SELECT 1 FROM book_members m WHERE m.user_id=$1 AND m.is_active
+             )",
+        )
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| CreatorFinanceError::Unavailable)?;
+        if !participant {
             return Err(CreatorFinanceError::Forbidden);
         }
 
