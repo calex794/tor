@@ -1,5 +1,6 @@
 //! Browser author publishing, only for authenticated owner, no URL collectors.
 #![forbid(unsafe_code)]
+use crate::auth_cookies::{private_response, CookiePolicy};
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
@@ -15,7 +16,6 @@ use tor_books::{
     repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapterRequest},
 };
-use crate::auth_cookies::{private_response, CookiePolicy};
 mod chapter_import;
 mod new_chapter_page;
 mod publisher;
@@ -285,34 +285,34 @@ async fn create_chapter(
     return deny(StatusCode::SERVICE_UNAVAILABLE);
     #[cfg(not(feature = "s3-free"))]
     {
-    let outcome = if delayed_publication {
-        state
-            .authoring
-            .create_pending_free_chapter(actor, &request)
-            .await
-    } else if is_public {
-        state
-            .authoring
-            .create_published_free_chapter(actor, &request)
-            .await
-    } else {
-        state.authoring.create_free_chapter(actor, &request).await
-    };
-    match outcome {
-        Ok(saved) if delayed_publication => private_response(
-            Redirect::to(&format!(
-                "/me/books/{id}/chapters/{}/release",
-                saved.chapter_id
-            )),
-            &[],
-        ),
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
-        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
-        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
-        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
-        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
+        let outcome = if delayed_publication {
+            state
+                .authoring
+                .create_pending_free_chapter(actor, &request)
+                .await
+        } else if is_public {
+            state
+                .authoring
+                .create_published_free_chapter(actor, &request)
+                .await
+        } else {
+            state.authoring.create_free_chapter(actor, &request).await
+        };
+        match outcome {
+            Ok(saved) if delayed_publication => private_response(
+                Redirect::to(&format!(
+                    "/me/books/{id}/chapters/{}/release",
+                    saved.chapter_id
+                )),
+                &[],
+            ),
+            Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
     }
 }
 /// Prepopulate a draft editor only after resolving the active database session.
