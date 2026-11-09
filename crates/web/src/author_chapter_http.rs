@@ -293,6 +293,7 @@ async fn create_chapter(
     #[cfg(feature = "s3-free")]
     return deny(StatusCode::SERVICE_UNAVAILABLE);
     #[cfg(not(feature = "s3-free"))]
+    {
     let outcome = if delayed_publication {
         state
             .authoring
@@ -320,6 +321,7 @@ async fn create_chapter(
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     }
 }
 
