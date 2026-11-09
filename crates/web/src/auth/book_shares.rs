@@ -23,10 +23,10 @@ mod admin_reports;
 mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
-#[path = "book_paid_comment_reviews.rs"]
-mod paid_comment_reviews;
 #[path = "book_paid_comment_appeals.rs"]
 mod paid_comment_appeals;
+#[path = "book_paid_comment_reviews.rs"]
+mod paid_comment_reviews;
 
 #[derive(Clone)]
 struct ShareState {

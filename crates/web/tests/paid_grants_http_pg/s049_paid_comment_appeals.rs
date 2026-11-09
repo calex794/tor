@@ -49,8 +49,7 @@ pub(super) async fn check(
     );
     let (independent, reviewer_cookie) =
         account(accounts, "s049-paid-independent-review@tor-ci.example").await;
-    let (_, unrelated_cookie) =
-        account(accounts, "s049-paid-appeal-outsider@tor-ci.example").await;
+    let (_, unrelated_cookie) = account(accounts, "s049-paid-appeal-outsider@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -166,7 +165,12 @@ pub(super) async fn check(
         format!("csrf_token={token}&decision=restored&note=Independent+review+accepted");
     assert_eq!(
         post_form(
-            app, &url_decision, original_admin_cookie, &token, ORIGIN, &admin_form,
+            app,
+            &url_decision,
+            original_admin_cookie,
+            &token,
+            ORIGIN,
+            &admin_form,
         )
         .await
         .status(),
@@ -174,9 +178,16 @@ pub(super) async fn check(
         "an administrator cannot reverse their own sanction"
     );
     assert_eq!(
-        post_form(app, &url_decision, &reviewer_cookie, &token, ORIGIN, &admin_form)
-            .await
-            .status(),
+        post_form(
+            app,
+            &url_decision,
+            &reviewer_cookie,
+            &token,
+            ORIGIN,
+            &admin_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
@@ -199,9 +210,16 @@ pub(super) async fn check(
         1
     );
     assert_eq!(
-        post_form(app, &url_decision, &reviewer_cookie, &token, ORIGIN, &admin_form)
-            .await
-            .status(),
+        post_form(
+            app,
+            &url_decision,
+            &reviewer_cookie,
+            &token,
+            ORIGIN,
+            &admin_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "appeal resolution is exactly once"
     );

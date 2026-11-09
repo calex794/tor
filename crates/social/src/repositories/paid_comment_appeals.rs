@@ -31,7 +31,9 @@ pub struct PendingAppeal {
 
 fn valid_key(key: &str) -> bool {
     key.len() == 43
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 async fn actor(
@@ -253,17 +255,27 @@ impl PgPaidCommentAppeals {
         tx.commit().await?;
         Ok(rows
             .into_iter()
-            .map(|(id, hide_event_id, chapter_id, version_id, comment_id,
-                   author_id, original_reviewer_id, reason)| PendingAppeal {
-                id,
-                hide_event_id,
-                chapter_id,
-                version_id,
-                comment_id,
-                author_id,
-                original_reviewer_id,
-                reason,
-            })
+            .map(
+                |(
+                    id,
+                    hide_event_id,
+                    chapter_id,
+                    version_id,
+                    comment_id,
+                    author_id,
+                    original_reviewer_id,
+                    reason,
+                )| PendingAppeal {
+                    id,
+                    hide_event_id,
+                    chapter_id,
+                    version_id,
+                    comment_id,
+                    author_id,
+                    original_reviewer_id,
+                    reason,
+                },
+            )
             .collect())
     }
 
