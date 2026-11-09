@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 366] = [
+static ROUTES: [RouteRegistration; 370] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -376,9 +376,10 @@ static ROUTES: [RouteRegistration; 366] = [
     RouteRegistration::new("/admin/free-comment-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 363
     RouteRegistration::new("/admin/free-comment-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 364
     RouteRegistration::new("/admin/audience", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 365
-    RouteRegistration::new("/api/v1/chapters/{id}/free-grant", "GET", "/api/v1/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 370
-    RouteRegistration::new("/assets/newboo-free-progress-s3.js", "GET", "/assets/", Exact, Static, System, Free), // 371
-    RouteRegistration::new("/assets/newboo-free-s3-reader.js", "GET", "/assets/", Exact, Static, System, Free), // 372
+    RouteRegistration::new("/me/free-comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 366
+    RouteRegistration::new("/me/free-comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 367
+    RouteRegistration::new("/admin/free-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 368
+    RouteRegistration::new("/admin/free-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 369
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

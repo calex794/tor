@@ -378,9 +378,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/free-comment-reports"), "GET") => Some(363),
         (Some("/admin/free-comment-reports/{report_id}/decision"), "POST") => Some(364),
         (Some("/admin/audience"), "GET") => Some(365),
-        (Some("/api/v1/chapters/{id}/free-grant"), "GET") => Some(370),
-        (Some("/assets/newboo-free-progress-s3.js"), "GET") => Some(371),
-        (Some("/assets/newboo-free-s3-reader.js"), "GET") => Some(372),
+        (Some("/me/free-comment-appeals"), "GET") => Some(366),
+        (Some("/me/free-comment-appeals/{hide_event_id}"), "POST") => Some(367),
+        (Some("/admin/free-comment-appeals"), "GET") => Some(368),
+        (Some("/admin/free-comment-appeals/{appeal_id}/decision"), "POST") => Some(369),
         _ => None,
     };
     index
