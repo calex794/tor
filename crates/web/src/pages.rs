@@ -42,7 +42,7 @@ pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
-    catalog, catalog_search_with_covers, home, home_recent_with_c_growth,
+    catalog, catalog_search_with_covers, home, home_recent_with_covers, home_recent_with_growth,
     home_recent_with_updates, CatalogPageQuery, PublicBookCard,
 };
 
@@ -328,7 +328,7 @@ fn book_detail_body(
     };
     let discussion = if toc.is_some() {
         format!(
-            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a href=\"/books/{}/comments\">Читать и оставить комментарий</a> · <a href=\"/books/{}/room\">Книжный чат</a></section>",
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a> · <a class=\"text-link\" href=\"/books/{}/room\">Книжный чат</a></section>",
             book.id, book.id
         )
     } else {
