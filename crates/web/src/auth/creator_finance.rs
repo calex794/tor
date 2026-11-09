@@ -222,10 +222,12 @@ fn render(
         }
     }
     shell(&format!(
-        "<p>Здесь учитываются только подтверждённые доли дохода от покупок глав\
-         в действующем финансовом контуре. Баланс читательского кошелька не является\
-         авторским доходом и здесь не используется.</p>\
+        "<p>Единый расчёт по модели NEwBOO: баланс кошелька и авторские\
+         начисления учитываются вместе, независимо от источника пополнения.\
+         Незрелые начисления, открытые возвраты и заявки удерживаются.</p>\
          <dl class=\"finance-breakdown\">\
+         <dt>Баланс кошелька</dt><dd>{}</dd>\
+         <dt>Общий расчётный баланс</dt><dd>{}</dd>\
          <dt>Начислено до возвратов</dt><dd>{}</dd>\
          <dt>Подтверждённые возвраты</dt><dd>{}</dd>\
          <dt>Ещё не созрело</dt><dd>{}</dd>\
@@ -242,6 +244,8 @@ fn render(
          <a href=\"/me/finance?tab=refunds\">Возвраты</a> · \
          <a href=\"/me/finance?tab=payouts\">Заявки</a></nav>\
          {details}",
+        rub(totals.wallet_balance_minor),
+        rub(totals.combined_balance_minor),
         rub(totals.gross_minor),
         rub(totals.reversed_minor),
         rub(totals.immature_minor),
@@ -370,6 +374,8 @@ mod tests {
     #[test]
     fn s038_newboo_tabs_show_only_owner_financial_line_facts() {
         let totals = CreatorFinanceTotals {
+            wallet_balance_minor: 0,
+            combined_balance_minor: 150,
             gross_minor: 200,
             reversed_minor: 50,
             immature_minor: 0,
@@ -404,6 +410,8 @@ mod tests {
         assert!(stats.contains("Покупка №38"));
         assert!(stats.contains("доля 60%"));
         assert!(stats.contains("Подтверждён возврат"));
+        assert!(stats.contains("Единый расчёт по модели NEwBOO"));
+        assert!(stats.contains("Общий расчётный баланс"));
         assert!(stats.contains("href=\"/me/finance?tab=refunds\""));
         assert!(!stats.contains("username"));
         let refunds = render(
@@ -424,6 +432,8 @@ mod tests {
     #[test]
     fn s038_default_finance_shell_cannot_claim_a_payout() {
         let totals = CreatorFinanceTotals {
+            wallet_balance_minor: 0,
+            combined_balance_minor: 200,
             gross_minor: 200,
             reversed_minor: 0,
             immature_minor: 200,
