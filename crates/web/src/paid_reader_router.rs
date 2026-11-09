@@ -206,6 +206,8 @@ fn paid_grants_router(
         author,
         free_author,
     } = extras;
+    #[cfg(not(feature = "s3-free"))]
+    let _ = free_author;
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
