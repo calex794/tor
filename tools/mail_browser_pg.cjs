@@ -52,7 +52,8 @@ module.exports = async (browser, base, out) => {
       // with zero earnings, and external cash-out stays default OFF.
       await a.page.goto(base + '/me/finance');
       assert(await a.page.getByRole('heading', { name: 'Финансы автора' }).isVisible());
-      assert((await a.page.locator('main').innerText()).includes('Баланс читательского кошелька'));
+      assert((await a.page.locator('main').innerText()).includes('Баланс кошелька'));
+      assert((await a.page.locator('main').innerText()).includes('Общий расчётный баланс'));
       // NEwBOO S038 parity: stats, refunds and payouts remain private,
       // read-only and distinguish missing events from completed transfers.
       await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Возвраты' }).click();
