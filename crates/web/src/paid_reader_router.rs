@@ -151,6 +151,16 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_free_author(
     )
 }
 
+#[cfg(all(feature = "s3-paid", feature = "s3-free"))]
+pub type S3ChapterAuthors = (
+    crate::paid_author_publish::PgPaidAuthorPublisher<
+        tor_storage::repositories::s3::S3PrivateStore,
+    >,
+    crate::free_author_publish::PgFreeAuthorPublisher<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+);
+
 /// Combined paid and free S3 writers, sharing one authenticated author router.
 #[cfg(all(feature = "s3-paid", feature = "s3-free"))]
 pub fn router_with_postgres_reading_auth_paid_grants_browser_author_free(
@@ -166,13 +176,9 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author_free(
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
         bool,
     )>,
-    author: crate::paid_author_publish::PgPaidAuthorPublisher<
-        tor_storage::repositories::s3::S3PrivateStore,
-    >,
-    free: crate::free_author_publish::PgFreeAuthorPublisher<
-        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
-    >,
+    authors: S3ChapterAuthors,
 ) -> Result<Router, &'static str> {
+    let (author, free) = authors;
     let (secure, public_origin) = origin;
     paid_grants_router(
         catalog,

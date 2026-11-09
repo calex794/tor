@@ -79,8 +79,7 @@ impl AuthInputs {
                             (secure, origin),
                             (paid, s3_origin),
                             covers,
-                            author,
-                            free,
+                            (author, free),
                         )
                     }
                     (Some(author), None) => {
