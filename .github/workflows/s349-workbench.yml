@@ -46,7 +46,7 @@ jobs:
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/usr/lib/postgresql/18/bin" "$RUNNER_TEMP/services/pg/bin"
           docker cp "$cid:/usr/lib/postgresql/18/lib/." "$RUNNER_TEMP/services/pg/lib/"
-          docker cp "$cid:/usr/share/postgresql/18/." "$RUNNER_TEMP/services/pg/share/"
+          docker run --rm postgres:18 tar -ch -C /usr/share/postgresql/18 . | tar -x -C "$RUNNER_TEMP/services/pg/share"
           docker run --rm postgres:18 bash -c 'ldd /usr/lib/postgresql/18/bin/* /usr/lib/postgresql/18/lib/*.so 2>/dev/null | grep -Eo "/[^ ]+" | grep -v "^/usr/lib/postgresql" | sort -u' > "$RUNNER_TEMP/pg-libraries.txt"
           while read -r library; do docker cp -L "$cid:$library" "$RUNNER_TEMP/services/pg/lib/"; done < "$RUNNER_TEMP/pg-libraries.txt"
           release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
