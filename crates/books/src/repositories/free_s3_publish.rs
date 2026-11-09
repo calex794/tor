@@ -230,7 +230,7 @@ impl PgFreeS3Publication {
         let Some(chapter_visibility) = chapter_visibility else {
             return Err(AuthorError::Missing);
         };
-        let version_hash: Option<Vec<u8>> = sqlx::query_scalar(
+        let version_hash: Option<Vec<u8>> = sqlx::query_scalar::<_, Option<Vec<u8>>>(
             "SELECT content_sha256 FROM chapter_versions
              WHERE chapter_id=$1 AND id=$2",
         )
