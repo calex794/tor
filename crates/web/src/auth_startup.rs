@@ -31,6 +31,36 @@ pub struct AuthInputs {
 
 impl AuthInputs {
     pub fn router(self) -> Result<axum::Router, Box<dyn Error>> {
+        #[cfg(feature = "s3-free")]
+        {
+            let free_routes = self
+                .free_author
+                .as_ref()
+                .map(|publisher| {
+                    let (store, bucket) = publisher.reader_store();
+                    let s3_origin = env::var("TOR_FREE_S3_PUBLIC_ORIGIN")?;
+                    tor_web::free_reader_http::router(
+                        self.accounts.clone(),
+                        self.secure,
+                        self.origin.clone(),
+                        store,
+                        bucket,
+                        s3_origin,
+                    )
+                    .map_err(|error| -> Box<dyn Error> { error.into() })
+                })
+                .transpose()?;
+            let base = self.router_base()?;
+            return Ok(match free_routes {
+                Some(routes) => base.merge(routes),
+                None => base,
+            });
+        }
+        #[cfg(not(feature = "s3-free"))]
+        self.router_base()
+    }
+
+    fn router_base(self) -> Result<axum::Router, Box<dyn Error>> {
         let catalog = self.catalog;
         let reader = self.reader;
         let accounts = self.accounts;
