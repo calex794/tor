@@ -116,9 +116,11 @@ CREATE CONSTRAINT TRIGGER s038_creator_wallet_entry_complete
     EXECUTE FUNCTION s038_verify_credit_entry_has_origin();
 
 -- A payout reservation and a wallet debit MUST NOT spend the same money.
--- A debit first holds the wallet row. The trigger also locks the user's row,
--- exactly the lock acquired first by PgCreatorFinance::reserve_once. A
--- concurrent reservation then uses a fresh READ COMMITTED snapshot.
+-- A debit first holds the wallet row. The trigger and pending-reservation
+-- service serialize with FOR NO KEY UPDATE on users. Unlike FOR UPDATE,
+-- this does NOT conflict with the KEY SHARE lock obtained by FK checks on
+-- chapter_purchase_commands. Using FOR UPDATE here deadlocks two concurrent
+-- D-02 checkouts (wallet row versus FK's KEY SHARE lock).
 -- Any negative net from a later creator reversal is treated as debt.
 CREATE FUNCTION s038_wallet_debit_reservation_guard()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -130,7 +132,7 @@ BEGIN
     IF NEW.balance_minor>=OLD.balance_minor THEN
         RETURN NEW;
     END IF;
-    PERFORM 1 FROM users WHERE id=NEW.user_id FOR UPDATE;
+    PERFORM 1 FROM users WHERE id=NEW.user_id FOR NO KEY UPDATE;
     WITH net AS (
         SELECT e.purchase_id,
                e.clear_at,
