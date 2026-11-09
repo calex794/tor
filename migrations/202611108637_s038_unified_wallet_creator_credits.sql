@@ -3,26 +3,31 @@
 --
 -- The immutable creator earning remains the origin and is counted in the
 -- S038 read projection only until this exact credit is journaled once.
+-- Preserve ALL accepted wallet journal kinds from D-06 swaps and D-05 layers.
+-- In particular never remove the layer_term_id evidence predicate.
 ALTER TABLE reader_wallet_entries
-    DROP CONSTRAINT reader_wallet_entries_kind_check;
-ALTER TABLE reader_wallet_entries
-    ADD CONSTRAINT reader_wallet_entries_kind_check
-        CHECK (kind IN (
+    DROP CONSTRAINT reader_wallet_entries_kind_check,
+    DROP CONSTRAINT wallet_entry_direction,
+    ADD CONSTRAINT reader_wallet_entries_kind_check CHECK (
+        kind IN (
             'verified_funding', 'chapter_purchase', 'chapter_refund',
-            'creator_earning_credit'
-        ));
-
-ALTER TABLE reader_wallet_entries
-    DROP CONSTRAINT wallet_entry_direction;
-ALTER TABLE reader_wallet_entries
-    ADD CONSTRAINT wallet_entry_direction
-        CHECK (
-          (kind='chapter_purchase' AND delta_minor<0 AND purchase_id IS NOT NULL)
-          OR (kind='verified_funding' AND delta_minor>0 AND purchase_id IS NULL)
-          OR (kind='chapter_refund' AND delta_minor>0 AND purchase_id IS NOT NULL)
-          OR (kind='creator_earning_credit' AND delta_minor>0
-              AND purchase_id IS NULL)
-        );
+            'chapter_swap_credit', 'layer_purchase', 'creator_earning_credit'
+        )
+    ),
+    ADD CONSTRAINT wallet_entry_direction CHECK (
+        (kind='verified_funding' AND delta_minor>0
+            AND purchase_id IS NULL AND layer_term_id IS NULL)
+        OR (kind='chapter_purchase' AND delta_minor<0
+            AND purchase_id IS NOT NULL AND layer_term_id IS NULL)
+        OR (kind='chapter_refund' AND delta_minor>0
+            AND purchase_id IS NOT NULL AND layer_term_id IS NULL)
+        OR (kind='chapter_swap_credit' AND delta_minor>0
+            AND purchase_id IS NOT NULL AND layer_term_id IS NULL)
+        OR (kind='layer_purchase' AND delta_minor<0
+            AND purchase_id IS NULL AND layer_term_id IS NOT NULL)
+        OR (kind='creator_earning_credit' AND delta_minor>0
+            AND purchase_id IS NULL AND layer_term_id IS NULL)
+    );
 
 CREATE TABLE finance_creator_wallet_credits (
     purchase_id BIGINT NOT NULL,
