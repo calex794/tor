@@ -120,11 +120,11 @@ fn response_error(err: SupportRefundError) -> Response {
     })
 }
 
-fn session_digest_from(
-    state: &AuthState,
-    headers: &HeaderMap,
-) -> Result<[u8; 32], StatusCode> {
-    let token = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+fn session_digest_from(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], StatusCode> {
+    let token = state
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(session_token_digest(&token))
 }
 
@@ -149,19 +149,25 @@ pub(super) async fn page(
     );
     if let Some(term) = query.q.as_deref() {
         match PgSupportRefunds::new(state.accounts.pool().clone())
-            .search(&digest, term).await
+            .search(&digest, term)
+            .await
         {
             Ok(users) => {
-                if users.is_empty() { body.push_str("<p>Совпадений нет.</p>"); }
+                if users.is_empty() {
+                    body.push_str("<p>Совпадений нет.</p>");
+                }
                 for user in users {
                     let handle = user.handle.unwrap_or_default();
                     write!(
                         body,
                         "<p><a href=\"/admin/finance/refunds/user/{}\">{}
                          (@{}) · ID {}</a></p>",
-                        user.id, pages::escape_html(&user.name),
-                        pages::escape_html(&handle), user.id
-                    ).expect("render user");
+                        user.id,
+                        pages::escape_html(&user.name),
+                        pages::escape_html(&handle),
+                        user.id
+                    )
+                    .expect("render user");
                 }
             }
             Err(error) => return response_error(error),
@@ -169,14 +175,13 @@ pub(super) async fn page(
     } else {
         // Even the empty admin page must revalidate live authority.
         match PgRefundAdminReview::new(state.accounts.pool().clone())
-            .recent(&digest, query.before).await
+            .recent(&digest, query.before)
+            .await
         {
             Ok(_) => {}
             Err(RefundAdminViewError::NotFound) => return deny(StatusCode::FORBIDDEN),
             Err(RefundAdminViewError::InvalidCursor) => return deny(StatusCode::BAD_REQUEST),
-            Err(RefundAdminViewError::Unavailable) => {
-                return deny(StatusCode::SERVICE_UNAVAILABLE)
-            }
+            Err(RefundAdminViewError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         }
     }
     page_shell(&body, &[])
@@ -193,22 +198,42 @@ fn render_purchase(
         "<article class=\"me-now-card\"><h2>Покупка №{} — {} / {}</h2>
          <p>Стоимость: {}.{:02} ₽ · {} UTC</p>
          <p>Доступ к главе: {} · Возврат/отзыв: {}</p>",
-        p.id, pages::escape_html(&p.book), pages::escape_html(&p.chapter),
-        p.amount_minor / 100, p.amount_minor % 100,
+        p.id,
+        pages::escape_html(&p.book),
+        pages::escape_html(&p.chapter),
+        p.amount_minor / 100,
+        p.amount_minor % 100,
         pages::escape_html(&p.acquired),
-        if p.first_exposed { "выдавался" } else { "ещё не выдавался" },
+        if p.first_exposed {
+            "выдавался"
+        } else {
+            "ещё не выдавался"
+        },
         if p.revoked { "да" } else { "нет" },
     );
     if let Some(position) = p.batch_position {
-        write!(body, "<p>Позиция {} в пакетной покупке (можно вернуть отдельно).</p>", position)
-            .expect("batch label");
+        write!(
+            body,
+            "<p>Позиция {} в пакетной покупке (можно вернуть отдельно).</p>",
+            position
+        )
+        .expect("batch label");
     }
     if let Some(status) = &p.request_state {
-        write!(body, "<p>Последний запрос: {}</p>", pages::escape_html(status))
-            .expect("refund state");
+        write!(
+            body,
+            "<p>Последний запрос: {}</p>",
+            pages::escape_html(status)
+        )
+        .expect("refund state");
     }
     if enabled && !p.revoked {
-        match (p.request_id, p.request_state.as_deref(), p.request_revision, p.support_intent) {
+        match (
+            p.request_id,
+            p.request_state.as_deref(),
+            p.request_revision,
+            p.support_intent,
+        ) {
             (Some(request), Some("pending"), Some(revision), true) => {
                 body.push_str(&approval::support_form(request, revision, csrf));
             }
@@ -259,7 +284,8 @@ pub(super) async fn buyer(
         Err(status) => return deny(status),
     };
     let detail = match PgSupportRefunds::new(state.accounts.pool().clone())
-        .user_purchases(&digest, user_id, cursor.before).await
+        .user_purchases(&digest, user_id, cursor.before)
+        .await
     {
         Ok(Some(detail)) => detail,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
@@ -274,7 +300,8 @@ pub(super) async fn buyer(
     let mut body = format!(
         "<h2>Профиль: {} · ID {}</h2><p>Имя пользователя: @{}</p>
          <p><a href=\"/admin/finance/refunds\">Вернуться к поиску</a></p>",
-        pages::escape_html(&detail.user.name), detail.user.id,
+        pages::escape_html(&detail.user.name),
+        detail.user.id,
         pages::escape_html(detail.user.handle.as_deref().unwrap_or("не задано")),
     );
     if let Some(case_id) = detail.support_conversation_id {
@@ -282,10 +309,13 @@ pub(super) async fn buyer(
             body,
             "<p><a href=\"/admin/support/{}\">Обращение в поддержку №{}</a></p>",
             case_id, case_id
-        ).expect("case link");
+        )
+        .expect("case link");
     } else {
-        body.push_str("<p>Пользователь ещё не оставил подтверждённого обращения.
-                       Возврат через эту панель невозможен.</p>");
+        body.push_str(
+            "<p>Пользователь ещё не оставил подтверждённого обращения.
+                       Возврат через эту панель невозможен.</p>",
+        );
     }
     if detail.purchases.is_empty() {
         body.push_str("<p>Покупок глав нет.</p>");
@@ -294,7 +324,11 @@ pub(super) async fn buyer(
     let count = detail.purchases.len();
     for purchase in &detail.purchases {
         body.push_str(&render_purchase(
-            purchase, user_id, detail.support_conversation_id, &csrf, enabled
+            purchase,
+            user_id,
+            detail.support_conversation_id,
+            &csrf,
+            enabled,
         ));
     }
     if count == 30 {
@@ -302,8 +336,9 @@ pub(super) async fn buyer(
             write!(
                 body,
                 "<p><a href=\"/admin/finance/refunds/user/{}?before={}\">Следующие покупки</a></p>",
-                user_id,last
-            ).expect("purchase cursor");
+                user_id, last
+            )
+            .expect("purchase cursor");
         }
     }
     page_shell(&body, &cookies)
