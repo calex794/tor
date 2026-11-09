@@ -18,11 +18,12 @@ impl PgRecommendations {
                 .execute(&mut *tx)
                 .await?;
             sqlx::query(
-                "INSERT INTO rec_quality_daily(bucket_date,book_id,surface,source,reason,position,generation,algorithm_version,impressions,paired_clicks,unpaired_clicks,starts,completions)
+                "INSERT INTO rec_quality_daily(bucket_date,book_id,surface,source,reason,position,generation,algorithm_version,impressions,paired_clicks,unpaired_clicks,book_opens,starts,completions)
                  SELECT cohort_day,book_id,surface,source,reason,position,COALESCE(generation_id::text,'fallback'),algorithm_version,
                    count(*) FILTER(WHERE viewed_at IS NOT NULL),
                    count(*) FILTER(WHERE viewed_at IS NOT NULL AND clicked_at IS NOT NULL),
                    count(*) FILTER(WHERE viewed_at IS NULL AND clicked_at IS NOT NULL),
+                   count(*) FILTER(WHERE book_opened_at IS NOT NULL),
                    count(*) FILTER(WHERE started_at IS NOT NULL),count(*) FILTER(WHERE completed_at IS NOT NULL)
                  FROM rec_assignments WHERE cohort_day=$1::date AND book_id=$2
                  GROUP BY cohort_day,book_id,surface,source,reason,position,generation_id,algorithm_version")

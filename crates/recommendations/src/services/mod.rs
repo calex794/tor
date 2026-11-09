@@ -1,4 +1,5 @@
 pub mod achievements;
+pub mod audience;
 pub mod book_ratings;
 pub mod feedback;
 pub mod hybrid_scoring;
