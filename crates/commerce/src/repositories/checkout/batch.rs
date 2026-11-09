@@ -79,8 +79,17 @@ impl PgCheckout {
     }
 }
 
-fn unavailable(_: sqlx::Error) -> BatchCheckoutError {
-    CheckoutError::Unavailable.into()
+fn unavailable(error: sqlx::Error) -> BatchCheckoutError {
+    if error
+        .as_database_error()
+        .and_then(|db| db.code())
+        .as_deref()
+        == Some("P0R38")
+    {
+        CheckoutError::InsufficientBalance.into()
+    } else {
+        CheckoutError::Unavailable.into()
+    }
 }
 
 impl PgCheckout {
