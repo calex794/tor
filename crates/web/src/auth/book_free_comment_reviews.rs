@@ -63,8 +63,9 @@ pub(super) async fn queue(
     let mut body = String::from(
         r#"<section class="section"><div class="container">
         <h1>Жалобы на комментарии бесплатных глав</h1>
-        <p>Доступно только администратору. Рассмотрение не скрывает комментарии,
-        главы или книги и не затрагивает доступ читателей.</p>"#,
+        <p>Доступно только администратору. Признание жалобы обоснованной
+        не скрывает комментарий. Отдельное действие «Скрыть комментарий»
+        затрагивает только точную редакцию, не главу или права чтения.</p>"#,
     );
     if pending.is_empty() {
         body.push_str("<p>Ожидающих жалоб нет.</p>");
@@ -82,6 +83,7 @@ pub(super) async fn queue(
             <label>Мотивировка решения <input name="note" maxlength="500" required></label>
             <button type="submit" name="decision" value="reviewed">Признать обоснованной</button>
             <button type="submit" name="decision" value="dismissed">Отклонить</button>
+            <button type="submit" name="decision" value="hide_comment">Скрыть комментарий</button>
             </form></article>"#,
             item.id,
             item.chapter_id,
@@ -105,11 +107,12 @@ pub(super) async fn queue(
             body,
             r#"<article class="me-now-card"><h3>Жалоба #{}</h3>
             <p>Комментарий #{} · администратор #{}</p>
-            <p>Решение: {} · UTC {}</p><p>Мотивировка: {}</p></article>"#,
+            <p>Решение: {} · действие: {} · UTC {}</p><p>Мотивировка: {}</p></article>"#,
             item.report_id,
             item.comment_id,
             item.reviewer_id,
             super::escape_html(&item.decision),
+            super::escape_html(&item.moderation_action),
             super::escape_html(&item.decided_at),
             super::escape_html(&item.note),
         )

@@ -26,6 +26,7 @@ pub struct FreeCommentReviewEvent {
     pub comment_id: i64,
     pub reviewer_id: i64,
     pub decision: String,
+    pub moderation_action: String,
     pub note: String,
     pub decided_at: String,
 }
@@ -103,9 +104,9 @@ impl PgFreeCommentReviews {
         Ok(result)
     }
 
-    /// A locked report, a locked live administrator role and one immutable
-    /// event ensure exactly one decision, even for concurrent reviewers.
-    /// No hiding, chapter hold or edit, so the sanction remains a later policy.
+    /// An explicit hide decision updates only the exact visible free E comment.
+    /// The locked report, live administrator role, exact comment and immutable
+    /// review event span one transaction. Neither chapters nor grants change.
     pub async fn decide(
         &self,
         digest: &[u8; 32],
@@ -115,7 +116,7 @@ impl PgFreeCommentReviews {
     ) -> Result<(), BookShareError> {
         let note = note.trim();
         if report_id <= 0
-            || !matches!(decision, "reviewed" | "dismissed")
+            || !matches!(decision, "reviewed" | "dismissed" | "hide_comment")
             || note.is_empty()
             || note.chars().count() > 500
             || note.contains('\0')
@@ -124,26 +125,69 @@ impl PgFreeCommentReviews {
         }
         let mut tx = self.pool.begin().await?;
         let reviewer = administrator(&mut tx, digest).await?;
-        let state: Option<String> = sqlx::query_scalar(
-            "SELECT state FROM social_free_comment_reports WHERE id=$1 FOR UPDATE",
+        let report: Option<(String, i64, i64, i64)> = sqlx::query_as(
+            "SELECT state,chapter_id,version_id,comment_id
+             FROM social_free_comment_reports WHERE id=$1 FOR UPDATE",
         )
         .bind(report_id)
         .fetch_optional(&mut *tx)
         .await?;
-        match state.as_deref() {
-            Some("pending") => {}
-            Some(_) => return Err(BookShareError::Conflict),
-            None => return Err(BookShareError::NotFound),
+        let (state, chapter, version, comment) = report.ok_or(BookShareError::NotFound)?;
+        if state != "pending" {
+            return Err(BookShareError::Conflict);
         }
+        let hide = decision == "hide_comment";
+        if hide {
+            // No chapter body is queried; a report may only sanction the exact
+            // currently visible, non-book E comment from its recorded edition.
+            let target: Option<i64> = sqlx::query_scalar(
+                "SELECT c.id FROM discussion_comments c
+                 WHERE c.id=$1 AND c.chapter_id=$2 AND c.version_id=$3
+                   AND c.book_id IS NULL AND c.visibility='visible'
+                   AND (c.parent_id IS NULL OR EXISTS (
+                       SELECT 1 FROM discussion_comments parent
+                       WHERE parent.id=c.parent_id AND parent.chapter_id=$2
+                         AND parent.version_id=$3 AND parent.visibility='visible'))
+                 FOR UPDATE OF c",
+            )
+            .bind(comment)
+            .bind(chapter)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if target.is_none() {
+                return Err(BookShareError::Conflict);
+            }
+            let changed = sqlx::query(
+                "UPDATE discussion_comments SET visibility='hidden'
+                 WHERE id=$1 AND chapter_id=$2 AND version_id=$3
+                   AND book_id IS NULL AND visibility='visible'",
+            )
+            .bind(comment)
+            .bind(chapter)
+            .bind(version)
+            .execute(&mut *tx)
+            .await?;
+            if changed.rows_affected() != 1 {
+                return Err(BookShareError::Conflict);
+            }
+        }
+        let state = if decision == "dismissed" {
+            "dismissed"
+        } else {
+            "reviewed"
+        };
+        let action = if hide { "hide_free_comment" } else { "none" };
         sqlx::query(
             "INSERT INTO social_free_comment_review_events
-             (report_id,reviewer_user_id,decision,note)
-             VALUES($1,$2,$3,$4)",
+             (report_id,reviewer_user_id,decision,note,moderation_action)
+             VALUES($1,$2,$3,$4,$5)",
         )
         .bind(report_id)
         .bind(reviewer)
-        .bind(decision)
+        .bind(state)
         .bind(note)
+        .bind(action)
         .execute(&mut *tx)
         .await?;
         let changed = sqlx::query(
@@ -151,7 +195,7 @@ impl PgFreeCommentReviews {
              WHERE id=$1 AND state='pending'",
         )
         .bind(report_id)
-        .bind(decision)
+        .bind(state)
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
@@ -174,7 +218,7 @@ impl PgFreeCommentReviews {
         administrator(&mut tx, digest).await?;
         let rows = sqlx::query(
             "SELECT e.id,e.report_id,r.comment_id,e.reviewer_user_id,
-                    e.decision,e.note,
+                    e.decision,e.moderation_action,e.note,
                     to_char(e.decided_at AT TIME ZONE 'UTC',
                             'YYYY-MM-DD HH24:MI:SS') AS decided_at
              FROM social_free_comment_review_events e
@@ -197,6 +241,7 @@ impl PgFreeCommentReviews {
                     comment_id: row.try_get("comment_id")?,
                     reviewer_id: row.try_get("reviewer_user_id")?,
                     decision: row.try_get("decision")?,
+                    moderation_action: row.try_get("moderation_action")?,
                     note: row.try_get("note")?,
                     decided_at: row.try_get("decided_at")?,
                 })
