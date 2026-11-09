@@ -101,6 +101,11 @@ impl PgBookCommentAppeals {
              WHERE e.moderation_action='hide_book_comment'
                AND c.author_user_id=$1 AND c.book_id=r.book_id
                AND c.chapter_id IS NULL AND c.version_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM social_book_content_review_events newer
+                 JOIN social_book_content_reports nr ON nr.id=newer.report_id
+                 WHERE nr.comment_id=c.id AND newer.id>e.id
+                   AND newer.moderation_action='hide_book_comment')
              ORDER BY e.id DESC LIMIT $2",
         )
         .bind(owner)
@@ -149,6 +154,11 @@ impl PgBookCommentAppeals {
              JOIN discussion_comments c ON c.id=r.comment_id
              WHERE e.id=$1 AND e.moderation_action='hide_book_comment'
                AND c.book_id=r.book_id AND c.chapter_id IS NULL AND c.version_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM social_book_content_review_events newer
+                 JOIN social_book_content_reports nr ON nr.id=newer.report_id
+                 WHERE nr.comment_id=c.id AND newer.id>e.id
+                   AND newer.moderation_action='hide_book_comment')
              FOR SHARE OF e,r,c",
         )
         .bind(hide_event_id)
