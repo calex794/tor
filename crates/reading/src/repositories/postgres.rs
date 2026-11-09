@@ -262,7 +262,7 @@ impl PgReader {
         // Never rely on filtering navigation links, the homepage or an earlier request.
         let row = sqlx::query(
             "SELECT b.id AS book_id, b.title AS book_title, \
-                    c.title AS chapter_title, p.version_id, v.version_no, v.body_markdown, \
+                    c.title AS chapter_title, p.version_id, v.version_no, COALESCE(v.body_markdown,'') AS body_markdown, \
                     (SELECT prior.id FROM chapters prior \
                      JOIN chapter_publications pp ON pp.chapter_id = prior.id \
                      JOIN chapter_versions pv ON pv.id = pp.version_id AND pv.chapter_id = prior.id \
