@@ -18,7 +18,6 @@ struct Fixture {
     digest: [u8; 32],
 }
 
-
 impl Fixture {
     /// The PostgreSQL runtime reuses tor_ci across suites. Never leave an
     /// active synthetic administrator behind: A-04/A-05 validates that a real
