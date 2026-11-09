@@ -110,10 +110,17 @@ fn comment_card(
     } else {
         String::new()
     };
+    let report = if csrf.is_some() {
+        format!(
+            "<p><a href=\"/reader/{chapter_id}/comments/{id}/report?version_id={version_id}\">Пожаловаться на комментарий</a></p>"
+        )
+    } else {
+        String::new()
+    };
     format!(
         "<article class=\"comment-card\" id=\"chapter-comment-{id}\">\
          <div class=\"comment-card__head\"><span class=\"comment-card__author\">Читатель · комментарий №{id}</span></div>\
-         {reply_ref}{selection}<div class=\"comment-card__body\">{body}</div>{reply}</article>",
+         {reply_ref}{selection}<div class=\"comment-card__body\">{body}</div>{report}{reply}</article>",
         body = comment_body_html(&entry.body),
     )
 }
