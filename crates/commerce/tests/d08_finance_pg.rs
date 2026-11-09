@@ -293,7 +293,14 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
     .await
     .unwrap();
     let held = repo.totals(f.owner).await.unwrap();
-    assert_eq!((held.mature_minor, held.open_refund_hold_minor, held.available_minor), (200, 200, 0));
+    assert_eq!(
+        (
+            held.mature_minor,
+            held.open_refund_hold_minor,
+            held.available_minor
+        ),
+        (200, 200, 0)
+    );
     let key = IdempotencyKey::parse(&format!("{}8", "S".repeat(42))).unwrap();
     assert_eq!(
         repo.reserve_once(f.owner, 120, &key).await,
@@ -332,13 +339,18 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
         repo.reserve_once(f.owner, 60, &key_b)
     );
     assert_eq!(a.is_ok() as i32 + b.is_ok() as i32, 1);
-    assert!(a == Err(CreatorFinanceError::Insufficient)
-        || b == Err(CreatorFinanceError::Insufficient));
+    assert!(
+        a == Err(CreatorFinanceError::Insufficient) || b == Err(CreatorFinanceError::Insufficient)
+    );
     let after = repo.totals(f.owner).await.unwrap();
     assert_eq!((after.reserved_minor, after.available_minor), (180, 20));
     assert_eq!(repo.history(f.owner).await.unwrap().len(), 2);
     assert!(repo.history(f.buyer).await.unwrap().is_empty());
-    assert_eq!(balance(&f).await, 750, "pending payouts never debit wallets");
+    assert_eq!(
+        balance(&f).await,
+        750,
+        "pending payouts never debit wallets"
+    );
 
     let bad = sqlx::query(
         "UPDATE finance_creator_payout_requests
