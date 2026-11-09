@@ -1985,6 +1985,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/me/library/saved/{id}/toc/window",
+      "source": "crates/web/src/auth/saved_free_chapters.rs",
+      "handler": "toc_window",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/settings/delete",
       "source": "crates/web/src/auth/book_ordinary_deletion.rs",
       "handler": "page",
@@ -2402,6 +2409,97 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "receiver_action",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/recommendation-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "admin_reports::queue",
+      "policy": "admin_share_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/recommendation-reports/{share_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "admin_reports::decide",
+      "policy": "admin_share_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::form",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/report",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/book-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::queue",
+      "policy": "admin_book_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/book-reports/{report_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "content_reports::decide",
+      "policy": "admin_book_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/me/comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::author_page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/comment-appeals/{hide_event_id}",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/book-comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::queue",
+      "policy": "admin_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/book-comment-appeals/{appeal_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::decide",
+      "policy": "admin_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/paid-comments/report",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "paid_comment_reports::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/paid-comment-reports",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "paid_comment_reviews::queue",
+      "policy": "admin_paid_comment_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/paid-comment-reports/{report_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "paid_comment_reviews::decide",
+      "policy": "admin_paid_comment_reports"
     }
   ]
 }

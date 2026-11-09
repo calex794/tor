@@ -164,6 +164,164 @@ fn anchor_saved_offset(
 }
 
 pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String> {
+    saved_free_reader_internal(chapter, csrf, None)
+}
+
+/// Finalized ordinary-deletion archive only. Earlier saved-free views remain
+/// script-free and do not disclose other chapter metadata.
+#[cfg(test)]
+pub fn saved_free_reader_with_toc(
+    chapter: &SavedFreeChapter,
+    csrf: &str,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+) -> Html<String> {
+    saved_free_reader_with_paginated_toc(chapter, csrf, page, paid_reader_available, None, None)
+}
+
+/// Renders a book-order window around the actual pinned chapter, with separate
+/// keyset cursors for older and newer saved editions.
+pub fn saved_free_reader_with_paginated_toc(
+    chapter: &SavedFreeChapter,
+    csrf: &str,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+    before: Option<&str>,
+    after: Option<&str>,
+) -> Html<String> {
+    if !chapter.ordinary_deleted {
+        return saved_free_reader(chapter, csrf);
+    }
+    saved_free_reader_internal(
+        chapter,
+        csrf,
+        Some((page, paid_reader_available, before, after)),
+    )
+}
+
+fn archive_toc_markup(
+    chapter: &SavedFreeChapter,
+    page: &tor_reading::services::library::SavedArchivePage,
+    paid_reader_available: bool,
+    before: Option<&str>,
+    after: Option<&str>,
+) -> String {
+    let mut rows = String::new();
+    let mut found_current = false;
+    for item in &page.items {
+        let current = item.chapter_id == chapter.chapter_id;
+        found_current |= current;
+        let current_class = if current {
+            " archive-toc__row--current"
+        } else {
+            ""
+        };
+        let title = escape_html(&item.chapter_title);
+        let mut choices = String::new();
+        if let Some(version) = item.saved_free_version_no {
+            let current_attr = if current {
+                " aria-current=\"page\""
+            } else {
+                ""
+            };
+            write!(
+                choices,
+                "<a href=\"/me/library/saved/{}\"{current_attr}>Закреплённая бесплатная V{version}</a>",
+                item.chapter_id
+            )
+            .expect("private free TOC link");
+        }
+        if let Some(paid) = &item.purchased {
+            if paid_reader_available {
+                write!(
+                    choices,
+                    "<a href=\"/read/paid/{}?purchase_id={}\">Купленная V{}</a>",
+                    item.chapter_id, paid.purchase_id, paid.version_no
+                )
+                .expect("private paid TOC link");
+            } else {
+                write!(
+                    choices,
+                    "<span>Купленная V{} — недоступно</span>",
+                    paid.version_no
+                )
+                .expect("disabled paid TOC");
+            }
+        }
+        write!(
+            rows,
+            "<li class=\"archive-toc__row{current_class}\" data-archive-toc-id=\"{}\">
+              <span class=\"archive-toc__title\">Глава {}. {title}</span>
+              <span class=\"archive-toc__choices\">{choices}</span>
+            </li>",
+            item.chapter_id, item.chapter_no
+        )
+        .expect("archive TOC row");
+    }
+    // A successfully opened exact pinned edition always has a safe self-link
+    // even when concurrent changes made its surrounding page empty.
+    if !found_current {
+        let title = escape_html(&chapter.chapter_title);
+        let current = format!(
+            "<li class=\"archive-toc__row archive-toc__row--current\"
+              data-archive-toc-id=\"{}\"><span class=\"archive-toc__title\">Глава {}. {title}</span>
+              <span class=\"archive-toc__choices\"><a aria-current=\"page\"
+                href=\"/me/library/saved/{}\">Закреплённая бесплатная V{}</a></span></li>",
+            chapter.chapter_id, chapter.chapter_no, chapter.chapter_id, chapter.version_no
+        );
+        rows = format!("{current}{rows}");
+    }
+    let next_link = page.next_cursor.map_or_else(String::new, |after| {
+        format!(
+            "<a href=\"/me/library/{}/saved?after={after}\">Следующие сохранённые главы</a>",
+            chapter.book_id
+        )
+    });
+    let before_cursor = escape_html(before.unwrap_or(""));
+    let after_cursor = escape_html(after.unwrap_or(""));
+    let paid_enabled = if paid_reader_available { "1" } else { "0" };
+    format!(
+        "<details class=\"archive-toc\" data-archive-toc
+          data-archive-toc-chapter=\"{}\"
+          data-archive-toc-before=\"{before_cursor}\"
+          data-archive-toc-after=\"{after_cursor}\"
+          data-archive-paid-available=\"{paid_enabled}\">
+          <summary>Оглавление сохранённых глав</summary>
+          <button type=\"button\" class=\"archive-toc__backdrop\" data-archive-toc-backdrop
+                  tabindex=\"-1\" aria-label=\"Закрыть оглавление\"></button>
+          <div class=\"archive-toc__dialog\" data-archive-toc-modal role=\"dialog\"
+               aria-modal=\"true\" aria-label=\"Оглавление сохранённых редакций\">
+            <header class=\"archive-toc__head\">
+              <div><strong>Сохранённые редакции</strong>
+                <span>Только ваши закреплённые и доступные купленные главы</span></div>
+              <button type=\"button\" class=\"archive-toc__close\" data-archive-toc-close
+                      aria-label=\"Закрыть оглавление\">×</button>
+            </header>
+            <div class=\"archive-toc__scroll\" data-archive-toc-scroll tabindex=\"0\"
+                 aria-label=\"Прокрутка оглавления\">
+              <ol class=\"archive-toc__list\">{rows}</ol>
+            </div>
+            <footer class=\"archive-toc__foot\">
+              <span data-archive-toc-status role=\"status\" aria-live=\"polite\"></span>
+              {next_link}
+              <a href=\"/me/library/{}/saved\">Полный архив книги</a>
+            </footer>
+          </div>
+        </details>",
+        chapter.chapter_id, chapter.book_id
+    )
+}
+
+fn saved_free_reader_internal(
+    chapter: &SavedFreeChapter,
+    csrf: &str,
+    toc: Option<(
+        &tor_reading::services::library::SavedArchivePage,
+        bool,
+        Option<&str>,
+        Option<&str>,
+    )>,
+) -> Html<String> {
     let normalized = chapter
         .body_markdown
         .replace("\r\n", "\n")
@@ -211,9 +369,12 @@ pub fn saved_free_reader(chapter: &SavedFreeChapter, csrf: &str) -> Html<String>
     };
     let title = escape_html(&chapter.chapter_title);
     let book = escape_html(&chapter.book_title);
+    let toc_markup = toc.map_or_else(String::new, |(page, paid, before, after)| {
+        archive_toc_markup(chapter, page, paid, before, after)
+    });
     let content = format!(
         "<section class=\"section reader-page\" data-free-reader><div class=\"container\">\
-         <p class=\"eyebrow\">Сохранённая редакция {}</p>\
+         <p class=\"eyebrow\">Сохранённая редакция {}</p>{toc_markup}\
          <h1>{book}: глава {}. {title}</h1>\
          <p>Текст закреплён в личной библиотеке. Текущая версия книги может отличаться.</p>{resume}\
          <article class=\"reader-content\" {progress_attributes}>{body}</article>\
@@ -264,6 +425,83 @@ mod tests {
         assert!(unavailable.contains("чтение временно недоступно"));
         assert!(!unavailable.contains("/read/paid/6?purchase_id=42"));
         assert!(unavailable.contains("/me/library/saved/6"));
+    }
+
+    #[test]
+    fn ordinary_deleted_toc_is_scoped_to_known_pins_with_current_anchor() {
+        use tor_reading::services::library::{
+            SavedArchiveChapter, SavedArchivePage, SavedPurchasedEdition,
+        };
+        let saved = SavedFreeChapter {
+            book_id: 123,
+            book_title: "Book".into(),
+            chapter_id: 38,
+            chapter_no: 1805,
+            chapter_title: "<unsafe> & original".into(),
+            version_id: 10,
+            version_no: 1,
+            body_markdown: "Archive V1".into(),
+            ordinary_deleted: true,
+            saved_place: None,
+        };
+        let page = SavedArchivePage {
+            items: vec![
+                SavedArchiveChapter {
+                    chapter_id: 38,
+                    chapter_no: 1805,
+                    chapter_title: "<unsafe> & original".into(),
+                    saved_free_version_no: Some(1),
+                    purchased: Some(SavedPurchasedEdition {
+                        purchase_id: 901,
+                        version_no: 2,
+                    }),
+                },
+                SavedArchiveChapter {
+                    chapter_id: 39,
+                    chapter_no: 1806,
+                    chapter_title: "Next".into(),
+                    saved_free_version_no: Some(1),
+                    purchased: None,
+                },
+            ],
+            next_cursor: Some(1806),
+        };
+        let html = saved_free_reader_with_toc(&saved, "csrf", &page, true).0;
+        assert!(html.contains("data-archive-toc-modal"));
+        assert!(html.contains("archive-toc__row--current"));
+        assert!(html.contains("data-archive-toc-id=\"38\""));
+        assert!(html.contains("Глава 1805."));
+        assert!(html.contains("href=\"/me/library/saved/38\" aria-current=\"page\""));
+        assert!(html.contains("/read/paid/38?purchase_id=901"));
+        assert!(html.contains("/me/library/123/saved?after=1806"));
+        let paged = saved_free_reader_with_paginated_toc(
+            &saved,
+            "csrf",
+            &page,
+            true,
+            Some("1780.41"),
+            Some("1829.62"),
+        )
+        .0;
+        assert!(paged.contains("data-archive-toc-chapter=\"38\""));
+        assert!(paged.contains("data-archive-toc-before=\"1780.41\""));
+        assert!(paged.contains("data-archive-toc-after=\"1829.62\""));
+        assert!(paged.contains("data-archive-paid-available=\"1\""));
+        assert!(paged.contains("data-archive-toc-status"));
+        assert!(html.contains("&lt;unsafe&gt; &amp; original"));
+        assert!(!html.contains("<unsafe>"));
+        let unavailable = saved_free_reader_with_toc(&saved, "csrf", &page, false).0;
+        assert!(!unavailable.contains("/read/paid/38?purchase_id=901"));
+        assert!(unavailable.contains("Купленная V2 — недоступно"));
+        let ordinary = saved_free_reader(
+            &SavedFreeChapter {
+                ordinary_deleted: false,
+                ..saved
+            },
+            "csrf",
+        )
+        .0;
+        assert!(!ordinary.contains("data-archive-toc-modal"));
     }
 
     #[test]

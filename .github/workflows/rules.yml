@@ -54,6 +54,10 @@ jobs:
         run: python3 -m unittest discover -s tests/architecture -v
       - name: Ensure S020 guarded age editor survives unrelated merges
         run: python3 tests/architecture/test_s020_age_editor_survival.py
+      - name: Require S020 cross-workstream live age acceptance coverage
+        run: python3 tests/architecture/test_s020_cross_surface_acceptance.py
+      - name: S013 paid-comment spoiler and safe DOM policy
+        run: node --test tools/s013_paid_comment_spoilers.test.mjs
       - name: Syntax-check S020 real Chromium journey
         run: node --check tools/s020_age_editor_chromium.cjs
       - name: Syntax-check read-only TOR RIL-09 VPS audit

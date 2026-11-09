@@ -3,10 +3,16 @@
 use super::mail::{blocked, pair_lock, unavailable};
 use crate::domain::MailError;
 use sqlx::PgPool;
-use std::{collections::HashMap, fmt::Write};
+use std::collections::HashMap;
 
+#[path = "notification_daily_digest.rs"]
+mod daily_chapter_digest;
 #[path = "notification_read_policy.rs"]
 mod read_policy;
+pub use daily_chapter_digest::DailyChapterDigestEntry;
+#[path = "notification_profile_url.rs"]
+mod profile_url;
+use profile_url::encode_segment;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
@@ -569,32 +575,5 @@ impl PgNotifications {
             .await
             .map(|result| result.rows_affected())
             .map_err(unavailable)
-    }
-}
-
-/// Encode a single public profile path segment, not an untrusted redirect.
-fn encode_segment(name: &str) -> String {
-    let mut result = String::new();
-    for &byte in name.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            result.push(char::from(byte));
-        } else {
-            write!(result, "%{byte:02X}").expect("write to string");
-        }
-    }
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::encode_segment;
-
-    #[test]
-    fn profile_notification_link_is_one_encoded_path_segment() {
-        assert_eq!(
-            encode_segment("Алиса / Боб"),
-            "%D0%90%D0%BB%D0%B8%D1%81%D0%B0%20%2F%20%D0%91%D0%BE%D0%B1"
-        );
-        assert_eq!(encode_segment("//evil.example"), "%2F%2Fevil.example");
     }
 }

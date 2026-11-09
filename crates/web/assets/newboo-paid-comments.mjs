@@ -9,6 +9,81 @@ function node(tag, text) {
   if (text !== undefined) element.textContent = text;
   return element;
 }
+// S013: the paid reader uses exactly the paired-spoiler semantics of the
+// public Rust comments renderer. All untrusted content becomes DOM text, never HTML.
+export function parseCommentSpoilers(body) {
+  let rest = typeof body === "string" ? body : "";
+  const segments = [];
+  while (true) {
+    const start = rest.indexOf("||");
+    if (start < 0) break;
+    const end = rest.indexOf("||", start + 2);
+    if (end < 0) break;
+    if (start > 0) segments.push({kind: "text", text: rest.slice(0, start)});
+    if (end === start + 2) {
+      segments.push({kind: "text", text: rest.slice(start, end + 2)});
+    } else {
+      segments.push({kind: "spoiler", text: rest.slice(start + 2, end)});
+    }
+    rest = rest.slice(end + 2);
+  }
+  if (rest || segments.length === 0) segments.push({kind: "text", text: rest});
+  return segments;
+}
+function asciiHandle(char) {
+  return char !== undefined && /^[A-Za-z0-9_.]$/.test(char);
+}
+function asciiAlnum(char) {
+  return char !== undefined && /^[A-Za-z0-9]$/.test(char);
+}
+// Explicit identity-neutral display, matching the Rust S013 public renderer.
+// This masks supported mention syntax without trusting a client-provided identity.
+export function maskCommentMentions(value) {
+  const text = typeof value === "string" ? value : "";
+  let result = "";
+  let copied = 0;
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== "@" || start < copied ||
+        (start > 0 && (asciiAlnum(text[start - 1]) ||
+          text[start - 1] === "_" || text[start - 1] === "@"))) continue;
+    let end;
+    if (text.startsWith("[user:", start + 1)) {
+      const first = start + 7;
+      let cursor = first;
+      while (cursor < text.length && /^[0-9]$/.test(text[cursor])) cursor += 1;
+      const digits = cursor - first;
+      if (digits < 1 || digits > 19 || text[first] === "0" || text[cursor] !== "]") continue;
+      end = cursor + 1;
+    } else {
+      let cursor = start + 1;
+      while (asciiHandle(text[cursor])) cursor += 1;
+      const count = cursor - start - 1;
+      if (count < 3 || count > 32) continue;
+      end = cursor;
+    }
+    if (asciiHandle(text[end])) continue;
+    result += text.slice(copied, start) + "@пользователь";
+    copied = end;
+    start = end - 1;
+  }
+  return result + text.slice(copied);
+}
+export function appendPaidCommentMarkup(target, body) {
+  for (const segment of parseCommentSpoilers(body)) {
+    if (segment.kind === "text") {
+      target.append(document.createTextNode(maskCommentMentions(segment.text)));
+    } else {
+      const details = node("details");
+      details.className = "comment-spoiler";
+      const summary = node("summary", "Спойлер");
+      summary.className = "comment-spoiler__toggle";
+      const content = node("span", maskCommentMentions(segment.text));
+      content.className = "comment-spoiler__content";
+      details.append(summary, content);
+      target.append(details);
+    }
+  }
+}
 function exactSelection(article, blocks) {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
@@ -57,7 +132,7 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
   submit.type = "submit";
   // Do not accept a click while an entitlement-backed list is loading.
   submit.disabled = true;
-  form.append(input, submit);
+  form.append(node("p", "Чтобы скрыть спойлер, заключите текст в ||двойные черты||."), input, submit);
   section.append(selectionLabel, entries, more, form, status);
   article.insertAdjacentElement("afterend", section);
   let anchor = null;
@@ -83,7 +158,9 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
     const card = node("article");
     card.className = "comment-card";
     const title = node("p", "Комментарий №" + item.id);
-    const content = node("p", item.body);
+    const content = node("div");
+    content.className = "comment-card__body";
+    appendPaidCommentMarkup(content, item.body);
     card.append(title);
     if (item.parent_id) card.append(node("p", "Ответ на №" + item.parent_id));
     if (item.anchor) {
@@ -97,6 +174,52 @@ export async function installPaidComments(root, article, blocks, chapter, purcha
       card.append(jump);
     }
     card.append(content);
+    // The server binds a complaint to this exact purchased edition again.
+    // Never send a body or selection quote back in a report.
+    const reportBox = node("details");
+    const reportSummary = node("summary", "Пожаловаться на комментарий");
+    const reportForm = node("form");
+    const reason = node("select");
+    reason.setAttribute("aria-label", "Причина жалобы");
+    for (const [value, label] of [
+      ["spam", "Спам"], ["abuse", "Оскорбления или угрозы"],
+      ["misleading", "Недостоверные сведения"], ["other", "Другое"]
+    ]) {
+      const option = node("option", label); option.value = value; reason.append(option);
+    }
+    const details = node("textarea");
+    details.maxLength = 500;
+    details.placeholder = "Обоснование жалобы (необязательно)";
+    details.setAttribute("aria-label", "Обоснование жалобы");
+    const reportStatus = node("p");
+    reportStatus.setAttribute("role", "status");
+    const sendReport = node("button", "Отправить жалобу");
+    sendReport.type = "submit";
+    reportForm.append(reason, details, sendReport, reportStatus);
+    reportBox.append(reportSummary, reportForm);
+    const intent = newKey();
+    reportForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      sendReport.disabled = true;
+      try {
+        const result = await fetch(url + "/report", {
+          method:"POST", credentials:"same-origin", cache:"no-store",
+          headers:headers(),
+          body:JSON.stringify({
+            purchase_id:purchase, version_id:version, comment_id:item.id,
+            reason:reason.value, details:details.value.trim(), command_key:intent
+          })
+        });
+        if (!result.ok) throw new Error("report denied");
+        reportStatus.textContent = "Жалоба зарегистрирована.";
+        reportBox.open = true;
+        reportForm.remove();
+      } catch {
+        reportStatus.textContent = "Жалоба не отправлена. Проверьте право чтения.";
+        sendReport.disabled = false;
+      }
+    });
+    card.append(reportBox);
     if (!item.parent_id) {
       const reply = node("button", "Ответить");
       reply.type = "button";
