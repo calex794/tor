@@ -5,10 +5,10 @@ use crate::domain::MailError;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
-#[path = "notification_read_policy.rs"]
-mod read_policy;
 #[path = "notification_daily_digest.rs"]
 mod daily_chapter_digest;
+#[path = "notification_read_policy.rs"]
+mod read_policy;
 pub use daily_chapter_digest::DailyChapterDigestEntry;
 #[path = "notification_profile_url.rs"]
 mod profile_url;
@@ -577,4 +577,3 @@ impl PgNotifications {
             .map_err(unavailable)
     }
 }
-
