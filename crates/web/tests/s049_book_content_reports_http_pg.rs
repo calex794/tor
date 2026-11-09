@@ -299,8 +299,11 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     );
     assert_eq!(
         send(&app, "GET", admin_path, &moderator, "").await.status(),
-        StatusCode::FORBIDDEN
+        StatusCode::OK
     );
+    // A site moderator may open the queue, but cannot see Book-only reports.
+    let early_moderator_queue = html(send(&app, "GET", admin_path, &moderator, "").await).await;
+    assert!(!early_moderator_queue.contains(&format!("Жалоба #{report}")));
     let q = send(&app, "GET", admin_path, &admin, "").await;
     assert_eq!(q.status(), StatusCode::OK);
     assert_eq!(q.headers()[header::CACHE_CONTROL], "no-store");
@@ -612,20 +615,33 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     let book_only_mod_queue = html(send(&app, "GET", admin_path, &mod_cookies, "").await).await;
     assert!(!book_only_mod_queue.contains(&format!("Жалоба #{book_only_report}")));
     assert_eq!(
-        send(&app, "POST", &book_only_action, &mod_cookies,
-            &format!("decision=reviewed&note=No+book+rights&csrf_token={mod_csrf}"))
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &book_only_action,
+            &mod_cookies,
+            &format!("decision=reviewed&note=No+book+rights&csrf_token={mod_csrf}")
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&app, "POST", &book_only_action, &mod_cookies,
-            &format!("decision=dismissed&note=No+book+rights&csrf_token={mod_csrf}"))
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &book_only_action,
+            &mod_cookies,
+            &format!("decision=dismissed&note=No+book+rights&csrf_token={mod_csrf}")
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         send(&app, "POST", &book_only_action, &mod_cookies, &manual_hide)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     // The administrator's existing Book-only review semantics are unchanged.
@@ -637,7 +653,8 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
             &admin_cookies,
             &format!("decision=hide_comment&note=Invalid&csrf_token={q_csrf}")
         )
-        .await.status(),
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
