@@ -87,7 +87,7 @@ pub(super) async fn form(
     let body = format!(
         r#"<section class="section"><div class="container">
         <h1>Пожаловаться на книгу или комментарий</h1><p>{}</p>
-        <p>Обращение рассматривает администратор. Отправка не скрывает книгу автоматически.</p>
+        <p>Обращение рассматривает администратор сайта или модератор сайта (для комментариев). Отправка ничего не скрывает автоматически.</p>
         {sent}
         <form method="post" action="/books/{id}/report">
         <label>Причина <select name="reason" required>
@@ -173,9 +173,9 @@ pub(super) async fn queue(
     let (csrf, cookies) = s.cookies.csrf_for_page(&headers);
     let mut body = String::from(
         r#"<section class="section"><div class="container">
-        <h1>Жалобы на книги</h1>
-        <p>Только администратор. Решение по жалобе не меняет публикацию книги автоматически.</p>
-        <p><a href="/admin/recommendation-reports">Жалобы на рекомендации</a></p>"#,
+        <h1>Жалобы на книги и комментарии</h1>
+        <p>Модератор сайта рассматривает только комментарии. Жалобы на книги доступны администратору.
+        Решение по жалобе само по себе не скрывает контент.</p>"#,
     );
     if reports.is_empty() {
         body.push_str("<p>Ожидающих жалоб нет.</p>");
@@ -213,7 +213,9 @@ pub(super) async fn queue(
         )
         .expect("bounded S049 Book report markup");
     }
-    body.push_str("<section aria-label=\"История решений\"><h2>История решений</h2>");
+    body.push_str(
+        "<section aria-label=\"История решений\"><h2>История решений</h2>",
+    );
     if history.items.is_empty() {
         body.push_str("<p>История решений пока пуста.</p>");
     }
@@ -226,7 +228,7 @@ pub(super) async fn queue(
             body,
             r#"<article class="me-now-card">
             <h3>Решение по жалобе #{}</h3>
-            <p>Книга #{} · {} · администратор #{}</p>
+            <p>Книга #{} · {} · сотрудник #{}</p>
             <p>Решение: {} · действие: {} · UTC {}</p>
             <p>Обоснование: {}</p></article>"#,
             item.report_id,

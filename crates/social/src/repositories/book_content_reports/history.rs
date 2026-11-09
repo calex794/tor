@@ -1,6 +1,6 @@
-//! S049: private, bounded history of immutable Book complaint decisions.
-//! This read projection never exposes a Book title, comment text or paid body.
-use super::{administrator, BookShareError, PgBookContentReports};
+//! S049: bounded, role-scoped history of immutable Book complaint reviews.
+//! No private Book/comment body, payment facts or chapter metadata are returned.
+use super::{site_reviewer, BookShareError, PgBookContentReports};
 use sqlx::Row;
 
 #[derive(Debug)]
@@ -23,8 +23,8 @@ pub struct ReviewedBookContentReportPage {
 }
 
 impl PgBookContentReports {
-    /// Only a live site administrator may read history. Review event IDs are
-    /// monotonic keyset cursors, never permission tokens or content references.
+    /// An active administrator sees all review history. A site moderator may
+    /// inspect only comment reports, matching the live pending queue's scope.
     pub async fn review_history(
         &self,
         session_digest: &[u8; 32],
@@ -35,7 +35,7 @@ impl PgBookContentReports {
             return Err(BookShareError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        administrator(&mut tx, session_digest).await?;
+        let (_, is_admin) = site_reviewer(&mut tx, session_digest).await?;
         let rows = sqlx::query(
             "SELECT e.id AS event_id, e.report_id, r.book_id, r.comment_id,
                     e.reviewer_user_id, e.decision, e.note, e.moderation_action,
@@ -44,10 +44,12 @@ impl PgBookContentReports {
              FROM social_book_content_review_events e
              JOIN social_book_content_reports r ON r.id=e.report_id
              WHERE ($1::BIGINT IS NULL OR e.id < $1)
+               AND ($3::boolean OR r.comment_id IS NOT NULL)
              ORDER BY e.id DESC LIMIT $2",
         )
         .bind(before_id)
         .bind(i64::from(limit) + 1)
+        .bind(is_admin)
         .fetch_all(&mut *tx)
         .await?;
         let has_more = rows.len() > usize::from(limit);

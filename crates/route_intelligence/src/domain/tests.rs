@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 348);
+    assert_eq!(unique.len(), 352);
 }
 
 #[test]
@@ -321,4 +321,27 @@ fn s049_book_complaint_routes_are_classified_and_admin_only_on_private_surface()
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/book-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_comment_appeal_private_and_independent_admin_routes_are_distinct() {
+    for (template, method) in [
+        ("/me/comment-appeals", "GET"),
+        ("/me/comment-appeals/{hide_event_id}", "POST"),
+    ] {
+        let r = classify(Some(template), method);
+        assert!(r.route_known);
+        assert_eq!(r.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(r.product_area, ProductArea::Dashboard);
+    }
+    for (template, method) in [
+        ("/admin/book-comment-appeals", "GET"),
+        ("/admin/book-comment-appeals/{appeal_id}/decision", "POST"),
+    ] {
+        let r = classify(Some(template), method);
+        assert!(r.route_known);
+        assert_eq!(r.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(r.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/book-comment-appeals"), "POST").route_known);
 }
