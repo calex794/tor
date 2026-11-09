@@ -30,7 +30,10 @@ pub struct PendingAppeal {
 }
 
 fn command_key_valid(key: &str) -> bool {
-    key.len() == 43 && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    key.len() == 43
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 async fn actor(
@@ -107,13 +110,15 @@ impl PgBookCommentAppeals {
         tx.commit().await?;
         Ok(rows
             .into_iter()
-            .map(|(hide_event_id, book_id, comment_id, visibility, appeal_state)| AuthorAppealRow {
-                hide_event_id,
-                book_id,
-                comment_id,
-                visibility,
-                appeal_state,
-            })
+            .map(
+                |(hide_event_id, book_id, comment_id, visibility, appeal_state)| AuthorAppealRow {
+                    hide_event_id,
+                    book_id,
+                    comment_id,
+                    visibility,
+                    appeal_state,
+                },
+            )
             .collect())
     }
 
@@ -127,8 +132,11 @@ impl PgBookCommentAppeals {
         command_key: &str,
     ) -> Result<i64, BookShareError> {
         let reason = reason.trim();
-        if hide_event_id <= 0 || reason.chars().count() < 20 || reason.chars().count() > 1000
-            || reason.contains('\0') || !command_key_valid(command_key)
+        if hide_event_id <= 0
+            || reason.chars().count() < 20
+            || reason.chars().count() > 1000
+            || reason.contains('\0')
+            || !command_key_valid(command_key)
         {
             return Err(BookShareError::Invalid);
         }
@@ -230,7 +238,15 @@ impl PgBookCommentAppeals {
         Ok(rows
             .into_iter()
             .map(
-                |(id, hide_event_id, book_id, comment_id, author_id, original_reviewer_id, reason)| {
+                |(
+                    id,
+                    hide_event_id,
+                    book_id,
+                    comment_id,
+                    author_id,
+                    original_reviewer_id,
+                    reason,
+                )| {
                     PendingAppeal {
                         id,
                         hide_event_id,
@@ -255,8 +271,11 @@ impl PgBookCommentAppeals {
         note: &str,
     ) -> Result<(), BookShareError> {
         let note = note.trim();
-        if appeal_id <= 0 || !matches!(decision, "denied" | "restored")
-            || note.is_empty() || note.chars().count() > 500 || note.contains('\0')
+        if appeal_id <= 0
+            || !matches!(decision, "denied" | "restored")
+            || note.is_empty()
+            || note.chars().count() > 500
+            || note.contains('\0')
         {
             return Err(BookShareError::Invalid);
         }
