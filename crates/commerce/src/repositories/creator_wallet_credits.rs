@@ -74,6 +74,10 @@ impl PgCreatorWalletCredits {
                     SELECT 1 FROM finance_direct_refund_creator_reversals r
                     WHERE r.purchase_id=e.purchase_id AND r.user_id=e.user_id
                   )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM finance_direct_swap_creator_reversals sr
+                    WHERE sr.source_purchase_id=e.purchase_id AND sr.user_id=e.user_id
+                  )
             )",
         )
         .bind(actor)
@@ -124,6 +128,10 @@ impl PgCreatorWalletCredits {
                AND NOT EXISTS (
                  SELECT 1 FROM finance_direct_refund_creator_reversals r
                  WHERE r.purchase_id=e.purchase_id AND r.user_id=e.user_id
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM finance_direct_swap_creator_reversals sr
+                 WHERE sr.source_purchase_id=e.purchase_id AND sr.user_id=e.user_id
                )
              ORDER BY e.purchase_id LIMIT $2 FOR UPDATE OF p,e",
         )
