@@ -1,13 +1,14 @@
--- S038 / FIN-02: pending creator cash-origin reservations, NOT cash-out.
+-- S038 / FIN-02: NEwBOO-compatible unified balance reservations, NOT cash-out.
 -- No public payout is enabled by this migration. No funds are debited here.
--- Only immutable, D-08 purchase-origin earnings count toward capacity.
+-- Capacity includes the user's verified wallet balance and held creator earnings.
+-- It does not distinguish wallet deposits from creator credits as payout origins.
 CREATE TABLE finance_creator_payout_requests (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
     currency CHAR(3) NOT NULL DEFAULT 'RUB' CHECK (currency = 'RUB'),
-    source_origin TEXT NOT NULL DEFAULT 'chapter_purchase'
-        CHECK (source_origin = 'chapter_purchase'),
+    source_origin TEXT NOT NULL DEFAULT 'unified_wallet'
+        CHECK (source_origin = 'unified_wallet'),
     intent_key TEXT NOT NULL CHECK (intent_key ~ '^[A-Za-z0-9_-]{43}$'),
     intent_digest BYTEA NOT NULL CHECK (octet_length(intent_digest) = 32),
     state TEXT NOT NULL DEFAULT 'pending'
@@ -60,4 +61,4 @@ CREATE TRIGGER s038_payout_no_delete
     FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
 
 COMMENT ON TABLE finance_creator_payout_requests IS
-    'Pending internal reservations only; no banking, payout approval, external settlement, or creator wallet balance.';
+    'Unified wallet plus creator earnings capacity; pending reservations only; no banking or external settlement.';
