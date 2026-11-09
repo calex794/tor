@@ -2605,6 +2605,20 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::decide",
       "policy": "admin_free_comment_appeals"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/payouts",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "queue",
+      "policy": "admin_payout"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/payouts/{id}/reject",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "reject",
+      "policy": "admin_payout"
     }
   ]
 }
