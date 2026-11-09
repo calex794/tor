@@ -2,7 +2,9 @@
 //! A password-confirmed, session-bound one-use proof is issued immediately
 //! before the existing D-06 PostgreSQL transaction. No external payout API.
 use super::super::{deny, session_user, AuthState};
-use super::{page_shell, AdminRefundRequest};
+use super::page_shell;
+#[cfg(test)]
+use super::AdminRefundRequest;
 use axum::{
     extract::{rejection::FormRejection, Form, State},
     http::{HeaderMap, StatusCode},
@@ -31,6 +33,7 @@ pub(super) fn enabled(state: &AuthState) -> bool {
         && std::env::var("TOR_ADMIN_SUPPORT_REFUNDS_ENABLED").as_deref() == Ok("1")
 }
 
+#[cfg(test)]
 pub(super) fn form(row: &AdminRefundRequest, csrf: &str) -> String {
     if row.state != "pending"
         || row.policy_version.is_none()
