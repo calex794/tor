@@ -35,6 +35,8 @@ fn pg(url: &str, sql: &str) -> String {
             "--command",
             sql,
         ])
+        .env("PGCONNECT_TIMEOUT", "5")
+        .env("PGOPTIONS", "-c statement_timeout=15000")
         .output()
         .expect("PostgreSQL client is required for isolated PG fixture");
     assert!(
@@ -76,11 +78,14 @@ async fn send(
     if let Some(session) = session {
         request = request.header(header::COOKIE, cookies(session, csrf));
     }
-    let response = app
-        .clone()
-        .oneshot(request.body(Body::from(body.to_owned())).unwrap())
-        .await
-        .unwrap();
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        app.clone()
+            .oneshot(request.body(Body::from(body.to_owned())).unwrap()),
+    )
+    .await
+    .expect("free-save HTTP handler stalled for more than 20 seconds")
+    .unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 2_000_000).await.unwrap();
     (status, String::from_utf8_lossy(&bytes).into_owned())
@@ -295,10 +300,17 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
              VALUES({notify_late},{book})"
         ),
     );
+    eprintln!("G08_E2E_STAGE: root recorded; starting fanout");
     let notifications = PgNotifications::new(pool.clone());
     let mut root_done = false;
     for _ in 0..12 {
-        notifications.fanout_chapter_releases(100).await.unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            notifications.fanout_chapter_releases(100),
+        )
+        .await
+        .expect("G08 fanout exceeded 20 seconds")
+        .unwrap();
         root_done = pg(
             &url,
             &format!(
@@ -320,10 +332,17 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     );
     assert_eq!(children, "2", "only the original followers are eligible");
     drop(notifications);
+    eprintln!("G08_E2E_STAGE: root fanout done; starting delivery");
     let after_restart = PgNotifications::new(pool.clone());
     let mut child_receipts = String::new();
     for _ in 0..12 {
-        after_restart.deliver_pending(100).await.unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            after_restart.deliver_pending(100),
+        )
+        .await
+        .expect("G08 delivery exceeded 20 seconds")
+        .unwrap();
         child_receipts = pg(
             &url,
             &format!(
@@ -354,7 +373,14 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         );
         assert_eq!(actual, expected, "notification eligibility and opt-out");
     }
-    after_restart.deliver_pending(8).await.unwrap();
+    eprintln!("G08_E2E_STAGE: recipient delivery completed; testing replay");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        after_restart.deliver_pending(8),
+    )
+    .await
+    .expect("G08 replay exceeded 20 seconds")
+    .unwrap();
     assert_eq!(
         pg(
             &url,
