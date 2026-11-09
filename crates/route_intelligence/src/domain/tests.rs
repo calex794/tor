@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 353);
+    assert_eq!(unique.len(), 355);
 }
 
 #[test]
@@ -344,4 +344,18 @@ fn s049_comment_appeal_private_and_independent_admin_routes_are_distinct() {
         assert_eq!(r.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/book-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn s049_paid_comment_reports_are_administrator_only_routes() {
+    for (template, method) in [
+        ("/admin/paid-comment-reports", "GET"),
+        ("/admin/paid-comment-reports/{report_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/paid-comment-reports"), "POST").route_known);
 }

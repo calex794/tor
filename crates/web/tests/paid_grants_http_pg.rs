@@ -44,6 +44,8 @@ use tower::ServiceExt;
 mod s034_toc_window;
 #[path = "paid_grants_http_pg/s049_paid_comment_reports.rs"]
 mod s049_paid_comment_reports;
+#[path = "paid_grants_http_pg/s049_paid_comment_reviews.rs"]
+mod s049_paid_comment_reviews;
 #[path = "paid_grants_http_pg/s065_role_matrix.rs"]
 mod s065_role_matrix;
 #[path = "paid_grants_http_pg/s065_unsealed.rs"]
@@ -618,6 +620,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         (&csrf, &author_csrf),
     )
     .await;
+    s049_paid_comment_reviews::check(&url, &accounts, &browser, buyer, chapter).await;
     s065_alternate_reader_access_matrix(
         &browser,
         (chapter, version, purchase_id),

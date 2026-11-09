@@ -40,6 +40,11 @@ AUDITED_S049_BOOK_ADMIN = {
     ("POST", "/admin/book-reports/{report_id}/decision",
      "content_reports::decide", "admin_book_reports"),
 }
+AUDITED_S049_PAID_COMMENT_ADMIN = {
+    ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue", "admin_paid_comment_reports"),
+    ("POST", "/admin/paid-comment-reports/{report_id}/decision",
+     "paid_comment_reviews::decide", "admin_paid_comment_reports"),
+}
 AUDITED_S049_COMMENT_APPEALS = {
     ("GET", "/admin/book-comment-appeals", "comment_appeals::queue", "admin_comment_appeals"),
     ("POST", "/admin/book-comment-appeals/{appeal_id}/decision",
@@ -122,7 +127,9 @@ def check_repository(root: Path = ROOT) -> list[str]:
                           and key in AUDITED_S049_BOOK_ADMIN)
             allow_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                             and key in AUDITED_S049_COMMENT_APPEALS)
-            if not (allow_mail or allow_support or allow_refund or allow_s049 or allow_book or allow_appeal):
+            allow_paid = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                          and key in AUDITED_S049_PAID_COMMENT_ADMIN)
+            if not (allow_mail or allow_support or allow_refund or allow_s049 or allow_book or allow_appeal or allow_paid):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
