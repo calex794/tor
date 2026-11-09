@@ -2500,6 +2500,13 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "paid_comment_reviews::decide",
       "policy": "admin_paid_comment_reports"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/admin/jobs/{id}/retry",
+      "source": "crates/web/src/auth/admin_jobs.rs",
+      "handler": "retry",
+      "policy": "admin_outbox_retry"
     }
   ]
 }

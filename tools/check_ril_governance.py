@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -451,6 +451,63 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
+    if policy == "admin_comment_appeals":
+        repo = _production((ROOT / "crates/social/src/repositories/book_comment_appeals.rs")
+                           .read_text(encoding="utf-8"))
+        operation = s049_appeal_admin.get(admin_key) if audited_s049_appeal_admin else None
+        required = (
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "s.expires_at>now()",
+            "u.account_state='active'", "FOR SHARE OF s,u,r",
+            "administrator(&mut tx, digest).await?",
+            "social_book_comment_appeals",
+        )
+        guarded = bool(
+            operation
+            and "PgBookCommentAppeals::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_user(&s, &headers)" in evidence
+            and ".active_session_user(&digest)" in evidence
+            and all(marker in repo for marker in required)
+        )
+        if operation == "decide":
+            guarded = guarded and all(marker in evidence for marker in (
+                "s.cookies.same_origin(&headers)",
+                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "original_reviewer == reviewer",
+                "FOR UPDATE OF c",
+                "INSERT INTO social_book_comment_appeal_decisions",
+                "UPDATE social_book_comment_appeals SET state=$2",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S049 independent appeal review lacks locked admin role, CSRF or audit")
+    if policy == "admin_outbox_retry":
+        # G-07: requeue is authorized by the locked live role in the SAME
+        # transaction as event mutation and append-only audit.
+        repo = _production((ROOT / "crates/ingest/src/repositories/outbox_retry.rs")
+                           .read_text(encoding="utf-8"))
+        authorized_route = (
+            entry["source"] == "crates/web/src/auth/admin_jobs.rs"
+            and admin_key == ("POST", "/api/v1/admin/jobs/{id}/retry", "retry")
+        )
+        handler_guard = all(token in evidence for token in (
+            "session_actor(&digest)", "!actor.administrator",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers, csrf)",
+            ".retry_dead_letter(&digest, &event_id)",
+            "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
+        ))
+        persistence_guard = all(token in repo for token in (
+            "FOR SHARE OF s,u,r", "u.account_state='active'",
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "FOR UPDATE",
+            "dead_at IS NOT NULL", "lease_epoch=lease_epoch+1",
+            "INSERT INTO g_outbox_admin_retry_audit",
+            "tx.commit()", "NotRetryable",
+        ))
+        if not (authorized_route and handler_guard and persistence_guard):
+            errors.append(f"{label}: G-07 retry lacks live administrator, CSRF, fencing or audit")
     if policy == "admin_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/book_comment_appeals.rs")
                            .read_text(encoding="utf-8"))

@@ -35,6 +35,7 @@ use tor_reading::services::{
 mod access_audit;
 mod account_form_http;
 mod account_home;
+mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
@@ -270,6 +271,7 @@ fn router_inner(
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
+        .merge(admin_jobs::router())
         .merge(admin_refund_review::router())
         .merge(moderation_books::router())
         .merge(moderation_covers::router())
@@ -427,7 +429,7 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(session_security::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -589,12 +591,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    // session_security::logout enforces same-origin and CSRF itself.
-    session_security::logout(State(state), headers, Form(form)).await
 }

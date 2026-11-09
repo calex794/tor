@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 355);
+    assert_eq!(unique.len(), 356);
 }
 
 #[test]
@@ -358,4 +358,15 @@ fn s049_paid_comment_reports_are_administrator_only_routes() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/paid-comment-reports"), "POST").route_known);
+}
+
+#[test]
+fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
+    let route = "/api/v1/admin/jobs/{id}/retry";
+    let passport = classify(Some(route), "POST");
+    assert!(passport.route_known);
+    assert_eq!(passport.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(passport.product_area, ProductArea::Admin);
+    assert_eq!(passport.cost_class, CostClass::Write);
+    assert!(!classify(Some(route), "GET").route_known);
 }

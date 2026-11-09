@@ -94,6 +94,23 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     .await
     .unwrap();
     assert_eq!(release_fact, 1);
+    let published_outbox: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+           AND payload->>'version_id'=$2::text
+           AND payload->>'first_release'='true'
+           AND required_consumers @> ARRAY['chapter_release_fanout_v1']::text[]",
+    )
+    .bind(saved.chapter_id)
+    .bind(saved.version_id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        published_outbox, 1,
+        "one committed first-release outbox event"
+    );
+
     let working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(saved.chapter_id)
