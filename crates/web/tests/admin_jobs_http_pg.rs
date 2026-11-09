@@ -438,5 +438,38 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         &url,
         &format!("DELETE FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"),
     );
+    // This test shares the disposable /tor_ci database with the later E-08
+    // and ChapterPublished tests. Successful administrative retries above use
+    // synthetic outbox events with empty payloads: they must not be consumed
+    // by real projection handlers after this test. Keep the immutable audit
+    // and receipts, but return only these three test-created events to dead-letter.
+    let fake_ids = format!("'{event_id}'::uuid, '{concurrent}'::uuid, '{child}'::uuid");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "WITH quarantined AS (
+                   UPDATE outbox_events SET dead_at=clock_timestamp()
+                   WHERE id IN ({fake_ids})
+                     AND delivered_at IS NULL AND dead_at IS NULL
+                   RETURNING id
+                 )
+                 SELECT count(*) FROM quarantined"
+            ),
+        ),
+        "3",
+        "all successfully retried synthetic events must be quarantined"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events
+                 WHERE id IN ({fake_ids}) AND dead_at IS NULL"
+            ),
+        ),
+        "0",
+        "synthetic retry fixtures cannot leak into later delivery/fanout tests"
+    );
     pool.close().await;
 }
