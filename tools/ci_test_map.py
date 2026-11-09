@@ -76,6 +76,7 @@ TEST_SUITES = {
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
+    "crates/ingest/tests/outbox_pg.rs": {"rust", "postgres"},
     "crates/imports/tests/chapter_import_jobs_pg.rs": {"rust", "postgres"},
     "crates/books/tests/chapter_import_job_finalize_pg.rs": {"rust", "postgres"},
     "crates/web/tests/chapter_import_queue_http_pg.rs": {"rust", "postgres"},
@@ -147,6 +148,8 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/storage/tests/storage_gc_pg.rs",
     "crates/storage/tests/storage_paid_grant_pg.rs",
     "crates/storage/tests/storage_paid_asset_pg.rs",
+    "crates/ingest/tests/outbox_pg.rs",
+    "crates/web/tests/admin_jobs_http_pg.rs",
     "crates/web/tests/cover_worker_pg.rs",
     "crates/books/tests/postgres_catalog.rs",
     "crates/books/tests/shadow_age_visibility_pg.rs",
@@ -235,7 +238,6 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/reading/tests/notification_preferences_pg.rs",
     "crates/web/tests/account_access_audit_pg.rs",
     "crates/web/tests/account_sessions_http_pg.rs",
-    "crates/web/tests/admin_jobs_http_pg.rs",
 })
 TEST_SUITES.update({path: {"rust", "postgres"} for path in POSTGRES_RUNTIME_ONLY_TEST_FILES})
 

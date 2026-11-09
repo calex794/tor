@@ -25,6 +25,9 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
                AND e.delivered_at IS NULL AND e.dead_at IS NULL
                AND e.required_consumers @> ARRAY['chapter_release_fanout_v1']::text[]
                AND e.next_attempt_at<=clock_timestamp()
+               -- Respect G-07 fenced leases even while specialized S058 workers
+               -- still use row locking for their atomic cursor transactions.
+               AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
                AND NOT EXISTS (
                    SELECT 1 FROM event_deliveries d
                    WHERE d.event_id=e.id
