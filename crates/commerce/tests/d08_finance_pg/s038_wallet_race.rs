@@ -23,15 +23,12 @@ async fn s038_concurrent_checkout_and_payout_reservation_have_one_winner() {
     // The buyer's 1000 cannot satisfy BOTH a 900 pending reservation
     // and a 250 purchase. In particular, FK KEY SHARE on users must not
     // deadlock against the wallet trigger's non-key users row lock.
-    let (reservation, purchase) = tokio::time::timeout(
-        std::time::Duration::from_secs(25),
-        async {
-            tokio::join!(
-                finance.reserve_once(f.buyer, 900, &key),
-                checkout.checkout_once(&command)
-            )
-        },
-    )
+    let (reservation, purchase) = tokio::time::timeout(std::time::Duration::from_secs(25), async {
+        tokio::join!(
+            finance.reserve_once(f.buyer, 900, &key),
+            checkout.checkout_once(&command)
+        )
+    })
     .await
     .expect("payout-vs-checkout deadlock");
     assert_eq!(
