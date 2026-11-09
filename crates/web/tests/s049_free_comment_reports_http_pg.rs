@@ -61,10 +61,13 @@ async fn request(
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap();
-    app.clone().oneshot(req).await.unwrap()
+    tokio::time::timeout(std::time::Duration::from_secs(15), app.clone().oneshot(req))
+        .await
+        .expect("S049 free-comment request exceeded 15s")
+        .unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "disposable PostgreSQL 18 tor_ci only"]
 async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
@@ -87,6 +90,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
         )
         .await
         .unwrap();
+    eprintln!("S049_FREE_REPORT after account registration");
     let book: i64 = pg(
         &url,
         &format!(
@@ -132,6 +136,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
     )
     .parse()
     .unwrap();
+    eprintln!("S049_FREE_REPORT seeded published chapter and comment");
     let app = tor_web::router_with_postgres_reading_auth(
         catalog.clone(),
         PgReader::new(catalog.pool()),
@@ -152,6 +157,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             .status(),
         StatusCode::UNAUTHORIZED,
     );
+    eprintln!("S049_FREE_REPORT guest checked");
     let form = request(&app, "GET", &form_path, &cookie, ORIGIN, "").await;
     assert_eq!(form.status(), StatusCode::OK);
     assert_eq!(form.headers()[header::CACHE_CONTROL], "no-store");
@@ -164,6 +170,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
     .unwrap();
     assert!(html.contains("Жалоба на комментарий"));
     assert!(!html.contains("S049_FREE_CHAPTER_BODY_NOT_REPORT"));
+    eprintln!("S049_FREE_REPORT authenticated GET and form checked");
     let reader = request(
         &app,
         "GET",
@@ -218,7 +225,9 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             .status(),
         StatusCode::NOT_FOUND,
     );
+    eprintln!("S049_FREE_REPORT forged CSRF, wrong edition checked");
     let saved = request(&app, "POST", &route, &cookie, ORIGIN, &payload).await;
+    eprintln!("S049_FREE_REPORT POST completed: {}", saved.status());
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         pg(
@@ -244,6 +253,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             .status(),
         StatusCode::CONFLICT,
     );
+    eprintln!("S049_FREE_REPORT idempotent replay checked");
     let another = payload.replace(&key, &"Q".repeat(43));
     assert_eq!(
         request(&app, "POST", &route, &cookie, ORIGIN, &another)
@@ -251,6 +261,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             .status(),
         StatusCode::CONFLICT,
     );
+    eprintln!("S049_FREE_REPORT pending dedup checked");
     pg(
         &url,
         &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={comment}"),
