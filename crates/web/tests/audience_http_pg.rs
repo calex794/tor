@@ -26,6 +26,7 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
+        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
         .args([
             "-X",
             "-A",
@@ -147,7 +148,9 @@ async fn progress(
     )
 }
 
-#[tokio::test]
+// A rejected C progress transaction rolls back asynchronously. Keep its driver
+// running while synchronous psql waits for the transaction's shared Book lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn audience_admin_live_authority_real_c_progress_replay_and_database_failure() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
