@@ -203,7 +203,14 @@ impl PgFreeCommentReviews {
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
         tx.commit().await?;
-        let cursor = if more { result.last().map(|row| row.id) } else { None };
-        Ok(FreeCommentReviewHistory { rows: result, before: cursor })
+        let cursor = if more {
+            result.last().map(|row| row.id)
+        } else {
+            None
+        };
+        Ok(FreeCommentReviewHistory {
+            rows: result,
+            before: cursor,
+        })
     }
 }

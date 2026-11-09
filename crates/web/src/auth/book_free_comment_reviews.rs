@@ -140,7 +140,10 @@ pub(super) async fn decide(
         Ok(digest) => digest,
         Err(code) => return deny(code),
     };
-    match store(&s).decide(&digest, report_id, &form.decision, &form.note).await {
+    match store(&s)
+        .decide(&digest, report_id, &form.decision, &form.note)
+        .await
+    {
         Ok(()) => super::private_response(Redirect::to("/admin/free-comment-reports"), &[]),
         Err(error) => deny(status(error)),
     }
