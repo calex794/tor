@@ -29,6 +29,9 @@ pub struct PendingAppeal {
     pub reason: String,
 }
 
+// Keep the query record explicit without a complex tuple in the SQL call.
+type PendingAppealRecord = (i64, i64, i64, i64, i64, i64, i64, String);
+
 fn valid_key(key: &str) -> bool {
     key.len() == 43
         && key
@@ -237,7 +240,7 @@ impl PgPaidCommentAppeals {
         }
         let mut tx = self.pool.begin().await?;
         administrator(&mut tx, digest).await?;
-        let rows: Vec<(i64, i64, i64, i64, i64, i64, i64, String)> = sqlx::query_as(
+        let rows: Vec<PendingAppealRecord> = sqlx::query_as(
             "SELECT a.id,a.hide_event_id,r.chapter_id,r.version_id,c.id,
                     a.author_user_id,e.reviewer_user_id,a.reason
              FROM social_paid_comment_appeals a
