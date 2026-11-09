@@ -29,11 +29,10 @@ pub(super) async fn check(
     accounts: &PgAccounts,
     app: &Router,
     author_cookie: &str,
-    comment: i64,
-    hide_report: i64,
+    sanctioned: (i64, i64, i64),
     original_admin_cookie: &str,
-    original_admin: i64,
 ) {
+    let (comment, hide_report, original_admin) = sanctioned;
     let path = "/me/paid-comment-appeals";
     let admin_path = "/admin/paid-comment-appeals";
     let hide_event = scalar(

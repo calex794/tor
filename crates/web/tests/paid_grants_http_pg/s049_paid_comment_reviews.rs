@@ -272,10 +272,8 @@ pub(super) async fn check(
         accounts,
         app,
         author_cookie,
-        comment,
-        second,
+        (comment, second, admin),
         &admin_cookie,
-        admin,
     )
     .await;
     rejected_pg(
