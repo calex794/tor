@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -361,6 +361,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
         and admin_key == ("POST", "/admin/finance/refunds/approve", "approval::submit")
     )
+    payout_admin_ops = {
+        ("GET", "/admin/finance/payouts", "queue"): "list",
+        ("POST", "/admin/finance/payouts/{id}/reject", "reject"): "reject_once",
+    }
+    audited_payout = (
+        policy == "admin_payout"
+        and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
+        and admin_key in payout_admin_ops
+    )
     s049_report_ops = {
         ("GET", "/admin/recommendation-reports", "admin_reports::queue"): "pending",
         ("POST", "/admin/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
@@ -498,7 +507,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
-            audited_admin or audited_support or audited_refund or approved_refund
+            audited_admin or audited_support or audited_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
@@ -716,6 +725,38 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 administrator report review must retain locked role, session, CSRF and audited decision")
+    if policy == "admin_payout":
+        repo = _production((ROOT / "crates/commerce/src/repositories/creator_payout_admin.rs")
+                           .read_text(encoding="utf-8"))
+        operation = payout_admin_ops.get(admin_key) if audited_payout else None
+        required_repo = (
+            "s.revoked_at IS NULL",
+            "s.expires_at>clock_timestamp()",
+            "u.account_state='active'",
+            "r.role='administrator' AND r.is_active",
+            "FOR SHARE OF s,u,r",
+            "Self::active_administrator(&mut tx, session_digest).await?",
+        )
+        guarded = bool(
+            operation
+            and "PgCreatorPayoutAdmin::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_user(&state, &headers)" in evidence
+            and "session_token_digest(&token)" in evidence
+            and all(marker in repo for marker in required_repo)
+        )
+        if operation == "reject_once":
+            guarded = guarded and all(marker in evidence for marker in (
+                "!rejection_enabled()",
+                "state.cookies.same_origin(&headers)",
+                "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "FROM finance_creator_payout_requests WHERE id=$1 FOR UPDATE",
+                "SET state='rejected'",
+                "INSERT INTO finance_creator_payout_admin_audit",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
     if policy == "admin_refund" and not (
             audited_refund
             and "PgRefundAdminReview::new" in evidence
