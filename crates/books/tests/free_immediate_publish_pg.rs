@@ -207,3 +207,119 @@ async fn draft_book_is_still_private_and_public_save_fails_closed() {
     assert_eq!(version, hidden.version_id);
     pool.close().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 /tor_ci"]
+async fn s349_new_free_chapter_stays_bodyless_and_hidden_until_s3_receipt() {
+    use sha2::{Digest, Sha256};
+    use tor_books::repositories::free_s3_publish::PgFreeS3Publication;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG18 fixture");
+    assert!(url.ends_with("/tor_ci"), "never modify production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('s349-stage-owner@tor-ci.example','Free S3 owner','$argon2id$test')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:s349:stage','ru','S3 staged free','public',$1) RETURNING id",
+    )
+    .bind(actor)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let authoring = PgFreeS3Publication::new(pool.clone());
+    let markdown = "Новая глава сразу хранится в S3 😀";
+    let command_key = "s".repeat(43);
+    let input = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "S3 edition",
+        body: markdown,
+        access: "free",
+        price_amount: 0,
+        command_key: &command_key,
+    })
+    .unwrap();
+
+    let prepared = authoring.prepare_new(actor, &input).await.unwrap();
+    assert!(!prepared.published);
+    assert_eq!(authoring.prepare_new(actor, &input).await, Ok(prepared));
+    let row: (Option<String>, String) = sqlx::query_as(
+        "SELECT v.body_markdown,c.visibility
+         FROM chapter_versions v JOIN chapters c ON c.id=v.chapter_id
+         WHERE v.id=$1",
+    )
+    .bind(prepared.version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, None, "never copy the chapter text into PostgreSQL");
+    assert_eq!(row.1, "draft");
+    let publications: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(publications, 0);
+    let hash: [u8; 32] = Sha256::digest(markdown.as_bytes()).into();
+
+    // Caller is required to obtain a G-verified GET receipt first.
+    // A wrong SHA can never attach or reveal this edition.
+    assert_eq!(
+        authoring
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (prepared.chapter_id, prepared.version_id),
+                ("tor-private-chapter-ci", [9; 32], markdown.len() as u64)
+            )
+            .await,
+        Err(AuthorError::Conflict)
+    );
+    assert_eq!(
+        authoring
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (prepared.chapter_id, prepared.version_id),
+                ("tor-private-chapter-ci", hash, markdown.len() as u64)
+            )
+            .await,
+        Ok(())
+    );
+    assert_eq!(
+        authoring
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (prepared.chapter_id, prepared.version_id),
+                ("tor-private-chapter-ci", hash, markdown.len() as u64)
+            )
+            .await,
+        Ok(()),
+        "identical retry cannot create duplicate publication"
+    );
+    let row: (Option<String>, String) = sqlx::query_as(
+        "SELECT v.body_markdown,c.visibility
+         FROM chapter_versions v JOIN chapters c ON c.id=v.chapter_id
+         WHERE v.id=$1",
+    )
+    .bind(prepared.version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, None);
+    assert_eq!(row.1, "public");
+    assert!(authoring.prepare_new(actor, &input).await.unwrap().published);
+    pool.close().await;
+}
