@@ -15,6 +15,7 @@ struct PaidRouterExtras {
         bool,
     )>,
     author: Option<Arc<dyn crate::author_chapter_http::PaidChapterPublisher>>,
+    free_author: Option<Arc<dyn crate::author_chapter_http::FreeChapterPublisher>>,
 }
 
 /// S034 opt-in: the grant API remains independent from the browser reader.
@@ -41,6 +42,7 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         PaidRouterExtras {
             cover,
             author: None,
+            free_author: None,
         },
     )
     .expect("API-only grant constructor has no browser S3 origin")
@@ -73,6 +75,7 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser(
         PaidRouterExtras {
             cover,
             author: None,
+            free_author: None,
         },
     )
 }
@@ -108,6 +111,46 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
         PaidRouterExtras {
             cover,
             author: Some(Arc::new(author)),
+            free_author: None,
+        },
+    )
+}
+
+
+/// Combined paid and free S3 writers, sharing one authenticated author router.
+#[cfg(all(feature = "s3-paid", feature = "s3-free"))]
+pub fn router_with_postgres_reading_auth_paid_grants_browser_author_free(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    origin: (bool, String),
+    paid: (
+        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+        String,
+    ),
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+    author: crate::paid_author_publish::PgPaidAuthorPublisher<
+        tor_storage::repositories::s3::S3PrivateStore,
+    >,
+    free: crate::free_author_publish::PgFreeAuthorPublisher<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+) -> Result<Router, &'static str> {
+    let (secure, public_origin) = origin;
+    paid_grants_router(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        (paid.0, Some(paid.1)),
+        PaidRouterExtras {
+            cover,
+            author: Some(Arc::new(author)),
+            free_author: Some(Arc::new(free)),
         },
     )
 }
@@ -124,7 +167,7 @@ fn paid_grants_router(
     ),
     extras: PaidRouterExtras,
 ) -> Result<Router, &'static str> {
-    let PaidRouterExtras { cover, author } = extras;
+    let PaidRouterExtras { cover, author, free_author } = extras;
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
@@ -152,6 +195,18 @@ fn paid_grants_router(
             None
         };
         if let Some(publisher) = author {
+            #[cfg(feature = "s3-free")]
+            if let Some(free) = free_author {
+                auth::router_with_paid_and_free_author(
+                    accounts,
+                    auth_reader,
+                    secure,
+                    public_origin,
+                    covers,
+                    publisher,
+                    free,
+                )
+            } else {
             auth::router_with_paid_reader_author(
                 accounts,
                 auth_reader,
@@ -160,7 +215,17 @@ fn paid_grants_router(
                 covers,
                 publisher,
             )
+            }
+            #[cfg(not(feature = "s3-free"))]
+            auth::router_with_paid_reader_author(accounts, auth_reader, secure, public_origin, covers, publisher)
         } else {
+            #[cfg(feature = "s3-free")]
+            if let Some(free) = free_author {
+                auth::router_with_paid_reader_free_author(accounts, auth_reader, secure, public_origin, covers, free)
+            } else {
+                auth::router_with_paid_reader(accounts, auth_reader, secure, public_origin, covers)
+            }
+            #[cfg(not(feature = "s3-free"))]
             auth::router_with_paid_reader(accounts, auth_reader, secure, public_origin, covers)
         }
     } else if enable_cover_uploads {
