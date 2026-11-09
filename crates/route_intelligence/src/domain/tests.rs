@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 357);
+    assert_eq!(unique.len(), 359);
 }
 
 #[test]
@@ -371,4 +371,18 @@ fn s049_free_comment_report_route_is_reader_scoped_not_administrator() {
         assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
         assert_eq!(route.product_area, ProductArea::Social);
     }
+}
+
+#[test]
+fn s049_free_comment_admin_review_routes_are_not_general_moderator_routes() {
+    for (template, method) in [
+        ("/admin/free-comment-reports", "GET"),
+        ("/admin/free-comment-reports/{report_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/free-comment-reports"), "POST").route_known);
 }

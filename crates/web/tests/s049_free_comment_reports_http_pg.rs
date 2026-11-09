@@ -45,6 +45,17 @@ fn pg(url: &str, sql: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
+fn pg_rejected(url: &str, sql: &str) {
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let output = Command::new("psql")
+        .args([
+            "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql,
+        ])
+        .output()
+        .expect("isolated psql available");
+    assert!(!output.status.success(), "immutable S049 audit cannot be overwritten");
+}
+
 async fn request(
     app: &Router,
     method: &str,
@@ -87,6 +98,39 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
         )
         .await
         .unwrap();
+    let admin_session = generate_session_token();
+    let moderator_session = generate_session_token();
+    let admin = accounts
+        .register_with_session(
+            &format!("s049-free-admin-{stamp}@example.invalid"),
+            "AdminFree",
+            &hash_password("S049FreeChapterAdminStrongPassword").unwrap(),
+            &session_token_digest(&admin_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let moderator = accounts
+        .register_with_session(
+            &format!("s049-free-moderator-{stamp}@example.invalid"),
+            "ModeratorFree",
+            &hash_password("S049FreeChapterModeratorStrongPassword").unwrap(),
+            &session_token_digest(&moderator_session),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
+             VALUES({admin},'administrator',TRUE),({moderator},'moderator',TRUE)"
+        ),
+    );
+    let admin_cookie =
+        format!("tor-dev-session={admin_session}; tor-dev-csrf={csrf}");
+    let moderator_cookie =
+        format!("tor-dev-session={moderator_session}; tor-dev-csrf={csrf}");
     let book: i64 = pg(
         &url,
         &format!(
@@ -250,6 +294,82 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             .await
             .status(),
         StatusCode::CONFLICT,
+    );
+    let admin_queue = "/admin/free-comment-reports";
+    assert_eq!(
+        request(&app, "GET", admin_queue, "", ORIGIN, "")
+            .await.status(), StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        request(&app, "GET", admin_queue, &moderator_cookie, ORIGIN, "")
+            .await.status(), StatusCode::FORBIDDEN,
+        "a book-registration moderator cannot review chapter comments",
+    );
+    let admin_page = request(&app, "GET", admin_queue, &admin_cookie, ORIGIN, "").await;
+    assert_eq!(admin_page.status(), StatusCode::OK);
+    assert_eq!(admin_page.headers()[header::CACHE_CONTROL], "no-store");
+    let admin_html = String::from_utf8(
+        to_bytes(admin_page.into_body(), 256 * 1024).await.unwrap().to_vec()
+    ).unwrap();
+    assert!(admin_html.contains("E public free comment"));
+    assert!(!admin_html.contains("S049_FREE_CHAPTER_BODY_NOT_REPORT"));
+
+    let report_id: i64 = pg(&url, &format!(
+        "SELECT id FROM social_free_comment_reports
+         WHERE comment_id={comment} AND reporter_user_id={user}"
+    )).parse().unwrap();
+    let review_route = format!("{admin_queue}/{report_id}/decision");
+    let review_form = format!(
+        "csrf_token={csrf}&decision=reviewed&note=Manually+inspected+free+edition+comment"
+    );
+    assert_eq!(
+        request(&app, "POST", &review_route, &moderator_cookie, ORIGIN, &review_form)
+            .await.status(), StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(&app, "POST", &review_route, &admin_cookie,
+                "https://evil.invalid", &review_form)
+            .await.status(), StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(&app, "POST", &review_route, &admin_cookie, ORIGIN,
+                &review_form.replace("decision=reviewed", "decision=hide_comment"))
+            .await.status(), StatusCode::BAD_REQUEST,
+        "a review is not permission to hide a chapter comment",
+    );
+    assert_eq!(
+        request(&app, "POST", &review_route, &admin_cookie, ORIGIN, &review_form)
+            .await.status(), StatusCode::SEE_OTHER,
+    );
+    assert_eq!(
+        pg(&url, &format!(
+            "SELECT count(*) FROM social_free_comment_review_events
+             WHERE report_id={report_id} AND reviewer_user_id={admin}
+               AND decision='reviewed'"
+        )), "1",
+    );
+    assert_eq!(
+        pg(&url, &format!(
+            "SELECT visibility FROM discussion_comments WHERE id={comment}"
+        )), "visible",
+        "a manual review never hides a comment automatically",
+    );
+    assert_eq!(
+        request(&app, "POST", &review_route, &admin_cookie, ORIGIN, &review_form)
+            .await.status(), StatusCode::CONFLICT,
+    );
+    pg_rejected(&url, &format!(
+        "UPDATE social_free_comment_review_events
+         SET decision='dismissed' WHERE report_id={report_id}"
+    ));
+    pg(
+        &url,
+        &format!("UPDATE account_roles SET is_active=FALSE
+                 WHERE user_id={admin} AND role='administrator'"),
+    );
+    assert_eq!(
+        request(&app, "GET", admin_queue, &admin_cookie, ORIGIN, "")
+            .await.status(), StatusCode::FORBIDDEN,
     );
     pg(
         &url,
