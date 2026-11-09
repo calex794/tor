@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 343] = [
+static ROUTES: [RouteRegistration; 355] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -353,6 +353,18 @@ static ROUTES: [RouteRegistration; 343] = [
     RouteRegistration::new("/api/v1/reader/layer/{chapter_id}/toc/window", "GET", "/api/v1/reader/layer/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 340
     RouteRegistration::new("/admin/recommendation-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 341
     RouteRegistration::new("/admin/recommendation-reports/{share_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 342
+    RouteRegistration::new("/api/v1/me/library/saved/{id}/toc/window", "GET", "/api/v1/me/library/saved/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 343
+    RouteRegistration::new("/books/{id}/report", "GET", "/books/", Prefix, Page, Social, Read), // 344
+    RouteRegistration::new("/books/{id}/report", "POST", "/books/", Prefix, Page, Social, Write), // 345
+    RouteRegistration::new("/admin/book-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 346
+    RouteRegistration::new("/admin/book-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 347
+    RouteRegistration::new("/me/comment-appeals", "GET", "/me/", Exact, Page, Dashboard, Read), // 348
+    RouteRegistration::new("/me/comment-appeals/{hide_event_id}", "POST", "/me/", Prefix, Page, Dashboard, Write), // 349
+    RouteRegistration::new("/admin/book-comment-appeals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 350
+    RouteRegistration::new("/admin/book-comment-appeals/{appeal_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 351
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/paid-comments/report", "POST", "/api/v1/reader/chapters/", Prefix, Api, Social, Write), // 352
+    RouteRegistration::new("/admin/paid-comment-reports", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 353
+    RouteRegistration::new("/admin/paid-comment-reports/{report_id}/decision", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 354
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

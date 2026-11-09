@@ -1,5 +1,7 @@
 pub mod admin_mail;
 pub mod book_collections;
+pub mod book_comment_appeals;
+pub mod book_content_reports;
 pub mod book_rooms;
 pub mod book_share_reports;
 pub mod book_shares;
@@ -13,3 +15,5 @@ mod messages;
 mod moderation_overdue_bell;
 pub(super) mod notification_events;
 pub mod notifications;
+pub mod paid_comment_reports;
+pub mod paid_comment_reviews;

@@ -152,7 +152,7 @@ fn comments_list(book_id: i64, comments: &[PublicComment], csrf: Option<&str>) -
             output,
             "<article class=\"comment-card\" id=\"comment-{}\">
              <div class=\"comment-card__head\"><span class=\"comment-card__author\">Читатель · комментарий №{id}</span></div>
-             {context}<div class=\"comment-card__body\">{body}</div>{reply}</article>",
+             {context}<div class=\"comment-card__body\">{body}</div><p><a href=\"/books/{book_id}/report?comment_id={id}\">Пожаловаться на комментарий</a></p>{reply}</article>",
             comment.id, id = comment.id
         )
         .expect("render comment");

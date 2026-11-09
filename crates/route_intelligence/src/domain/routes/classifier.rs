@@ -355,6 +355,18 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/reader/layer/{chapter_id}/toc/window"), "GET") => Some(340),
         (Some("/admin/recommendation-reports"), "GET") => Some(341),
         (Some("/admin/recommendation-reports/{share_id}/decision"), "POST") => Some(342),
+        (Some("/api/v1/me/library/saved/{id}/toc/window"), "GET") => Some(343),
+        (Some("/books/{id}/report"), "GET") => Some(344),
+        (Some("/books/{id}/report"), "POST") => Some(345),
+        (Some("/admin/book-reports"), "GET") => Some(346),
+        (Some("/admin/book-reports/{report_id}/decision"), "POST") => Some(347),
+        (Some("/me/comment-appeals"), "GET") => Some(348),
+        (Some("/me/comment-appeals/{hide_event_id}"), "POST") => Some(349),
+        (Some("/admin/book-comment-appeals"), "GET") => Some(350),
+        (Some("/admin/book-comment-appeals/{appeal_id}/decision"), "POST") => Some(351),
+        (Some("/api/v1/reader/chapters/{chapter_id}/paid-comments/report"), "POST") => Some(352),
+        (Some("/admin/paid-comment-reports"), "GET") => Some(353),
+        (Some("/admin/paid-comment-reports/{report_id}/decision"), "POST") => Some(354),
         _ => None,
     };
     index

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily encrypted TOR PostgreSQL 18 off-site backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=tor-offsite-backup.service
+
+[Install]
+WantedBy=timers.target

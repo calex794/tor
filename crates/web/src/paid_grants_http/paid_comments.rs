@@ -67,7 +67,7 @@ fn parsed_anchor(body: &CommentInput) -> Result<Option<NewAnchor<'_>>, StatusCod
     }
 }
 
-async fn authorized(
+pub(super) async fn authorized(
     state: &GrantState,
     headers: &HeaderMap,
     chapter: PositiveId,
@@ -104,7 +104,7 @@ async fn authorized(
     }
 }
 
-fn private_json(value: serde_json::Value) -> Response {
+pub(super) fn private_json(value: serde_json::Value) -> Response {
     let mut response = private_response(Json(value), &[]);
     response.headers_mut().insert(
         header::CACHE_CONTROL,
