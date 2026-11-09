@@ -186,6 +186,18 @@ pub(crate) fn router_with_free_author(
 }
 
 #[cfg(feature = "s3-free")]
+pub(crate) fn router_with_paid_reader_free_author(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover: Option<Arc<dyn CoverObjectStore>>,
+    free: Arc<dyn author_chapter_http::FreeChapterPublisher>,
+) -> Router {
+    router_inner(accounts, reader, secure, origin, cover, true, None, Some(free))
+}
+
+#[cfg(feature = "s3-free")]
 pub(crate) fn router_with_paid_and_free_author(
     accounts: PgAccounts,
     reader: PgReader,
