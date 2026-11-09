@@ -53,6 +53,18 @@ module.exports = async (browser, base, out) => {
       await a.page.goto(base + '/me/finance');
       assert(await a.page.getByRole('heading', { name: 'Финансы автора' }).isVisible());
       assert((await a.page.locator('main').innerText()).includes('Баланс читательского кошелька'));
+      // NEwBOO S038 parity: stats, refunds and payouts remain private,
+      // read-only and distinguish missing events from completed transfers.
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Возвраты' }).click();
+      assert(a.page.url().includes('tab=refunds'));
+      assert((await a.page.locator('main').innerText()).includes('Подтверждённых возвратов пока нет'));
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Заявки' }).click();
+      assert(a.page.url().includes('tab=payouts'));
+      assert((await a.page.locator('main').innerText()).includes('Заявок пока нет'));
+      assert(!(await a.page.locator('main').innerText()).includes('Деньги переведены'));
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Начисления' }).click();
+      assert(a.page.url().includes('tab=stats'));
+      assert((await a.page.locator('main').innerText()).includes('Подтверждённых начислений пока нет'));
       assert.equal(await a.page.locator('form[action="/me/finance"]').count(), 0,
         'cash-out/payout reservation must not be enabled by default');
       const deniedPayout = await a.context.request.post(base + '/me/finance', {
