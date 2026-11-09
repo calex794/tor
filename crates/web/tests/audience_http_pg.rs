@@ -26,7 +26,10 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c lock_timeout=2000",
+        )
         .args([
             "-X",
             "-A",
