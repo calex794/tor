@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -191,6 +191,9 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
+    if (source == root / "crates/web/src/auth.rs"
+            and handler == "session_security::logout"):
+        return source.parent / "auth/session_security.rs"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
         allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
@@ -335,6 +338,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "StatusCode::FORBIDDEN" in caller
                 and ".revoke_session(&digest)" in caller):
             evidence += "\n" + caller
+    if (entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+                == ("POST", "/logout", "session_security::logout")):
+        if not all(marker in body for marker in (
+            "state.cookies.same_origin(&headers)",
+            ".valid_csrf(&headers", "StatusCode::FORBIDDEN",
+            ".revoke_session(&digest)",
+        )):
+            errors.append(f"{label}: logout bypassed CSRF or revocable PostgreSQL session")
     policy = entry["policy"]
     if policy not in POLICIES:
         return [f"{label}: invalid policy {policy!r}"]
@@ -623,6 +635,34 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
+    if policy == "admin_outbox_retry":
+        # G-07: requeue is authorized by the locked live role in the SAME
+        # transaction as event mutation and append-only audit.
+        repo = _production((ROOT / "crates/ingest/src/repositories/outbox_retry.rs")
+                           .read_text(encoding="utf-8"))
+        authorized_route = (
+            entry["source"] == "crates/web/src/auth/admin_jobs.rs"
+            and admin_key == ("POST", "/api/v1/admin/jobs/{id}/retry", "retry")
+        )
+        handler_guard = all(token in evidence for token in (
+            "session_actor(&digest)", "!actor.administrator",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.valid_csrf(&headers, csrf)",
+            ".retry_dead_letter(&digest, &event_id)",
+            "StatusCode::UNAUTHORIZED", "StatusCode::FORBIDDEN",
+        ))
+        persistence_guard = all(token in repo for token in (
+            "supported_retry_event", "ChapterPublished", "reader.chapter.released",
+            "chapter_release_fanout_v1", "user_notifications",
+            "FOR SHARE OF s,u,r", "u.account_state='active'",
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "FOR UPDATE",
+            "dead_at IS NOT NULL", "lease_epoch=lease_epoch+1",
+            "INSERT INTO g_outbox_admin_retry_audit",
+            "tx.commit()", "NotRetryable",
+        ))
+        if not (authorized_route and handler_guard and persistence_guard):
+            errors.append(f"{label}: G-07 retry lacks live administrator, CSRF, fencing or audit")
     if policy == "admin_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/book_comment_appeals.rs")
                            .read_text(encoding="utf-8"))
