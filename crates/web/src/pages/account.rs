@@ -450,7 +450,7 @@ mod tests {
         assert!(!html.contains("персонального анализа"));
         assert!(!html.contains("href=\"/me/settings\""));
         assert!(!html.contains("href=\"/me/purchases\""));
-        assert!(!html.contains("href=\"/me/finance\""));
+        assert!(html.contains("href=\"/me/finance\""));
     }
     #[test]
     fn d_06_swap_link_requires_explicit_browser_opt_in() {
