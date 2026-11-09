@@ -7,7 +7,7 @@
 - `purchase` — состоявшийся immutable факт; `purchase_lines` при пакетной покупке, одна строка на точный тип entitlement. Покупка фиксирует `actor_id,object_id,version_id/offer_revision,amount_minor,RUB,share_snapshot,refund_policy_version,refund_deadline_at`. Текущая цена или состав команды **не** меняют старые факты.
 - `ledger` — append-only движения: debit/credit/reversal; `(idempotency_scope,key,payload_digest)` и `(source_type,source_id,effect_type)` уникальны. Баланс — проверенная материализация ledger, не альтернативная mutable truth.
 - `entitlement` — текущий допуск, выведенный из действительного purchase/source policy; `reader_progress` никак не создаёт права.
-- `holds` — неизрасходованные, но недоступные к выводу деньги по origin (immature creator earning, pending payout, disputed refund/chargeback, promotional/non-cash, ad escrow). Общая сумма на внутреннем счёте **не** равна `withdrawable`.
+- `holds` — временные финансовые ограничения (immature creator earning, pending payout, disputed refund/chargeback, ad escrow). Пополнения кошелька не исключаются из расчёта выплаты только по причине их происхождения. `withdrawable` получается вычитанием актуальных holds и reservations из общего расчётного баланса.
 - `refund` — урегулирование **конкретной покупки**, не «изменить любой balance». `system_disposition` — доверенное принудительное урегулирование T&S/legal, не bypass обычного user-refund.
 - `receipt evidence`: проверенная исходная запись posting со совпадающими owner/amount/currency/direction/source/id; факт наличия случайного `transaction_id` или `COUNT>0` — НЕ финансовое доказательство.
 
@@ -41,21 +41,22 @@
 - Админ не может `raw revoke` access с `provenance_type=purchase`, включая **нулевую цену**, даже если нет ledger entry. Для `grant` возможен audited direct revoke. Гонка `grant→purchase` vs admin revoke исключается lock/CAS в той же authority.
 - Exchange не создаёт новое право/лишнее начисление, пока оригинальный reversal не подтверждён; новая версия/книга/ценовая разница — отдельный immutable offer snapshot с permission check.
 
-## 5. Доходы и выплаты: origin-aware capacity
+## 5. Доходы и выплаты: единая модель NEwBOO (продуктовое решение 2026-11-09)
+
+Для расчёта доступной к выводу суммы используются общий кошелёк и авторские начисления. **Запрет на вывод пополнений по их происхождению не вводится.** Для точной сверки с NEwBOO используется формула `balance - holds - pending_payouts`.
 
 ```text
-mature_cash_earnings
-  = SUM(posted creator-share and ad-publisher earnings past clear_at)
-  - SUM(confirmed reversals and existing clawback debt)
-
-withdrawable_minor
-  = max(0, mature_cash_earnings
-      - active_pending_payout_reservations
-      - unsettled_refund_and_chargeback_holds
-      - other_explicit_financial_holds)
+accrued_creator_net = SUM(creator_share_earnings) - SUM(confirmed_creator_reversals)
+unified_balance = wallet.balance_minor + accrued_creator_net
+current_holds = immature_creator_net + open_refund_and_chargeback_holds + other_financial_holds
+withdrawable_minor = max(0, unified_balance - current_holds - active_pending_payout_reservations)
 ```
 
-Общий `wallet.balance_minor` может включать читательские пополнения, подарочные/промо средства и возвраты **и не является authority для cash-out**. `origin_type` записи обязателен; накопленный долг clawback съедает последующие новые mature credits прежде, чем доступна следующая выплата. Статистика автора показывает **его собственные** доходы/удержания, не раскрывает чужую долю. Карточка «Финансы» остаётся видимой пользователю после первой реальной записи даже при выходе из команды — право на деньги не зависит от current book membership.
+При этом учёт immutable source/transaction/claim сохраняется для расследования возвратов и аудита, **но не используется как запрет на выплату обычных пополнений**. Суммы не округляются через floating point, а повторное создание заявки сериализуется на уровне PostgreSQL.
+
+**Этап интеграции:** текущий TOR отдельно хранит `reader_wallet_accounts` и `finance_creator_earnings`. В S038 PR #753 их объединяет расчётная проекция для заявки и финансового кабинета. Физическая проводка авторских начислений в расходуемый кошелёк (покупки из этих денег, безопасные reversal и запрет одновременного расходования ожидающего резерва) требует отдельной транзакционной миграции D-08/D-06 и приёмки. Нельзя заявлять полную идентичность движения денег с NEwBOO, пока она не выполнена.
+
+Карточка «Финансы» сохраняет историю уже начисленных средств после выхода из команды; создание **новой** заявки может требовать текущего статуса участника по правилу NEwBOO. Внешняя выплата до подписания условий остаётся выключенной.
 
 `POST /api/v1/me/payout-requests`:
 - stable Idempotency-Key из 43 символов; второй такой же payload получает ту же pending заявку/резерв. Подменили amount — 409;
@@ -119,7 +120,7 @@ CREATE TABLE finance_earning_holds (
 | --- | --- | --- |
 | B01 | same user/key payout дважды; второй amount иной | одна reservation; второй 409 |
 | B02 | pending payout, разлогиниться/потерять team role | запись и sticky Finance остаются, creator ACL не появляется |
-| B03 | balance=100, mature=60, hold=20, pending=10 | withdrawable=30; approve self reservation не вычитает 10 дважды |
+| B03 | wallet=100, mature_creator=60, hold=20, pending=10 | unified balance=160, withdrawable=130; approve self reservation не вычитает 10 дважды |
 | B04 | два администратора одновременно approve одного payout | один debit, terminal posting, одна квитанция |
 | B05 | request refund→успешный S3 paid grant→approve | fail REFUND_ALREADY_OPENED, ledger/purchase unchanged |
 | B06 | два refund request одной purchase | open row один по unique partial index |

@@ -16,5 +16,6 @@ mod messages;
 mod moderation_overdue_bell;
 pub(super) mod notification_events;
 pub mod notifications;
+pub mod paid_comment_appeals;
 pub mod paid_comment_reports;
 pub mod paid_comment_reviews;

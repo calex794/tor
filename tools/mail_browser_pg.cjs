@@ -48,6 +48,33 @@ module.exports = async (browser, base, out) => {
         clients.push({ context, page, id });
       }
       const [a, b, c, d] = clients;
+      // S038: creator financial statement is private even for accounts
+      // with zero earnings, and external cash-out stays default OFF.
+      await a.page.goto(base + '/me/finance');
+      assert(await a.page.getByRole('heading', { name: 'Финансы автора' }).isVisible());
+      assert((await a.page.locator('main').innerText()).includes('Баланс кошелька'));
+      assert((await a.page.locator('main').innerText()).includes('Общий расчётный баланс'));
+      // NEwBOO S038 parity: stats, refunds and payouts remain private,
+      // read-only and distinguish missing events from completed transfers.
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Возвраты' }).click();
+      assert(a.page.url().includes('tab=refunds'));
+      assert((await a.page.locator('main').innerText()).includes('Подтверждённых возвратов пока нет'));
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Заявки' }).click();
+      assert(a.page.url().includes('tab=payouts'));
+      assert((await a.page.locator('main').innerText()).includes('Заявок пока нет'));
+      assert(!(await a.page.locator('main').innerText()).includes('Деньги переведены'));
+      await a.page.locator('nav[aria-label="Разделы финансов"]').getByRole('link', { name: 'Начисления' }).click();
+      assert(a.page.url().includes('tab=stats'));
+      assert((await a.page.locator('main').innerText()).includes('Подтверждённых начислений пока нет'));
+      assert.equal(await a.page.locator('form[action="/me/finance"]').count(), 0,
+        'cash-out/payout reservation must not be enabled by default');
+      const deniedPayout = await a.context.request.post(base + '/me/finance', {
+        form: { amount_rub: '1.00', csrf_token: 'invalid', intent_key: 'A'.repeat(42) + '8' },
+        headers: { Origin: base }, maxRedirects: 0,
+      });
+      assert.equal(deniedPayout.status(), 404, 'default-off creator payout POST');
+      const financeSize = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+      assert(financeSize[0] <= financeSize[1] + 1, 'creator finance has no horizontal overflow');
       // E2E profile entry: no fixture POST or invented recipient picker.
       await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' b'));
       await a.page.getByRole('button', { name: 'Почта', exact: true }).click();
