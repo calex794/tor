@@ -90,7 +90,13 @@ fn dead_event(url: &str, key: &str) -> String {
             "INSERT INTO outbox_events (
                 event_type,schema_version,aggregate_kind,aggregate_id,
                 dedupe_key,payload,required_consumers,attempts,lease_epoch,dead_at)
-             VALUES ('ChapterPublished',1,'chapter',0,'{key}','{{}}'::jsonb,
+             VALUES ('ChapterPublished',1,'chapter',987654321,'{key}',
+                     jsonb_build_object(
+                       'chapter_id',987654321::bigint,
+                       'book_id',987654322::bigint,
+                       'version_id',987654323::bigint,
+                       'published_at',clock_timestamp(),
+                       'first_release',true),
                      ARRAY['chapter_release_fanout_v1'],12,7,clock_timestamp())
              RETURNING id"
         ),
@@ -345,12 +351,51 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "2",
         "rejected retries cannot change original event state"
     );
+    // A whitelisted event family with a corrupt payload is still unsafe.
+    let malformed = dead_event(&url, &format!("g-admin-malformed-{nonce}"));
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET payload='{{}}'::jsonb WHERE id='{malformed}'::uuid"
+        ),
+    );
+    assert_eq!(
+        request(&app, &malformed, Some(&session), &csrf, Some(&csrf), ORIGIN)
+            .await
+            .0,
+        StatusCode::CONFLICT,
+        "malformed allowlisted envelopes must not poison real projection workers"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT (dead_at IS NOT NULL)::text FROM outbox_events WHERE id='{malformed}'::uuid"
+            ),
+        ),
+        "true"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM g_outbox_admin_retry_audit WHERE event_id='{malformed}'::uuid"
+            ),
+        ),
+        "0"
+    );
     let child = dead_event(&url, &format!("g-admin-child-{nonce}"));
     pg(
         &url,
         &format!(
             "UPDATE outbox_events SET event_type='reader.chapter.released',
-             required_consumers=ARRAY['user_notifications']::text[]
+             required_consumers=ARRAY['user_notifications']::text[],
+             payload=jsonb_build_object(
+               'object_id',987654321::bigint,
+               'book_id',987654322::bigint,
+               'version_id',987654323::bigint,
+               'actor_user_id',987654324::bigint,
+               'recipient_user_id',987654325::bigint)
              WHERE id='{child}'::uuid"
         ),
     );
@@ -440,7 +485,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     // This test shares the disposable /tor_ci database with the later E-08
     // and ChapterPublished tests. Successful administrative retries above use
-    // synthetic outbox events with empty payloads: they must not be consumed
+    // synthetic outbox events with placeholder IDs: they must not be consumed
     // by real projection handlers after this test. Keep the immutable audit
     // and receipts, but return only these three test-created events to dead-letter.
     let fake_ids = format!("'{event_id}'::uuid, '{concurrent}'::uuid, '{child}'::uuid");
