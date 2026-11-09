@@ -503,9 +503,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
             "POST",
             &format!("/admin/book-reports/{mod_report}/decision"),
             &format!("{moderator}; {mod_queue_cookie}"),
-            &format!(
-                "decision=hide_comment&note=Moderator+review&csrf_token={mod_queue_csrf}"
-            )
+            &format!("decision=hide_comment&note=Moderator+review&csrf_token={mod_queue_csrf}")
         )
         .await
         .status(),
@@ -568,9 +566,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
             "POST",
             &format!("{queue}/{second_appeal}/decision"),
             &format!("{first}; {first_review_cookie}"),
-            &format!(
-                "decision=restored&note=Independent+review&csrf_token={first_review_csrf}"
-            )
+            &format!("decision=restored&note=Independent+review&csrf_token={first_review_csrf}")
         )
         .await
         .status(),
