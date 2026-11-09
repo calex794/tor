@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -211,6 +211,8 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return source.parent / "book_paid_comment_reviews.rs"
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "free_comment_reports":
         return source.parent / "book_free_comment_reports.rs"
+    if source == root / "crates/web/src/auth/book_shares.rs" and module == "free_comment_reviews":
+        return source.parent / "book_free_comment_reviews.rs"
     if source == root / "crates/web/src/auth/book_shares.rs" and module == "paid_comment_appeals":
         return source.parent / "book_paid_comment_appeals.rs"
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
@@ -423,6 +425,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if is_s049_paid_appeal_user or audited_s049_paid_appeal_admin:
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
+    s049_free_review_ops = {
+        ("GET", "/admin/free-comment-reports", "free_comment_reviews::queue"): "pending",
+        ("POST", "/admin/free-comment-reports/{report_id}/decision",
+         "free_comment_reviews::decide"): "decide",
+    }
+    audited_s049_free_review = (
+        policy == "admin_free_comment_reports"
+        and entry["source"] == "crates/web/src/auth/book_shares.rs"
+        and admin_key in s049_free_review_ops
+    )
+    if audited_s049_free_review:
+        evidence += "\n" + functions.get("session_user", "")
+        evidence += "\n" + functions.get("store", "")
     s049_paid_review_ops = {
         ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue"): "pending",
         ("POST", "/admin/paid-comment-reports/{report_id}/decision", "paid_comment_reviews::decide"): "decide",
@@ -458,7 +473,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or approved_refund
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
-            or audited_s049_paid_review or audited_s049_paid_appeal_admin):
+            or audited_s049_paid_review or audited_s049_paid_appeal_admin
+            or audited_s049_free_review):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_paid_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/paid_comment_appeals.rs")
@@ -492,6 +508,34 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 independent paid-appeal reviewer lacks locked role, separation of duties, CSRF or audit")
+    if policy == "admin_free_comment_reports":
+        repo = _production((ROOT / "crates/social/src/repositories/free_comment_reviews.rs")
+                           .read_text(encoding="utf-8"))
+        operation = s049_free_review_ops.get(admin_key) if audited_s049_free_review else None
+        required = (
+            "r.role='administrator' AND r.is_active",
+            "s.revoked_at IS NULL", "s.expires_at>now()",
+            "u.account_state='active'", "FOR SHARE OF s,u,r",
+            "administrator(&mut tx, digest).await?",
+        )
+        guarded = bool(
+            operation
+            and "PgFreeCommentReviews::new" in evidence
+            and re.search(rf"\.{operation}\s*\(\s*&digest", evidence)
+            and "session_user(&s, &headers)" in evidence
+            and ".active_session_user(&digest)" in evidence
+            and all(marker in repo for marker in required)
+        )
+        if operation == "decide":
+            guarded = guarded and all(marker in evidence for marker in (
+                "s.cookies.same_origin(&headers)",
+                "s.cookies.valid_csrf(&headers, &form.csrf_token)",
+            )) and all(marker in repo for marker in (
+                "FOR UPDATE", "INSERT INTO social_free_comment_review_events",
+                "UPDATE social_free_comment_reports SET state=$2",
+            ))
+        if not guarded:
+            errors.append(f"{label}: S049 free-comment reviews need locked administrator role, CSRF and audit")
     if policy == "admin_paid_comment_reports":
         repo = _production((ROOT / "crates/social/src/repositories/paid_comment_reviews.rs")
                            .read_text(encoding="utf-8"))

@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 365)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 363)  # Includes the S033 personal routes.
+        self.assertEqual(report["route_bindings"], 367)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 365)  # Includes the S033 personal routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -143,6 +143,21 @@ class RilExposureTests(unittest.TestCase):
         })
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+    def test_s049_free_comment_review_does_not_enable_admin_export(self):
+        self.assertEqual(check_repository(self.root), [])
+        target = self.root / "docs/contracts/ril-route-guards-v1.json"
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        doc["routes"].append({
+            "method": "GET",
+            "template": "/admin/free-comment-reports/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "free_comment_reviews::queue",
+            "policy": "admin_free_comment_reports",
+        })
+        target.write_text(json.dumps(doc), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
 
     def test_s049_paid_appeal_review_does_not_expose_export_route(self):
         self.assertEqual(check_repository(self.root), [])
