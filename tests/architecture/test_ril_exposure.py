@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 361)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 359)  # Includes the S033 personal routes.
+        self.assertEqual(report["route_bindings"], 363)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 361)  # Includes the S033 personal routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -156,6 +156,7 @@ class RilExposureTests(unittest.TestCase):
         })
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
 
     def test_s049_paid_comment_admin_routes_cannot_broaden_to_export(self):
         self.assertEqual(check_repository(self.root), [])
