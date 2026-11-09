@@ -277,8 +277,18 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
     assert_eq!(before.gross_minor, 200);
     assert_eq!(before.immature_minor, 200);
     assert_eq!(before.available_minor, 0);
-    assert_eq!(repo.totals(f.buyer).await.unwrap().gross_minor, 0);
-    // A customer wallet has 750 left, but that is never creator cash.
+    let buyer_totals = repo.totals(f.buyer).await.unwrap();
+    assert_eq!(buyer_totals.gross_minor, 0);
+    assert_eq!(buyer_totals.wallet_balance_minor, 750);
+    assert_eq!(buyer_totals.combined_balance_minor, 750);
+    assert_eq!(buyer_totals.available_minor, 750);
+    // NEwBOO: wallet funds are not filtered by origin. Request permission
+    // still requires a current creator/team relationship.
+    let buyer_key = IdempotencyKey::parse(&format!("{}8", "V".repeat(42))).unwrap();
+    assert_eq!(
+        repo.reserve_once(f.buyer, 100, &buyer_key).await,
+        Err(CreatorFinanceError::Forbidden)
+    );
     assert_eq!(balance(&f).await, 750);
 
     sqlx::query("SELECT pg_sleep(1.2)")
@@ -394,6 +404,47 @@ async fn s038_creator_cash_origin_refund_hold_retry_and_concurrent_reservation()
     assert_eq!(exact.id, first.id, "rejected key replay is still history");
     assert!(!exact.created);
     assert_eq!(repo.totals(f.owner).await.unwrap().available_minor, 140);
+
+    // Verified funding and creator earnings share the same NEwBOO-style
+    // payout capacity. A top-up is not excluded by source classification.
+    sqlx::query(
+        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+         VALUES($1,1000,'RUB')",
+    )
+    .bind(f.owner)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_wallet_entries
+           (user_id,kind,delta_minor,balance_after_minor,reference)
+         VALUES($1,'verified_funding',1000,1000,$2)",
+    )
+    .bind(f.owner)
+    .bind(format!("s038-unified-wallet-owner-{}", f.owner))
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let unified = repo.totals(f.owner).await.unwrap();
+    assert_eq!(unified.wallet_balance_minor, 1000);
+    assert_eq!(unified.combined_balance_minor, 1200);
+    assert_eq!(unified.immature_minor, 0);
+    assert_eq!(unified.reserved_minor, 60);
+    assert_eq!(unified.available_minor, 1140);
+    let wallet_key = IdempotencyKey::parse(&format!("{}8", "W".repeat(42))).unwrap();
+    assert!(repo.reserve_once(f.owner, 800, &wallet_key).await.unwrap().created);
+    assert_eq!(repo.totals(f.owner).await.unwrap().available_minor, 340);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM finance_creator_payout_requests
+             WHERE user_id=$1 AND source_origin='unified_wallet'"
+        )
+        .bind(f.owner)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap(),
+        3
+    );
     f.pool.close().await;
 }
 
