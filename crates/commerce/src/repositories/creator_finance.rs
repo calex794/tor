@@ -70,8 +70,10 @@ pub struct PgCreatorFinance {
 const BALANCE_SQL: &str = r#"
     WITH net AS (
       SELECT e.amount_minor,
-             GREATEST(0,e.amount_minor-COALESCE(r.amount_minor,0)) AS net_minor,
+             (e.amount_minor-COALESCE(r.amount_minor,0)
+                            -COALESCE(c.amount_minor,0))::BIGINT AS net_minor,
              COALESCE(r.amount_minor,0) AS reversed_minor,
+             COALESCE(c.amount_minor,0) AS credited_minor,
              e.clear_at,
              EXISTS (
                 SELECT 1 FROM finance_direct_refund_requests q
@@ -82,16 +84,19 @@ const BALANCE_SQL: &str = r#"
       FROM finance_creator_earnings e
       LEFT JOIN finance_direct_refund_creator_reversals r
         ON r.purchase_id=e.purchase_id AND r.user_id=e.user_id
+      LEFT JOIN finance_creator_wallet_credits c
+        ON c.purchase_id=e.purchase_id AND c.user_id=e.user_id
       WHERE e.user_id=$1 AND e.origin_type='chapter_purchase'
     ), totals AS (
       SELECT COALESCE(SUM(amount_minor),0)::BIGINT AS gross,
              COALESCE(SUM(reversed_minor),0)::BIGINT AS reversed,
+             COALESCE(SUM(credited_minor),0)::BIGINT AS credited,
              COALESCE(SUM(CASE WHEN clear_at>clock_timestamp()
-                              THEN net_minor ELSE 0 END),0)::BIGINT AS immature,
+                              THEN GREATEST(net_minor,0) ELSE 0 END),0)::BIGINT AS immature,
              COALESCE(SUM(CASE WHEN clear_at<=clock_timestamp()
                               THEN net_minor ELSE 0 END),0)::BIGINT AS mature,
              COALESCE(SUM(CASE WHEN clear_at<=clock_timestamp() AND refund_hold
-                              THEN net_minor ELSE 0 END),0)::BIGINT AS refund_hold
+                              THEN GREATEST(net_minor,0) ELSE 0 END),0)::BIGINT AS refund_hold
       FROM net
     ), reservations AS (
       SELECT COALESCE(SUM(reservation_minor),0)::BIGINT AS reserved
@@ -99,7 +104,7 @@ const BALANCE_SQL: &str = r#"
       WHERE user_id=$1 AND state='pending'
     )
     SELECT w.wallet_balance,
-           (w.wallet_balance+t.gross-t.reversed)::BIGINT AS combined_balance,
+           (w.wallet_balance+t.gross-t.reversed-t.credited)::BIGINT AS combined_balance,
            t.gross,t.reversed,t.immature,t.mature,t.refund_hold,r.reserved,
            GREATEST(0,w.wallet_balance+t.mature-t.refund_hold-r.reserved)::BIGINT
              AS available
