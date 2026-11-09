@@ -343,7 +343,7 @@ pub(super) async fn save_preferences(
 
 #[cfg(test)]
 mod tests {
-    use super::safe_next_url;
+    use super::{render_previous_day_digest, safe_next_url, DailyChapterDigestEntry};
 
     #[test]
     fn s018_digest_escapes_private_titles_and_never_embeds_payload() {
