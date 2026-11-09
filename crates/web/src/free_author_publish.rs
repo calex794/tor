@@ -33,6 +33,13 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         })
     }
 
+    pub fn reader_store(&self) -> (S, String)
+    where
+        S: Clone,
+    {
+        (self.store.clone(), self.bucket.clone())
+    }
+
     pub async fn publish(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         let pending = self.repository.prepare_new(actor, request).await?;
         if pending.published {
