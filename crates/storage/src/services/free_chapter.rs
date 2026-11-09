@@ -201,7 +201,9 @@ mod tests {
         );
         assert!(upload_and_verify(&store, &object, text).await.is_ok());
         assert_eq!(
-            upload_and_verify(&store, &object, "другой текст").await.err(),
+            upload_and_verify(&store, &object, "другой текст")
+                .await
+                .err(),
             Some(StorageError::Invalid)
         );
         *store.stored.lock().unwrap() = Some(b"corrupt".to_vec());
