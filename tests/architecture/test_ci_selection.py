@@ -52,7 +52,7 @@ class SelectionTests(unittest.TestCase):
     def test_known_postgres_integration_test_edits_do_not_start_unrelated_suites(self):
         # These test files are already run directly by the mandatory PG job;
         # selecting a file still runs the entire Rust and PostgreSQL jobs.
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 98)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 99)
         for path in (
             "crates/reading/tests/paid_tier_entitlement_pg.rs",
             "crates/web/tests/s020_age_editor_http_pg.rs",

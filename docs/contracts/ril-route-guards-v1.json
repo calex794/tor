@@ -755,7 +755,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "logout",
+      "handler": "session_security::logout",
       "policy": "csrf_only"
     },
     {
@@ -2605,6 +2605,13 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::decide",
       "policy": "admin_free_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/admin/jobs/{id}/retry",
+      "source": "crates/web/src/auth/admin_jobs.rs",
+      "handler": "retry",
+      "policy": "admin_outbox_retry"
     },
     {
       "method": "GET",

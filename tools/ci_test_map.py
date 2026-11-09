@@ -235,6 +235,7 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/reading/tests/notification_preferences_pg.rs",
     "crates/web/tests/account_access_audit_pg.rs",
     "crates/web/tests/account_sessions_http_pg.rs",
+    "crates/web/tests/admin_jobs_http_pg.rs",
 })
 TEST_SUITES.update({path: {"rust", "postgres"} for path in POSTGRES_RUNTIME_ONLY_TEST_FILES})
 
