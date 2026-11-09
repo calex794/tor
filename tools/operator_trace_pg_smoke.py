@@ -188,6 +188,15 @@ def main():
                 break
         require(fresh_id is not None, "no sampled request after recovery")
         wait_for(lambda: stored(fresh_id), "trace delivery did not recover")
+        # Fixed non-identifying FLOW evidence in the already isolated CI database.
+        subprocess.run(["psql", database, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c",
+                        "INSERT INTO ril_flow_hourly VALUES "
+                        "(date_trunc('hour',now()),3,0,10,6,2) "
+                        "ON CONFLICT (bucket,surface_code,acquisition_hint) DO UPDATE "
+                        "SET html_requests=ril_flow_hourly.html_requests+10, "
+                        "opted_in_html_requests=ril_flow_hourly.opted_in_html_requests+6, "
+                        "observed_opted_in_visit_starts=ril_flow_hourly.observed_opted_in_visit_starts+2"],
+                       check=True, timeout=10)
         browser_env = dict(os.environ, TOR_S059_ORIGIN=BASE, TOR_S059_TRACE_ID=slow_id,
                            TOR_TEST_OPERATOR_PASSWORD=password, TOR_S059_OUTPUT=str(output))
         subprocess.run(["node", "tools/operator_trace_pg_browser.cjs"], env=browser_env,
