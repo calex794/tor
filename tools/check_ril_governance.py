@@ -376,6 +376,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     payout_admin_ops = {
         ("GET", "/admin/finance/payouts", "queue"): "list",
         ("POST", "/admin/finance/payouts/{id}/reject", "reject"): "reject_once",
+        ("GET", "/admin/finance/payouts/{id}/quote", "quote"): "approval_readiness",
     }
     audited_payout = (
         policy == "admin_payout"
@@ -795,6 +796,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "SET state='rejected'",
                 "INSERT INTO finance_creator_payout_admin_audit",
             ))
+        if operation == "approval_readiness":
+            quote_repo = _production((
+                ROOT / "crates/commerce/src/repositories/creator_payout_admin/approval_readiness.rs"
+            ).read_text(encoding="utf-8"))
+            guarded = guarded and "!quote_enabled()" in evidence and all(
+                marker in quote_repo for marker in (
+                    "Self::active_administrator(&mut tx, session_digest).await?",
+                    "FOR NO KEY UPDATE",
+                    "WHERE id=$1 AND user_id=$2 FOR SHARE",
+                    "PgCreatorFinance::totals_in(&mut tx, recipient)",
+                    "INSERT INTO finance_creator_payout_approval_read_audit",
+                    "tx.commit()",
+                )
+            ) and "UPDATE reader_wallet_accounts" not in quote_repo
         if not guarded:
             errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
     if policy == "admin_refund" and not (
