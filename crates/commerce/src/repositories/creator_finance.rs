@@ -248,11 +248,13 @@ impl PgCreatorFinance {
         .map_err(|_| CreatorFinanceError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(purchase_id, amount_minor, reversed_utc)| CreatorRefundLine {
-                purchase_id,
-                amount_minor,
-                reversed_utc,
-            })
+            .map(
+                |(purchase_id, amount_minor, reversed_utc)| CreatorRefundLine {
+                    purchase_id,
+                    amount_minor,
+                    reversed_utc,
+                },
+            )
             .collect())
     }
 
