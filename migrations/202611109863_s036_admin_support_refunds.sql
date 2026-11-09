@@ -5,7 +5,7 @@
 -- PostgreSQL requires an explicit unique key on every referenced column
 -- of a composite FK, even when 'id' is independently unique.
 ALTER TABLE finance_direct_refund_requests
-    ADD CONSTRAINT d06_refund_request_identity UNIQUE(id,purchase_id,user_id);
+    ADD CONSTRAINT d06_admin_support_request_triple_key UNIQUE(id,purchase_id,user_id);
 
 CREATE TABLE finance_support_refund_intents (
     request_id BIGINT PRIMARY KEY,
