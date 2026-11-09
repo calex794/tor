@@ -109,7 +109,11 @@ fn render_previous_day_digest(entries: &[DailyChapterDigestEntry]) -> axum::resp
          <section class=\"me-section\" aria-label=\"Вчерашние выпуски\">{cards}</section>\
          </div></section>"
     );
-    pages::layout("Дайджест новых глав", "Личная сводка опубликованных глав.", &body)
+    pages::layout(
+        "Дайджест новых глав",
+        "Личная сводка опубликованных глав.",
+        &body,
+    )
 }
 
 pub(super) async fn page(
