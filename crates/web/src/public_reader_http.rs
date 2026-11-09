@@ -235,12 +235,27 @@ pub(super) async fn reader_page(
         ),
         &progress_cookies,
     );
-    // Never enable scripts for paid, hidden or denied content.
-    response.headers_mut().insert(
-        "content-security-policy",
-        axum::http::HeaderValue::from_static(
-            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
+    // Only the verified operator-configured S3 origin may receive browser
+    // connections. Never reflect a browser-supplied host into CSP.
+    let content_origin = if chapter.body_markdown.is_empty() {
+        let origin = std::env::var("TOR_FREE_S3_PUBLIC_ORIGIN").ok();
+        match origin {
+            Some(origin) if super::paid_grants_http::valid_reader_s3_origin(&origin) => Some(origin),
+            _ => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        }
+    } else {
+        None
+    };
+    let connect = content_origin
+        .map(|origin| format!("'self' {origin}"))
+        .unwrap_or_else(|| "'self'".to_owned());
+    let csp = format!(
+        "default-src 'none'; script-src 'self'; connect-src {connect}; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
+    if let Ok(value) = axum::http::HeaderValue::from_str(&csp) {
+        response.headers_mut().insert("content-security-policy", value);
+    } else {
+        return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
+    }
     response
 }
