@@ -369,7 +369,15 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/paid-comment-reports/{report_id}/decision"), "POST") => Some(354),
         (Some("/me/finance"), "GET") => Some(355),
         (Some("/me/finance"), "POST") => Some(356),
-        (Some("/api/v1/admin/jobs/{id}/retry"), "POST") => Some(357),
+        (Some("/me/paid-comment-appeals"), "GET") => Some(357),
+        (Some("/me/paid-comment-appeals/{hide_event_id}"), "POST") => Some(358),
+        (Some("/admin/paid-comment-appeals"), "GET") => Some(359),
+        (Some("/admin/paid-comment-appeals/{appeal_id}/decision"), "POST") => Some(360),
+        (Some("/reader/{chapter_id}/comments/{comment_id}/report"), "GET") => Some(361),
+        (Some("/reader/{chapter_id}/comments/{comment_id}/report"), "POST") => Some(362),
+        (Some("/admin/free-comment-reports"), "GET") => Some(363),
+        (Some("/admin/free-comment-reports/{report_id}/decision"), "POST") => Some(364),
+        (Some("/api/v1/admin/jobs/{id}/retry"), "POST") => Some(365),
         _ => None,
     };
     index

@@ -23,6 +23,12 @@ mod admin_reports;
 mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
+#[path = "book_free_comment_reports.rs"]
+mod free_comment_reports;
+#[path = "book_free_comment_reviews.rs"]
+mod free_comment_reviews;
+#[path = "book_paid_comment_appeals.rs"]
+mod paid_comment_appeals;
 #[path = "book_paid_comment_reviews.rs"]
 mod paid_comment_reviews;
 
@@ -72,6 +78,10 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             "/books/{id}/report",
             get(content_reports::form).post(content_reports::submit),
         )
+        .route(
+            "/reader/{chapter_id}/comments/{comment_id}/report",
+            get(free_comment_reports::form).post(free_comment_reports::submit),
+        )
         .route("/admin/book-reports", get(content_reports::queue))
         .route(
             "/admin/book-reports/{report_id}/decision",
@@ -86,6 +96,30 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/me/comment-appeals/{hide_event_id}",
             post(comment_appeals::submit),
+        )
+        .route(
+            "/me/paid-comment-appeals",
+            get(paid_comment_appeals::author_page),
+        )
+        .route(
+            "/me/paid-comment-appeals/{hide_event_id}",
+            post(paid_comment_appeals::submit),
+        )
+        .route(
+            "/admin/paid-comment-appeals",
+            get(paid_comment_appeals::queue),
+        )
+        .route(
+            "/admin/paid-comment-appeals/{appeal_id}/decision",
+            post(paid_comment_appeals::decide),
+        )
+        .route(
+            "/admin/free-comment-reports",
+            get(free_comment_reviews::queue),
+        )
+        .route(
+            "/admin/free-comment-reports/{report_id}/decision",
+            post(free_comment_reviews::decide),
         )
         .route(
             "/admin/paid-comment-reports",
