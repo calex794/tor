@@ -23,6 +23,8 @@ mod admin_reports;
 mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
+#[path = "book_free_comment_appeals.rs"]
+mod free_comment_appeals;
 #[path = "book_free_comment_reports.rs"]
 mod free_comment_reports;
 #[path = "book_free_comment_reviews.rs"]
@@ -112,6 +114,22 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/admin/paid-comment-appeals/{appeal_id}/decision",
             post(paid_comment_appeals::decide),
+        )
+        .route(
+            "/me/free-comment-appeals",
+            get(free_comment_appeals::author_page),
+        )
+        .route(
+            "/me/free-comment-appeals/{hide_event_id}",
+            post(free_comment_appeals::submit),
+        )
+        .route(
+            "/admin/free-comment-appeals",
+            get(free_comment_appeals::queue),
+        )
+        .route(
+            "/admin/free-comment-appeals/{appeal_id}/decision",
+            post(free_comment_appeals::decide),
         )
         .route(
             "/admin/free-comment-reports",

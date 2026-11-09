@@ -208,6 +208,15 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .author-form textarea { resize: vertical; min-height: 220px; white-space: pre-wrap; }
 .author-chapters { padding-left: 25px; line-height: 2.25; overflow-wrap: anywhere; }
 
+/* Private audience summaries retain readable labels on narrow screens. */
+.audience-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 18px 28px; }
+.audience-source-card { min-width: 0; }
+.audience-source-card h4 { margin-top: 0; font-size: 18px; }
+.audience-source-card dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.audience-source-card dt { overflow-wrap: anywhere; }
+.audience-source-card dd { margin: 0; max-width: 140px; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
+@media (max-width: 680px) { .audience-source-grid { grid-template-columns: minmax(0, 1fr); } }
+
 
 /* Private reader: at most 200 server-rendered, script-free places. */
 .reading-library { padding-left: 24px; display: grid; gap: 16px; }

@@ -1,4 +1,4 @@
-//! FLOW: site-administrator access to canonical C reading aggregates.
+//! FLOW: site-administrator access to C reading and F discovery aggregates.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
 mod render;
 
@@ -15,12 +15,16 @@ use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_reading::{repositories::audience::PgAudience, services::audience::AudienceError};
+use tor_recommendations::{
+    repositories::audience::PgDiscoveryAudience, services::audience::DiscoveryError,
+};
 
 #[derive(Clone)]
 struct AudienceState {
     accounts: PgAccounts,
     cookies: CookiePolicy,
     store: PgAudience,
+    discovery: PgDiscoveryAudience,
 }
 
 #[derive(Default, Deserialize)]
@@ -40,12 +44,14 @@ impl AudienceQuery {
 
 pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let store = PgAudience::new(accounts.pool().clone());
+    let discovery = PgDiscoveryAudience::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .with_state(AudienceState {
             accounts,
             cookies,
             store,
+            discovery,
         })
 }
 
@@ -80,7 +86,7 @@ async fn page(
     headers: HeaderMap,
     query: Result<Query<AudienceQuery>, QueryRejection>,
 ) -> Response {
-    // One deadline covers both fresh authorization and the aggregate read.
+    // One deadline covers fresh authorization and both independent aggregate reads.
     let deadline = Instant::now() + Duration::from_millis(950);
     match timeout_at(deadline, administrator(&state, &headers)).await {
         Ok(Ok(())) => {}
@@ -95,13 +101,26 @@ async fn page(
         Ok(days) => days,
         Err(status) => return secure(status),
     };
-    match timeout_at(deadline, state.store.report(days)).await {
-        Ok(Ok(report)) => secure(render::page(&report)),
-        Ok(Err(AudienceError::Invalid)) => secure(StatusCode::BAD_REQUEST),
-        Ok(Err(AudienceError::Unavailable)) | Err(_) => {
-            secure((StatusCode::SERVICE_UNAVAILABLE, render::unavailable(days)))
-        }
+    let (reading, sources) = tokio::join!(
+        timeout_at(deadline, state.store.report(days)),
+        timeout_at(deadline, state.discovery.report(days)),
+    );
+    if matches!(reading, Ok(Err(AudienceError::Invalid)))
+        || matches!(sources, Ok(Err(DiscoveryError::Invalid)))
+    {
+        return secure(StatusCode::BAD_REQUEST);
     }
+    let reading = reading.ok().and_then(Result::ok);
+    let sources = sources.ok().and_then(Result::ok);
+    let status = if reading.is_some() && sources.is_some() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    secure((
+        status,
+        render::page(days, reading.as_ref(), sources.as_ref()),
+    ))
 }
 
 #[cfg(test)]

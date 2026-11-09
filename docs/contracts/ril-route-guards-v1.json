@@ -2579,6 +2579,34 @@
       "policy": "administrator"
     },
     {
+      "method": "GET",
+      "template": "/me/free-comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_appeals::author_page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/free-comment-appeals/{hide_event_id}",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_appeals::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/free-comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_appeals::queue",
+      "policy": "admin_free_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/free-comment-appeals/{appeal_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "free_comment_appeals::decide",
+      "policy": "admin_free_comment_appeals"
+    },
+    {
       "method": "POST",
       "template": "/api/v1/admin/jobs/{id}/retry",
       "source": "crates/web/src/auth/admin_jobs.rs",
