@@ -1,5 +1,6 @@
 pub mod admin_mail;
 pub mod book_collections;
+pub mod book_comment_appeals;
 pub mod book_content_reports;
 pub mod book_rooms;
 pub mod book_share_reports;

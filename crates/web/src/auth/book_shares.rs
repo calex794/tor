@@ -19,6 +19,8 @@ use tor_accounts::{
 use tor_social::repositories::book_shares::{BookShareError, PgBookShares};
 #[path = "book_share_reports.rs"]
 mod admin_reports;
+#[path = "book_comment_appeals.rs"]
+mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
 
@@ -77,6 +79,16 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/admin/recommendation-reports/{share_id}/decision",
             post(admin_reports::decide),
+        )
+        .route("/me/comment-appeals", get(comment_appeals::author_page))
+        .route(
+            "/me/comment-appeals/{hide_event_id}",
+            post(comment_appeals::submit),
+        )
+        .route("/admin/book-comment-appeals", get(comment_appeals::queue))
+        .route(
+            "/admin/book-comment-appeals/{appeal_id}/decision",
+            post(comment_appeals::decide),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .with_state(state)

@@ -2451,6 +2451,34 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "content_reports::decide",
       "policy": "admin_book_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/me/comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::author_page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/comment-appeals/{hide_event_id}",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/book-comment-appeals",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::queue",
+      "policy": "admin_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/book-comment-appeals/{appeal_id}/decision",
+      "source": "crates/web/src/auth/book_shares.rs",
+      "handler": "comment_appeals::decide",
+      "policy": "admin_comment_appeals"
     }
   ]
 }
