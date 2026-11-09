@@ -179,9 +179,10 @@ pub(crate) fn router_with_free_author(
     reader: PgReader,
     secure: bool,
     origin: String,
+    cover: Option<Arc<dyn CoverObjectStore>>,
     free: Arc<dyn author_chapter_http::FreeChapterPublisher>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, None, false, None, Some(free))
+    router_inner(accounts, reader, secure, origin, cover, false, None, Some(free))
 }
 
 #[cfg(feature = "s3-free")]
