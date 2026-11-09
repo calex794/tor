@@ -195,15 +195,24 @@ async fn s038_mature_creator_credit_is_journaled_once_in_unified_wallet() {
 
     let credits = PgCreatorWalletCredits::new(f.pool.clone());
     let finance = PgCreatorFinance::new(f.pool.clone());
-    assert_eq!(credits.settle_mature_once(0, 20).await, Err(CreatorWalletCreditError::Invalid));
-    assert_eq!(credits.settle_mature_once(f.owner, 21).await, Err(CreatorWalletCreditError::Invalid));
+    assert_eq!(
+        credits.settle_mature_once(0, 20).await,
+        Err(CreatorWalletCreditError::Invalid)
+    );
+    assert_eq!(
+        credits.settle_mature_once(f.owner, 21).await,
+        Err(CreatorWalletCreditError::Invalid)
+    );
     assert_eq!(credits.settle_mature_once(f.owner, 20).await.unwrap(), 0);
     let before = finance.totals(f.owner).await.unwrap();
     assert_eq!(before.wallet_balance_minor, 0);
     assert_eq!(before.combined_balance_minor, 200);
     assert_eq!(before.available_minor, 0);
 
-    sqlx::query("SELECT pg_sleep(1.2)").execute(&f.pool).await.unwrap();
+    sqlx::query("SELECT pg_sleep(1.2)")
+        .execute(&f.pool)
+        .await
+        .unwrap();
     let matured = finance.totals(f.owner).await.unwrap();
     assert_eq!(matured.available_minor, 200);
 
@@ -216,13 +225,12 @@ async fn s038_mature_creator_credit_is_journaled_once_in_unified_wallet() {
     assert_eq!(left.unwrap() + right.unwrap(), 1);
     assert_eq!(credits.settle_mature_once(f.owner, 20).await.unwrap(), 0);
 
-    let owner_balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(f.owner)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let owner_balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(f.owner)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(owner_balance, 200);
     let exact: (i64, i64, i64) = sqlx::query_as(
         "SELECT COUNT(*)::BIGINT,COALESCE(SUM(c.amount_minor),0)::BIGINT,
@@ -239,20 +247,24 @@ async fn s038_mature_creator_credit_is_journaled_once_in_unified_wallet() {
 
     // Credit does not duplicate the old unposted earning in the finance view.
     let after = finance.totals(f.owner).await.unwrap();
-    assert_eq!((after.wallet_balance_minor, after.combined_balance_minor), (200, 200));
+    assert_eq!(
+        (after.wallet_balance_minor, after.combined_balance_minor),
+        (200, 200)
+    );
     assert_eq!((after.mature_minor, after.available_minor), (0, 200));
-    assert_eq!(finance.totals(f.buyer).await.unwrap().wallet_balance_minor, 750);
+    assert_eq!(
+        finance.totals(f.buyer).await.unwrap().wallet_balance_minor,
+        750
+    );
 
     // No one can invent a stand-alone journal credit without its exact
     // immutable creator-earning source, even with a direct SQL insert.
     let mut forged = f.pool.begin().await.unwrap();
-    sqlx::query(
-        "UPDATE reader_wallet_accounts SET balance_minor=balance_minor+1 WHERE user_id=$1",
-    )
-    .bind(f.owner)
-    .execute(&mut *forged)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE reader_wallet_accounts SET balance_minor=balance_minor+1 WHERE user_id=$1")
+        .bind(f.owner)
+        .execute(&mut *forged)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO reader_wallet_entries
            (user_id,kind,delta_minor,balance_after_minor,reference)
@@ -263,8 +275,14 @@ async fn s038_mature_creator_credit_is_journaled_once_in_unified_wallet() {
     .execute(&mut *forged)
     .await
     .unwrap();
-    assert!(forged.commit().await.is_err(), "orphan creator credit must fail at commit");
-    assert_eq!(finance.totals(f.owner).await.unwrap().wallet_balance_minor, 200);
+    assert!(
+        forged.commit().await.is_err(),
+        "orphan creator credit must fail at commit"
+    );
+    assert_eq!(
+        finance.totals(f.owner).await.unwrap().wallet_balance_minor,
+        200
+    );
     f.pool.close().await;
 }
 
@@ -284,20 +302,28 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     .unwrap();
     let finance = PgCreatorFinance::new(f.pool.clone());
     let payout_key = IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap();
-    assert!(finance.reserve_once(f.buyer, 900, &payout_key).await.unwrap().created);
+    assert!(
+        finance
+            .reserve_once(f.buyer, 900, &payout_key)
+            .await
+            .unwrap()
+            .created
+    );
     assert_eq!(finance.totals(f.buyer).await.unwrap().available_minor, 100);
 
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
     let blocked = checkout.checkout_once(&buy_one(&f, f.offers[0], 'Z')).await;
-    assert!(blocked.is_err(), "reserved wallet funds cannot buy a chapter");
+    assert!(
+        blocked.is_err(),
+        "reserved wallet funds cannot buy a chapter"
+    );
     assert_eq!(balance(&f).await, 1000);
-    let posted: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM chapter_purchase_facts WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let posted: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM chapter_purchase_facts WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(posted, 0, "a blocked wallet debit cannot leave a purchase");
 
     // A trusted rejection frees the hold; the very same purchase then works.
@@ -318,12 +344,24 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     .execute(&f.pool)
     .await
     .unwrap();
-    checkout.checkout_once(&buy_one(&f, f.offers[0], 'Z')).await.unwrap();
+    checkout
+        .checkout_once(&buy_one(&f, f.offers[0], 'Z'))
+        .await
+        .unwrap();
     assert_eq!(balance(&f).await, 750);
 
     let second_key = IdempotencyKey::parse(&format!("{}8", "X".repeat(42))).unwrap();
-    assert!(finance.reserve_once(f.buyer, 700, &second_key).await.unwrap().created);
-    assert!(checkout.checkout_batch_once(&buy_batch(&f, 'V')).await.is_err());
+    assert!(
+        finance
+            .reserve_once(f.buyer, 700, &second_key)
+            .await
+            .unwrap()
+            .created
+    );
+    assert!(checkout
+        .checkout_batch_once(&buy_batch(&f, 'V'))
+        .await
+        .is_err());
     assert_eq!(balance(&f).await, 750);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
@@ -346,7 +384,10 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     .bind(f.buyer)
     .execute(&f.pool)
     .await;
-    assert!(direct.is_err(), "the database enforces remaining payout reserves");
+    assert!(
+        direct.is_err(),
+        "the database enforces remaining payout reserves"
+    );
 
     f.pool.close().await;
 }
