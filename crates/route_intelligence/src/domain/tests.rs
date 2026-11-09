@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 373);
+    assert_eq!(unique.len(), 374);
 }
 
 #[test]
@@ -442,4 +442,13 @@ fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
     assert_eq!(passport.product_area, ProductArea::Admin);
     assert_eq!(passport.cost_class, CostClass::Write);
     assert!(!classify(Some(route), "GET").route_known);
+}
+
+#[test]
+fn s039_admin_quote_is_private_read_without_an_http_post() {
+    let quote = classify(Some("/admin/finance/payouts/{id}/quote"), "GET");
+    assert!(quote.route_known);
+    assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(quote.cost_class, CostClass::Read);
+    assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
 }

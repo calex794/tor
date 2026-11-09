@@ -2626,6 +2626,13 @@
       "source": "crates/web/src/auth/admin_creator_payouts.rs",
       "handler": "reject",
       "policy": "admin_payout"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/payouts/{id}/quote",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "quote",
+      "policy": "admin_payout"
     }
   ]
 }
