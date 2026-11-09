@@ -26,6 +26,7 @@ pub struct ReviewedPaidCommentReport {
     pub comment_id: i64,
     pub reviewer_id: i64,
     pub decision: String,
+    pub moderation_action: String,
     pub note: String,
     pub decided_utc: String,
 }
@@ -102,8 +103,9 @@ impl PgPaidCommentReviews {
         Ok(items)
     }
 
-    /// A reviewer makes one decision. No hiding, grants or financial actions.
-    /// The report row and live administrator role are locked until audit commits.
+    /// Exactly one explicit administrator decision. "hide_comment" hides
+    /// ONLY the exact visible E comment, never the sealed chapter or any grants.
+    /// Report, comment and live role locks span the immutable audit commit.
     pub async fn decide(
         &self,
         session_digest: &[u8; 32],
@@ -113,7 +115,7 @@ impl PgPaidCommentReviews {
     ) -> Result<(), BookShareError> {
         let note = note.trim();
         if report_id <= 0
-            || !matches!(decision, "reviewed" | "dismissed")
+            || !matches!(decision, "reviewed" | "dismissed" | "hide_comment")
             || note.is_empty()
             || note.chars().count() > 500
             || note.contains('\0')
@@ -122,27 +124,69 @@ impl PgPaidCommentReviews {
         }
         let mut tx = self.pool.begin().await?;
         let reviewer = administrator(&mut tx, session_digest).await?;
-        let state: Option<String> = sqlx::query_scalar(
-            "SELECT state FROM social_paid_comment_reports
-             WHERE id=$1 FOR UPDATE",
+        let report: Option<(String, i64, i64, i64)> = sqlx::query_as(
+            "SELECT state,chapter_id,version_id,comment_id
+             FROM social_paid_comment_reports WHERE id=$1 FOR UPDATE",
         )
         .bind(report_id)
         .fetch_optional(&mut *tx)
         .await?;
-        match state.as_deref() {
-            Some("pending") => {}
-            Some(_) => return Err(BookShareError::Conflict),
-            None => return Err(BookShareError::NotFound),
+        let (state, chapter, version, comment) = report.ok_or(BookShareError::NotFound)?;
+        if state != "pending" {
+            return Err(BookShareError::Conflict);
+        }
+        let hide = decision == "hide_comment";
+        if hide {
+            // Revalidate the exact, still-visible V1 E comment under lock.
+            // Reject stale or forged report bindings and already hidden items.
+            let found: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM discussion_comments c
+                 WHERE c.id=$1 AND c.chapter_id=$2 AND c.version_id=$3
+                   AND c.book_id IS NULL AND c.visibility='visible'
+                   AND (c.parent_id IS NULL OR EXISTS (
+                        SELECT 1 FROM discussion_comments parent
+                        WHERE parent.id=c.parent_id AND parent.chapter_id=$2
+                          AND parent.version_id=$3 AND parent.visibility='visible'))
+                 FOR UPDATE OF c",
+            )
+            .bind(comment)
+            .bind(chapter)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if found.is_none() {
+                return Err(BookShareError::Conflict);
+            }
+            let changed = sqlx::query(
+                "UPDATE discussion_comments SET visibility='hidden'
+                 WHERE id=$1 AND chapter_id=$2 AND version_id=$3
+                   AND book_id IS NULL AND visibility='visible'",
+            )
+            .bind(comment)
+            .bind(chapter)
+            .bind(version)
+            .execute(&mut *tx)
+            .await?;
+            if changed.rows_affected() != 1 {
+                return Err(BookShareError::Conflict);
+            }
+        }
+        let state = if decision == "dismissed" {
+            "dismissed"
+        } else {
+            "reviewed"
         };
+        let action = if hide { "hide_paid_comment" } else { "none" };
         sqlx::query(
             "INSERT INTO social_paid_comment_review_events
-             (report_id,reviewer_user_id,decision,note)
-             VALUES($1,$2,$3,$4)",
+             (report_id,reviewer_user_id,decision,note,moderation_action)
+             VALUES($1,$2,$3,$4,$5)",
         )
         .bind(report_id)
         .bind(reviewer)
-        .bind(decision)
+        .bind(state)
         .bind(note)
+        .bind(action)
         .execute(&mut *tx)
         .await?;
         let changed = sqlx::query(
@@ -150,7 +194,7 @@ impl PgPaidCommentReviews {
              WHERE id=$1 AND state='pending'",
         )
         .bind(report_id)
-        .bind(decision)
+        .bind(state)
         .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
@@ -175,7 +219,7 @@ impl PgPaidCommentReviews {
         administrator(&mut tx, session_digest).await?;
         let rows = sqlx::query(
             "SELECT e.id AS event_id,e.report_id,r.comment_id,
-                    e.reviewer_user_id,e.decision,e.note,
+                    e.reviewer_user_id,e.decision,e.moderation_action,e.note,
                     to_char(e.decided_at AT TIME ZONE 'UTC',
                             'YYYY-MM-DD HH24:MI:SS') AS decided_utc
              FROM social_paid_comment_review_events e
@@ -198,6 +242,7 @@ impl PgPaidCommentReviews {
                     comment_id: row.try_get("comment_id")?,
                     reviewer_id: row.try_get("reviewer_user_id")?,
                     decision: row.try_get("decision")?,
+                    moderation_action: row.try_get("moderation_action")?,
                     note: row.try_get("note")?,
                     decided_utc: row.try_get("decided_utc")?,
                 })
