@@ -49,8 +49,7 @@ pub(super) async fn check(
              VALUES({independent_admin},'administrator',TRUE)"
         ),
     );
-    let reviewer_cookie =
-        format!("tor-dev-session={reviewer_session}; tor-dev-csrf={csrf}");
+    let reviewer_cookie = format!("tor-dev-session={reviewer_session}; tor-dev-csrf={csrf}");
 
     let author_path = "/me/free-comment-appeals";
     let admin_path = "/admin/free-comment-appeals";
@@ -92,9 +91,16 @@ pub(super) async fn check(
         "a moderator cannot appeal somebody else's comment",
     );
     assert_eq!(
-        request(app, "POST", &submit_path, author_cookie, "https://evil.invalid", &body)
-            .await
-            .status(),
+        request(
+            app,
+            "POST",
+            &submit_path,
+            author_cookie,
+            "https://evil.invalid",
+            &body
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
@@ -146,22 +152,43 @@ pub(super) async fn check(
     let decision =
         format!("csrf_token={csrf}&decision=restored&note=Independent+free+comment+review");
     assert_eq!(
-        request(app, "POST", &decide_path, original_admin_cookie, ORIGIN, &decision)
-            .await
-            .status(),
+        request(
+            app,
+            "POST",
+            &decide_path,
+            original_admin_cookie,
+            ORIGIN,
+            &decision
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "the original sanction reviewer cannot decide its appeal",
     );
     assert_eq!(
-        request(app, "POST", &decide_path, moderator_cookie, ORIGIN, &decision)
-            .await
-            .status(),
+        request(
+            app,
+            "POST",
+            &decide_path,
+            moderator_cookie,
+            ORIGIN,
+            &decision
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        request(app, "POST", &decide_path, &reviewer_cookie, ORIGIN, &decision)
-            .await
-            .status(),
+        request(
+            app,
+            "POST",
+            &decide_path,
+            &reviewer_cookie,
+            ORIGIN,
+            &decision
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
@@ -184,9 +211,16 @@ pub(super) async fn check(
         "1",
     );
     assert_eq!(
-        request(app, "POST", &decide_path, &reviewer_cookie, ORIGIN, &decision)
-            .await
-            .status(),
+        request(
+            app,
+            "POST",
+            &decide_path,
+            &reviewer_cookie,
+            ORIGIN,
+            &decision
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
     );
     pg_rejected(
