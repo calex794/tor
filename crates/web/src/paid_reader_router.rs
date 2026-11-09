@@ -117,6 +117,41 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
 }
 
 
+/// Paid signed reading plus fresh free S3 author Save (paid author is disabled).
+#[cfg(feature = "s3-free")]
+pub fn router_with_postgres_reading_auth_paid_grants_browser_free_author(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    origin: (bool, String),
+    paid: (
+        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+        String,
+    ),
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+    free: crate::free_author_publish::PgFreeAuthorPublisher<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+) -> Result<Router, &'static str> {
+    let (secure, public_origin) = origin;
+    paid_grants_router(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        (paid.0, Some(paid.1)),
+        PaidRouterExtras {
+            cover,
+            author: None,
+            free_author: Some(Arc::new(free)),
+        },
+    )
+}
+
 /// Combined paid and free S3 writers, sharing one authenticated author router.
 #[cfg(all(feature = "s3-paid", feature = "s3-free"))]
 pub fn router_with_postgres_reading_auth_paid_grants_browser_author_free(
