@@ -18,8 +18,6 @@ use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_support_refunds::{
     PgSupportRefunds, RefundPurchase, SupportRefundError,
 };
-#[cfg(test)]
-use tor_commerce::repositories::refund_admin_review::AdminRefundRequest;
 use tor_commerce::repositories::refund_admin_review::{PgRefundAdminReview, RefundAdminViewError};
 
 #[derive(Default, Deserialize)]
@@ -42,6 +40,9 @@ pub(super) fn router() -> Router<AuthState> {
             post(approval::submit).layer(DefaultBodyLimit::max(4096)),
         )
 }
+
+#[cfg(test)]
+use tor_commerce::repositories::refund_admin_review::AdminRefundRequest;
 
 #[cfg(test)]
 fn status(state: &str) -> &'static str {
