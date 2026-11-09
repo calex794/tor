@@ -212,8 +212,7 @@ fn router_inner(
         paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
     let swap_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
-    // Refunds are never a buyer-facing feature: support -> administrator only.
-    let refund_browser_enabled = false;
+
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
@@ -225,7 +224,6 @@ fn router_inner(
         layer_checkout_enabled,
         layer_pages_enabled,
         swap_browser_enabled,
-        refund_browser_enabled,
         paid_reader_available,
         paid_author_available,
         authoring,
