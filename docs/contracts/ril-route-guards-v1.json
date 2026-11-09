@@ -755,7 +755,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "logout",
+      "handler": "session_security::logout",
       "policy": "csrf_only"
     },
     {
