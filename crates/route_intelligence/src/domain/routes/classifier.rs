@@ -77,10 +77,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/rate"), "POST") => Some(67),
         (Some("/me/books/{id}/description"), "GET") => Some(68),
         (Some("/me/books/{id}/description"), "POST") => Some(69),
-        (
-            Some("/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants"),
-            "POST",
-        ) => Some(70),
+        (Some("/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants"), "POST") => {
+            Some(70)
+        }
         (Some("/books/{id}/comments"), "GET") => Some(71),
         (Some("/books/{id}/comments"), "POST") => Some(72),
         (Some("/me/books/{id}/chapters/illustrated"), "GET") => Some(73),
@@ -274,12 +273,16 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/__bp_honeypot/{*trap_name}"), "GET") => Some(261),
         (Some("/moderation/books/{id}/visibility"), "POST") => Some(262),
         (Some("/api/v1/reader/chapters/{chapter_id}/admin-history"), "POST") => Some(263),
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}"), "POST") => {
-            Some(264)
-        }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history"), "POST") => { Some(265) }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants"), "POST") => { Some(266) }
-        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants"), "POST") => { Some(267) }
+        (Some("/api/v1/reader/chapters/{chapter_id}/admin-history/{version_id}"), "POST") => Some(264),
+        (Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history"), "POST") => Some(265),
+        (
+            Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/delivery-grants"),
+            "POST",
+        ) => Some(266),
+        (
+            Some("/api/v1/reader/chapters/{chapter_id}/admin-sealed-history/{version_id}/assets/{object_id}/delivery-grants"),
+            "POST",
+        ) => Some(267),
         (Some("/api/v1/covers/{id}/{variant}/direct-grant"), "GET") => Some(268),
         (Some("/users/{target_user_id}/subscribe"), "POST") => Some(269),
         (Some("/users/{target_user_id}/unsubscribe"), "POST") => Some(270),
@@ -382,6 +385,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/free-comment-appeals/{hide_event_id}"), "POST") => Some(367),
         (Some("/admin/free-comment-appeals"), "GET") => Some(368),
         (Some("/admin/free-comment-appeals/{appeal_id}/decision"), "POST") => Some(369),
+        (Some("/api/v1/chapters/{id}/free-grant"), "GET") => Some(370),
+        (Some("/assets/newboo-free-progress-s3.js"), "GET") => Some(371),
+        (Some("/assets/newboo-free-s3-reader.js"), "GET") => Some(372),
         _ => None,
     };
     index
