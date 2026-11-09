@@ -60,6 +60,8 @@ pub mod paid_author_assets;
 pub mod paid_author_publish;
 #[cfg(feature = "s3-free")]
 pub mod free_author_publish;
+#[cfg(feature = "s3-free")]
+pub mod free_reader_http;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
