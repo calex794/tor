@@ -43,7 +43,16 @@ impl Fixture {
         .unwrap();
         assert!(!active, "never pollute subsequent A-04 last-admin tests");
         // Preserve the audit and request rows; only revoke the synthetic role.
-        self.finish().await;
+        sqlx::query(
+            "UPDATE sessions
+             SET revoked_at=COALESCE(revoked_at,clock_timestamp())
+             WHERE token_hash=$1",
+        )
+        .bind(self.digest.as_slice())
+        .execute(&self.pool)
+        .await
+        .expect("S039 synthetic session cleanup");
+        self.pool.close().await;
     }
 }
 
