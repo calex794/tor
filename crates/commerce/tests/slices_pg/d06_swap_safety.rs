@@ -201,13 +201,12 @@ async fn d_06_swap_reconciles_wallet_platform_and_creator_balances() {
 
     // S038 / NEwBOO: a swapped-out source is NOT creator income twice.
     // The replacement sale remains earned but is not mature yet.
-    let creator: i64 = sqlx::query_scalar(
-        "SELECT user_id FROM finance_creator_earnings WHERE purchase_id=$1",
-    )
-    .bind(intent.source_purchase_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let creator: i64 =
+        sqlx::query_scalar("SELECT user_id FROM finance_creator_earnings WHERE purchase_id=$1")
+            .bind(intent.source_purchase_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let finance = tor_commerce::repositories::creator_finance::PgCreatorFinance::new(pool.clone());
     let statement = finance.totals(creator).await.unwrap();
     assert_eq!(statement.reversed_minor, reversed_creator);
