@@ -213,9 +213,7 @@ pub(super) async fn queue(
         )
         .expect("bounded S049 Book report markup");
     }
-    body.push_str(
-        "<section aria-label=\"История решений\"><h2>История решений</h2>",
-    );
+    body.push_str("<section aria-label=\"История решений\"><h2>История решений</h2>");
     if history.items.is_empty() {
         body.push_str("<p>История решений пока пуста.</p>");
     }

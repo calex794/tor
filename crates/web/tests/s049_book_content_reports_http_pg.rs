@@ -729,7 +729,9 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
          WHERE user_id={moderator_id} AND role='moderator'"
     ));
     assert_eq!(
-        send(&app, "GET", admin_path, &mod_cookies, "").await.status(),
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
         "revoked site moderator must not read review history"
     );
