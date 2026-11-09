@@ -23,6 +23,8 @@ mod admin_reports;
 mod comment_appeals;
 #[path = "book_content_reports.rs"]
 mod content_reports;
+#[path = "book_paid_comment_reviews.rs"]
+mod paid_comment_reviews;
 
 #[derive(Clone)]
 struct ShareState {
@@ -84,6 +86,14 @@ pub(super) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/me/comment-appeals/{hide_event_id}",
             post(comment_appeals::submit),
+        )
+        .route(
+            "/admin/paid-comment-reports",
+            get(paid_comment_reviews::queue),
+        )
+        .route(
+            "/admin/paid-comment-reports/{report_id}/decision",
+            post(paid_comment_reviews::decide),
         )
         .route("/admin/book-comment-appeals", get(comment_appeals::queue))
         .route(
