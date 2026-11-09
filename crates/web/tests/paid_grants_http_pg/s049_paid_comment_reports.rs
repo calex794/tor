@@ -29,10 +29,25 @@ pub(super) async fn check(
         "details":"Paid comment complaint <script>x()</script>", "command_key":key
     });
     let raw = input.to_string();
+    // Without the CSRF cookie, denial happens before session validation.
     assert_eq!(
         send(browser, &route, None, Some(csrf), Some(ORIGIN), &raw)
             .await
             .status(),
+        StatusCode::FORBIDDEN
+    );
+    // A valid guest CSRF cookie still cannot replace a real A session.
+    let guest = Request::builder()
+        .uri(&route)
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .header("x-csrf-token", csrf)
+        .header(header::COOKIE, format!("tor-dev-csrf={csrf}"))
+        .body(Body::from(raw.clone()))
+        .unwrap();
+    assert_eq!(
+        browser.clone().oneshot(guest).await.unwrap().status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
