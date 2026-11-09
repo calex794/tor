@@ -34,6 +34,8 @@ fn pg(url: &str, sql: &str) -> String {
             "--command",
             sql,
         ])
+        .env("PGCONNECT_TIMEOUT", "5")
+        .env("PGOPTIONS", "-c statement_timeout=8000 -c lock_timeout=5000")
         .output()
         .expect("disposable PostgreSQL fixture requires psql");
     assert!(
@@ -79,11 +81,15 @@ async fn request(
     if let Some(value) = csrf_header {
         builder = builder.header("x-csrf-token", value);
     }
-    let response = app
-        .clone()
-        .oneshot(builder.body(Body::empty()).unwrap())
-        .await
-        .unwrap();
+    eprintln!("G07_RETRY_REQUEST_START id={id}");
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        app.clone().oneshot(builder.body(Body::empty()).unwrap()),
+    )
+    .await
+    .expect("G-07 retry HTTP handler did not complete within 12 seconds")
+    .unwrap();
+    eprintln!("G07_RETRY_REQUEST_END status={}", response.status());
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
     (status, String::from_utf8_lossy(&bytes).into_owned())
@@ -104,6 +110,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         ORIGIN.to_owned(),
     );
 
+    eprintln!("G07_RETRY_STAGE fixture creation");
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -137,6 +144,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         ),
     );
 
+    eprintln!("G07_RETRY_STAGE identity and outbox fixture created");
     // No session and ordinary members never receive operator rights.
     assert_eq!(
         request(&app, &event_id, None, &csrf, Some(&csrf), ORIGIN)
@@ -191,6 +199,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         StatusCode::BAD_REQUEST
     );
 
+    eprintln!("G07_RETRY_STAGE authorized retry");
     let (status, body) = request(&app, &event_id, Some(&session), &csrf, Some(&csrf), ORIGIN).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert!(body.contains("\"status\":\"queued\""));
@@ -222,6 +231,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "a second request must not schedule duplicate work"
     );
 
+    eprintln!("G07_RETRY_STAGE first retry and receipts checked");
     // Two simultaneous operator requests race on the same event row.
     let concurrent = dead_event(&url, &format!("g-admin-concurrent-{nonce}"));
     let (first, second) = tokio::join!(
@@ -246,6 +256,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     assert!(statuses.contains(&StatusCode::ACCEPTED));
     assert!(statuses.contains(&StatusCode::CONFLICT));
 
+    eprintln!("G07_RETRY_STAGE concurrency checked");
     let active = dead_event(&url, &format!("g-admin-active-{nonce}"));
     pg(
         &url,
@@ -262,6 +273,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "a live lease cannot be stolen by an administrator"
     );
 
+    eprintln!("G07_RETRY_STAGE active lease checked");
     let revoked = dead_event(&url, &format!("g-admin-revoked-{nonce}"));
     pg(
         &url,
@@ -297,5 +309,6 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
         "1",
         "one successful retry must have exactly one append-only audit row"
     );
+    eprintln!("G07_RETRY_STAGE done");
     pool.close().await;
 }
