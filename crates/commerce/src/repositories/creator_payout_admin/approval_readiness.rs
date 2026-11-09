@@ -33,13 +33,12 @@ impl PgCreatorPayoutAdmin {
         let admin = Self::active_administrator(&mut tx, session_digest).await?;
         // Resolve recipient without locking payout first: new payout requests
         // serialize on the recipient account and this keeps lock order stable.
-        let recipient: Option<i64> = sqlx::query_scalar(
-            "SELECT user_id FROM finance_creator_payout_requests WHERE id=$1",
-        )
-        .bind(request_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| PayoutAdminError::Unavailable)?;
+        let recipient: Option<i64> =
+            sqlx::query_scalar("SELECT user_id FROM finance_creator_payout_requests WHERE id=$1")
+                .bind(request_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| PayoutAdminError::Unavailable)?;
         let recipient = recipient.ok_or(PayoutAdminError::NotFound)?;
         let active: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM users
