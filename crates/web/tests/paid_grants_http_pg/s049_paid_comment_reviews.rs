@@ -210,19 +210,29 @@ pub(super) async fn check(
         ),
     );
     assert_eq!(
-        decision(app, second, &moderator_cookie, &csrf, ORIGIN, "hide_comment")
-            .await.status(),
+        decision(
+            app,
+            second,
+            &moderator_cookie,
+            &csrf,
+            ORIGIN,
+            "hide_comment"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         decision(app, second, &admin_cookie, &csrf, ORIGIN, "hide_comment")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(url, &format!(
-            "SELECT visibility FROM discussion_comments WHERE id={comment}"
-        )),
+        pg(
+            url,
+            &format!("SELECT visibility FROM discussion_comments WHERE id={comment}")
+        ),
         "hidden",
         "manual sanction hides the precise E comment"
     );
@@ -240,14 +250,18 @@ pub(super) async fn check(
     );
     assert_eq!(
         decision(app, second, &admin_cookie, &csrf, ORIGIN, "hide_comment")
-            .await.status(),
+            .await
+            .status(),
         StatusCode::CONFLICT
     );
     let hidden_history = read_page(app, path, Some(&admin_cookie)).await;
     let history_body = String::from_utf8(
         to_bytes(hidden_history.into_body(), 256 * 1024)
-            .await.unwrap().to_vec()
-    ).unwrap();
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(history_body.contains("hide_paid_comment"));
     assert!(!history_body.contains(BODY));
     rejected_pg(

@@ -131,8 +131,7 @@ impl PgPaidCommentReviews {
         .bind(report_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let (state, chapter, version, comment) =
-            report.ok_or(BookShareError::NotFound)?;
+        let (state, chapter, version, comment) = report.ok_or(BookShareError::NotFound)?;
         if state != "pending" {
             return Err(BookShareError::Conflict);
         }
