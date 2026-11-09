@@ -314,8 +314,8 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
     let blocked = checkout.checkout_once(&buy_one(&f, f.offers[0], 'Z')).await;
     assert!(
-        blocked.is_err(),
-        "reserved wallet funds cannot buy a chapter"
+        matches!(blocked, Err(CheckoutError::InsufficientBalance)),
+        "reserved wallet funds must decline as insufficient spendable balance"
     );
     assert_eq!(balance(&f).await, 1000);
     let posted: i64 =
@@ -358,10 +358,12 @@ async fn s038_reserved_unified_balance_blocks_both_single_and_batch_wallet_purch
             .unwrap()
             .created
     );
-    assert!(checkout
-        .checkout_batch_once(&buy_batch(&f, 'V'))
-        .await
-        .is_err());
+    assert!(matches!(
+        checkout.checkout_batch_once(&buy_batch(&f, 'V')).await,
+        Err(tor_commerce::domain::batch_checkout::BatchCheckoutError::Checkout(
+            CheckoutError::InsufficientBalance
+        ))
+    ));
     assert_eq!(balance(&f).await, 750);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
