@@ -148,11 +148,15 @@ def check_repository(root: Path = ROOT) -> list[str]:
                           and key in AUDITED_S049_FREE_COMMENT_ADMIN)
             allow_paid_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_PAID_COMMENT_APPEALS)
+            allow_audience = (
+                row["source"] == "crates/web/src/auth/audience_http.rs"
+                and key == ("GET", "/admin/audience", "page", "administrator")
+            )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_free_appeal):
+                    or allow_audience or allow_free_appeal):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

@@ -30,6 +30,8 @@ enum Message {
 pub struct TrafficRecorder {
     sender: SyncSender<Message>,
     dropped: Arc<AtomicU64>,
+    flow_candidates: Arc<AtomicU64>,
+    flow_dropped: Arc<AtomicU64>,
     paths: PathRecorder,
     started: Instant,
 }
@@ -113,6 +115,8 @@ impl TrafficRecorder {
         Self {
             sender,
             dropped,
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths,
             started: Instant::now(),
         }
@@ -129,10 +133,18 @@ impl TrafficRecorder {
     /// Atomic best-effort enqueue: the RIL event and its bounded HTML sample
     /// either enter the same worker queue together or are dropped together.
     pub fn try_record_with_flow(&self, event: BehaviorEvent, flow: Option<FlowPageview>) -> bool {
+        // Candidates are HTML requests, never distinct people or sessions.
+        let has_flow = flow.is_some();
+        if has_flow {
+            self.flow_candidates.fetch_add(1, Ordering::Relaxed);
+        }
         match self.sender.try_send(Message::Event(event, flow)) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
+                if has_flow {
+                    self.flow_dropped.fetch_add(1, Ordering::Relaxed);
+                }
                 false
             }
         }
@@ -190,6 +202,15 @@ impl TrafficRecorder {
 
     pub fn dropped_events(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// The queue can lose eligible HTML events without affecting HTTP.
+    /// A successful enqueue does NOT guarantee downstream PG materialization.
+    pub fn flow_coverage_counts(&self) -> (u64, u64) {
+        (
+            self.flow_candidates.load(Ordering::Relaxed),
+            self.flow_dropped.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -313,6 +334,8 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -328,11 +351,38 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
         assert!(!recorder.try_record(event()));
         assert_eq!(recorder.dropped_events(), 1);
+    }
+
+    #[test]
+    fn flow_02_queue_loss_is_not_confused_with_other_dropped_events() {
+        use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
+        // An idle channel makes saturation deterministic.
+        let (sender, _idle_receiver) = mpsc::sync_channel(1);
+        let recorder = TrafficRecorder {
+            sender,
+            dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
+            paths: PathRecorder::start(2, 2),
+            started: Instant::now(),
+        };
+        let page = FlowPageview {
+            surface: RouteSurface::Catalogue,
+            acquisition_hint: AcquisitionChannel::DirectOrUnknown,
+        };
+        assert_eq!(recorder.flow_coverage_counts(), (0, 0));
+        assert!(recorder.try_record_with_flow(event(), Some(page)));
+        assert!(!recorder.try_record_with_flow(event(), Some(page)));
+        assert!(!recorder.try_record(event()));
+        assert_eq!(recorder.flow_coverage_counts(), (2, 1));
+        assert_eq!(recorder.dropped_events(), 2);
     }
 
     #[test]

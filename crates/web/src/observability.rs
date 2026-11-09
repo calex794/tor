@@ -149,6 +149,21 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
         "tor_auth_observation_dropped_total {}\n",
         crate::auth::auth_observation::dropped_count()
     ));
+    // Counts queue quality, not people or sessions; no user-derived labels.
+    // An absent recorder is unknown, never proof of zero audience.
+    text.push_str("# HELP tor_flow_observer_active Process-local FLOW recorder initialized.\n");
+    text.push_str("# TYPE tor_flow_observer_active gauge\n");
+    if let Some((candidates, dropped)) = crate::ril::flow_capture_counters() {
+        text.push_str("tor_flow_observer_active 1\n");
+        text.push_str("# HELP tor_flow_html_candidates_total Eligible HTML requests offered to FLOW queue; not people.\n");
+        text.push_str("# TYPE tor_flow_html_candidates_total counter\n");
+        text.push_str(&format!("tor_flow_html_candidates_total {candidates}\n"));
+        text.push_str("# HELP tor_flow_html_enqueue_dropped_total Eligible HTML events lost before queue acceptance.\n");
+        text.push_str("# TYPE tor_flow_html_enqueue_dropped_total counter\n");
+        text.push_str(&format!("tor_flow_html_enqueue_dropped_total {dropped}\n"));
+    } else {
+        text.push_str("tor_flow_observer_active 0\n");
+    }
     let (login_traps, registration_traps, route_traps) = crate::auth::honeypot::counts();
     text.push_str("# HELP tor_auth_honeypot_login_total Filled hidden login forms; no user labels.\n# TYPE tor_auth_honeypot_login_total counter\n");
     text.push_str(&format!("tor_auth_honeypot_login_total {login_traps}\n"));
@@ -288,6 +303,9 @@ mod tests {
         )
         .unwrap();
         assert!(text.contains("tor_http_request_duration_seconds_count"));
+        assert!(text.contains("tor_flow_observer_active "));
+        assert!(!text.contains("tor_flow_html_candidates_total{"));
+        assert!(!text.contains("tor_flow_html_enqueue_dropped_total{"));
         assert!(!text.contains(&secret));
         assert!(!text.contains("authorization"));
     }

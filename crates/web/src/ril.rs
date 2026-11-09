@@ -52,6 +52,12 @@ pub(crate) fn dropped_telemetry_counters() -> Option<(u64, u64)> {
         .map(|recorder| (recorder.dropped_events(), recorder.dropped_path_events()))
 }
 
+/// Process-local FLOW queue coverage only, without identity or path labels.
+/// An uninitialized recorder means unavailable, not zero visitors.
+pub(crate) fn flow_capture_counters() -> Option<(u64, u64)> {
+    TRAFFIC.get().map(TrafficRecorder::flow_coverage_counts)
+}
+
 pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     TRAFFIC.get()?.path_report_for_diagnostics()
 }

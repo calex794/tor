@@ -314,7 +314,7 @@
       "method": "GET",
       "template": "/me",
       "source": "crates/web/src/auth.rs",
-      "handler": "me",
+      "handler": "account_home::show",
       "policy": "session"
     },
     {
@@ -2570,6 +2570,13 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_reviews::decide",
       "policy": "admin_free_comment_reports"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "page",
+      "policy": "administrator"
     },
     {
       "method": "GET",
