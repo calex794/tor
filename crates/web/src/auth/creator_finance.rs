@@ -353,7 +353,8 @@ async fn submit(
 #[cfg(test)]
 mod tests {
     use super::{
-        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorRefundLine, FinanceTab,
+        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorRefundLine,
+        FinanceTab,
     };
 
     #[test]
@@ -390,13 +391,31 @@ mod tests {
             amount_minor: 50,
             reversed_utc: "2026-11-09 11:00".into(),
         };
-        let stats = render(&totals, &[earned], &[], &[], "csrf", false, FinanceTab::Stats).0;
+        let stats = render(
+            &totals,
+            &[earned],
+            &[],
+            &[],
+            "csrf",
+            false,
+            FinanceTab::Stats,
+        )
+        .0;
         assert!(stats.contains("Покупка №38"));
         assert!(stats.contains("доля 60%"));
         assert!(stats.contains("Подтверждён возврат"));
         assert!(stats.contains("href=\"/me/finance?tab=refunds\""));
         assert!(!stats.contains("username"));
-        let refunds = render(&totals, &[], &[refund], &[], "csrf", false, FinanceTab::Refunds).0;
+        let refunds = render(
+            &totals,
+            &[],
+            &[refund],
+            &[],
+            "csrf",
+            false,
+            FinanceTab::Refunds,
+        )
+        .0;
         assert!(refunds.contains("Покупка №38 · удержано 0.50 RUB"));
         assert!(!refunds.contains("доля 60%"));
         assert!(!refunds.contains("name=\"intent_key\""));
