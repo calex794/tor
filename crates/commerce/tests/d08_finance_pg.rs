@@ -17,6 +17,7 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
+#[path = "d08_finance_pg/s038_wallet_race.rs"]
 mod s038_wallet_race;
 
 struct Fixture {
