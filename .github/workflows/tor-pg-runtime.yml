@@ -284,6 +284,8 @@ jobs:
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
@@ -360,6 +362,14 @@ jobs:
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 
+      - name: Preserve FLOW audience browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-audience-pg-browser
+          path: ${{ runner.temp }}/rec13-browser/shots/audience*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
