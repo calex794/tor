@@ -555,6 +555,8 @@ fn make_router_with_paid_checkout(
             "/assets/newboo-free-reader.js",
             get(pages::free_reader_script),
         )
+        .route("/assets/newboo-free-s3-reader.js", get(pages::free_s3_reader_script))
+        .route("/assets/newboo-free-progress-s3.js", get(pages::free_s3_progress_script))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
