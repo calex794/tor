@@ -66,12 +66,12 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     catalog: PgCatalog,
     reader: PgReader,
     accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    cover_objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
-    enable_cover_uploads: bool,
+    origin: (bool, String),
+    covers: (Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>, bool),
     free: Arc<dyn crate::author_chapter_http::FreeChapterPublisher>,
 ) -> Router {
+    let (secure, public_origin) = origin;
+    let (cover_objects, enable_cover_uploads) = covers;
     let auth_reader = reader.clone();
     let follows =
         book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone());
