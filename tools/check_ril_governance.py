@@ -470,11 +470,16 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if is_s049_appeal_user or audited_s049_appeal_admin:
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
+    audited_audience = (
+        policy == "administrator"
+        and admin_key == ("GET", "/admin/audience", "page")
+        and entry["source"] == "crates/web/src/auth/audience_http.rs"
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or approved_refund
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review):
+            or audited_s049_free_review or audited_audience):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_paid_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/paid_comment_appeals.rs")
@@ -1094,6 +1099,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "session_user(&state, &headers)" in evidence):
             errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
+    audience_admin = (
+        route_key == ("GET", "/admin/audience", "page")
+        and entry["source"] == "crates/web/src/auth/audience_http.rs"
+    )
+    if audience_admin and policy != "administrator":
+        errors.append(f"{label}: FLOW audience must remain administrator-only")
     e12_team = {
         ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
         ("POST", "/me/books/{id}/issues/{issue_id}/status", "text_issues::change_status"),
@@ -1185,11 +1196,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ):
             errors.append(f"{label}: unsealed admin text lacks double D check and CSRF")
     if policy == "administrator":
-        if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
+        rec_binding = (route_key in rec_admin
+                       and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
+        if not (rec_binding or audience_admin):
             errors.append(f"{label}: administrator exception is not allowed here")
-        if not ("session_actor(" in evidence and "!verified.administrator" in evidence
+        role_guard = "!actor.administrator" if audience_admin else "!verified.administrator"
+        if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
+        if audience_admin and not (
+            "administrator(&state, &headers)" in body
+            and ".report(days)" in body
+            and "session_token_digest(&token)" in evidence
+            and "StatusCode::UNAUTHORIZED" in evidence
+        ):
+            errors.append(f"{label}: FLOW audience must authorize before its bounded read")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}

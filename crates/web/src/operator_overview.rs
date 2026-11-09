@@ -1,5 +1,7 @@
 //! Read-only system overview with the same independent operator password as traces.
 //! No business records or private URLs; unavailable observations stay unknown.
+mod flow;
+
 use crate::cover_worker::CoverRunnerSnapshot;
 use crate::{cover_worker, observability, operator_traces, ril, worker_health, AppState};
 use axum::{
@@ -30,6 +32,8 @@ enum PgHealth {
 
 struct Overview {
     pg: PgHealth,
+    flow: Option<Vec<tor_traffic_behavior::domain::FlowHourlyCount>>,
+    flow_capture: Option<(u64, u64)>,
     http: HttpSummary,
     login: LoginSnapshot,
     process: ProcessSnapshot,
@@ -46,6 +50,8 @@ struct Overview {
 async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overview {
     let mut state = Overview {
         pg: PgHealth::NotConfigured,
+        flow: None,
+        flow_capture: ril::flow_capture_counters(),
         http: observability::http_summary(),
         login: observability::login_summary(),
         process: process::capture(),
@@ -78,7 +84,9 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
     let ril_future = tokio::time::timeout(timeout, ril_repo.queue_counts());
     let cover_future = tokio::time::timeout(timeout, cover_repo.queue_counts());
     let cdn_future = tokio::time::timeout(timeout, cdn_repo.queue_counts());
-    let (ril, covers, cdn) = tokio::join!(ril_future, cover_future, cdn_future);
+    let flow_future = tokio::time::timeout(timeout, ril_repo.read_flow_hourly(24));
+    let (ril, covers, cdn, flow) = tokio::join!(ril_future, cover_future, cdn_future, flow_future);
+    state.flow = flow.ok().and_then(Result::ok);
     state.ril_queue = ril.ok().and_then(Result::ok);
     state.cover_queue = covers.ok().and_then(Result::ok);
     state.cdn_queue = cdn.ok().and_then(Result::ok);
@@ -231,6 +239,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         write!(exporters, "<p>{}</p>", unmeasured()).expect("write String");
     }
 
+    let flow = flow::render(snapshot.flow.as_deref(), snapshot.flow_capture);
     let html = format!(
         "<div class=\"grid\">
         <section class=\"card\" aria-labelledby=\"pg\"><h2 id=\"pg\">PostgreSQL</h2><p>{pg_text}</p><p class=\"muted\">Проверяется фактическая схема и доступность данных сайта. Это не измерение задержек всех запросов.</p></section>
@@ -242,7 +251,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{cover_metrics}{covers}<p class=\"muted\">Показатели исполнителя относятся только к процессу TOR. Просроченная аренда не доказывает остановку другого процесса.</p></section>
         <section class=\"card\" aria-labelledby=\"cdn\"><h2 id=\"cdn\">CDN: публикации и отзыв обложек</h2>{cdn_status}<p class=\"muted\">Только агрегаты PostgreSQL после авторизации оператора. Purged означает подтверждение операции Yandex, но не доказательство очистки браузерного кеша или каждого edge. Отсутствующее измерение не равно нулю.</p></section>
         <section class=\"card\" aria-labelledby=\"trace\"><h2 id=\"trace\">Доставка трасс</h2>{exporters}<p class=\"muted\">Счётчики накоплены с запуска веб-процесса. Отсутствующие измерения не заменяются нулём.</p></section>
-        </div>",
+        {flow}</div>",
         snapshot.http.requests,
         snapshot.http.client_errors,
         snapshot.http.server_errors,
@@ -328,6 +337,8 @@ mod tests {
         logins.record(LoginOutcome::LookupUnavailable);
         let data = Overview {
             pg: PgHealth::Unavailable,
+            flow: None,
+            flow_capture: None,
             http: HttpSummary {
                 requests: 13,
                 server_errors: 2,
