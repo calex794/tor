@@ -36,8 +36,8 @@ fn valid_command_key(command: &str) -> bool {
 }
 
 /// Site moderation is a real, active account role, not Book membership.
-    /// A dual-role actor is treated as an administrator; the chosen role row
-    /// is locked until the review transaction commits.
+/// A dual-role actor is treated as an administrator; the chosen role row
+/// is locked until the review transaction commits.
 async fn site_reviewer(
     tx: &mut Transaction<'_, Postgres>,
     digest: &[u8; 32],
