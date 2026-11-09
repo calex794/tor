@@ -309,7 +309,7 @@ impl PgCreatorFinance {
             .await
             .map_err(|_| CreatorFinanceError::Unavailable)?;
         let active: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+            "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR NO KEY UPDATE",
         )
         .bind(actor)
         .fetch_optional(&mut *tx)
