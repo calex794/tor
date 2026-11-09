@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -365,9 +365,16 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/support_admin.rs"
         and admin_key in SUPPORT_ADMIN_HANDLERS
     )
+    refund_view_handlers = {
+        ("GET", "/admin/finance/refunds", "page"): "recent",
+        ("GET", "/admin/finance/refunds/user/{id}", "buyer"): "user_purchases",
+    }
     audited_refund = (policy == "admin_refund"
                       and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
-                      and admin_key == ("GET", "/admin/finance/refunds", "page"))
+                      and admin_key in refund_view_handlers)
+    prepared_refund = (policy == "admin_refund_prepare"
+                       and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
+                       and admin_key == ("POST", "/admin/finance/refunds/prepare", "prepare::submit"))
     approved_refund = (
         policy == "admin_refund_approve"
         and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
@@ -520,7 +527,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
-            audited_admin or audited_support or audited_refund or approved_refund or audited_payout
+            audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
@@ -812,13 +819,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ) and "UPDATE reader_wallet_accounts" not in quote_repo
         if not guarded:
             errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
-    if policy == "admin_refund" and not (
-            audited_refund
-            and "PgRefundAdminReview::new" in evidence
-            and ".recent(&digest, query.before)" in evidence
-            and "session_token_digest" in evidence
-            and "session_user(&state, &headers)" in evidence):
-        errors.append(f"{label}: S036 administrator refund view must bind active session and audited read")
+    if policy == "admin_refund":
+        operation = refund_view_handlers.get(admin_key) if audited_refund else None
+        guarded = ("session_user(&state, &headers)" in evidence
+                   and "session_digest_from(&state, &headers)" in evidence)
+        if operation == "recent":
+            guarded = guarded and "PgRefundAdminReview::new" in evidence
+        elif operation == "user_purchases":
+            guarded = guarded and "PgSupportRefunds::new" in evidence
+            guarded = guarded and ".user_purchases(&digest, user_id, cursor.before)" in evidence
+        else:
+            guarded = False
+        if not guarded:
+            errors.append(f"{label}: S036 administrator view requires live role and audited SQL read")
+    if policy == "admin_refund_prepare":
+        repo = _production((ROOT / "crates/commerce/src/repositories/admin_support_refunds.rs")
+                            .read_text(encoding="utf-8"))
+        guarded = (prepared_refund and
+                   "PgSupportRefunds::new" in evidence and
+                   ".prepare_once(" in evidence and
+                   "session_user(&state, &headers)" in evidence and
+                   "state.cookies.same_origin(&headers)" in evidence and
+                   "state.cookies.valid_csrf(&headers, &form.csrf_token)" in evidence and
+                   "Self::administrator(&mut tx, digest).await?" in repo and
+                   "INSERT INTO finance_support_refund_intents" in repo and
+                   "INSERT INTO admin_action_audit" in repo)
+        if not guarded:
+            errors.append(f"{label}: S036 prepare must bind support, live administrator, CSRF and immutable audit")
     if policy == "admin_refund_approve":
         required = (
             "!enabled(&state)",

@@ -107,7 +107,6 @@ mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
 mod referral_routes;
-mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
 mod saved_free_chapters;
@@ -213,8 +212,7 @@ fn router_inner(
         paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
     let swap_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
-    let refund_browser_enabled = paid_checkout_enabled
-        && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
+
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
@@ -226,7 +224,6 @@ fn router_inner(
         layer_checkout_enabled,
         layer_pages_enabled,
         swap_browser_enabled,
-        refund_browser_enabled,
         paid_reader_available,
         paid_author_available,
         authoring,
@@ -360,7 +357,6 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
-        .merge(refund_browser::router())
         .route(
             "/me/refunds/swap",
             get(direct_swap_browser::page).post(direct_swap_browser::submit),
