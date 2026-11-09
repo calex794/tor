@@ -78,7 +78,8 @@ async fn call(
 
 async fn page(response: Response) -> String {
     String::from_utf8(
-        to_bytes(response.into_body(), 128 * 1024)
+        // The bounded 168-hour comparison adds its accessible table to this page.
+        to_bytes(response.into_body(), 256 * 1024)
             .await
             .unwrap()
             .to_vec(),

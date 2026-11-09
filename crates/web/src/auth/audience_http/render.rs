@@ -1,4 +1,5 @@
 //! Only numerical evidence is rendered; no reader or book identifiers.
+mod hours;
 mod sources;
 
 use crate::pages::{escape_html, layout};
@@ -6,12 +7,13 @@ use axum::response::Html;
 use std::fmt::Write;
 use tor_reading::services::audience::{AudienceCounts, AudiencePeriod, AudienceReport};
 use tor_recommendations::services::audience::DiscoveryReport;
+use tor_traffic_behavior::services::audience::FlowHourlyReport;
 
 fn start(days: i32) -> String {
     let mut body = String::from(
         "<section class=\"section\"><div class=\"container author-width\">\
          <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
-         <p>Источники переходов к книгам и подтверждённое чтение. \
+         <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
@@ -57,8 +59,10 @@ pub(super) fn page(
     days: i32,
     reading: Option<&AudienceReport>,
     discovery: Option<&DiscoveryReport>,
+    traffic: Option<&FlowHourlyReport>,
 ) -> Html<String> {
     let mut body = start(days);
+    hours::section(&mut body, days, traffic);
     match discovery {
         Some(report) => sources::section(&mut body, report),
         None => body.push_str("<section data-testid=\"audience-sources-unavailable\"><h2>Источники первого чтения книги</h2><p role=\"alert\">Сводка источников временно недоступна. Нулевые значения не подставляются.</p></section>"),
@@ -194,7 +198,7 @@ mod tests {
 
     #[test]
     fn periods_use_report_distinct_counts_without_inventing_retention_or_conversion() {
-        let html = page(7, Some(&sample()), None).0;
+        let html = page(7, Some(&sample()), None, None).0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
         assert!(html.contains("<dd>+1</dd>"));
         assert!(html.contains("datetime=\"2026-11-03T12:00:00Z\""));
@@ -210,22 +214,22 @@ mod tests {
     fn absent_events_do_not_turn_into_zero_readers_or_comparison() {
         let mut report = sample();
         report.previous.counts = None;
-        let html = page(7, Some(&report), None).0;
+        let html = page(7, Some(&report), None, None).0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
         assert!(html.contains("audience-comparison-unavailable"));
         assert!(!html.contains("data-metric=\"readers\">0"));
         report.current.available = false;
-        assert!(!page(7, Some(&report), None)
+        assert!(!page(7, Some(&report), None, None)
             .0
             .contains("data-metric=\"readers\""));
-        assert!(page(30, None, None).0.contains("role=\"alert\""));
+        assert!(page(30, None, None, None).0.contains("role=\"alert\""));
     }
 
     #[test]
     fn timestamp_text_and_attribute_are_escaped() {
         let mut report = sample();
         report.current.from_utc = "\"><script>bad()</script>".into();
-        let html = page(7, Some(&report), None).0;
+        let html = page(7, Some(&report), None, None).0;
         assert!(!html.contains("<script>bad()"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;"));
     }
