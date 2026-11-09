@@ -2,6 +2,8 @@
 //! Reports are moderation evidence only, not automatic holds or read grants.
 #![forbid(unsafe_code)]
 use super::book_shares::BookShareError;
+
+mod history;
 use sqlx::{PgPool, Postgres, Transaction};
 
 #[derive(Clone)]
