@@ -227,7 +227,6 @@ fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
     }
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable loopback MinIO only"]
 async fn g_09_reconciliation_2501_private_list_pages() {
@@ -237,8 +236,7 @@ async fn g_09_reconciliation_2501_private_list_pages() {
 
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO URL");
     assert!(
-        endpoint.starts_with("http://127.0.0.1:")
-            || endpoint.starts_with("http://localhost:"),
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
         "never use a production S3 endpoint"
     );
     let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").unwrap();
@@ -272,9 +270,8 @@ async fn g_09_reconciliation_2501_private_list_pages() {
     for number in 1..=2501_u32 {
         let worker = client.clone();
         tasks.spawn(async move {
-            let key = format!(
-                "private/chapter-versions/{number:08x}-dcb1-4c1a-a000-{number:012x}.enc"
-            );
+            let key =
+                format!("private/chapter-versions/{number:08x}-dcb1-4c1a-a000-{number:012x}.enc");
             worker
                 .put_object()
                 .bucket("tor-private-inventory-ci")

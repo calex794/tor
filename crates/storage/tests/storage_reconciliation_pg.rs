@@ -177,13 +177,15 @@ async fn g_09_s3_recon_2501_private_keys_restart_and_no_delete() {
     assert_eq!(recovered.scanned, 1000);
     assert!(!recovered.completed);
 
-    let registry_objects: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM storage_objects WHERE bucket=$1",
-    )
-    .bind(BUCKET)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(registry_objects, 0, "inventory never writes the live registry");
+    let registry_objects: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM storage_objects WHERE bucket=$1")
+            .bind(BUCKET)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        registry_objects, 0,
+        "inventory never writes the live registry"
+    );
     pool.close().await;
 }

@@ -138,7 +138,9 @@ impl PgPrivateInventory {
         .await
         .map_err(|_| InventoryError::Unavailable)?;
         if owns.is_none() {
-            tx.rollback().await.map_err(|_| InventoryError::Unavailable)?;
+            tx.rollback()
+                .await
+                .map_err(|_| InventoryError::Unavailable)?;
             return Err(InventoryError::Busy);
         }
 
