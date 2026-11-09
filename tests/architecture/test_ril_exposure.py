@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 374)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 370)  # Includes FLOW administrator audience.
+        self.assertEqual(report["route_pairs"], 372)  # Includes the two S039 administrator finance routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
