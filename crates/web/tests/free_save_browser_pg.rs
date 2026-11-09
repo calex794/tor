@@ -44,8 +44,15 @@ fn pg(url: &str, sql: &str) -> String {
         // KEY SHARE conflict; never disable the constraint or retry blindly.
         let diagnosis = Command::new("psql")
             .args([
-                "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-                "--dbname", url, "--command",
+                "-X",
+                "-A",
+                "-t",
+                "-q",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "--dbname",
+                url,
+                "--command",
                 "SELECT pid::text || ' | ' || coalesce(state,'') || ' | ' ||
                         coalesce(wait_event_type,'') || ':' || coalesce(wait_event,'') ||
                         ' | xact_age=' || coalesce((clock_timestamp()-xact_start)::text,'') ||
