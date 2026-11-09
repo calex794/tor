@@ -16,8 +16,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_commerce::{
-    domain::money::IdempotencyKey,
-    repositories::creator_finance::PgCreatorFinance,
+    domain::money::IdempotencyKey, repositories::creator_finance::PgCreatorFinance,
 };
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -27,11 +26,29 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "never use a retained database");
     let out = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=15000 -c lock_timeout=5000")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=15000 -c lock_timeout=5000",
+        )
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql required for HTTP acceptance");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
 
@@ -63,7 +80,9 @@ async fn s039_quote_http_disabled_by_default() {
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let site = app(accounts, catalog);
     assert_eq!(
-        get(&site, "/admin/finance/payouts/1/quote", "").await.status(),
+        get(&site, "/admin/finance/payouts/1/quote", "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -80,49 +99,84 @@ async fn s039_quote_http_admin_only_and_no_wallet_movement() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let owner_token = generate_session_token();
     let admin_token = generate_session_token();
     let csrf = generate_session_token();
-    let owner = accounts.register_with_session(
-        &format!("s039-quote-http-owner-{stamp}@example.invalid"),
-        "Payout owner",
-        &hash_password("S039QuoteOwnerPassword2026").unwrap(),
-        &session_token_digest(&owner_token),
-        NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    let admin = accounts.register_with_session(
-        &format!("s039-quote-http-admin-{stamp}@example.invalid"),
-        "Payout admin",
-        &hash_password("S039QuoteAdministratorPassword2026").unwrap(),
-        &session_token_digest(&admin_token),
-        NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+    let owner = accounts
+        .register_with_session(
+            &format!("s039-quote-http-owner-{stamp}@example.invalid"),
+            "Payout owner",
+            &hash_password("S039QuoteOwnerPassword2026").unwrap(),
+            &session_token_digest(&owner_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let admin = accounts
+        .register_with_session(
+            &format!("s039-quote-http-admin-{stamp}@example.invalid"),
+            "Payout admin",
+            &hash_password("S039QuoteAdministratorPassword2026").unwrap(),
+            &session_token_digest(&admin_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES('ci:s039:quote:http:{stamp}','ru','S039 quote HTTP','public',{owner})"
-    ));
-    pg(&url, &format!(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
          VALUES({owner},1000,'RUB')"
-    ));
-    pg(&url, &format!(
-        "INSERT INTO account_roles(user_id,role,is_active)
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active)
          VALUES({admin},'administrator',true)"
-    ));
+        ),
+    );
     let finance = PgCreatorFinance::new(pool.clone());
-    let id = finance.reserve_once(
-        owner, 600, &IdempotencyKey::parse(&format!("{}8", "Q".repeat(42))).unwrap(),
-    ).await.unwrap().id;
-    finance.reserve_once(
-        owner, 300, &IdempotencyKey::parse(&format!("{}8", "R".repeat(42))).unwrap(),
-    ).await.unwrap();
+    let id = finance
+        .reserve_once(
+            owner,
+            600,
+            &IdempotencyKey::parse(&format!("{}8", "Q".repeat(42))).unwrap(),
+        )
+        .await
+        .unwrap()
+        .id;
+    finance
+        .reserve_once(
+            owner,
+            300,
+            &IdempotencyKey::parse(&format!("{}8", "R".repeat(42))).unwrap(),
+        )
+        .await
+        .unwrap();
     let site = app(accounts, catalog);
     let uri = format!("/admin/finance/payouts/{id}/quote");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
-    assert_eq!(get(&site, &uri, "").await.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(get(&site, &uri, &owner_cookie).await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        get(&site, &uri, "").await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        get(&site, &uri, &owner_cookie).await.status(),
+        StatusCode::NOT_FOUND
+    );
     let res = get(&site, &uri, &admin_cookie).await;
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(res.headers()[header::CACHE_CONTROL], "no-store");
@@ -134,27 +188,54 @@ async fn s039_quote_http_admin_only_and_no_wallet_movement() {
     assert!(markup.contains("Доступно без резерва этой заявки: 700 коп."));
     assert!(markup.contains("не подтверждение"));
     assert!(!markup.contains("<form"));
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM finance_creator_payout_approval_read_audit
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM finance_creator_payout_approval_read_audit
          WHERE admin_user_id={admin} AND payout_request_id={id}"
-    )), "1");
-    assert_eq!(pg(&url, &format!(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={owner}"
-    )), "1000");
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM reader_wallet_entries WHERE user_id={owner}"
-    )), "0");
-    assert_eq!(pg(&url, &format!(
-        "SELECT state FROM finance_creator_payout_requests WHERE id={id}"
-    )), "pending");
-    pg(&url, &format!(
-        "UPDATE account_roles SET is_active=false
+            )
+        ),
+        "1"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={owner}")
+        ),
+        "1000"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM reader_wallet_entries WHERE user_id={owner}")
+        ),
+        "0"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT state FROM finance_creator_payout_requests WHERE id={id}")
+        ),
+        "pending"
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE account_roles SET is_active=false
          WHERE user_id={admin} AND role='administrator'"
-    ));
-    assert_eq!(get(&site, &uri, &admin_cookie).await.status(), StatusCode::NOT_FOUND);
-    pg(&url, &format!(
-        "UPDATE sessions SET revoked_at=COALESCE(revoked_at,clock_timestamp())
+        ),
+    );
+    assert_eq!(
+        get(&site, &uri, &admin_cookie).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE sessions SET revoked_at=COALESCE(revoked_at,clock_timestamp())
          WHERE user_id={admin}"
-    ));
+        ),
+    );
     pool.close().await;
 }
