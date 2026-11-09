@@ -336,6 +336,7 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
     )
     .unwrap();
     assert!(admin_html.contains("E public free comment"));
+    assert!(admin_html.contains("value=\"hide_comment\""));
     assert!(!admin_html.contains("S049_FREE_CHAPTER_BODY_NOT_REPORT"));
 
     let report_id: i64 = pg(
@@ -384,12 +385,12 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
             &review_route,
             &admin_cookie,
             ORIGIN,
-            &review_form.replace("decision=reviewed", "decision=hide_comment")
+            &review_form.replace("decision=reviewed", "decision=remove_chapter")
         )
         .await
         .status(),
         StatusCode::BAD_REQUEST,
-        "a review is not permission to hide a chapter comment",
+        "an unknown decision cannot change a chapter or a comment",
     );
     assert_eq!(
         request(
@@ -436,6 +437,63 @@ async fn s049_free_comment_exact_published_version_live_age_csrf_idempotency() {
         .status(),
         StatusCode::CONFLICT,
     );
+    // A second, independently submitted complaint can result in a separate
+    // explicit hide. Ordinary "reviewed" above had no moderation side effect.
+    let hide_report_id: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO social_free_comment_reports
+             (chapter_id,version_id,comment_id,reporter_user_id,reason,details,command_key)
+             SELECT chapter_id,version_id,comment_id,reporter_user_id,
+                    'abuse','S049 manually reviewed hide','{}'
+             FROM social_free_comment_reports WHERE id={report_id}
+             RETURNING id",
+            "H".repeat(43)
+        ),
+    )
+    .parse()
+    .unwrap();
+    let hide_route = format!("{admin_queue}/{hide_report_id}/decision");
+    let hide_form = review_form.replace("decision=reviewed", "decision=hide_comment");
+    assert_eq!(
+        request(&app, "POST", &hide_route, &moderator_cookie, ORIGIN, &hide_form)
+            .await.status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(&app, "POST", &hide_route, &admin_cookie, ORIGIN, &hide_form)
+            .await.status(),
+        StatusCode::SEE_OTHER,
+    );
+    assert_eq!(
+        pg(&url, &format!("SELECT visibility FROM discussion_comments WHERE id={comment}")),
+        "hidden",
+        "the explicitly sanctioned exact E comment becomes hidden",
+    );
+    assert_eq!(
+        pg(&url, &format!(
+            "SELECT count(*) FROM social_free_comment_review_events
+             WHERE report_id={hide_report_id} AND reviewer_user_id={admin}
+               AND decision='reviewed' AND moderation_action='hide_free_comment'"
+        )),
+        "1",
+    );
+    assert_eq!(
+        request(&app, "POST", &hide_route, &admin_cookie, ORIGIN, &hide_form)
+            .await.status(),
+        StatusCode::CONFLICT,
+    );
+    let history_page = request(&app, "GET", admin_queue, &admin_cookie, ORIGIN, "").await;
+    let history_html = String::from_utf8(
+        to_bytes(history_page.into_body(), 256 * 1024)
+            .await.unwrap().to_vec(),
+    ).unwrap();
+    assert!(history_html.contains("hide_free_comment"));
+    assert!(!history_html.contains("S049_FREE_CHAPTER_BODY_NOT_REPORT"));
+    pg_rejected(&url, &format!(
+        "UPDATE social_free_comment_review_events
+         SET moderation_action='none' WHERE report_id={hide_report_id}"
+    ));
     eprintln!("S049_FREE_ADMIN administrator review and idempotency passed");
     pg_rejected(
         &url,
