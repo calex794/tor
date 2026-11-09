@@ -78,6 +78,10 @@ BEGIN
               SELECT 1 FROM finance_direct_refund_creator_reversals r
               WHERE r.purchase_id=NEW.purchase_id AND r.user_id=NEW.user_id
           )
+          AND NOT EXISTS (
+              SELECT 1 FROM finance_direct_swap_creator_reversals sr
+              WHERE sr.source_purchase_id=NEW.purchase_id AND sr.user_id=NEW.user_id
+          )
     ) THEN
         RAISE EXCEPTION 'creator wallet credit lacks mature verified earning'
             USING ERRCODE='23514';
@@ -131,6 +135,7 @@ BEGIN
         SELECT e.purchase_id,
                e.clear_at,
                (e.amount_minor-COALESCE(r.amount_minor,0)
+                              -COALESCE(sr.amount_minor,0)
                               -COALESCE(c.amount_minor,0))::BIGINT AS unposted,
                EXISTS (
                    SELECT 1 FROM finance_direct_refund_requests q
@@ -141,6 +146,8 @@ BEGIN
         FROM finance_creator_earnings e
         LEFT JOIN finance_direct_refund_creator_reversals r
           ON r.purchase_id=e.purchase_id AND r.user_id=e.user_id
+        LEFT JOIN finance_direct_swap_creator_reversals sr
+          ON sr.source_purchase_id=e.purchase_id AND sr.user_id=e.user_id
         LEFT JOIN finance_creator_wallet_credits c
           ON c.purchase_id=e.purchase_id AND c.user_id=e.user_id
         WHERE e.user_id=NEW.user_id AND e.origin_type='chapter_purchase'
