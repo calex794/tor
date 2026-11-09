@@ -36,3 +36,13 @@ jobs:
           path: ${{ runner.temp }}/ci-selection.json
           if-no-files-found: error
           retention-days: 14
+      - name: S349 exact tracked-source acceptance snapshot
+        if: ${{ inputs.caller == 'all' && github.head_ref == 'feat/s349-free-chapter-s3-storage-20261109' }}
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/s349-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.caller == 'all' && github.head_ref == 'feat/s349-free-chapter-s3-storage-20261109' }}
+        with:
+          name: s349-source-snapshot
+          path: ${{ runner.temp }}/s349-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
