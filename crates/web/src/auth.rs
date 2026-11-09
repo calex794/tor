@@ -596,6 +596,5 @@ async fn logout(
     headers: HeaderMap,
     Form(form): Form<LogoutForm>,
 ) -> Response {
-    // session_security::logout enforces same-origin and CSRF itself.
     session_security::logout(State(state), headers, Form(form)).await
 }
