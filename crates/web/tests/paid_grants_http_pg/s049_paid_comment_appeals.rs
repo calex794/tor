@@ -21,7 +21,10 @@ async fn post_form(
         )
         .body(Body::from(form.to_owned()))
         .unwrap();
-    app.clone().oneshot(req).await.unwrap()
+    tokio::time::timeout(std::time::Duration::from_secs(15), app.clone().oneshot(req))
+        .await
+        .expect("S049 paid appeal HTTP request timed out")
+        .unwrap()
 }
 
 pub(super) async fn check(
@@ -33,6 +36,7 @@ pub(super) async fn check(
     original_admin_cookie: &str,
 ) {
     let (comment, hide_report, original_admin) = sanctioned;
+    eprintln!("S049_PAID_APPEAL beginning");
     let path = "/me/paid-comment-appeals";
     let admin_path = "/admin/paid-comment-appeals";
     let hide_event = scalar(
@@ -91,6 +95,7 @@ pub(super) async fn check(
     assert!(!author_html.contains(BODY));
     assert!(!author_html.contains("ciphertext_url"));
 
+    eprintln!("S049_PAID_APPEAL reached author browser and role checks");
     let token = generate_session_token();
     let reason = "Request+independent+review+of+my+hidden+comment";
     let key = "A".repeat(43);
@@ -129,6 +134,7 @@ pub(super) async fn check(
         StatusCode::SEE_OTHER,
         "same command key replays an existing appeal"
     );
+    eprintln!("S049_PAID_APPEAL submission and replay succeeded");
     let appeal_id = scalar(
         url,
         &format!(
@@ -146,6 +152,7 @@ pub(super) async fn check(
         ),
         1
     );
+    eprintln!("S049_PAID_APPEAL persisted author submission");
     let pending = read_page(app, admin_path, Some(&reviewer_cookie)).await;
     assert_eq!(pending.status(), StatusCode::OK);
     let pending_html = String::from_utf8(
@@ -159,6 +166,7 @@ pub(super) async fn check(
     assert!(!pending_html.contains(BODY));
     assert!(!pending_html.contains("S049 paid private comment"));
 
+    eprintln!("S049_PAID_APPEAL reviewer queue passed");
     let url_decision = format!("{admin_path}/{appeal_id}/decision");
     let admin_form =
         format!("csrf_token={token}&decision=restored&note=Independent+review+accepted");
@@ -189,6 +197,7 @@ pub(super) async fn check(
         .status(),
         StatusCode::SEE_OTHER
     );
+    eprintln!("S049_PAID_APPEAL independent restore decision returned");
     assert_eq!(
         pg(
             url,

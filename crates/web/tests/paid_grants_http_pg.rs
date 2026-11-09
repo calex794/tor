@@ -349,7 +349,7 @@ async fn json_body(reply: Response) -> Value {
     let bytes = to_bytes(reply.into_body(), 8192).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires isolated PostgreSQL TEST_DATABASE_URL ending /tor_ci"]
 async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG CI url");
