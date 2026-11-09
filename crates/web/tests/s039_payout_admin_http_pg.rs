@@ -170,7 +170,7 @@ async fn s039_http_admin_role_csrf_idempotent_rejection() {
          ON CONFLICT(user_id,role) DO UPDATE SET is_active=true"
         ),
     );
-    let key = IdempotencyKey::parse(&format!("{}9", "H".repeat(42))).unwrap();
+    let key = IdempotencyKey::parse(&format!("{}8", "H".repeat(42))).unwrap();
     let receipt = PgCreatorFinance::new(pool.clone())
         .reserve_once(applicant, 600, &key)
         .await

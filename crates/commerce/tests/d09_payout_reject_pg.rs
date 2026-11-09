@@ -85,7 +85,7 @@ async fn fixture(scenario: &str) -> Fixture {
     .execute(&pool)
     .await
     .unwrap();
-    let key = IdempotencyKey::parse(&format!("{}9", "A".repeat(42))).unwrap();
+    let key = IdempotencyKey::parse(&format!("{}8", "A".repeat(42))).unwrap();
     let request = PgCreatorFinance::new(pool.clone())
         .reserve_once(applicant, 600, &key)
         .await
