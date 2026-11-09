@@ -125,27 +125,23 @@ async fn s349_free_storage_reference_is_edition_exact_immutable_and_private() {
     .execute(&pool)
     .await;
     assert!(wrong_hash.is_err());
-    assert!(
-        sqlx::query(
-            "UPDATE free_chapter_storage_objects SET size_bytes=15
+    assert!(sqlx::query(
+        "UPDATE free_chapter_storage_objects SET size_bytes=15
              WHERE chapter_id=$1 AND version_id=$2",
-        )
-        .bind(free_chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .is_err()
-    );
-    assert!(
-        sqlx::query(
-            "DELETE FROM free_chapter_storage_objects
+    )
+    .bind(free_chapter)
+    .bind(version)
+    .execute(&pool)
+    .await
+    .is_err());
+    assert!(sqlx::query(
+        "DELETE FROM free_chapter_storage_objects
              WHERE chapter_id=$1 AND version_id=$2",
-        )
-        .bind(free_chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .is_err()
-    );
+    )
+    .bind(free_chapter)
+    .bind(version)
+    .execute(&pool)
+    .await
+    .is_err());
     pool.close().await;
 }
