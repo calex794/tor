@@ -1,0 +1,59 @@
+{
+  "source_commit": "e863ff7c175f2bb291c7d6ab061d56f6915c5980",
+  "checks": {
+    "test_ci_workflow_wiring.py": 0,
+    "test_ci_workspace_dedup.py": 0,
+    "test_ril_exposure.py": 0,
+    "test_s020_age_editor_survival.py": 0
+  },
+  "files": [
+    {
+      "path": ".github/workflows/rust-demo.yml",
+      "before": "a35fa51bb4d19ef670debbe12611587450514e46",
+      "sha": "d2aa275a75e95be879ecdb543064d71e9c8c64e4",
+      "bytes": 3638
+    },
+    {
+      "path": ".github/workflows/tor-cover-s3.yml",
+      "before": "0e2278ab1401c36faba7312ef64c81c5031c6c8b",
+      "sha": "b999371e1f67872101a535c699124bd45a552490",
+      "bytes": 7821
+    },
+    {
+      "path": "crates/web/src/auth_startup.rs",
+      "before": "7414c3dfd6d13459edb9f2d51529c14b64dd1b0b",
+      "sha": "2a8c385aff5c6b431abb7594f66207dfab9de726",
+      "bytes": 8063
+    },
+    {
+      "path": "crates/web/src/paid_reader_router.rs",
+      "before": "a7e56b1783b1d7927954587b563c18743dc40293",
+      "sha": "cab1d35850e1483bacb20df607033608c764c7a6",
+      "bytes": 9888
+    },
+    {
+      "path": "docs/contracts/ril-route-guards-v1.json",
+      "before": "896936508c7178de3c41c917a3fd851a07c9bb52",
+      "sha": "16f47c1a2cd64c026984c67c53a1f1c6f3e487da",
+      "bytes": 75310
+    },
+    {
+      "path": "tests/architecture/test_ci_workflow_wiring.py",
+      "before": "47de84d31430345d8e54eb12d0ac441fb7f7c65c",
+      "sha": "97e59567f118c53ad7e2f865dbba579fc705382c",
+      "bytes": 30826
+    },
+    {
+      "path": "tests/architecture/test_ci_workspace_dedup.py",
+      "before": "3d8946ec4c718b3fdf8dbabe11fada12dd92967d",
+      "sha": "861edf6461cd2a94c20a29c7dc3c2356afd01ca7",
+      "bytes": 2132
+    },
+    {
+      "path": "tests/architecture/test_ril_exposure.py",
+      "before": "088b7b30e107a4c556acffcf6434109144490902",
+      "sha": "b0780a6b0fb31194f1c9fc24e39fd4b7b3eeafe9",
+      "bytes": 12406
+    }
+  ]
+}

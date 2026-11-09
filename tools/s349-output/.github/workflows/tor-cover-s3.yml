@@ -1,0 +1,155 @@
+name: TOR private S3 cover compile
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: cover_s3
+  s3-cover-build:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-obs09-pg
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-obs09-pg
+      TEST_DATABASE_URL: postgresql://tor_app:tor-obs09-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-obs09-migrator@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile private S3 cover adapter without provider credentials
+        run: cargo check -p tor-web --features s3-covers
+      - name: Start upstream release of MinIO on loopback with SHA-256 verification
+        run: |
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-minio-data"
+          MINIO_ROOT_USER=tor-cover-ci-user MINIO_ROOT_PASSWORD=tor-cover-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-minio-data" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-cover-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log"
+            exit 1
+          fi
+      - name: Test signed S3 PUT HEAD GET, integrity and strict size bounds
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo fmt --all -- --check
+          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
+          cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
+          cargo test -p tor-imports --features s3 \
+            repositories::s3::tests::s023_private_source_put_get_conflict_and_delete \
+            -- --ignored --test-threads=1
+      - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
+        run: |
+          set -euo pipefail
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE VALUES
+          (950,'obs09-owner@example.invalid','Test cover owner','$argon2id$test');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
+          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950,'basic');
+          SQL
+      - name: Run signed MinIO and restricted PG whole-cover user scenario
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo test -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- --ignored --test-threads=1
+          cargo clippy -p tor-web --features s3-covers,test-cdn-loopback --test cover_s3_pg -- -D warnings
+      - name: Deny anonymous S3 access to actual PG-attached WebP cover
+        run: |
+          set -euo pipefail
+          key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
+            -c "SELECT v.storage_key FROM cover_variants v \
+                JOIN cover_variant_jobs j ON j.id=v.job_id \
+                JOIN book_cover_slots s ON s.job_id=j.id AND s.book_id=j.book_id \
+                WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
+          [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:9000/tor-private-obs09-ci/$key")"
+          test "$status" = 403
+      - name: Assert direct anonymous URL cannot read the private cover
+        run: |
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
+          test "$code" = 403
+      # This parallel S3 runner has spare time after real MinIO/PG acceptance.
+      # Required CI only: run the shared lint here when both Rust and PG run.
+      - name: Combined S3 feature Clippy (paired Rust and PostgreSQL)
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import,s3-free' -- -D warnings
+      - name: MinIO diagnostics on failure
+        if: failure()
+        run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
