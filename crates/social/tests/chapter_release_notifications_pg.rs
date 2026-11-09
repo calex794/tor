@@ -207,6 +207,59 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .unwrap();
     assert_eq!(receipt, 1);
 
+    // S018: digest reads only the previous completed UTC calendar day. It
+    // reuses S015's LIVE read policy and has no chapter-text or mail payload.
+    assert!(repo.previous_day_chapter_digest(follower, 51).await.unwrap().is_empty());
+    assert!(repo.previous_day_chapter_digest(0, 51).await.is_err());
+    assert!(repo.previous_day_chapter_digest(follower, 52).await.is_err());
+    sqlx::query(
+        "UPDATE user_notifications
+         SET created_at=(((clock_timestamp() AT TIME ZONE 'UTC')::date - 1)::timestamp
+                         AT TIME ZONE 'UTC') + INTERVAL '12 hours'
+         WHERE recipient_user_id=$1 AND kind='chapter_created'",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let yesterday = repo.previous_day_chapter_digest(follower, 51).await.unwrap();
+    assert_eq!(yesterday.len(), 1);
+    assert_eq!(yesterday[0].chapter_id, chapter);
+    assert_eq!(yesterday[0].book_title, format!("Chapter fanout {nonce}"));
+    assert!(!format!("{yesterday:?}").contains(body));
+    for actor in [opted_out, late_follower, library_only] {
+        assert!(repo.previous_day_chapter_digest(actor, 51).await.unwrap().is_empty());
+    }
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.previous_day_chapter_digest(follower, 51).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET visibility_status='active',access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.previous_day_chapter_digest(follower, 51).await.unwrap().is_empty());
+    sqlx::query("UPDATE users SET adult_enabled=true WHERE id=$1")
+        .bind(follower)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.previous_day_chapter_digest(follower, 51).await.unwrap().len(), 1);
+    sqlx::query("UPDATE users SET adult_enabled=false WHERE id=$1")
+        .bind(follower)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.previous_day_chapter_digest(follower, 51).await.unwrap().is_empty());
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // A book may become age-restricted after its first release. E-08 must
     // re-check recipient eligibility, rather than trust the old fanout.
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
