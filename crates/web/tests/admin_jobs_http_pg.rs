@@ -436,9 +436,7 @@ async fn g_07_admin_http_retry_is_authorized_fenced_audited_and_idempotent() {
     );
     pg_audit_mutation_rejected(
         &url,
-        &format!(
-            "DELETE FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"
-        ),
+        &format!("DELETE FROM g_outbox_admin_retry_audit WHERE event_id='{event_id}'::uuid"),
     );
     pool.close().await;
 }
