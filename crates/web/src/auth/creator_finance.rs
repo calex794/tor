@@ -49,7 +49,7 @@ fn rub_to_minor(input: &str) -> Option<i64> {
     if trimmed.is_empty() || trimmed.len() > 16 {
         return None;
     }
-    let (whole, fraction) = match trimmed.split_once(|c| c == '.' || c == ',') {
+    let (whole, fraction) = match trimmed.split_once(['.', ',']) {
         Some((whole, fraction)) => (whole, fraction),
         None => (trimmed, "00"),
     };
