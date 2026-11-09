@@ -67,6 +67,8 @@ AUDITED_S049_COMMENT_APPEALS = {
 }
 AUDITED_REFUND_ADMIN = {
     ("GET", "/admin/finance/refunds", "page", "admin_refund"),
+    ("GET", "/admin/finance/refunds/user/{id}", "buyer", "admin_refund"),
+    ("POST", "/admin/finance/refunds/prepare", "prepare::submit", "admin_refund_prepare"),
     ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
 }
 AUDITED_PAYOUT_ADMIN = {

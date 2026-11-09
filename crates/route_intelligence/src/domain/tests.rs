@@ -443,3 +443,21 @@ fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
     assert_eq!(passport.cost_class, CostClass::Write);
     assert!(!classify(Some(route), "GET").route_known);
 }
+
+#[test]
+fn s036_refunds_are_administrator_only_not_buyer_self_service() {
+    for method in ["GET", "POST"] {
+        assert!(!classify(Some("/me/refunds"), method).route_known);
+    }
+    for (template, method) in [
+        ("/admin/finance/refunds", "GET"),
+        ("/admin/finance/refunds/user/{id}", "GET"),
+        ("/admin/finance/refunds/prepare", "POST"),
+        ("/admin/finance/refunds/approve", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Billing);
+    }
+}
