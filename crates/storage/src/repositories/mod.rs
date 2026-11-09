@@ -6,5 +6,7 @@ pub mod kek_rotation;
 pub mod paid_delivery;
 #[cfg(feature = "pg")]
 pub mod registry;
+#[cfg(feature = "pg")]
+pub mod reconciliation;
 #[cfg(feature = "s3")]
 pub mod s3;

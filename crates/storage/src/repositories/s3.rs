@@ -249,3 +249,46 @@ impl OrphanDeletePort for S3PrivateStore {
 
 #[cfg(test)]
 mod tests;
+
+/// Read-only listing: no DELETE, GET, public URL or untrusted prefix.
+#[async_trait]
+impl crate::services::reconciliation::PrivateInventoryLister for S3PrivateStore {
+    fn private_bucket(&self) -> &str {
+        &self.bucket
+    }
+
+    async fn list_private_page(
+        &self,
+        scope: crate::services::reconciliation::PrivateScope,
+        continuation: Option<&str>,
+    ) -> Result<crate::services::reconciliation::PrivateInventoryPage, StorageError> {
+        use crate::services::reconciliation::{ListedPrivateObject, PrivateInventoryPage};
+
+        let page = self
+            .client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(scope.prefix())
+            .max_keys(1000)
+            .set_continuation_token(continuation.map(str::to_owned))
+            .send()
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+
+        let objects = page
+            .contents()
+            .iter()
+            .map(|entry| ListedPrivateObject {
+                key: entry.key().unwrap_or("").to_owned(),
+                size_bytes: entry.size(),
+                modified_at: entry
+                    .last_modified()
+                    .and_then(|date| date.to_system_time().ok()),
+            })
+            .collect();
+        Ok(PrivateInventoryPage {
+            objects,
+            continuation: page.next_continuation_token().map(str::to_owned),
+        })
+    }
+}
