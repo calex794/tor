@@ -1,10 +1,9 @@
 //! G-09 sanitized, bounded operator reporting. Never returns a raw S3 key.
-use sqlx::{PgPool, Row};
 use crate::{
-    domain::provider::valid_private_bucket,
-    repositories::reconciliation::InventoryError,
+    domain::provider::valid_private_bucket, repositories::reconciliation::InventoryError,
     services::reconciliation::PrivateScope,
 };
+use sqlx::{PgPool, Row};
 
 #[derive(Debug)]
 pub struct Finding {
@@ -59,9 +58,15 @@ impl PgG09Operator {
             .map_err(|_| InventoryError::Unavailable)?;
         row.map(|v| {
             Ok(Checkpoint {
-                cycle: v.try_get("cycle").map_err(|_| InventoryError::Unavailable)?,
-                checkpoint: v.try_get("checkpoint").map_err(|_| InventoryError::Unavailable)?,
-                leased: v.try_get("leased").map_err(|_| InventoryError::Unavailable)?,
+                cycle: v
+                    .try_get("cycle")
+                    .map_err(|_| InventoryError::Unavailable)?,
+                checkpoint: v
+                    .try_get("checkpoint")
+                    .map_err(|_| InventoryError::Unavailable)?,
+                leased: v
+                    .try_get("leased")
+                    .map_err(|_| InventoryError::Unavailable)?,
             })
         })
         .transpose()
@@ -107,11 +112,21 @@ impl PgG09Operator {
         rows.into_iter()
             .map(|v| {
                 Ok(Finding {
-                    fingerprint: v.try_get("fingerprint").map_err(|_| InventoryError::Unavailable)?,
-                    status: v.try_get("status").map_err(|_| InventoryError::Unavailable)?,
-                    size_bytes: v.try_get("size_bytes").map_err(|_| InventoryError::Unavailable)?,
-                    has_ref: v.try_get("has_ref").map_err(|_| InventoryError::Unavailable)?,
-                    observed: v.try_get("observed").map_err(|_| InventoryError::Unavailable)?,
+                    fingerprint: v
+                        .try_get("fingerprint")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    status: v
+                        .try_get("status")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    size_bytes: v
+                        .try_get("size_bytes")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    has_ref: v
+                        .try_get("has_ref")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    observed: v
+                        .try_get("observed")
+                        .map_err(|_| InventoryError::Unavailable)?,
                 })
             })
             .collect()
