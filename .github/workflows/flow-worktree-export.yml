@@ -3,10 +3,9 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: read
-  actions: read
+  contents: write
 concurrency:
-  group: flow-diagnostics-export
+  group: flow-selector-fix-publication
   cancel-in-progress: false
 jobs:
   worktree:
@@ -16,34 +15,43 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: 352062300d280755a94a52a8cfaa612bc3b7d000
-          persist-credentials: false
-      - name: Export tracked source and bounded diagnostics
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Apply bounded test-selector fix to staging only
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/flow-export"
-          git archive HEAD | gzip > "$RUNNER_TEMP/flow-export/flow-source.tar.gz"
-          git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
-          gh api --allow-escape-sequences repos/calex794/tor/actions/jobs/130178565934/logs > "$RUNNER_TEMP/flow-job.log"
+          test "$(git rev-parse HEAD)" = 352062300d280755a94a52a8cfaa612bc3b7d000
           python3 - <<'PY'
-          import os,pathlib,re
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])
-          text=re.sub(r'\x1b\[[0-9;]*[a-zA-Z]','',(root/'flow-job.log').read_text())
-          lines=text.splitlines()
-          hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
-          indices=set()
-          for i in hits[-12:]:
-              indices.update(range(max(0,i-8),min(len(lines),i+18)))
-          text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices))
-          if not text: text='\n'.join(lines[-100:])
-          (root/'flow-export/failure.txt').write_text(text)
-          print(text[:28000])
+          from pathlib import Path
+          p=Path('crates/web/tests/audience_hours_http_pg.rs')
+          s=p.read_text()
+          old='        assert!(!html.contains("audience-hours-table"));'
+          new='''        // Both projections share presentation classes; only the legacy table
+                  // is absent for long periods. The observation-hour report stays live.
+                  assert!(!html.contains("data-testid=\\"audience-hours-table\\""));
+                  assert!(html.contains("data-testid=\\"audience-observed-table\\""));
+                  assert_eq!(html.matches("data-observed-hour=").count(), 168);'''
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          old='    assert!(html.contains("audience-hours-unavailable"));'
+          assert s.count(old)==1
+          s=s.replace(old,old+'\n    assert!(html.contains("data-testid=\\"audience-observed-current\\""));')
+          p.write_text(s)
           PY
+          rustfmt --edition 2021 crates/web/tests/audience_hours_http_pg.rs
+          git diff --check
+          test "$(git diff --name-only)" = crates/web/tests/audience_hours_http_pg.rs
+          test "$(git hash-object crates/web/tests/audience_hours_http_pg.rs)" = f5046e4dc094bdfe4a0819f4025e4cf0f97ac147
+          git add crates/web/tests/audience_hours_http_pg.rs
+          git config user.name 'FLOW QA'
+          git config user.email 'flow-qa@users.noreply.github.com'
+          git commit -m 'FLOW: distinguish legacy and observed hour tables in HTTP acceptance'
+          test -z "$(git ls-remote --heads origin refs/heads/qa/flow808-selector-fix-20261111)"
+          git push origin HEAD:refs/heads/qa/flow808-selector-fix-20261111
+          mkdir -p "$RUNNER_TEMP/flow-export"
+          git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-export/TREE"
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: flow-diagnostics-${{ github.sha }}
+          name: flow-selector-fix-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
           retention-days: 1
