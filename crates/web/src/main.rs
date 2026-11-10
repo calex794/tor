@@ -333,9 +333,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
                 if g09_operator_enabled {
-                    pending_g09_routes = Some(g09_bootstrap::routes(
-                        accounts.clone(), secure, origin.clone(),
-                    ).await?);
+                    pending_g09_routes = Some(
+                        g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
+                    );
                 }
                 pending_security_retention = Some(accounts.clone());
                 if overdue_observer_enabled {
