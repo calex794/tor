@@ -161,7 +161,6 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
     pool.close().await;
 }
 
-
 const FAILING_BUCKET: &str = "tor-private-g09-list-errors-ci";
 
 struct FailingList {
@@ -206,33 +205,56 @@ async fn g09_forward_list_stops_after_eight_errors_until_operator_resume() {
     };
     for _ in 0..8 {
         assert_eq!(
-            forward.scan_page(&store, PrivateScope::Chapter).await.unwrap_err(),
+            forward
+                .scan_page(&store, PrivateScope::Chapter)
+                .await
+                .unwrap_err(),
             InventoryError::Unavailable
         );
     }
-    let stopped = forward.progress(FAILING_BUCKET, PrivateScope::Chapter)
-        .await.unwrap().unwrap();
+    let stopped = forward
+        .progress(FAILING_BUCKET, PrivateScope::Chapter)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(stopped.exhausted);
     assert!(!stopped.completed);
-    assert_eq!((stopped.scanned, stopped.unknown_attempts, stopped.retries), (0, 8, 8));
     assert_eq!(
-        scheduler.action(FAILING_BUCKET, PrivateScope::Chapter, false)
-            .await.unwrap(),
+        (stopped.scanned, stopped.unknown_attempts, stopped.retries),
+        (0, 8, 8)
+    );
+    assert_eq!(
+        scheduler
+            .action(FAILING_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::Wait,
         "no automatic scheduler retry after eight LIST provider errors"
     );
-    assert!(forward.scan_page(&store, PrivateScope::Chapter).await.unwrap().is_none());
+    assert!(forward
+        .scan_page(&store, PrivateScope::Chapter)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(store.calls.load(Ordering::SeqCst), 8);
     store.unavailable.store(false, Ordering::SeqCst);
-    assert!(forward.resume_exhausted(FAILING_BUCKET, PrivateScope::Chapter)
-        .await.unwrap());
-    let done = forward.scan_page(&store, PrivateScope::Chapter)
-        .await.unwrap().unwrap();
+    assert!(forward
+        .resume_exhausted(FAILING_BUCKET, PrivateScope::Chapter)
+        .await
+        .unwrap());
+    let done = forward
+        .scan_page(&store, PrivateScope::Chapter)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(done.completed);
     assert!(!done.exhausted);
     assert_eq!(done.unknown_attempts, 8);
     assert_eq!(store.calls.load(Ordering::SeqCst), 9);
     sqlx::query("DELETE FROM g09_private_inventory_scans WHERE bucket=$1")
-        .bind(FAILING_BUCKET).execute(&pool).await.unwrap();
+        .bind(FAILING_BUCKET)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
