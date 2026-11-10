@@ -38,7 +38,7 @@ impl PgRecommendations {
                     position,generation_id,algorithm_version)
                  SELECT $2::uuid,$3,$4,$5,$6,$7,$8,$9,$10::uuid,$11
                  WHERE EXISTS(SELECT 1 FROM rec_actor_books WHERE id=$5)
-                   AND NOT EXISTS(SELECT 1 FROM rec_feedback_state WHERE subject_id=$2::uuid AND book_id=$5 AND hidden AND expires_at>now())
+                   AND NOT EXISTS(SELECT 1 FROM rec_book_preferences WHERE user_id=$1 AND book_id=$5 AND hidden AND expires_at>now())
                  RETURNING id::text"
             );
             let inserted: Option<String> = sqlx::query_scalar(&sql)
@@ -80,7 +80,7 @@ impl PgRecommendations {
              WHERE a.ticket_digest=$2 AND a.subject_id=$3::uuid AND a.session_digest=$4
                AND a.expires_at>now()
                AND EXISTS(SELECT 1 FROM rec_actor_books b WHERE b.id=a.book_id)
-               AND NOT EXISTS(SELECT 1 FROM rec_feedback_state f WHERE f.subject_id=a.subject_id AND f.book_id=a.book_id AND f.hidden AND f.expires_at>now())
+               AND NOT EXISTS(SELECT 1 FROM rec_book_preferences f WHERE f.user_id=$1 AND f.book_id=a.book_id AND f.hidden AND f.expires_at>now())
              RETURNING a.id::text,a.book_id"
         );
         let row = sqlx::query(&sql)

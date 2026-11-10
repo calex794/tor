@@ -122,7 +122,7 @@ impl PgRecommendations {
                 None => percent == 100,
             };
         if !eligible {
-            return self.fallback(actor, subject.as_deref(), seed, limit).await;
+            return self.fallback(actor, seed, limit).await;
         }
         let generation = generation.expect("eligible generation");
         let seeds = candidate_seeds(seed, &recent);
@@ -210,15 +210,14 @@ impl PgRecommendations {
         }
         ordered.truncate(60);
         if ordered.is_empty() {
-            return self.fallback(actor, subject.as_deref(), seed, limit).await;
+            return self.fallback(actor, seed, limit).await;
         }
         let ids: Vec<i64> = ordered.iter().map(|c| c.0).collect();
         // One final statement checks current B visibility and current explicit preference.
-        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$4+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_subjects s ON s.subject_id=$3::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE b.id=ANY($2::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())");
+        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(p.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_preference_accounts p ON p.user_id=$1 LEFT JOIN rec_book_preferences f ON f.user_id=p.user_id AND f.book_id=b.id WHERE b.id=ANY($2::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())");
         let rows = sqlx::query(&sql)
             .bind(actor)
             .bind(&ids)
-            .bind(subject.as_deref())
             .bind(REVISION_STRIDE)
             .fetch_all(&self.pool)
             .await?;
@@ -242,7 +241,7 @@ impl PgRecommendations {
                     reason,
                     algorithm_version: ALGORITHM,
                     ticket: None,
-                    feedback_revision: subject.as_ref().map(|_| revision),
+                    feedback_revision: actor.map(|_| revision),
                 });
                 if items.len() == limit {
                     break;
@@ -253,7 +252,7 @@ impl PgRecommendations {
         // or freshly withdrawn books for this actor. Fall back to the same
         // live Book gate rather than returning a blank recommendation shelf.
         if items.is_empty() {
-            return self.fallback(actor, subject.as_deref(), seed, limit).await;
+            return self.fallback(actor, seed, limit).await;
         }
         Ok(Feed {
             items,
@@ -266,14 +265,12 @@ impl PgRecommendations {
     async fn fallback(
         &self,
         actor: Option<i64>,
-        subject: Option<&str>,
         seed: Option<i64>,
         limit: usize,
     ) -> Result<Feed, FeedbackError> {
-        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$5+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_subjects s ON s.subject_id=$2::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE ($3::bigint IS NULL OR b.id<>$3) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $4");
+        let sql = format!("{ACTOR_DISCOVERY_CTE} SELECT b.id,b.title,(COALESCE(p.feedback_epoch,0)*$4+COALESCE(f.revision,0)) AS revision FROM rec_actor_books b LEFT JOIN rec_preference_accounts p ON p.user_id=$1 LEFT JOIN rec_book_preferences f ON f.user_id=p.user_id AND f.book_id=b.id WHERE ($2::bigint IS NULL OR b.id<>$2) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $3");
         let rows = sqlx::query(&sql)
             .bind(actor)
-            .bind(subject)
             .bind(seed)
             .bind(limit as i64)
             .bind(REVISION_STRIDE)
@@ -288,7 +285,7 @@ impl PgRecommendations {
                 reason: "new_release".to_owned(),
                 algorithm_version: "public_fallback_v1",
                 ticket: None,
-                feedback_revision: subject
+                feedback_revision: actor
                     .map(|_| row.try_get::<i64, _>("revision"))
                     .transpose()?,
             });
