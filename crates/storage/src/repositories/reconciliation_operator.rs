@@ -154,11 +154,18 @@ impl PgG09Operator {
         .map_err(|_| InventoryError::Unavailable)?;
         row.map(|v| {
             Ok(Checkpoint {
-                cycle: v.try_get("cycle").map_err(|_| InventoryError::Unavailable)?,
-                checkpoint: v.try_get("checkpoint").map_err(|_| InventoryError::Unavailable)?,
-                leased: v.try_get("leased").map_err(|_| InventoryError::Unavailable)?,
+                cycle: v
+                    .try_get("cycle")
+                    .map_err(|_| InventoryError::Unavailable)?,
+                checkpoint: v
+                    .try_get("checkpoint")
+                    .map_err(|_| InventoryError::Unavailable)?,
+                leased: v
+                    .try_get("leased")
+                    .map_err(|_| InventoryError::Unavailable)?,
             })
-        }).transpose()
+        })
+        .transpose()
     }
 
     /// Only pseudonymous anomaly hashes. A healthy sample is only counted.
@@ -186,14 +193,26 @@ impl PgG09Operator {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| InventoryError::Unavailable)?;
-        rows.into_iter().map(|v| {
-            Ok(Finding {
-                fingerprint: v.try_get("fingerprint").map_err(|_| InventoryError::Unavailable)?,
-                status: v.try_get("status").map_err(|_| InventoryError::Unavailable)?,
-                size_bytes: v.try_get("size_bytes").map_err(|_| InventoryError::Unavailable)?,
-                has_ref: v.try_get("has_ref").map_err(|_| InventoryError::Unavailable)?,
-                observed: v.try_get("observed").map_err(|_| InventoryError::Unavailable)?,
+        rows.into_iter()
+            .map(|v| {
+                Ok(Finding {
+                    fingerprint: v
+                        .try_get("fingerprint")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    status: v
+                        .try_get("status")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    size_bytes: v
+                        .try_get("size_bytes")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    has_ref: v
+                        .try_get("has_ref")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                    observed: v
+                        .try_get("observed")
+                        .map_err(|_| InventoryError::Unavailable)?,
+                })
             })
-        }).collect()
+            .collect()
     }
 }
