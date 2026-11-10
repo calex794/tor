@@ -1,12 +1,11 @@
 //! G-09 read-only scheduling ledger. A tick chooses at most one LIST/HEAD
 //! page per private scope and direction. Never automatically GETs ciphertext,
 //! resumes exhausted retries, deletes a key, or changes reader entitlements.
-use sqlx::PgPool;
 use crate::{
-    domain::provider::valid_private_bucket,
-    repositories::reconciliation::InventoryError,
+    domain::provider::valid_private_bucket, repositories::reconciliation::InventoryError,
     services::reconciliation::PrivateScope,
 };
+use sqlx::PgPool;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScheduledAuditAction {
@@ -87,9 +86,10 @@ impl PgG09Schedule {
             .fetch_optional(&self.pool)
             .await
             .map_err(|_| InventoryError::Unavailable)?;
-        Ok(row.map_or(ScheduledAuditAction::ScanPage, |(completed, exhausted, due)| {
-            action_for(completed, exhausted, due)
-        }))
+        Ok(row.map_or(
+            ScheduledAuditAction::ScanPage,
+            |(completed, exhausted, due)| action_for(completed, exhausted, due),
+        ))
     }
 }
 
