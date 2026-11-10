@@ -4,7 +4,6 @@ mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
 mod social_notification_consumer;
 mod support_cleanup;
-
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -13,7 +12,6 @@ use tor_books::{
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
-
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -70,7 +68,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
     #[cfg(not(feature = "s3-covers"))]
     let _ = &cdn_config;
-
     // Private cover S3 is an explicit operator-owned opt-in. A deployment
     // without S3 continues serving books, but never invents image URLs.
     #[cfg(feature = "s3-covers")]
@@ -97,7 +94,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     };
-
     // Chapter-import staging is a separate private S3 capability. It stores
     // only the author's already-reviewed canonical UTF-8 text.
     #[cfg(feature = "s3-chapter-import")]
