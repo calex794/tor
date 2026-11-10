@@ -160,7 +160,7 @@ async fn d_09_post_materializes_mature_earnings_in_same_commit() {
              step_up_resource_id=$3,step_up_revision=150,
              step_up_payload_digest=$4,
              step_up_issued_at=clock_timestamp()-interval '1 second',
-             step_up_expires_at=clock_timestamp()+interval '5 minutes'
+             step_up_expires_at=clock_timestamp()+interval '4 minutes'
          WHERE token_hash=$1",
     )
     .bind(session.as_slice())

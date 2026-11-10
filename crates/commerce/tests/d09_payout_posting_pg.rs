@@ -122,7 +122,7 @@ impl Setup {
              step_up_resource_id=$3,step_up_revision=600,
              step_up_payload_digest=$4,
              step_up_issued_at=clock_timestamp()-interval '1 second',
-             step_up_expires_at=clock_timestamp()+interval '5 minutes',
+             step_up_expires_at=clock_timestamp()+interval '4 minutes',
              step_up_used_at=NULL WHERE token_hash=$1",
         )
         .bind(self.session.as_slice())
