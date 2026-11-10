@@ -160,3 +160,79 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
         .unwrap();
     pool.close().await;
 }
+
+
+const FAILING_BUCKET: &str = "tor-private-g09-list-errors-ci";
+
+struct FailingList {
+    unavailable: std::sync::atomic::AtomicBool,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl PrivateInventoryLister for FailingList {
+    fn private_bucket(&self) -> &str {
+        FAILING_BUCKET
+    }
+
+    async fn list_private_page(
+        &self,
+        _scope: PrivateScope,
+        _continuation: Option<&str>,
+    ) -> Result<PrivateInventoryPage, StorageError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.unavailable.load(Ordering::SeqCst) {
+            Err(StorageError::Unavailable)
+        } else {
+            Ok(PrivateInventoryPage {
+                objects: Vec::new(),
+                continuation: None,
+            })
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 /tor_ci"]
+async fn g09_forward_list_stops_after_eight_errors_until_operator_resume() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(url.ends_with("/tor_ci"), "never touch durable PG");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let forward = PgPrivateInventory::new(pool.clone());
+    let scheduler = PgG09Schedule::new(pool.clone());
+    let store = FailingList {
+        unavailable: std::sync::atomic::AtomicBool::new(true),
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    };
+    for _ in 0..8 {
+        assert_eq!(
+            forward.scan_page(&store, PrivateScope::Chapter).await.unwrap_err(),
+            InventoryError::Unavailable
+        );
+    }
+    let stopped = forward.progress(FAILING_BUCKET, PrivateScope::Chapter)
+        .await.unwrap().unwrap();
+    assert!(stopped.exhausted);
+    assert!(!stopped.completed);
+    assert_eq!((stopped.scanned, stopped.unknown_attempts, stopped.retries), (0, 8, 8));
+    assert_eq!(
+        scheduler.action(FAILING_BUCKET, PrivateScope::Chapter, false)
+            .await.unwrap(),
+        Action::Wait,
+        "no automatic scheduler retry after eight LIST provider errors"
+    );
+    assert!(forward.scan_page(&store, PrivateScope::Chapter).await.unwrap().is_none());
+    assert_eq!(store.calls.load(Ordering::SeqCst), 8);
+    store.unavailable.store(false, Ordering::SeqCst);
+    assert!(forward.resume_exhausted(FAILING_BUCKET, PrivateScope::Chapter)
+        .await.unwrap());
+    let done = forward.scan_page(&store, PrivateScope::Chapter)
+        .await.unwrap().unwrap();
+    assert!(done.completed);
+    assert!(!done.exhausted);
+    assert_eq!(done.unknown_attempts, 8);
+    assert_eq!(store.calls.load(Ordering::SeqCst), 9);
+    sqlx::query("DELETE FROM g09_private_inventory_scans WHERE bucket=$1")
+        .bind(FAILING_BUCKET).execute(&pool).await.unwrap();
+    pool.close().await;
+}
