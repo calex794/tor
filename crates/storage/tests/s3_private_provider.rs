@@ -449,7 +449,7 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
     // different bytes. HEAD would pass, but a complete bounded GET must fail.
     let forged_id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa9876").unwrap();
     let expected_body = b"correct-but-never-uploaded-ciphertext";
-    let stored_body = b"damaged-but-same-length-ciphertext-x";
+    let stored_body = b"damaged-but-same-length-ciphertext-xx";
     assert_eq!(expected_body.len(), stored_body.len());
     let forged_ref = object(expected_body, forged_id.clone());
     client
