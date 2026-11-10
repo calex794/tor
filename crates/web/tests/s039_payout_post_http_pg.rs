@@ -95,9 +95,16 @@ async fn s039_post_http_disabled_by_default() {
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let site = app(accounts, catalog);
     assert_eq!(
-        request(&site, "POST", "/admin/finance/payouts/1/post", "", ORIGIN, "invalid=form")
-            .await
-            .status(),
+        request(
+            &site,
+            "POST",
+            "/admin/finance/payouts/1/post",
+            "",
+            ORIGIN,
+            "invalid=form"
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -195,9 +202,16 @@ async fn s039_post_http_password_origin_csrf_and_exactly_once() {
         "csrf_token={csrf}&expected_amount_minor=600&reason=Internal+posting&current_password={admin_password}"
     );
     assert_eq!(
-        request(&site, "POST", &post_path, &admin_cookie, "https://evil.invalid", &valid)
-            .await
-            .status(),
+        request(
+            &site,
+            "POST",
+            &post_path,
+            &admin_cookie,
+            "https://evil.invalid",
+            &valid
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -264,7 +278,9 @@ async fn s039_post_http_password_origin_csrf_and_exactly_once() {
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM finance_creator_payout_postings WHERE payout_request_id={id}")
+            &format!(
+                "SELECT count(*) FROM finance_creator_payout_postings WHERE payout_request_id={id}"
+            )
         ),
         "1"
     );

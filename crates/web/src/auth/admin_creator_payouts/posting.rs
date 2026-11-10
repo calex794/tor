@@ -55,7 +55,9 @@ fn amount(raw: &str) -> Option<i64> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|c| c.is_ascii_digit()) {
         return None;
     }
-    raw.parse().ok().filter(|v| (1..=1_000_000_000_000).contains(v))
+    raw.parse()
+        .ok()
+        .filter(|v| (1..=1_000_000_000_000).contains(v))
 }
 
 fn fail(status: StatusCode, message: &'static str) -> Response {
@@ -129,7 +131,11 @@ pub(super) async fn submit(
     };
     let session_digest = session_token_digest(&session_token);
     let attempt_key = session_token_digest(&format!("finance:payout:stepup:{actor}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 6, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return fail(StatusCode::TOO_MANY_REQUESTS, "Превышен лимит попыток."),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
