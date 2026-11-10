@@ -1,9 +1,9 @@
 mod book_schedule_worker;
+mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
 mod social_notification_consumer;
 mod support_cleanup;
-
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -12,7 +12,6 @@ use tor_books::{
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
-
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -41,6 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if paid_author_enabled && !paid_grants_enabled {
         return Err("Paid author publication requires enabled paid grants".into());
     }
+    let g09_operator_enabled = g09_bootstrap::enabled(demo)?;
     #[cfg(not(feature = "s3-paid"))]
     if paid_author_enabled {
         return Err("Paid author publication requires a build with --features s3-paid".into());
@@ -68,7 +68,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
     #[cfg(not(feature = "s3-covers"))]
     let _ = &cdn_config;
-
     // Private cover S3 is an explicit operator-owned opt-in. A deployment
     // without S3 continues serving books, but never invents image URLs.
     #[cfg(feature = "s3-covers")]
@@ -95,7 +94,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     };
-
     // Chapter-import staging is a separate private S3 capability. It stores
     // only the author's already-reviewed canonical UTF-8 text.
     #[cfg(feature = "s3-chapter-import")]
@@ -197,6 +195,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
+    let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
@@ -333,6 +332,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                if g09_operator_enabled {
+                    pending_g09_routes = Some(
+                        g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
+                    );
+                }
                 pending_security_retention = Some(accounts.clone());
                 if overdue_observer_enabled {
                     accounts
@@ -495,6 +499,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err("Set DATABASE_URL for PostgreSQL, or TOR_DEMO_MODE=1 for demo".into());
         }
         Err(error) => return Err(error.into()),
+    };
+    let app = if let Some(routes) = pending_g09_routes {
+        app.merge(tor_web::instrument_additional_routes(routes))
+    } else {
+        app
     };
     let app = if let Some(routes) = pending_chapter_import_routes {
         // The base router already has RIL instrumentation. Instrument this
