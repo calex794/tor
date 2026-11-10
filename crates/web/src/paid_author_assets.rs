@@ -141,12 +141,20 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
                 Err(AuthorError::Conflict)
             };
         }
-        let sealed =
-            seal_asset_with_keyring(pinned, object_id.clone(), bytes, media_type, &self.keyring)
-                .map_err(|error| match error {
-                    CryptoError::InvalidMaterial => AuthorError::Invalid,
-                    _ => AuthorError::Unavailable,
-                })?;
+        // Image encryption can consume up to 8 MiB per job. Keep its CPU
+        // cost off the HTTP executor and zeroize the private copy on drop.
+        let image = zeroize::Zeroizing::new(bytes.to_vec());
+        let object_for_seal = object_id.clone();
+        let keyring = Arc::clone(&self.keyring);
+        let sealed = crate::cpu_work::run(move || {
+            seal_asset_with_keyring(pinned, object_for_seal, &image, media_type, &keyring)
+        })
+        .await
+        .map_err(|_| AuthorError::Unavailable)?
+        .map_err(|error| match error {
+            CryptoError::InvalidMaterial => AuthorError::Invalid,
+            _ => AuthorError::Unavailable,
+        })?;
         let object = self
             .registry
             .reserve_pending_asset(&sealed, &self.keyring, &self.bucket)
