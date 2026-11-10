@@ -33,6 +33,10 @@ pub struct FlowHour {
     pub hour_utc: String,
     /// Home, catalogue, book page, reader. None means no persisted row.
     pub views: [Option<i64>; FLOW_AUDIENCE_SURFACES],
+    /// Requests whose existing consent was verified by the server.
+    pub opted_in_html_requests: [Option<i64>; FLOW_AUDIENCE_SURFACES],
+    /// Observed process-local visit starts, never unique people.
+    pub observed_visit_starts: [Option<i64>; FLOW_AUDIENCE_SURFACES],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +49,9 @@ pub struct FlowHourlyPeriod {
     pub hours: Vec<FlowHour>,
     /// Sums of saved observations only; not estimates for missing hours.
     pub saved_views: [Option<i64>; FLOW_AUDIENCE_SURFACES],
+    /// Subsets of saved public HTML observations; not a site-wide audience.
+    pub saved_opted_in_requests: [Option<i64>; FLOW_AUDIENCE_SURFACES],
+    pub observed_visit_starts: [Option<i64>; FLOW_AUDIENCE_SURFACES],
     /// Hours containing a row, not a measure of collection completeness.
     pub recorded_hours: [u16; FLOW_AUDIENCE_SURFACES],
 }
@@ -92,9 +99,20 @@ pub(crate) fn report_from_rows(
         return Err(FlowHourlyError::Unavailable);
     }
     for (index, row) in rows.iter().enumerate() {
-        if row.hour_epoch != previous_from + index as i64 * HOUR_SECONDS
-            || row.views.iter().flatten().any(|count| *count < 0)
-        {
+        let invalid_counters = (0..FLOW_AUDIENCE_SURFACES).any(|surface| {
+            match (
+                row.views[surface],
+                row.opted_in_html_requests[surface],
+                row.observed_visit_starts[surface],
+            ) {
+                (None, None, None) => false,
+                (Some(views), Some(opted), Some(starts)) => {
+                    views < 0 || opted < 0 || starts < 0 || starts > opted || opted > views
+                }
+                _ => true,
+            }
+        });
+        if row.hour_epoch != previous_from + index as i64 * HOUR_SECONDS || invalid_counters {
             return Err(FlowHourlyError::Unavailable);
         }
     }
@@ -130,6 +148,8 @@ fn period_from_hours(
     hours: Vec<FlowHour>,
 ) -> Result<FlowHourlyPeriod, FlowHourlyError> {
     let mut saved_views: [Option<i64>; FLOW_AUDIENCE_SURFACES] = [None; FLOW_AUDIENCE_SURFACES];
+    let mut saved_opted_in_requests = [None; FLOW_AUDIENCE_SURFACES];
+    let mut observed_visit_starts = [None; FLOW_AUDIENCE_SURFACES];
     let mut recorded_hours = [0; FLOW_AUDIENCE_SURFACES];
     for hour in &hours {
         for (surface, views) in hour.views.iter().enumerate() {
@@ -138,6 +158,22 @@ fn period_from_hours(
                     saved_views[surface]
                         .unwrap_or(0)
                         .checked_add(*views)
+                        .ok_or(FlowHourlyError::Unavailable)?,
+                );
+                let opted =
+                    hour.opted_in_html_requests[surface].ok_or(FlowHourlyError::Unavailable)?;
+                let starts =
+                    hour.observed_visit_starts[surface].ok_or(FlowHourlyError::Unavailable)?;
+                saved_opted_in_requests[surface] = Some(
+                    saved_opted_in_requests[surface]
+                        .unwrap_or(0_i64)
+                        .checked_add(opted)
+                        .ok_or(FlowHourlyError::Unavailable)?,
+                );
+                observed_visit_starts[surface] = Some(
+                    observed_visit_starts[surface]
+                        .unwrap_or(0_i64)
+                        .checked_add(starts)
                         .ok_or(FlowHourlyError::Unavailable)?,
                 );
                 recorded_hours[surface] += 1;
@@ -151,6 +187,8 @@ fn period_from_hours(
         until_utc,
         hours,
         saved_views,
+        saved_opted_in_requests,
+        observed_visit_starts,
         recorded_hours,
     })
 }
@@ -179,6 +217,8 @@ mod tests {
                 hour_epoch: UNTIL - (hours - index) * HOUR_SECONDS,
                 hour_utc: "2027-01-01T08:00:00Z".into(),
                 views: [None; 4],
+                opted_in_html_requests: [None; 4],
+                observed_visit_starts: [None; 4],
             })
             .collect()
     }
@@ -187,9 +227,17 @@ mod tests {
     fn missing_surface_hours_and_measured_zero_are_distinct() {
         let mut rows = empty_hours(7);
         rows[335].views[0] = Some(0);
+        rows[335].opted_in_html_requests[0] = Some(0);
+        rows[335].observed_visit_starts[0] = Some(0);
         rows[168].views[1] = Some(7);
+        rows[168].opted_in_html_requests[1] = Some(3);
+        rows[168].observed_visit_starts[1] = Some(1);
         rows[167].views[2] = Some(11);
+        rows[167].opted_in_html_requests[2] = Some(0);
+        rows[167].observed_visit_starts[2] = Some(0);
         rows[0].views[3] = Some(13);
+        rows[0].opted_in_html_requests[3] = Some(5);
+        rows[0].observed_visit_starts[3] = Some(2);
         let report = report_from_rows(7, anchor(), rows).unwrap();
         assert_eq!(report.current.hours.len(), 168);
         assert_eq!(report.previous.hours.len(), 168);
@@ -201,6 +249,22 @@ mod tests {
             report.previous.saved_views,
             [None, None, Some(11), Some(13)]
         );
+        assert_eq!(
+            report.current.saved_opted_in_requests,
+            [Some(0), Some(3), None, None]
+        );
+        assert_eq!(
+            report.current.observed_visit_starts,
+            [Some(0), Some(1), None, None]
+        );
+        assert_eq!(
+            report.previous.saved_opted_in_requests,
+            [None, None, Some(0), Some(5)]
+        );
+        assert_eq!(
+            report.previous.observed_visit_starts,
+            [None, None, Some(0), Some(2)]
+        );
         assert_eq!(report.current.recorded_hours, [1, 1, 0, 0]);
         assert_eq!(report.previous.recorded_hours, [0, 0, 1, 1]);
         assert_eq!(report.current.from_epoch, report.previous.until_epoch);
@@ -211,6 +275,8 @@ mod tests {
         for days in FLOW_AUDIENCE_DAYS {
             let report = report_from_rows(days, anchor(), empty_hours(days)).unwrap();
             assert_eq!(report.current.saved_views, [None; 4]);
+            assert_eq!(report.current.saved_opted_in_requests, [None; 4]);
+            assert_eq!(report.previous.observed_visit_starts, [None; 4]);
             assert_eq!(report.previous.recorded_hours, [0; 4]);
             assert_eq!(report.current.hours.len(), (days * 24) as usize);
         }
@@ -231,12 +297,33 @@ mod tests {
         }
         let mut negative = empty_hours(1);
         negative[0].views[0] = Some(-1);
+        negative[0].opted_in_html_requests[0] = Some(0);
+        negative[0].observed_visit_starts[0] = Some(0);
         let mut duplicate = empty_hours(1);
         duplicate[1] = duplicate[0].clone();
         let mut overflow = empty_hours(1);
         overflow[0].views[0] = Some(i64::MAX);
+        overflow[0].opted_in_html_requests[0] = Some(0);
+        overflow[0].observed_visit_starts[0] = Some(0);
         overflow[1].views[0] = Some(1);
-        for rows in [negative, duplicate, overflow, Vec::new()] {
+        overflow[1].opted_in_html_requests[0] = Some(0);
+        overflow[1].observed_visit_starts[0] = Some(0);
+        let mut invalid_opted = empty_hours(1);
+        invalid_opted[0].views[0] = Some(2);
+        invalid_opted[0].opted_in_html_requests[0] = Some(3);
+        invalid_opted[0].observed_visit_starts[0] = Some(1);
+        let mut invalid_visit = empty_hours(1);
+        invalid_visit[0].views[0] = Some(3);
+        invalid_visit[0].opted_in_html_requests[0] = Some(1);
+        invalid_visit[0].observed_visit_starts[0] = Some(2);
+        for rows in [
+            negative,
+            duplicate,
+            overflow,
+            invalid_opted,
+            invalid_visit,
+            Vec::new(),
+        ] {
             assert_eq!(
                 report_from_rows(1, anchor(), rows),
                 Err(FlowHourlyError::Unavailable)
