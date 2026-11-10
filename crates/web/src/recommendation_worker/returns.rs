@@ -14,6 +14,10 @@ pub fn reading_returns_enabled() -> bool {
     .all(|name| env::var(name).as_deref() == Ok("1"))
 }
 
+pub fn book_reading_returns_enabled() -> bool {
+    reading_returns_enabled() && env::var("TOR_BOOK_READING_RETURNS_ENABLED").as_deref() == Ok("1")
+}
+
 pub fn validate_reading_returns_runtime(demo: bool) -> Result<bool, &'static str> {
     let enabled = match env::var("TOR_READING_RETURNS_ENABLED") {
         Ok(value) if value == "1" => true,
@@ -21,6 +25,15 @@ pub fn validate_reading_returns_runtime(demo: bool) -> Result<bool, &'static str
         Err(env::VarError::NotPresent) => false,
         _ => return Err("TOR_READING_RETURNS_ENABLED must be 0 or 1"),
     };
+    let books = match env::var("TOR_BOOK_READING_RETURNS_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_BOOK_READING_RETURNS_ENABLED must be 0 or 1"),
+    };
+    if books && !enabled {
+        return Err("Book reading returns require TOR_READING_RETURNS_ENABLED=1");
+    }
     if enabled
         && (demo
             || env::var_os("DATABASE_URL").is_none()
@@ -41,12 +54,17 @@ pub async fn spawn_reading_returns(
     let Some(store) = store else {
         return Ok(None);
     };
+    let collect_books = book_reading_returns_enabled();
     // Complete the new coverage boundary before HTTP can accept any progress.
     store.start_collection(collect).await?;
+    store.start_book_collection(collect_books).await?;
     Ok(Some(tokio::spawn(async move {
         loop {
             if store.tick_collection(collect).await.is_err() {
                 eprintln!("reading_returns_worker: batch failed; coverage will expire");
+            }
+            if store.tick_book_collection(collect_books).await.is_err() {
+                eprintln!("book_reading_returns_worker: batch failed; coverage will expire");
             }
             sleep(Duration::from_secs(5)).await;
         }

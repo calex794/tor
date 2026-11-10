@@ -4,7 +4,8 @@ use tokio::{task::JoinHandle, time::sleep};
 use tor_recommendations::repositories::PgRecommendations;
 mod returns;
 pub use returns::{
-    reading_returns_enabled, spawn_reading_returns, validate_reading_returns_runtime,
+    book_reading_returns_enabled, reading_returns_enabled, spawn_reading_returns,
+    validate_reading_returns_runtime,
 };
 
 pub fn spawn(store: PgRecommendations) -> Option<JoinHandle<()>> {

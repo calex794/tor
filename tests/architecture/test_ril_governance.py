@@ -140,6 +140,64 @@ class RilGovernanceTests(unittest.TestCase):
             for finding in findings
         ), findings)
 
+    def test_audience_book_returns_cannot_read_before_authorization(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        guard = (
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {\n"
+            "        Ok(Ok(())) => {}\n"
+            "        Ok(Err(status)) => return secure(status),\n"
+            "        Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),\n"
+            "    }\n"
+        )
+        global_read = (
+            "    let report = match timeout_at(deadline, state.returns.returns_report(days)).await {"
+        )
+        self.mutate(path, guard, "")
+        self.mutate(
+            path, global_read, guard + global_read,
+        )
+        self.assert_detected(
+            "FLOW returns must keep both report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_neither_branch_can_drop_the_shared_timeout(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for operation in ("returns_report(days)", "book_returns_report(book, days)"):
+            with self.subTest(operation=operation):
+                target.write_text(original, encoding="utf-8")
+                self.mutate(
+                    path,
+                    f"timeout_at(deadline, state.returns.{operation}).await",
+                    f"Ok::<_, tokio::time::error::Elapsed>(state.returns.{operation}.await)",
+                )
+                self.assert_detected(
+                    "FLOW returns must keep both report reads behind live authorization and its deadline"
+                )
+
+    def test_audience_book_returns_cannot_ignore_denied_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status),",
+            "Ok(Err(status)) if query.as_ref().is_ok_and(|Query(query)| query.book_id.is_none())"
+            " => return secure(status),\n        Ok(Err(_)) => {},",
+        )
+        self.assert_detected(
+            "FLOW returns must keep both report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_cannot_restart_the_request_deadline_for_a_book(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "if let Some(book) = query.book_id {",
+            "if let Some(book) = query.book_id {\n"
+            "        let deadline = Instant::now() + Duration::from_millis(950);",
+        )
+        self.assert_detected(
+            "FLOW returns must keep both report reads behind live authorization and its deadline"
+        )
+
     def test_admin_mail_cannot_read_with_unverified_digest(self):
         self.mutate(
             "crates/web/src/auth/admin_mail.rs",

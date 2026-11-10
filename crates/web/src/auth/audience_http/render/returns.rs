@@ -164,7 +164,7 @@ fn period(body: &mut String, key: &str, title: &str, period: &ReadingReturnsPeri
     body.push_str("</section>");
 }
 
-fn metric_row(body: &mut String, metric: &ReadingReturnsMetric) {
+pub(super) fn metric_row(body: &mut String, metric: &ReadingReturnsMetric) {
     write!(
         body,
         r#"<article data-return-day="{}"><h3>На {}-й день</h3><dl>"#,
@@ -206,7 +206,7 @@ fn metric_row(body: &mut String, metric: &ReadingReturnsMetric) {
     body.push_str("</article>");
 }
 
-fn rate(metric: &ReadingReturnsMetric) -> Option<f64> {
+pub(super) fn rate(metric: &ReadingReturnsMetric) -> Option<f64> {
     (metric.eligible > 0).then(|| 100.0 * metric.returned as f64 / metric.eligible as f64)
 }
 

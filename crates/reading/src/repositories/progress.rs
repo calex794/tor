@@ -7,6 +7,7 @@ use sqlx::{PgPool, Row};
 pub struct PgReadingProgress {
     pool: PgPool,
     activity_collection: bool,
+    book_return_collection: bool,
 }
 
 impl PgReadingProgress {
@@ -14,11 +15,17 @@ impl PgReadingProgress {
         Self {
             pool,
             activity_collection: false,
+            book_return_collection: false,
         }
     }
 
     pub fn with_activity_collection(mut self, enabled: bool) -> Self {
         self.activity_collection = enabled;
+        self
+    }
+
+    pub fn with_book_return_collection(mut self, enabled: bool) -> Self {
+        self.book_return_collection = enabled;
         self
     }
 
@@ -218,7 +225,7 @@ impl PgReadingProgress {
         let body: String = edition
             .try_get("body_markdown")
             .map_err(|_| ProgressError::Unavailable)?;
-        if self.activity_collection
+        if (self.activity_collection || self.book_return_collection)
             && (!crate::domain::renderer::valid_reader_length(&body)
                 || crate::services::progress::valid_text_place(
                     place,
@@ -278,9 +285,16 @@ impl PgReadingProgress {
         .await
         .map_err(|_| ProgressError::Unavailable)?;
         if result.rows_affected() > 0 {
-            super::returns::record(&mut tx, user_id, book, place, self.activity_collection)
-                .await
-                .map_err(|_| ProgressError::Unavailable)?;
+            super::returns::record(
+                &mut tx,
+                user_id,
+                book,
+                place,
+                self.activity_collection,
+                self.book_return_collection,
+            )
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
         }
         // A no-op preserves the old form's harmless delayed-request behavior;
         // it cannot enroll a reader or manufacture another observed day.
