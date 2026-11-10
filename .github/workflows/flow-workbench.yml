@@ -1,0 +1,46 @@
+name: FLOW isolated source evidence
+on:
+  push:
+    branches: ['qa/flow-workbench-20261110']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: tor
+      - name: Export repository objects without credentials or configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tor
+          git bundle create "$RUNNER_TEMP/tor-flow.bundle" --all
+          git rev-parse HEAD > "$RUNNER_TEMP/tor-source-sha.txt"
+          sha256sum "$RUNNER_TEMP/tor-flow.bundle" > "$RUNNER_TEMP/tor-source-checksum.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: HeisLuka/newboo
+          ref: 17125ef758a791e9630505c14d24f7fe65aed228
+          persist-credentials: false
+          path: legacy
+      - name: Export reference source without Git configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd legacy
+          git archive --format=tar.gz HEAD backend/app > "$RUNNER_TEMP/newboo-flow-reference.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow-source-evidence
+          path: |
+            ${{ runner.temp }}/tor-flow.bundle
+            ${{ runner.temp }}/tor-source-sha.txt
+            ${{ runner.temp }}/tor-source-checksum.txt
+            ${{ runner.temp }}/newboo-flow-reference.tar.gz
+          retention-days: 1
+          if-no-files-found: error
