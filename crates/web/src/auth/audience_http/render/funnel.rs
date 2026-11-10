@@ -18,7 +18,7 @@ pub(in crate::auth::audience_http) fn page(
          <p><a href=\"/admin/audience?days={days}\">Аудитория</a> · \
          <a href=\"/admin/audience/visits?days={days}\">Визиты и входы</a> · \
          <a href=\"/admin/audience/books?days={days}\">Книги</a></p>\
-         <p>Как наблюдаемые посещения книг связаны с подтверждённым чтением, \
+         <p>Как прежние наблюдения посещений книг были связаны с подтверждённым чтением, \
          сохранениями, подписками и возвратами. Только зарегистрированные аккаунты \
          с отдельным согласием на измерение визитов.</p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience/funnel\">\
@@ -36,6 +36,10 @@ pub(in crate::auth::audience_http) fn page(
     }
     body.push_str(
         "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
+    );
+    super::retirement::notice(
+        &mut body,
+        "связь посещения с чтением, сохранением, подпиской и возвращением",
     );
     body.push_str(
         "<section class=\"book-section-card\"><h2>Что считается одним посещением книги</h2>\
@@ -55,8 +59,18 @@ pub(in crate::auth::audience_http) fn page(
         Some(report) => {
             write!(body, "<p>Расчёт: {} UTC. Все границы периода указаны в UTC; текущий день ещё не завершён.</p>",
                 escape_html(&report.measured_at_utc)).expect("String");
-            period(&mut body, "current", "Текущий период", &report.current);
-            period(&mut body, "previous", "Предыдущий период", &report.previous);
+            period(
+                &mut body,
+                "current",
+                super::retirement::CURRENT,
+                &report.current,
+            );
+            period(
+                &mut body,
+                "previous",
+                super::retirement::PREVIOUS,
+                &report.previous,
+            );
             worker(&mut body, report);
         }
         None => body.push_str(
@@ -97,7 +111,7 @@ fn number(value: Option<i64>) -> String {
 fn period(body: &mut String, key: &str, title: &str, data: &FlowFunnelPeriod) {
     write!(
         body,
-        "<section class=\"book-section-card\" data-testid=\"flow-funnel-{key}\"><h2>{title}</h2>\
+        "<section class=\"book-section-card\" data-testid=\"flow-funnel-{key}\" data-measurement=\"legacy-consented\"><h2>{title}</h2>\
          <p>С {} до {} UTC, конец не включён. Все результаты отнесены к периоду первого \
          открытия книги в соответствующем визите.</p>",
         escape_html(&data.from_utc),
@@ -110,7 +124,7 @@ fn period(body: &mut String, key: &str, title: &str, data: &FlowFunnelPeriod) {
         body.push_str("<p>Нет сохранённых посещений книг за этот период. Это не доказывает отсутствие посетителей или чтения.</p>");
     }
     write!(body,
-        "<dl><dt>Открытия книги, ожидающие обработки</dt><dd data-metric=\"pending-observations\">{}</dd>\
+        "<dl><dt>Необработанные наблюдения прежней модели</dt><dd data-metric=\"pending-observations\">{}</dd>\
          <dt>Открытия книги без сохранённой связи с визитом</dt><dd data-metric=\"unmatched-observations\">{}</dd></dl>",
         number(data.pending_book_observations), number(data.unmatched_book_observations)
     ).expect("String");
@@ -165,7 +179,7 @@ fn counts_list(body: &mut String, c: &FlowFunnelCounts) {
         ),
         (
             "d7-pending",
-            "Из них ожидают 7-го дня или обработки",
+            "Из них незавершённые исторические наблюдения",
             c.d7_pending,
         ),
         (
@@ -225,7 +239,7 @@ fn worker(body: &mut String, report: &FlowFunnelReport) {
         body.push_str("<p role=\"alert\" data-testid=\"flow-funnel-backlog\">Есть необработанные данные. Итоги ещё могут измениться.</p>");
     }
     body.push_str(
-        "<p>Задержка обработки открытия книги составляет не менее 5 минут и 5 секунд. \
+        "<p>В прежней модели задержка обработки открытия книги составляла не менее 5 минут и 5 секунд. \
         Она нужна для запоздавших наблюдений. Ошибки, выключенный сбор и утраченные наблюдения \
         не восстанавливаются из истории посещений.</p></section>",
     );
@@ -248,8 +262,8 @@ fn limitations(body: &mut String) {
          означает неизвестный результат; оно не доказывает, что читатель не вернулся. \
          Возврат на 30-й день по источнику здесь не рассчитывается.</p>\
          <p>Подробности хранятся не дольше 30 суток от начала визита; обезличенные итоги — \
-         до 180 дней. Поэтому поздний результат может остаться неизвестным. При отзыве \
-         согласия ещё сохраняемые персональные наблюдения и их вклад удаляются. \
+         до 180 дней. Поэтому поздний результат может остаться неизвестным. В прежней модели при отзыве \
+         согласия ещё сохраняемые персональные наблюдения и их вклад удалялись. \
          После удаления подробных связей поздно поступившие факты чтения уже не \
          пересчитывают архивные итоги по источникам. \
          Сравнение периодов описывает сохранённые наблюдения, а не изменение всей аудитории. \

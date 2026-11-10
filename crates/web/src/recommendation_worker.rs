@@ -1,41 +1,18 @@
-//! G/I supervised bounded feedback work. Never execute a graph rebuild in HTTP.
-use std::time::Duration;
-use tokio::{task::JoinHandle, time::sleep};
-use tor_recommendations::repositories::PgRecommendations;
+//! I-owned maintenance for retired optional REC/FLOW collection.
+//! No outbox consumer or generation builder runs from the production server.
+use tor_recommendations::{domain::feedback::FeedbackError, repositories::PgRecommendations};
 mod returns;
-pub use returns::{
-    book_reading_returns_enabled, reading_returns_enabled, spawn_reading_returns,
-    validate_reading_returns_runtime,
-};
+pub use returns::{book_reading_returns_enabled, reading_returns_enabled};
+pub(crate) use returns::{initialize_retired_returns, maintain_retired_returns};
 
-pub fn spawn(store: PgRecommendations) -> Option<JoinHandle<()>> {
-    if std::env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1") {
-        return None;
-    }
-    Some(tokio::spawn(async move {
-        let mut loops = 0_u64;
-        loop {
-            let collect = std::env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1");
-            // REC and organic are separate collection boundaries. Disabling
-            // organic must not write unattributed C reads or resolve any
-            // previously issued organic tickets into new organic conversions.
-            let collect_organic =
-                collect && std::env::var("TOR_ORGANIC_ATTRIBUTION_ENABLED").as_deref() == Ok("1");
-            let result = store.tick_feedback(collect, collect_organic).await;
-            if result.is_err() {
-                eprintln!("rec_feedback_worker: batch failed; retry deferred");
-            }
-            if loops.is_multiple_of(120) {
-                let _ = store.schedule_due_refresh().await;
-            }
-            if store.advance_generation().await.is_err() {
-                eprintln!("rec_generation_worker: build failed; previous active preserved");
-            }
-            loops = loops.wrapping_add(1);
-            if loops.is_multiple_of(120) && store.prune().await.is_err() {
-                eprintln!("rec_feedback_worker: retention batch failed");
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    }))
+/// Reconcile already queued erasures before ordinary TTL pruning. These
+/// operations read retained REC rows only; they never acknowledge C events.
+/// P1 preference cleanup also runs independently of this legacy maintenance.
+pub(crate) async fn maintain_legacy_recommendations(
+    store: &PgRecommendations,
+) -> Result<(), FeedbackError> {
+    store.refresh_quality().await?;
+    store.refresh_organic_quality().await?;
+    store.prune().await?;
+    Ok(())
 }

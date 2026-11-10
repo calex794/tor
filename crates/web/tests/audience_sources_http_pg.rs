@@ -1,5 +1,5 @@
-//! FLOW: actual navigation/C commands reach the private F source report.
-//! No synthetic positive analytics facts are inserted into PostgreSQL.
+//! Retained source aggregates stay historical while ordinary navigation and C reading continue.
+//! Positive report rows below are explicit old-model fixtures, never evidence of new capture.
 #![forbid(unsafe_code)]
 use axum::{
     body::{to_bytes, Body},
@@ -20,8 +20,8 @@ use tor_accounts::{
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tor_recommendations::{
-    repositories::{audience::PgDiscoveryAudience, PgRecommendations},
-    services::audience::{DiscoveryChannel, DiscoveryReport, DiscoverySource},
+    repositories::audience::PgDiscoveryAudience,
+    services::audience::{DiscoveryReport, DiscoverySource},
 };
 use tower::ServiceExt;
 
@@ -103,26 +103,6 @@ fn private(response: &Response) {
     assert!(robots.contains("noindex") && robots.contains("nofollow"));
 }
 
-fn attribute(tag: &str, name: &str) -> String {
-    let marker = format!("{name}=\"");
-    tag.split(marker.as_str())
-        .nth(1)
-        .expect("server-issued attribute")
-        .split('"')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
-fn organic_ticket(html: &str, book: i64) -> String {
-    let href = format!("href=\"/books/{book}\"");
-    let tag = html
-        .split('<')
-        .find(|tag| tag.contains(&href) && tag.contains("data-organic-ticket="))
-        .expect("ticket on an actual rendered catalogue result");
-    attribute(tag, "data-organic-ticket")
-}
-
 fn source_key(source: DiscoverySource) -> &'static str {
     match source {
         DiscoverySource::Catalog => "catalog",
@@ -130,15 +110,6 @@ fn source_key(source: DiscoverySource) -> &'static str {
         DiscoverySource::Recommendations => "recommendations",
         DiscoverySource::Unattributed => "unattributed",
     }
-}
-
-fn channel(report: &DiscoveryReport, source: DiscoverySource) -> &DiscoveryChannel {
-    report
-        .current
-        .channels
-        .iter()
-        .find(|row| row.source == source)
-        .unwrap()
 }
 
 fn assert_report(html: &str, report: &DiscoveryReport) {
@@ -259,64 +230,51 @@ async fn complete(app: &Router, auth: (&str, &str), chapter: (i64, i64)) {
     }
 }
 
-async fn settle(store: &PgRecommendations, url: &str) {
-    // Other mandatory PG cases may leave more than one worker batch behind.
-    for _ in 0..128 {
-        store.tick_feedback(true, true).await.unwrap();
-        if store.pending_read_events().await.unwrap().is_empty()
-            && pg(
-                url,
-                "SELECT NOT EXISTS(SELECT 1 FROM rec_dirty_buckets)
-                         AND NOT EXISTS(SELECT 1 FROM organic_discovery_dirty)",
-            ) == "t"
-        {
-            return;
-        }
-    }
-    panic!("feedback worker did not drain the disposable database backlog");
+fn optional_capture(url: &str, reader: i64, books: &[i64]) -> String {
+    let ids = books
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    pg(url, &format!(
+        "SELECT
+         (SELECT count(*) FROM rec_assignments WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM rec_attribution_events e JOIN rec_assignments a ON a.id=e.assignment_id WHERE a.book_id IN({ids}))
+        +(SELECT count(*) FROM rec_first_conversions WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM rec_reader_signals WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM organic_discovery_touches WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM organic_discovery_first_conversions WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM organic_discovery_unattributed_reads WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM flow_visit_receipts r JOIN rec_subjects s USING(subject_id) WHERE s.user_id={reader})
+        +(SELECT count(*) FROM flow_book_cohorts WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM reader_flow_read_receipts r JOIN rec_subjects s USING(subject_id) WHERE s.user_id={reader})
+        +(SELECT count(*) FROM reader_flow_book_actions WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM reader_flow_activity_days WHERE book_id IN({ids}))
+        +(SELECT count(*) FROM event_deliveries d JOIN outbox_events e ON e.id=d.event_id
+          WHERE e.payload->>'user_id'='{reader}'
+            AND d.consumer IN('recommendation-feedback-v1','flow-read-attribution-v1'))"
+    ))
 }
 
-async fn activate(app: &Router, auth: (&str, &str), ticket: &str, organic: bool, book: i64) {
-    let endpoint = if organic {
-        "/api/v1/discovery/activate"
-    } else {
-        "/api/v1/recommendations/activate"
-    };
+async fn retired_command(app: &Router, auth: (&str, &str), path: &str, payload: &str) {
     for _ in 0..2 {
-        let response = call(
-            app,
-            "POST",
-            endpoint,
-            auth,
-            &format!("ticket={ticket}&csrf_token={}", auth.1),
-            false,
-        )
-        .await;
-        assert_eq!(
-            response.status(),
-            if organic {
-                StatusCode::NO_CONTENT
-            } else {
-                StatusCode::SEE_OTHER
-            }
-        );
-        assert_eq!(
-            call(app, "GET", &format!("/books/{book}"), auth, "", false)
-                .await
-                .status(),
-            StatusCode::OK
-        );
+        let response = call(app, "POST", path, auth, payload, false).await;
+        assert_eq!(response.status(), StatusCode::GONE);
+        private(&response);
+        let value: Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(value["error"]["code"], "COLLECTION_RETIRED");
     }
 }
 
 // Sync psql must not block the driver that rolls back a rejected C transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_live_role() {
+async fn audience_sources_http_retained_history_real_reading_and_retired_capture() {
     for name in [
         "TOR_RECOMMENDATIONS_ENABLED",
         "TOR_REC_ATTRIBUTION_ENABLED",
         "TOR_ORGANIC_ATTRIBUTION_ENABLED",
+        "TOR_FLOW_VISITS_ENABLED",
     ] {
         std::env::set_var(name, "1");
     }
@@ -324,7 +282,6 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let store = PgRecommendations::new(pool.clone());
     let report_store = PgDiscoveryAudience::new(pool.clone());
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -353,15 +310,18 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
     let (admin, reader) = (users[0], users[1]);
     pg(
         &url,
-        &format!("INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator')"),
+        &format!(
+            "INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator');
+         INSERT INTO rec_subjects(user_id,enabled,enabled_at,flow_epoch,flow_enabled_at)
+         VALUES({reader},true,now()-interval '1 day',gen_random_uuid(),now()-interval '1 day')"
+        ),
     );
-    let prior_hold = pg(&url, "SELECT hold FROM rec_runtime_policy WHERE singleton");
-    pg(
+    let scope = pg(
         &url,
-        "UPDATE rec_runtime_policy SET hold=true WHERE singleton",
+        &format!("SELECT row_to_json(s)::text FROM rec_subjects s WHERE user_id={reader}"),
     );
     let mut books = Vec::new();
-    for suffix in ["mixed", "direct", "disabled"] {
+    for suffix in ["mixed", "direct", "later"] {
         books.push(pg(&url, &format!(
             "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
              VALUES('ci:flow:sources:http:{stamp}:{suffix}','ru','SOURCE-PRIVATE-{stamp}-{suffix}','public','basic') RETURNING id"
@@ -371,7 +331,30 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
     let first = add_chapter(&url, mixed, 1);
     let second = add_chapter(&url, mixed, 2);
     let direct = add_chapter(&url, books[1], 1);
-    let disabled = add_chapter(&url, books[2], 1);
+    let later = add_chapter(&url, books[2], 1);
+    // Historical aggregate fixture only. There is no corresponding new
+    // assignment, click, C attribution receipt or user-level analytics row.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO organic_discovery_quality_daily
+         (bucket_date,book_id,source,issued,clicks,book_opens,starts,completions) VALUES
+         ((now() AT TIME ZONE 'UTC')::date,{mixed},'catalog',2,1,1,0,0),
+         ((now() AT TIME ZONE 'UTC')::date,{mixed},'search',2,1,1,1,1),
+         ((now() AT TIME ZONE 'UTC')::date,{},'unattributed',0,0,0,1,1),
+         ((now() AT TIME ZONE 'UTC')::date-7,{mixed},'catalog',1,0,0,0,0);
+         INSERT INTO rec_quality_daily
+         (bucket_date,book_id,surface,source,reason,position,generation,algorithm_version,
+          impressions,paired_clicks,unpaired_clicks,starts,completions,book_opens) VALUES
+         ((now() AT TIME ZONE 'UTC')::date,{mixed},'home','content','similar_by_content',1,
+          'retained-http-fixture','recommendations_v1',2,1,0,0,0,1),
+         ((now() AT TIME ZONE 'UTC')::date-7,{mixed},'home','content','similar_by_content',1,
+          'retained-http-fixture','recommendations_v1',1,0,0,0,0,NULL)",
+            books[1]
+        ),
+    );
+    let baseline = report_store.report(7).await.unwrap();
+    assert_eq!(optional_capture(&url, reader, &books), "0");
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -390,36 +373,29 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
         private(&response);
         assert!(!text(response).await.contains("data-metric="));
     }
-    let consent = format!(
-        "enabled=1&expected_revision=0&command_key={}&csrf_token={csrf}",
-        generate_session_token()
-    );
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/me/recommendations/consent",
-            reader_auth,
-            &consent,
-            false
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
-    );
-    settle(&store, &url).await;
-    let before = report_store.report(7).await.unwrap();
-    let legacy_rec_opens = pg(
-        &url,
-        "SELECT EXISTS(SELECT 1 FROM rec_quality_daily WHERE book_opens IS NULL
-         AND bucket_date >= (now() AT TIME ZONE 'UTC')::date-6
-         AND bucket_date < (now() AT TIME ZONE 'UTC')::date+1)",
-    ) == "t";
-
-    let catalogue = call(&app, "GET", "/catalog?sort=newest", reader_auth, "", false).await;
-    assert_eq!(catalogue.status(), StatusCode::OK);
-    let catalog_ticket = organic_ticket(&text(catalogue).await, mixed);
-    activate(&app, reader_auth, &catalog_ticket, true, mixed).await;
+    for path in [
+        "/catalog?sort=newest".to_owned(),
+        format!("/catalog?q=SOURCE-PRIVATE-{stamp}-mixed"),
+    ] {
+        let response = call(&app, "GET", &path, reader_auth, "", false).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = text(response).await;
+        assert!(html.contains(&format!("href=\"/books/{mixed}\"")));
+        assert!(!html.contains("data-organic-ticket") && !html.contains("data-rec-ticket"));
+        assert_eq!(
+            call(
+                &app,
+                "GET",
+                &format!("/books/{mixed}"),
+                reader_auth,
+                "",
+                false
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+    }
     let feed = call(
         &app,
         "GET",
@@ -431,38 +407,48 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
     .await;
     assert_eq!(feed.status(), StatusCode::OK);
     let feed: Value = serde_json::from_str(&text(feed).await).unwrap();
+    assert_eq!(feed["personalized"], false);
+    assert!(feed["generation_id"].is_null());
+    assert!(feed["items"].as_array().unwrap().iter().all(|item| {
+        item["source"] == "catalog"
+            && item["reason"] == "new_release"
+            && item.get("ticket").is_none()
+    }));
     let book_id = mixed.to_string();
-    let rec_ticket = feed["items"]
+    assert!(feed["items"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|row| row["book_id"].as_str() == Some(book_id.as_str()))
-        .expect("real fallback result")["ticket"]
-        .as_str()
-        .unwrap();
-    activate(&app, reader_auth, rec_ticket, false, mixed).await;
-    let search = call(
-        &app,
-        "GET",
-        &format!("/catalog?q=SOURCE-PRIVATE-{stamp}-mixed"),
-        reader_auth,
-        "",
-        false,
-    )
-    .await;
-    assert_eq!(search.status(), StatusCode::OK);
-    let search_ticket = organic_ticket(&text(search).await, mixed);
-    activate(&app, reader_auth, &search_ticket, true, mixed).await;
+        .any(|item| item["book_id"].as_str() == Some(book_id.as_str())));
+    let ticket = generate_session_token();
+    for path in [
+        "/api/v1/recommendations/activate",
+        "/api/v1/discovery/activate",
+    ] {
+        retired_command(
+            &app,
+            reader_auth,
+            path,
+            &format!("ticket={ticket}&csrf_token={csrf}"),
+        )
+        .await;
+    }
+    for path in [
+        "/me/recommendations/consent",
+        "/me/recommendations/flow-consent",
+    ] {
+        retired_command(
+            &app,
+            reader_auth,
+            path,
+            &format!(
+                "enabled=1&expected_revision=0&command_key={}&csrf_token={csrf}",
+                generate_session_token()
+            ),
+        )
+        .await;
+    }
     complete(&app, reader_auth, first).await;
-    let event = pg(&url, &format!(
-        "SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={}", first.0
-    ));
-    let (one, two) = tokio::join!(
-        store.accept_read_event(&event),
-        store.accept_read_event(&event)
-    );
-    assert_eq!(usize::from(one.unwrap()) + usize::from(two.unwrap()), 1);
-    assert!(!store.accept_read_event(&event).await.unwrap());
     complete(&app, reader_auth, second).await;
     assert_eq!(
         call(
@@ -478,72 +464,22 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
         StatusCode::OK
     );
     complete(&app, reader_auth, direct).await;
-    settle(&store, &url).await;
-    let after = report_store.report(7).await.unwrap();
-    for source in [
-        DiscoverySource::Catalog,
-        DiscoverySource::Search,
-        DiscoverySource::Recommendations,
-        DiscoverySource::Unattributed,
-    ] {
-        let old = channel(&before, source);
-        let new = channel(&after, source);
-        let read_delta = if matches!(
-            source,
-            DiscoverySource::Search | DiscoverySource::Unattributed
-        ) {
-            1
-        } else {
-            0
-        };
-        assert_eq!(
-            new.starts.unwrap_or(0),
-            old.starts.unwrap_or(0) + read_delta
-        );
-        assert_eq!(
-            new.completions.unwrap_or(0),
-            old.completions.unwrap_or(0) + read_delta
-        );
-        if source == DiscoverySource::Unattributed {
-            assert_eq!(new.clicks, None);
-            assert_eq!(new.book_opens, None);
-        } else {
-            assert_eq!(new.clicks, Some(old.clicks.unwrap_or(0) + 1));
-            if source == DiscoverySource::Recommendations && legacy_rec_opens {
-                assert_eq!(
-                    new.book_opens, None,
-                    "partial old REC measurement stays unknown"
-                );
-            } else {
-                assert_eq!(new.book_opens, Some(old.book_opens.unwrap_or(0) + 1));
-            }
-        }
-    }
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={reader} AND book_id={mixed}")), "2");
+    let event = pg(&url, &format!(
+        "SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={}",
+        first.0
+    ));
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM rec_first_conversions WHERE book_id={mixed}")
+            &format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={reader}")
         ),
-        "0"
+        "3"
     );
+    assert_eq!(optional_capture(&url, reader, &books), "0");
     assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT sum(book_opens) FROM rec_quality_daily WHERE book_id={mixed}")
-        ),
-        "1"
+        report_store.report(7).await.unwrap().current,
+        baseline.current
     );
-    assert_eq!(
-        pg(
-            &url,
-            &format!(
-                "SELECT count(*) FROM organic_discovery_unattributed_reads WHERE book_id={mixed}"
-            )
-        ),
-        "0"
-    );
-    assert!(after.health.fresh && !after.health.rec_dirty && !after.health.organic_dirty);
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={mixed}"),
@@ -562,15 +498,15 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
         private(&response);
         let html = text(response).await;
         assert_report(&html, &report_store.report(days).await.unwrap());
-        assert!(html.contains("audience-current") && html.contains("audience-sources-health"));
+        assert!(html.contains("data-testid=\"collection-retired\""));
+        assert!(html.contains("data-current-measurement=\"unavailable\""));
+        assert!(html.contains("data-measurement=\"legacy-consented\""));
         for forbidden in [
             "SOURCE-PRIVATE-",
             "Readable text",
             "source-reader-",
             event.as_str(),
-            catalog_ticket.as_str(),
-            search_ticket.as_str(),
-            rec_ticket,
+            ticket.as_str(),
         ] {
             assert!(
                 !html.contains(forbidden),
@@ -580,42 +516,10 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
     }
     assert_eq!(
         report_store.report(7).await.unwrap().current,
-        after.current,
-        "repeated aggregate GETs and a later book hold must not change past evidence"
+        baseline.current,
+        "later reading, report GETs and a book hold do not alter retained aggregate evidence"
     );
-
-    let opt_out = format!(
-        "expected_revision=1&command_key={}&csrf_token={csrf}",
-        generate_session_token()
-    );
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/me/recommendations/consent",
-            reader_auth,
-            &opt_out,
-            false
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
-    );
-    complete(&app, reader_auth, disabled).await;
-    settle(&store, &url).await;
-    let erased = report_store.report(7).await.unwrap();
-    for source in [
-        DiscoverySource::Catalog,
-        DiscoverySource::Search,
-        DiscoverySource::Recommendations,
-        DiscoverySource::Unattributed,
-    ] {
-        let old = channel(&before, source);
-        let new = channel(&erased, source);
-        assert_eq!(new.starts.unwrap_or(0), old.starts.unwrap_or(0));
-        assert_eq!(new.completions.unwrap_or(0), old.completions.unwrap_or(0));
-        assert_eq!(new.clicks.unwrap_or(0), old.clicks.unwrap_or(0));
-    }
+    complete(&app, reader_auth, later).await;
     assert_eq!(
         pg(
             &url,
@@ -623,15 +527,24 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
         ),
         "4"
     );
-    let response = call(&app, "GET", "/admin/audience?days=7", admin_auth, "", false).await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_report(&text(response).await, &erased);
+    assert_eq!(optional_capture(&url, reader, &books), "0");
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT row_to_json(s)::text FROM rec_subjects s WHERE user_id={reader}")
+        ),
+        scope,
+        "retired commands must not toggle or rotate an old scope"
+    );
+    assert_eq!(
+        report_store.report(7).await.unwrap().current,
+        baseline.current
+    );
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
     let denied = call(&app, "GET", "/admin/audience", admin_auth, "", false).await;
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     private(&denied);
     assert!(!text(denied).await.contains("data-metric="));
-
     let ids = books
         .iter()
         .map(i64::to_string)
@@ -639,7 +552,6 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
         .join(",");
     pg(&url, &format!(
         "BEGIN;
-         UPDATE rec_runtime_policy SET hold={} WHERE singleton;
          DELETE FROM account_roles WHERE user_id={admin};
          DELETE FROM reader_book_positions WHERE book_id IN({ids});
          DELETE FROM reader_chapter_starts WHERE book_id IN({ids});
@@ -652,6 +564,6 @@ async fn audience_sources_http_real_navigation_last_source_replay_opt_out_and_li
          DELETE FROM rec_dirty_buckets WHERE book_id IN({ids});
          DELETE FROM organic_discovery_dirty WHERE book_id IN({ids});
          DELETE FROM users WHERE id IN({admin},{reader});
-         COMMIT", if prior_hold == "t" { "true" } else { "false" }
+         COMMIT"
     ));
 }

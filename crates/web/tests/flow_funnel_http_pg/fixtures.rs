@@ -99,43 +99,6 @@ impl Browser {
     }
 }
 
-pub(super) fn field(form: &str, name: &str) -> String {
-    let name = format!("name=\"{name}\"");
-    let input = form
-        .split('<')
-        .find(|tag| tag.starts_with("input ") && tag.contains(&name))
-        .unwrap();
-    input
-        .split("value=\"")
-        .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
-pub(super) fn form(html: &str, action: &str) -> String {
-    let action = format!("action=\"{action}\"");
-    html.split(action.as_str())
-        .nth(1)
-        .unwrap()
-        .split("</form>")
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
-pub(super) fn command(form: &str, enabled: bool) -> String {
-    format!(
-        "enabled={}&expected_revision={}&command_key={}&csrf_token={}",
-        if enabled { "1" } else { "0" },
-        field(form, "expected_revision"),
-        field(form, "command_key"),
-        field(form, "csrf_token")
-    )
-}
-
 pub(super) async fn registration(app: &Router, url: &str, email: &str) -> (Browser, i64) {
     let mut browser = Browser::default();
     let page = browser.get(app, "/register").await;
@@ -178,11 +141,18 @@ pub(super) async fn settings(browser: &Browser, app: &Router) -> String {
     text(response).await
 }
 
-pub(super) async fn set_choice(browser: &Browser, app: &Router, action: &str, enabled: bool) {
-    let html = settings(browser, app).await;
-    let body = command(&form(&html, action), enabled);
+pub(super) async fn retired_choice(browser: &Browser, app: &Router, action: &str, enabled: bool) {
+    let body = format!(
+        "enabled={}&expected_revision=7&command_key={}&csrf_token={}",
+        if enabled { "1" } else { "" },
+        generate_session_token(),
+        browser.cookies["tor-dev-csrf"]
+    );
     let response = browser.request(app, "POST", action, &body, &[]).await;
-    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.status(), StatusCode::GONE);
+    private(&response);
+    let body: Value = serde_json::from_str(&text(response).await).unwrap();
+    assert_eq!(body["error"]["code"], "COLLECTION_RETIRED");
 }
 
 pub(super) fn private(response: &Response) {
@@ -201,19 +171,4 @@ pub(super) fn own_pages(url: &str, actor: i64) -> i64 {
     )
     .parse()
     .unwrap()
-}
-
-pub(super) async fn wait_pages(url: &str, actor: i64, expected: i64) {
-    for _ in 0..100 {
-        let pages = own_pages(url, actor);
-        assert!(
-            pages <= expected,
-            "duplicate/extra visit capture: {pages} > {expected}"
-        );
-        if pages == expected {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("FLOW queue did not save {expected} authorized HTML pages");
 }

@@ -1,7 +1,6 @@
 'use strict';
-// FLOW: accepted reading today creates bounded observations for a selected book.
-// Time-dependent positive return counts belong to explicit PG/HTTP fixtures;
-// this browser never inserts or backdates a positive analytics fact.
+// FLOW retirement: real reading must not extend enabled legacy book tracking.
+// Explicit historical fixtures are separate from live C progress and visible forms.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -19,6 +18,8 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
   throw new Error('Book-returns acceptance requires disposable loopback tor_ci');
 }
 fs.mkdirSync(shots, {recursive:true});
+const legacy = require('./audience_retirement_fixtures.cjs')({sql,scalar,base});
+const preview = require('./ci_browser_preview.cjs');
 
 function sql(statement) {
   return execFileSync('psql', ['-X','-A','-t','-q','-v','ON_ERROR_STOP=1',
@@ -32,13 +33,6 @@ function scalar(statement) {
   assert.match(raw, /^\d+$/, 'numeric database evidence');
   return Number(raw);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<150; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve,200));
-  }
-  throw new Error('not observed: '+label);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка возвращения к книге');
@@ -48,11 +42,8 @@ async function register(page, email) {
   await page.waitForURL('**/me');
   return scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
 }
-async function consent(page, enabled) {
-  await page.goto(base+'/me/recommendations');
-  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
-  await page.waitForURL('**/me/recommendations');
+async function retiredConsent(page, enabled) {
+  await legacy.retiredConsent(page,enabled);
 }
 async function csrf(page) {
   const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
@@ -75,6 +66,9 @@ function chapter(book, number) {
   return {book,chapter,version};
 }
 async function progress(page, fixture, offset, expected=200) {
+  assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(),200);
+  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(),200);
+  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady==='1');
   return page.evaluate(async ({chapter,version,offset,expected,csrf}) => {
     const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
       credentials:'same-origin',cache:'no-store',
@@ -103,6 +97,7 @@ async function metric(locator,key) {
 }
 async function report(page,book,days=90) {
   await privateResponse(await page.goto(base+`/admin/audience/returns?book_id=${book}&days=${days}`));
+  await legacy.labelled(page,'audience-book-returns');
   assert.equal(await page.getByRole('heading',{name:'Возвращаются ли к этой книге',exact:true}).count(),1);
   assert.equal(await page.locator('input[type="hidden"][name="book_id"]').inputValue(),String(book));
   const result = {};
@@ -166,7 +161,7 @@ async function periods(page,days) {
   const otherTitle='Другая книга '+run;
   const emails=['admin','api-reader','manual-reader'].map(role=>`flow-book-returns-${role}-${run}@tor-ci.example`);
   const books=[], users=[], errors=[];
-  let browser;
+  let browser,coverage;
   function book(key,title) {
     const id=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres)
       VALUES('ci:flow:book-returns:${run}:${key}','ru','${title}','public','basic',ARRAY['${genre}']) RETURNING id`);
@@ -187,9 +182,7 @@ async function periods(page,days) {
     }
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
-    await waitFor(()=>sql(`SELECT EXISTS(SELECT 1 FROM reader_book_return_coverage
-      WHERE ended_at IS NULL AND last_heartbeat_at>now()-interval '30 seconds')`)==='t',
-    'the real worker confirms separate book coverage before progress');
+    coverage=legacy.coverage('book');
     await privateResponse(await readerPage.goto(base+`/admin/audience/returns?book_id=${first.book}&days=bad`),403);
     assert.equal(await readerPage.getByTestId('audience-book-returns-current').count(),0);
     await adminPage.goto(base+'/me');
@@ -226,30 +219,39 @@ async function periods(page,days) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${users[1]}`),1);
     assert.equal(observationsFor(users[1]),0);
     assert.deepEqual(await report(adminPage,first.book),before);
-    await consent(readerPage,true);
+    legacy.subject(users[1]);
+    const activeLegacy=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,true);
+    assert.deepEqual(legacy.snapshot(users[1]),activeLegacy);
     await progress(readerPage,other,0);
     await progress(readerPage,first,3,409);
     assert.equal(observationsFor(users[1]),0,'zero anchors and rejected retries never start observations');
 
-    // A dateless canonical global completion marker is the only state fixture.
-    // It supplies no date, positive book fact or invented historical return.
-    // The next genuine C save must still create a new selected-book observation.
+    // Explicit legacy completed-global marker; actual saves must not create
+    // or enrich a book observation even while the old subject remains enabled.
     sql(`INSERT INTO reader_return_subjects(subject_id)
       SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`);
     await progress(readerPage,first,6);
-    assert.equal(observationsFor(users[1],first.book),1,'book collection survives the completed global observation');
+    assert.equal(observationsFor(users[1],first.book),0,'retirement prevents a new book observation');
     assert.equal(scalar(`SELECT count(*) FROM reader_return_subjects WHERE cohort_day IS NULL
       AND subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]})`),1);
     assert.equal(scalar(`SELECT count(*) FROM reader_activity_days
       WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]})`),0,
     'finished global collection does not resume detailed book/day history');
+    const markedLegacy=legacy.snapshot(users[1]);
     await progress(readerPage,first,9);
     await progress(readerPage,first,9,409);
     await progress(readerPage,later,3);
-    assert.equal(observationsFor(users[1],first.book),1);
+    assert.equal(observationsFor(users[1],first.book),0);
+    assert.deepEqual(legacy.snapshot(users[1]),markedLegacy);
+    // The report's pending row is explicitly seeded historical evidence.
+    legacy.book(users[1],first.book);
     const one=await report(adminPage,first.book); pendingDelta(before,one,1);
+    const firstFrozen=legacy.snapshot(users[1]);
     await progress(readerPage,other,3);
-    assert.equal(observationsFor(users[1],other.book),1);
+    assert.equal(observationsFor(users[1],other.book),0);
+    assert.deepEqual(legacy.snapshot(users[1]),firstFrozen);
+    legacy.book(users[1],other.book);
     assert.deepEqual(await report(adminPage,first.book),one,'a different book cannot count as a return to this book');
     pendingDelta(otherBefore,await report(adminPage,other.book),1);
 
@@ -266,20 +268,31 @@ async function periods(page,days) {
     assert.equal(await devicePage.locator(`form[action='/read/${later.chapter}/place'] input[name='version_id']`).first().inputValue(),String(later.version),
       'the server verifies the copied live session before exposing the exact-version save form');
     await progress(devicePage,later,6);
-    assert.equal(observationsFor(users[1],first.book),1,'chapters and devices share the same book window');
+    assert.equal(observationsFor(users[1],first.book),1,'further chapter and device commands leave the historical book fixture unchanged');
     assert.deepEqual(await report(adminPage,first.book),one);
     await deviceContext.close();
 
     // A second real reader uses the visible manual action in the same book.
-    await consent(manualPage,true);
+    legacy.subject(users[2]);
+    const manualFrozen=legacy.snapshot(users[2]);
+    await retiredConsent(manualPage,true);
     assert.equal((await manualPage.goto(base+`/read/${manual.chapter}`)).status(),200);
     await manualPage.getByRole('button',{name:'Сохранить после фрагмента 2',exact:true}).click();
     await manualPage.waitForURL(base+`/read/${manual.chapter}#p-2`);
-    assert.equal(observationsFor(users[2],first.book),1);
+    assert.equal(observationsFor(users[2],first.book),0);
+    // The native position form calls PgReadingProgress::save_position. It
+    // persists the cursor without manufacturing a canonical chapter start.
+    assert.equal(scalar(`SELECT count(*) FROM reader_book_positions
+      WHERE user_id=${users[2]} AND book_id=${manual.book}
+        AND chapter_id=${manual.chapter} AND version_id=${manual.version}
+        AND block_index=2 AND char_offset=0`),1);
+    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${users[2]}`),0);
+    assert.deepEqual(legacy.snapshot(users[2]),manualFrozen);
+    legacy.book(users[2],first.book);
     const enrolled=await report(adminPage,first.book); pendingDelta(before,enrolled,2);
     assert.equal(scalar(`SELECT count(*) FROM reader_book_return_subjects WHERE book_id IN(${books.join(',')})
       AND (cohort_day<>(now() AT TIME ZONE 'UTC')::date OR returned_d7 OR returned_d30)`),0,
-    'browser evidence contains only today and no fabricated mature return');
+    'explicit legacy fixtures contain no asserted mature return');
     assert.equal(scalar(`SELECT count(*) FROM reader_book_return_daily WHERE book_id IN(${books.join(',')})`),0);
     const subjects=sql(`SELECT string_agg(subject_id::text,',') FROM rec_subjects WHERE user_id IN(${users.slice(1).join(',')})`).split(',');
     for (const width of [390,1440]) {
@@ -293,6 +306,7 @@ async function periods(page,days) {
       assert.match(await adminPage.locator('body').innerText(),/наблюдени/);
       assert.ok(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'report fits viewport');
       await adminPage.screenshot({path:path.join(shots,`audience-book-returns-pending-${width}.png`),fullPage:true});
+      await preview(adminPage,`audience-book-returns-retired-${width}`);
     }
     for (const days of [1,7,30,90]) {
       await select(adminPage,first.book,days); await periods(adminPage,days);
@@ -301,26 +315,19 @@ async function periods(page,days) {
       assert.equal(await metric(adminPage.getByTestId('audience-book-returns-current'),'cohort'),'2');
     }
 
-    // Opt-out deletes both still-personal book episodes, while accepted reading
-    // continues. A new consent identity cannot resurrect either old observation.
-    const oldSubject=sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`);
-    await consent(readerPage,false);
-    assert.equal(scalar(`SELECT count(*) FROM reader_book_return_subjects WHERE subject_id='${oldSubject}'::uuid`),0);
-    assert.equal(scalar(`SELECT count(*) FROM reader_return_subjects WHERE subject_id='${oldSubject}'::uuid`),0);
+    // Retired consent requests neither rotate nor erase history. Continuing
+    // real reading, including a rejected replay, never changes the old rows.
+    const frozen=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,false);
     await progress(readerPage,later,9);
     await progress(readerPage,other,6);
-    assert.equal(observationsFor(users[1]),0);
-    pendingDelta(before,await report(adminPage,first.book),1);
-    assert.deepEqual(await report(adminPage,other.book),otherBefore);
-    await consent(readerPage,true);
-    assert.notEqual(sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`),oldSubject);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
+    assert.deepEqual(await report(adminPage,first.book),enrolled);
+    await retiredConsent(readerPage,true);
     await progress(readerPage,later,9,409);
-    assert.equal(observationsFor(users[1]),0);
     await progress(readerPage,later,12);
-    assert.equal(observationsFor(users[1],first.book),1);
-    pendingDelta(before,await report(adminPage,first.book),2);
     await progress(readerPage,other,9);
-    assert.equal(observationsFor(users[1],other.book),1);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
     assert.deepEqual(await report(adminPage,first.book),enrolled);
     pendingDelta(otherBefore,await report(adminPage,other.book),1);
 
@@ -339,7 +346,7 @@ async function periods(page,days) {
     const anonymous=await browser.newPage();
     await privateResponse(await anonymous.goto(base+`/admin/audience/returns?book_id=${first.book}`),401);
     assert.deepEqual(errors,[]);
-    console.log('FLOW book returns browser PASS: books-to-selected-book, real CAS/manual progress, completed global marker, same-book isolation, chapter/device/retry dedupe, pending D7/D30, consent rotation, hidden book, live admin, 390/1440');
+    console.log('FLOW book returns browser PASS: labelled explicit legacy book fixtures, real CAS/manual/device progress without capture, retired consent410/no writes, same-book isolation, periods, current visibility, live admin, 390/1440');
   } finally {
     if(browser) await browser.close();
     if(users.length) sql(`DELETE FROM account_roles WHERE user_id IN(${users.join(',')})`);
@@ -353,5 +360,6 @@ async function periods(page,days) {
         DELETE FROM rec_dirty_buckets WHERE book_id IN(${ids}); DELETE FROM organic_discovery_dirty WHERE book_id IN(${ids}); COMMIT`);
     }
     sql(`DELETE FROM users WHERE email_normalized IN(${emails.map(email=>`'${email}'`).join(',')})`);
+    legacy.removeCoverage(coverage);
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

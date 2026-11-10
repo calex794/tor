@@ -1,4 +1,4 @@
-//! FLOW measures authorized paid/Layer HTML, not a grant or finished reading.
+//! Retired collection keeps actual paid/Layer entitlements and delivery boundaries.
 //! The money/entitlement paths are real PG transactions. G always rejects:
 //! this test cannot pretend that ciphertext was downloaded or decrypted.
 use super::*;
@@ -47,7 +47,7 @@ fn hex(bytes: &[u8]) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
+async fn retired_funnel_keeps_actual_paid_layer_entitlements() {
     for name in [
         "TOR_FLOW_VISITS_ENABLED",
         "TOR_RECOMMENDATIONS_ENABLED",
@@ -60,8 +60,6 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let funnel = PgFlowFunnel::new(pool.clone());
-    funnel.initialize(true).await.unwrap();
     let delivery = Arc::new(UnavailableDelivery::default());
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
         catalog,
@@ -95,10 +93,10 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
         &format!("flow-paid-outsider-{stamp}@tor-ci.example"),
     )
     .await;
-    for browser in [&buyer_browser, &outsider_browser] {
-        set_choice(browser, &app, REC_FORM, true).await;
-        set_choice(browser, &app, FLOW_FORM, true).await;
-    }
+    legacy_scope(&url, buyer);
+    legacy_scope(&url, outsider);
+    let buyer_before = optional_snapshot(&url, buyer);
+    let outsider_before = optional_snapshot(&url, outsider);
     pg(&url, &format!("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({buyer},400,'RUB')"));
     let book: i64 = pg(&url, &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
         VALUES('ci:flow:paid:{stamp}','ru','FLOW paid fixture','public',{owner},'basic') RETURNING id")).parse().unwrap();
@@ -189,12 +187,12 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
     let html = text(response).await;
     assert!(html.contains("data-paid-chapter-reader"));
     assert!(!html.contains("FLOW-PRIVATE-PAID-CONTENT"));
-    wait_pages(&url, buyer, 1).await;
+    assert_eq!(own_pages(&url, buyer), 0);
     assert_eq!(
         buyer_browser.get(&app, "/me/purchases").await.status(),
         StatusCode::OK
     );
-    wait_pages(&url, buyer, 2).await;
+    assert_eq!(own_pages(&url, buyer), 0);
     let layers = PgLayers::new(pool.clone());
     let layer = layers
         .create_layer(positive(owner), "FLOW Layer fixture")
@@ -225,9 +223,7 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
     let html = text(response).await;
     assert!(html.contains("data-layer-chapter-reader"));
     assert!(!html.contains("FLOW-PRIVATE-PAID-CONTENT"));
-    wait_pages(&url, buyer, 3).await;
-    assert_eq!(pg(&url, &format!("SELECT count(*),min(landing_surface),min(last_surface)
-        FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id WHERE s.user_id={buyer}")), "1|3|3");
+    assert_eq!(own_pages(&url, buyer), 0);
     assert_eq!(own_pages(&url, outsider), 0);
     pg(
         &url,
@@ -250,7 +246,7 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
         buyer_browser.get(&app, &paid_path).await.status(),
         StatusCode::OK
     );
-    wait_pages(&url, buyer, 4).await;
+    assert_eq!(own_pages(&url, buyer), 0);
     assert_eq!(
         delivery.0.load(Ordering::SeqCst),
         0,
@@ -270,12 +266,7 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
         ),
         "2"
     );
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM flow_visit_receipts r JOIN rec_subjects s USING(subject_id) WHERE s.user_id={buyer} AND book_id={book} AND book_kind=1")), "3");
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM flow_visit_receipts r JOIN rec_subjects s USING(subject_id) WHERE s.user_id={outsider} AND book_id IS NOT NULL")), "0");
-    age_facts(&url, buyer);
-    settle_funnel(&funnel, &url).await;
-    assert_eq!(pg(&url, &format!("SELECT count(*),bool_and(has_reader),bool_or(has_detail),bool_or(started),bool_or(completed) FROM flow_book_cohorts c JOIN rec_subjects s USING(subject_id) WHERE s.user_id={buyer} AND book_id={book}")), "1|t|f|f|f");
-    set_choice(&buyer_browser, &app, FLOW_FORM, false).await;
+    retired_choice(&buyer_browser, &app, FLOW_FORM, false).await;
     assert_eq!(own_pages(&url, buyer), 0);
     pg(
         &url,
@@ -287,8 +278,19 @@ async fn funnel_book_context_needs_actual_paid_layer_entitlements() {
             StatusCode::UNAUTHORIZED
         );
     }
-    set_choice(&outsider_browser, &app, FLOW_FORM, false).await;
+    retired_choice(&outsider_browser, &app, FLOW_FORM, false).await;
     assert_eq!(own_pages(&url, outsider), 0);
+    assert_eq!(optional_snapshot(&url, buyer), buyer_before);
+    assert_eq!(optional_snapshot(&url, outsider), outsider_before);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_starts WHERE user_id IN({buyer},{outsider})"
+            )
+        ),
+        "0"
+    );
     // Financial evidence is immutable. Keep its fixture rows, hidden from feeds.
     pg(
         &url,

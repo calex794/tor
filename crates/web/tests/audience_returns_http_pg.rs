@@ -1,5 +1,5 @@
 //! FLOW: exact temporal fixtures exercise the real private HTTP/PG report.
-//! Actual collection comes from C progress in the separate Chromium scenario.
+//! Historical fixtures stay labelled; Chromium proves real C progress adds no collection.
 #![forbid(unsafe_code)]
 
 use axum::{
@@ -269,7 +269,11 @@ fn delta(before: Counts, after: Counts, expected: Counts) {
 async fn report(app: &Router, cookie: &str, days: i32) -> String {
     let response = call(app, &format!("/admin/audience/returns?days={days}"), cookie).await;
     private(&response, StatusCode::OK);
-    body(response).await
+    let html = body(response).await;
+    assert!(html.contains("data-testid=\"collection-retired\""));
+    assert!(html.contains("data-current-measurement=\"unavailable\">Не измеряется"));
+    assert!(html.contains("data-measurement=\"legacy-consented\""));
+    html
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

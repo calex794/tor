@@ -265,6 +265,7 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
         fixtures.books[3],
     ];
     let secret_genre = format!("secret-genre-{stamp}");
+    // Explicit retained old-model aggregates; these are not current capture evidence.
     pg(&url, &format!(
         "UPDATE books SET admin_hold=true,genres=ARRAY['{genre}','{secret_genre}'],tags=ARRAY['{tag}','secret-tag-{stamp}'] WHERE id={hidden};
          INSERT INTO organic_discovery_quality_daily(bucket_date,book_id,source,issued,clicks,book_opens,starts,completions) VALUES
@@ -318,6 +319,9 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
     let response = call(&app, &path, &cookies[0]).await;
     private(&response, StatusCode::OK);
     let html = body(response).await;
+    assert!(html.contains("data-testid=\"collection-retired\""));
+    assert!(html.contains("data-current-measurement=\"unavailable\""));
+    assert!(html.contains("data-measurement=\"legacy-consented\""));
     assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; книга"));
     assert!(!html.contains("<script>alert(1)"));
     for forbidden in [
@@ -416,6 +420,30 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
     drop(lock);
     pg(&url, &format!("UPDATE account_roles SET is_active=true WHERE user_id={admin} AND role='administrator'"));
     private(&call(&app, &path, &cookies[0]).await, StatusCode::OK);
+    // These daily rows are explicit historical fixtures. Report GETs must
+    // neither create a profile nor resume optional observation for these books.
+    let fixture_users = fixtures
+        .users
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let fixture_books = fixtures
+        .books
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(
+        pg(&url, &format!(
+            "SELECT (SELECT count(*) FROM rec_subjects WHERE user_id IN({fixture_users}))
+                  +(SELECT count(*) FROM rec_assignments WHERE book_id IN({fixture_books}))
+                  +(SELECT count(*) FROM organic_discovery_touches WHERE book_id IN({fixture_books}))
+                  +(SELECT count(*) FROM flow_book_cohorts WHERE book_id IN({fixture_books}))"
+        )),
+        "0",
+        "historical report reads must not create optional analytics state"
+    );
     accounts
         .revoke_session(&session_token_digest(&tokens[0]))
         .await

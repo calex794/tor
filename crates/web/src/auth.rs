@@ -7,7 +7,6 @@ use crate::{
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    middleware,
     response::{Redirect, Response},
     routing::{get, post},
     Router,
@@ -16,7 +15,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tor_accounts::{
     repositories::PgAccounts,
-    services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
@@ -245,12 +243,10 @@ fn router_inner(
         achievements,
         cookies,
         password_jobs: PasswordJobs::new(4),
-        ril_signer: behavior_consent::configured_ril_signer(),
         cover_preview_storage: storage.clone(),
         cover_upload_enabled,
         age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
-    let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(layer_routes::routes())
@@ -440,10 +436,6 @@ fn router_inner(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
-        .layer(middleware::from_fn_with_state(
-            observation_state,
-            behavior_consent::annotate_verified_ril,
-        ))
         .merge(chapter_routes)
         .merge(social_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);

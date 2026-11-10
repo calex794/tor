@@ -1,7 +1,6 @@
 'use strict';
-// FLOW: genuine accepted reading today creates a pending D1/D7/D30 cohort.
-// Time-dependent positive return counts belong to explicit PG/HTTP fixtures;
-// this browser never inserts or backdates a positive analytics fact.
+// FLOW retirement: real reading must not extend enabled legacy return tracking.
+// Explicit historical fixtures test the labelled report separately from live C progress.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -19,6 +18,8 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
   throw new Error('Returns acceptance requires disposable loopback tor_ci');
 }
 fs.mkdirSync(shots, {recursive:true});
+const legacy = require('./audience_retirement_fixtures.cjs')({sql,scalar,base});
+const preview = require('./ci_browser_preview.cjs');
 
 function sql(statement) {
   return execFileSync('psql', ['-X','-A','-t','-q','-v','ON_ERROR_STOP=1',
@@ -31,13 +32,6 @@ function scalar(statement) {
   assert.match(raw, /^\d+$/, 'numeric database evidence');
   return Number(raw);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<150; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve,200));
-  }
-  throw new Error('not observed: '+label);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка возвращения');
@@ -47,11 +41,8 @@ async function register(page, email) {
   await page.waitForURL('**/me');
   return scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
 }
-async function consent(page, enabled) {
-  await page.goto(base+'/me/recommendations');
-  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
-  await page.waitForURL('**/me/recommendations');
+async function retiredConsent(page, enabled) {
+  await legacy.retiredConsent(page,enabled);
 }
 async function csrf(page) {
   const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
@@ -74,6 +65,9 @@ function chapter(book, number) {
   return {book,chapter,version};
 }
 async function progress(page, fixture, offset, expected=200) {
+  assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(),200);
+  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(),200);
+  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady==='1');
   return page.evaluate(async ({chapter,version,offset,expected,csrf}) => {
     const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
       credentials:'same-origin',cache:'no-store',
@@ -105,6 +99,7 @@ async function metric(locator,key) {
 }
 async function report(page,days=90) {
   await privateResponse(await page.goto(base+'/admin/audience/returns?days='+days));
+  await legacy.labelled(page,'audience-returns');
   const result = {};
   for (const period of ['current','previous']) {
     const section = page.getByTestId('audience-returns-'+period);
@@ -125,7 +120,7 @@ async function report(page,days=90) {
   return result;
 }
 function pendingDelta(before,after,delta) {
-  assert.equal(after.current.cohort,before.current.cohort+delta,'one enrolment per consent epoch');
+  assert.equal(after.current.cohort,before.current.cohort+delta,'explicit historical cohort fixtures determine the report delta');
   assert.deepEqual(after.previous,before.previous,'today does not backfill previous cohorts');
   for (const day of [1,7,30]) {
     const a=before.current.days[day], b=after.current.days[day];
@@ -157,7 +152,7 @@ async function periods(page,days) {
   const run=Date.now()+'-'+randomBytes(4).toString('hex');
   const emails=['admin','api-reader','manual-reader'].map(role=>`flow-returns-${role}-${run}@tor-ci.example`);
   const books=[], users=[], errors=[];
-  let browser;
+  let browser,coverage;
   function book(key) {
     const id=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
       VALUES('ci:flow:returns:${run}:${key}','ru','RETURN-TITLE-${run}-${key}','public','basic') RETURNING id`);
@@ -177,8 +172,7 @@ async function periods(page,days) {
     }
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
-    await waitFor(()=>sql("SELECT EXISTS(SELECT 1 FROM reader_return_coverage WHERE ended_at IS NULL AND last_heartbeat_at>now()-interval '90 seconds')")==='t',
-      'the real collection worker confirms coverage before progress');
+    coverage=legacy.coverage('global');
     await privateResponse(await readerPage.goto(base+'/admin/audience/returns?days=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-returns-current').count(),0);
     await adminPage.goto(base+'/me');
@@ -197,7 +191,10 @@ async function periods(page,days) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${users[1]}`),1);
     assert.equal(daysFor(users[1]),0); assert.equal(cohortsFor(users[1]),0);
     assert.deepEqual(await report(adminPage),before);
-    await consent(readerPage,true);
+    legacy.subject(users[1]);
+    const firstLegacy=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,true);
+    assert.deepEqual(legacy.snapshot(users[1]),firstLegacy,'retired consent cannot mutate legacy state');
     // A zero anchor and a rejected duplicate cannot start observation.
     await progress(readerPage,noStart,0);
     await progress(readerPage,first,3,409);
@@ -207,19 +204,31 @@ async function periods(page,days) {
     await progress(readerPage,first,9,409);
     await progress(readerPage,later,3);
     await progress(readerPage,other,3);
-    assert.equal(daysFor(users[1]),2,'several saves/chapters keep one fact per book and UTC day');
-    assert.equal(cohortsFor(users[1]),1,'several books share the same site-wide cohort');
+    assert.equal(daysFor(users[1]),0,'accepted reading never adds an optional activity day');
+    assert.equal(cohortsFor(users[1]),0,'enabled legacy subject does not enroll a new cohort');
+    assert.deepEqual(legacy.snapshot(users[1]),firstLegacy);
+    // This explicit legacy row, not the C requests above, supplies historical evidence.
+    legacy.global(users[1],coverage.id);
     pendingDelta(before,await report(adminPage),1);
 
     // A second real reader uses the visible manual save action.
-    await consent(manualPage,true);
+    legacy.subject(users[2]);
+    const manualLegacy=legacy.snapshot(users[2]);
+    await retiredConsent(manualPage,true);
     assert.equal((await manualPage.goto(base+`/read/${manual.chapter}`)).status(),200);
     await manualPage.getByRole('button',{name:'Сохранить после фрагмента 2',exact:true}).click();
     await manualPage.waitForURL(base+`/read/${manual.chapter}#p-2`);
-    assert.equal(daysFor(users[2]),1); assert.equal(cohortsFor(users[2]),1);
+    assert.equal(daysFor(users[2]),0); assert.equal(cohortsFor(users[2]),0);
+    // The native position form calls PgReadingProgress::save_position. It
+    // persists the cursor without manufacturing a canonical chapter start.
+    assert.equal(scalar(`SELECT count(*) FROM reader_book_positions
+      WHERE user_id=${users[2]} AND book_id=${manual.book}
+        AND chapter_id=${manual.chapter} AND version_id=${manual.version}
+        AND block_index=2 AND char_offset=0`),1);
+    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${users[2]}`),0);
+    assert.deepEqual(legacy.snapshot(users[2]),manualLegacy,'manual save preserves all legacy analytics state');
+    legacy.global(users[2],coverage.id);
     const enrolled=await report(adminPage); pendingDelta(before,enrolled,2);
-    assert.equal(scalar(`SELECT count(DISTINCT activity_day) FROM reader_activity_days
-      WHERE subject_id IN(SELECT subject_id FROM rec_subjects WHERE user_id IN(${users.slice(1).join(',')}))`),1);
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width===390?844:900});
       assert.deepEqual(await report(adminPage),enrolled,'viewing the report has no side effects');
@@ -229,27 +238,26 @@ async function periods(page,days) {
       }
       assert.ok(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'report fits viewport');
       await adminPage.screenshot({path:path.join(shots,`audience-returns-pending-${width}.png`),fullPage:true});
+      await preview(adminPage,`audience-returns-retired-${width}`);
     }
     for (const days of [1,7,30,90]) {
       await select(adminPage,days); await periods(adminPage,days);
       assert.equal(await adminPage.getByTestId('audience-returns-current').locator('[data-return-day]').count(),3);
     }
 
-    // Opt-out erases the still-personal cohort; accepted reading remains usable.
-    const oldSubject=sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`);
-    await consent(readerPage,false);
-    assert.equal(scalar(`SELECT count(*) FROM reader_activity_days WHERE subject_id='${oldSubject}'::uuid`),0);
-    assert.equal(scalar(`SELECT count(*) FROM reader_return_subjects WHERE subject_id='${oldSubject}'::uuid`),0);
+    // Old clients cannot rotate, erase or resume the legacy measurement.
+    // Actual C progress remains usable and its replay check is unchanged.
+    const frozen=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,false);
     await progress(readerPage,other,6);
-    assert.equal(daysFor(users[1]),0);
-    pendingDelta(before,await report(adminPage),1);
-    await consent(readerPage,true);
-    assert.notEqual(sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`),oldSubject);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
+    assert.deepEqual(await report(adminPage),enrolled);
+    await retiredConsent(readerPage,true);
     await progress(readerPage,other,6,409);
-    assert.equal(cohortsFor(users[1]),0,'re-consent cannot resurrect the old observation');
     await progress(readerPage,other,9);
-    assert.equal(cohortsFor(users[1]),1); assert.equal(daysFor(users[1]),1);
-    pendingDelta(before,await report(adminPage),2);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
+    assert.equal(daysFor(users[1]),0);
+    assert.deepEqual(await report(adminPage),enrolled);
     await privateResponse(await adminPage.goto(base+'/admin/audience/returns?days=2'),400);
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience/returns?days=90'),403);
@@ -257,7 +265,7 @@ async function periods(page,days) {
     const anonymous=await browser.newPage();
     await privateResponse(await anonymous.goto(base+'/admin/audience/returns'),401);
     assert.deepEqual(errors,[]);
-    console.log('FLOW returns browser PASS: genuine CAS and manual progress, one consent-epoch cohort, repeat/day dedupe, no invented history, pending D1/D7/D30, opt-out/re-consent, live admin, 390/1440');
+    console.log('FLOW returns browser PASS: real CAS/manual progress without optional capture despite enabled legacy subject, explicit historical D1/D7/D30 fixtures, retired consent410/no writes, private labelled reports, periods, live admin, 390/1440');
   } finally {
     if(browser) await browser.close();
     if(users.length) sql(`DELETE FROM account_roles WHERE user_id IN(${users.join(',')})`);
@@ -271,5 +279,6 @@ async function periods(page,days) {
         DELETE FROM rec_dirty_buckets WHERE book_id IN(${ids}); DELETE FROM organic_discovery_dirty WHERE book_id IN(${ids}); COMMIT`);
     }
     sql(`DELETE FROM users WHERE email_normalized IN(${emails.map(email=>`'${email}'`).join(',')})`);
+    legacy.removeCoverage(coverage);
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "TOR Rust/Pg REST contracts",
-    "version": "2026-10-26.v1",
-    "description": "Planned JSON HTTP API; NOT implemented. Source of truth detailed in docs/roadmap/api-v1.md and docs/contracts/*.md. Includes core high-risk REST surface; HTML compatibility remains specified separately."
+    "version": "2026-11-11.v2",
+    "description": "Planned JSON HTTP API; NOT implemented. Source of truth detailed in docs/roadmap/api-v1.md and docs/contracts/*.md. Includes core high-risk REST surface; HTML compatibility remains specified separately. REC/FLOW runtime retirement v2 changes the implemented recommendation source enum and retired collection/control responses at existing compatibility URLs; see flow-rec-runtime-retirement-v2.md."
   },
   "servers": [
     {
@@ -1230,9 +1230,6 @@
         "operationId": "organic_discovery_activate",
         "summary": "Consent-gated first-party organic result activation (no GET mutation)",
         "responses": {
-          "204": {
-            "description": "Recorded idempotent, session-bound organic click; browser navigates to canonical book link"
-          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -1244,6 +1241,9 @@
           },
           "404": {
             "$ref": "#/components/responses/Http404"
+          },
+          "410": {
+            "$ref": "#/components/responses/Http410"
           },
           "503": {
             "$ref": "#/components/responses/Http503"
@@ -1275,7 +1275,9 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true,
+        "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
     "/api/v1/reader/chapters/{chapter_id}/delivery-grants": {
@@ -2607,7 +2609,8 @@
             }
           }
         ],
-        "x-tor-feature-gate": "recommendations_public_fallback_enabled"
+        "x-tor-feature-gate": "recommendations_public_fallback_enabled",
+        "description": "P2a catalogue new releases only, subject to the product flag, current actor access and explicit P1 hides. source=catalog; algorithm_version=catalog_new_releases_v1; reason=new_release; personalized=false; generation_id=null; no ticket or inferred profile."
       }
     },
     "/api/v1/reading-universe": {
@@ -4277,7 +4280,8 @@
           }
         },
         "x-tor-owner": "F/I",
-        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "description": "P2a catalogue new releases only, subject to the product flag, current actor access and explicit P1 hides. source=catalog; algorithm_version=catalog_new_releases_v1; reason=new_release; personalized=false; generation_id=null; no ticket or inferred profile."
       }
     },
     "/api/v1/recommendations/impressions": {
@@ -4285,12 +4289,6 @@
         "operationId": "rec13_api_impressions",
         "summary": "REC-13 api::impressions",
         "responses": {
-          "200": {
-            "description": "Bounded result"
-          },
-          "202": {
-            "description": "Claims accepted, never trusted reading"
-          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4305,6 +4303,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Http409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Http410"
           },
           "429": {
             "$ref": "#/components/responses/Http429"
@@ -4334,7 +4335,9 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "deprecated": true,
+        "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
     "/api/v1/recommendations/activate": {
@@ -4342,12 +4345,6 @@
         "operationId": "rec13_api_activate",
         "summary": "REC-13 api::activate",
         "responses": {
-          "200": {
-            "description": "Bounded result"
-          },
-          "303": {
-            "description": "Canonical book navigation, not paid entitlement"
-          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4362,6 +4359,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Http409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Http410"
           },
           "429": {
             "$ref": "#/components/responses/Http429"
@@ -4391,7 +4391,9 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true,
+        "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
     "/api/v1/me/recommendation-feedback": {
@@ -4480,9 +4482,6 @@
         "operationId": "rec13_admin_quality",
         "summary": "REC-13 admin::quality",
         "responses": {
-          "200": {
-            "description": "Bounded result"
-          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4497,6 +4496,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Http409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Http410"
           },
           "429": {
             "$ref": "#/components/responses/Http429"
@@ -4532,7 +4534,9 @@
               "default": 7
             }
           }
-        ]
+        ],
+        "deprecated": true,
+        "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
     "/api/v1/admin/recommendations/control": {
@@ -4540,9 +4544,6 @@
         "operationId": "rec13_admin_control",
         "summary": "REC-13 admin::control",
         "responses": {
-          "200": {
-            "description": "Bounded result"
-          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4557,6 +4558,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Http409"
+          },
+          "410": {
+            "$ref": "#/components/responses/Http410"
           },
           "429": {
             "$ref": "#/components/responses/Http429"
@@ -4586,7 +4590,9 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true,
+        "description": "REC/FLOW runtime retirement v2: authorized requests return private 410 COLLECTION_RETIRED. No capture, consumer receipt, generation rebuild or activation is performed. Existing authentication, role and mutation CSRF/Origin checks remain."
       }
     },
     "/api/v1/support/tickets": {
@@ -5251,8 +5257,10 @@
               "behavioral",
               "content",
               "popularity",
-              "related_books"
-            ]
+              "related_books",
+              "catalog"
+            ],
+            "description": "P2a production emits catalog with algorithm_version=catalog_new_releases_v1 and reason=new_release. Other values describe the retained legacy contract."
           },
           "title": {
             "type": "string",
@@ -5624,6 +5632,23 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Http410": {
+        "description": "Collection or legacy generation control retired; no mutation. Existing session, role, Origin and CSRF guards remain.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "COLLECTION_RETIRED",
+                "message": "Индивидуальный учёт посещений и чтения больше не используется",
+                "request_id": "example-retired-request"
+              }
             }
           }
         }

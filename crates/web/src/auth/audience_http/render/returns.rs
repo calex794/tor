@@ -13,14 +13,15 @@ pub(crate) fn page(days: i32, report: Option<&ReadingReturnsReport>) -> Html<Str
         <p class="eyebrow">Администратору сайта</p><h1>Возвращаются ли к чтению</h1>
         <p>Подтверждённые возвращения на 1-й, 7-й и 30-й день.
         Чтение может продолжиться в любой разрешённой книге.</p>
-        <p>Считаются наблюдения за учётными записями в период согласия.
-        После отзыва и нового согласия начинается отдельное наблюдение.</p>"#,
+        <p>Здесь сохранены наблюдения за учётными записями прежней выборки.
+        Повторные согласия в старой модели создавали отдельные наблюдения.</p>"#,
     );
     write!(
         body,
         r#"<p><a href="/admin/audience?days={days}">Вернуться в «Аудиторию»</a></p>"#
     )
     .expect("String");
+    super::retirement::notice(&mut body, "возвращения на заданный день и их доля");
     filters(&mut body, days);
     match report {
         Some(report) => report_body(&mut body, report),
@@ -92,7 +93,7 @@ fn filters(body: &mut String, days: i32) {
 fn report_body(body: &mut String, report: &ReadingReturnsReport) {
     write!(
         body,
-        r#"<section data-testid="audience-returns" data-healthy="{}">
+        r#"<section data-testid="audience-returns" data-healthy="{}" data-measurement="legacy-consented">
         <p>Время расчёта: {}.</p>
         <p>Сравниваются две группы по дате начала наблюдения: текущий и предыдущий периоды
         одинаковой длительности. Дни указаны в UTC; начало включено, конец не включён.
@@ -104,7 +105,7 @@ fn report_body(body: &mut String, report: &ReadingReturnsReport) {
     let Some(start) = report.observation_started_at_utc.as_ref() else {
         body.push_str(
             r#"<p class="book-section-card" data-testid="audience-returns-not-started">
-            Измерение ещё не началось. Сохранённые места и первые чтения глав не заменяют
+            В прежней выборке нет начала измерения. Сохранённые места и первые чтения глав не заменяют
             историю дней. Значения и доли пока не рассчитаны.</p></section>"#,
         );
         return;
@@ -118,7 +119,7 @@ fn report_body(body: &mut String, report: &ReadingReturnsReport) {
     if let Some(last) = &report.last_observed_at_utc {
         write!(
             body,
-            r#"<p data-testid="audience-returns-last-observed">Состояние сбора проверено: {}.</p>"#,
+            r#"<p data-testid="audience-returns-last-observed">Состояние исторической выборки проверено: {}.</p>"#,
             time(last)
         )
         .expect("String");
@@ -126,13 +127,18 @@ fn report_body(body: &mut String, report: &ReadingReturnsReport) {
     if !report.collection_healthy {
         body.push_str(
             r#"<p class="book-section-card" role="status" data-testid="audience-returns-collection-gap">
-            Сбор сейчас выключен или его непрерывность не подтверждена.
+            Новый сбор прекращён. Непрерывность прежнего измерения не подтверждена.
             Результаты, затронутые разрывом, не считаются нулевыми возвращениями.</p>"#,
         );
     }
     body.push_str(r#"<div class="audience-source-grid">"#);
-    period(body, "current", "Текущий период", &report.current);
-    period(body, "previous", "Предыдущий период", &report.previous);
+    period(body, "current", super::retirement::CURRENT, &report.current);
+    period(
+        body,
+        "previous",
+        super::retirement::PREVIOUS,
+        &report.previous,
+    );
     body.push_str("</div>");
     comparison(body, &report.current, &report.previous);
     body.push_str("</section>");
@@ -174,7 +180,11 @@ pub(super) fn metric_row(body: &mut String, metric: &ReadingReturnsMetric) {
     for (key, label, value) in [
         ("eligible", "Можно оценить", metric.eligible),
         ("returned", "Вернулись среди оценённых", metric.returned),
-        ("pending", "Ещё ждём окончания дня", metric.pending),
+        (
+            "pending",
+            "Незавершённые исторические наблюдения",
+            metric.pending,
+        ),
         (
             "unknown",
             "Неизвестно из-за разрыва измерения",
@@ -201,7 +211,7 @@ pub(super) fn metric_row(body: &mut String, metric: &ReadingReturnsMetric) {
     )
     .expect("String");
     if metric.pending > 0 {
-        body.push_str("<p>Ожидающие записи пока не входят в долю возвращений.</p>");
+        body.push_str("<p>Незавершённые записи не входят в долю. Прекращение измерения не подтверждает отсутствие возвращения.</p>");
     }
     body.push_str("</article>");
 }
@@ -281,6 +291,8 @@ mod tests {
         report.previous.metrics[0].returned = 1;
         let html = page(90, Some(&report)).0;
         assert!(html.contains("data-metric=\"rate\">25,0%"));
+        assert!(html.contains("data-current-measurement=\"unavailable\">Не измеряется"));
+        assert!(html.contains("data-measurement=\"legacy-consented\""));
         assert!(html.contains("+12,5 процентного пункта"));
         assert!(html.contains("data-metric=\"pending\">2"));
         report.current.metrics[0].eligible = 0;

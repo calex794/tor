@@ -2,14 +2,14 @@ use super::Runtime;
 use crate::auth_cookies::{deny, private_response};
 use axum::{
     extract::{Form, Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use tor_accounts::services::security::{generate_session_token, session_token_digest};
 use tor_recommendations::domain::feedback::{
-    book_id, valid_token, Choice, Feed, FeedbackError, ImpressionClaim, Surface,
+    book_id, valid_token, Choice, Feed, FeedbackError, ImpressionClaim, Surface, MAX_ITEMS,
 };
 
 #[derive(Deserialize)]
@@ -127,6 +127,29 @@ pub(super) fn error(value: FeedbackError) -> Response {
     )
 }
 
+/// A cached client receives an explicit retirement result after ordinary
+/// authorization checks. This response never acknowledges a collection write.
+pub(crate) fn retired() -> Response {
+    let mut response = private_response(
+        (
+            StatusCode::GONE,
+            Json(ErrorEnvelope {
+                error: ErrorInfo {
+                    code: "COLLECTION_RETIRED",
+                    message: "Индивидуальный учёт посещений и чтения больше не используется",
+                    request_id: generate_session_token(),
+                },
+            }),
+        ),
+        &[],
+    );
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
+}
+
 fn idempotency_error(code: &'static str) -> Response {
     let message = if code == "IDEMPOTENCY_KEY_REQUIRED" {
         "Не указан ключ повтора"
@@ -168,31 +191,17 @@ fn idempotency_key(headers: &HeaderMap) -> Result<&str, &'static str> {
     }
 }
 
+/// Account identity is used only for live discovery authorization and the
+/// reader's explicit preferences; legacy collection flags cannot issue tickets.
 pub(super) async fn load(
     state: &Runtime,
     identity: Option<(i64, [u8; 32])>,
-    surface: Surface,
+    _surface: Surface,
     seed: Option<i64>,
     limit: usize,
 ) -> Result<Feed, FeedbackError> {
     let actor = identity.as_ref().map(|(id, _)| *id);
-    let feed = state.store.feed(actor, seed, limit).await?;
-    if let Some((actor, digest)) = identity {
-        if state.collection && state.store.consent(actor).await?.enabled {
-            return match state
-                .store
-                .issue_tickets(actor, &digest, surface, feed)
-                .await
-            {
-                Ok(feed) => Ok(feed),
-                Err(FeedbackError::Forbidden | FeedbackError::Limited) => {
-                    state.store.feed(Some(actor), seed, limit).await
-                }
-                Err(error) => Err(error),
-            };
-        }
-    }
-    Ok(feed)
+    state.store.feed(actor, seed, limit).await
 }
 
 pub(super) async fn feed(
@@ -257,41 +266,40 @@ pub(super) async fn impressions(
     headers: HeaderMap,
     Json(body): Json<ImpressionBatch>,
 ) -> Response {
-    if !state.enabled || !state.collection {
-        return deny(StatusCode::FORBIDDEN);
-    }
     if let Err(status) = csrf(&state, &headers, csrf_header(&headers)) {
         return deny(status);
     }
-    let (actor, digest) = match actor(&state, &headers).await {
-        Ok(value) => value,
-        Err(status) => return deny(status),
-    };
-    match state.store.impressions(actor, &digest, &body.items).await {
-        Ok(()) => private_response(StatusCode::ACCEPTED, &[]),
-        Err(value) => error(value),
+    if let Err(status) = actor(&state, &headers).await {
+        return deny(status);
     }
+    if body.items.is_empty() || body.items.len() > MAX_ITEMS {
+        return error(FeedbackError::Invalid);
+    }
+    for claim in &body.items {
+        if let Err(value) = claim.validate() {
+            return error(value);
+        }
+    }
+    retired()
 }
+
 pub(super) async fn activate(
     State(state): State<Runtime>,
     headers: HeaderMap,
     Form(body): Form<Activation>,
 ) -> Response {
-    if !state.enabled || !state.collection {
-        return deny(StatusCode::FORBIDDEN);
-    }
     if let Err(status) = csrf(&state, &headers, &body.csrf_token) {
         return deny(status);
     }
-    let (actor, digest) = match actor(&state, &headers).await {
-        Ok(value) => value,
-        Err(status) => return deny(status),
-    };
-    match state.store.activate(actor, &digest, &body.ticket).await {
-        Ok(id) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
-        Err(value) => error(value),
+    if let Err(status) = actor(&state, &headers).await {
+        return deny(status);
     }
+    if !valid_token(&body.ticket) {
+        return error(FeedbackError::Invalid);
+    }
+    retired()
 }
+
 pub(super) async fn feedback(
     State(state): State<Runtime>,
     headers: HeaderMap,

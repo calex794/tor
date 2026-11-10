@@ -1,5 +1,5 @@
 //! FLOW: complete current genre/tag book observations through the private HTTP path.
-//! Temporal analytics here are fixtures; Chromium proves collection by real C progress.
+//! Temporal analytics are explicit legacy fixtures; Chromium proves C progress adds no capture.
 #![forbid(unsafe_code)]
 
 use axum::{
@@ -297,6 +297,9 @@ async fn report(app: &Router, cookie: &str, kind: &str, label: Option<&str>, day
     let html = get(app, &group_path(kind, label, days), cookie).await;
     assert!(html.contains("Возвращения к книгам группы"));
     assert!(html.contains("data-testid=\"audience-group-returns\""));
+    assert!(html.contains("data-testid=\"collection-retired\""));
+    assert!(html.contains("data-current-measurement=\"unavailable\">Не измеряется"));
+    assert!(html.contains("data-measurement=\"legacy-consented\""));
     html
 }
 

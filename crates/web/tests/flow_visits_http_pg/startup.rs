@@ -1,14 +1,17 @@
 //! Exercise the production entry point: turning off AUTH must not stop erasure.
-use super::*;
+use super::pg;
 use std::{
     net::TcpListener,
-    process::{Child, Stdio},
-    time::Instant,
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tor_books::repositories::PgCatalog;
 #[path = "startup_funnel.rs"]
 mod funnel;
 #[path = "startup_preferences.rs"]
 mod preferences;
+#[path = "startup_retirement.rs"]
+mod retirement;
 
 struct Server(Child);
 
@@ -35,7 +38,7 @@ fn retained(url: &str, actor: i64) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection() {
+async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -80,6 +83,7 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
     assert_eq!(retained(&url, actor), "3|3|2|1");
     let expired_book = funnel::seed(&url, actor).await;
     let preference_probe = preferences::seed(&url, actor, expired_book).await;
+    retirement::seed(&url, actor, expired_book);
     let rollup = "SELECT COALESCE(sum(visits),0) FROM flow_visit_daily
                   WHERE cohort_day=((now()-interval '31 days') AT TIME ZONE 'UTC')::date
                     AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4";
@@ -94,9 +98,15 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
             .env("TOR_LISTEN_ADDR", address.to_string())
             .env("TOR_DEMO_MODE", "0")
             .env("TOR_AUTH_ENABLED", "0")
-            .env("TOR_FLOW_VISITS_ENABLED", "0")
             .env("TOR_RECOMMENDATIONS_ENABLED", "0")
-            .env("TOR_REC_ATTRIBUTION_ENABLED", "0")
+            .env("TOR_FLOW_VISITS_ENABLED", "1")
+            .env("TOR_REC_ATTRIBUTION_ENABLED", "1")
+            .env("TOR_ORGANIC_ATTRIBUTION_ENABLED", "1")
+            .env("TOR_READING_RETURNS_ENABLED", "1")
+            .env("TOR_BOOK_READING_RETURNS_ENABLED", "1")
+            .env("TOR_FLOW_PUBLIC_OPT_IN_ENABLED", "1")
+            .env("TOR_RIL_SINGLE_INSTANCE", "1")
+            .env("TOR_RIL_HMAC_KEY", "11".repeat(32))
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
@@ -119,6 +129,7 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
             && retained(&url, actor) == "2|2|1|0"
             && funnel::expired(&url, actor)
             && preferences::expired(&url, actor, &preference_probe)
+            && retirement::expired(&url, actor)
         {
             break;
         }
@@ -153,6 +164,8 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
     assert_eq!(retained(&url, actor), "2|2|1|0");
     funnel::assert_preserved(&url, actor, expired_book);
     preferences::assert_preserved(&url, actor, &preference_probe);
+    retirement::assert_preserved(&url, actor, expired_book);
+    retirement::assert_no_new_consumption(&url, actor, expired_book).await;
     drop(server);
     preferences::cleanup(&url, &preference_probe);
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));

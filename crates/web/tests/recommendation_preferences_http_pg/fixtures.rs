@@ -32,7 +32,7 @@ pub struct Harness {
     pub actor: Actor,
     pub other: Actor,
     pub book: i64,
-    url: String,
+    pub url: String,
     previous_hold: String,
 }
 
@@ -44,6 +44,10 @@ impl Harness {
             "TOR_REC_ATTRIBUTION_ENABLED",
             "TOR_ORGANIC_ATTRIBUTION_ENABLED",
             "TOR_FLOW_VISITS_ENABLED",
+            "TOR_READING_RETURNS_ENABLED",
+            "TOR_BOOK_READING_RETURNS_ENABLED",
+            "TOR_RIL_SINGLE_INSTANCE",
+            "TOR_FLOW_PUBLIC_OPT_IN_ENABLED",
         ] {
             std::env::set_var(name, setting);
         }
@@ -241,7 +245,7 @@ async fn register(accounts: &PgAccounts, nonce: u128, label: &str, password: &st
     }
 }
 
-fn pg(url: &str, statement: &str) -> String {
+pub(super) fn pg(url: &str, statement: &str) -> String {
     let result = Command::new("psql")
         .args([
             "-X",
