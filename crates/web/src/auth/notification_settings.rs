@@ -112,37 +112,22 @@ pub(super) struct ProofConfirmForm {
     email_opt_in: Option<String>,
 }
 
-fn authenticated_post(
-    state: &AuthState,
-    headers: &HeaderMap,
-    token: Option<&str>,
-) -> Result<(), StatusCode> {
-    if !state.cookies.same_origin(headers)
-        || !token.is_some_and(|value| state.cookies.valid_csrf(headers, value))
-    {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    Ok(())
-}
-
-async fn post_actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
-    match session_user(state, headers).await {
-        Ok(Some(actor)) => Ok(actor),
-        Ok(None) => Err(StatusCode::UNAUTHORIZED),
-        Err(status) => Err(status),
-    }
-}
-
 pub(super) async fn request_email_proof(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Form(form): Form<ProofRequestForm>,
 ) -> Response {
-    if let Err(status) = authenticated_post(&state, &headers, form.csrf_token.as_deref()) {
-        return deny(status);
+    if !state.cookies.same_origin(&headers)
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+    {
+        return deny(StatusCode::FORBIDDEN);
     }
-    let actor = match post_actor(&state, &headers).await {
-        Ok(actor) => actor,
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
     // A password-reset mailer is NEVER substituted for the separate
@@ -183,11 +168,17 @@ pub(super) async fn confirm_email_proof(
     headers: HeaderMap,
     Form(form): Form<ProofConfirmForm>,
 ) -> Response {
-    if let Err(status) = authenticated_post(&state, &headers, form.csrf_token.as_deref()) {
-        return deny(status);
+    if !state.cookies.same_origin(&headers)
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+    {
+        return deny(StatusCode::FORBIDDEN);
     }
-    let actor = match post_actor(&state, &headers).await {
-        Ok(actor) => actor,
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
     // Email proof and explicit content opt-in are TWO independent signals.
@@ -211,11 +202,17 @@ pub(super) async fn revoke_email_consent(
     headers: HeaderMap,
     Form(form): Form<ProofRequestForm>,
 ) -> Response {
-    if let Err(status) = authenticated_post(&state, &headers, form.csrf_token.as_deref()) {
-        return deny(status);
+    if !state.cookies.same_origin(&headers)
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+    {
+        return deny(StatusCode::FORBIDDEN);
     }
-    let actor = match post_actor(&state, &headers).await {
-        Ok(actor) => actor,
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
     match PgEmailNotificationConsent::new(state.accounts.pool().clone())

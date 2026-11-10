@@ -49,6 +49,25 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_s018_email_proof_routes_require_actor_scope_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".confirm_opt_in(actor, &digest)",
+            ".confirm_opt_in(0, &digest)",
+        )
+        self.assert_detected("/me/notification-email/confirm")
+
+    def test_s018_email_proof_request_cannot_skip_csrf(self):
+        # Disable only this handler's Origin call; unrelated routes must not
+        # camouflage missing request authorization.
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn request_email_proof(",
+        )
+        self.assert_detected("/me/notification-email/request")
+
     def test_audience_rejects_removed_administrator_check(self):
         self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
         self.assert_detected("missing independent administrator role guard")
