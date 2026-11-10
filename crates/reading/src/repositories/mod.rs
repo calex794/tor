@@ -20,6 +20,8 @@ pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
 
 pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
+pub mod notification_email_consent;
+pub use notification_email_consent::PgEmailNotificationConsent;
 
 pub mod book_stats;
 
