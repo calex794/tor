@@ -6,6 +6,8 @@ use crate::services::audience::{
 };
 use sqlx::{postgres::PgRow, PgPool, Row};
 
+mod books;
+
 #[derive(Clone)]
 pub struct PgDiscoveryAudience {
     pool: PgPool,

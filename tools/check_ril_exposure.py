@@ -159,7 +159,10 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_PAID_COMMENT_APPEALS)
             allow_audience = (
                 row["source"] == "crates/web/src/auth/audience_http.rs"
-                and key == ("GET", "/admin/audience", "page", "administrator")
+                and key in {
+                    ("GET", "/admin/audience", "page", "administrator"),
+                    ("GET", "/admin/audience/books", "books::page", "administrator"),
+                }
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)

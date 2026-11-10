@@ -261,6 +261,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    audience_books = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/books", "books::page")
+    )
+    if audience_books and re.search(r"\badministrator\(&state, &headers\)", body):
+        # Only this reviewed child handler imports the parent's live A guard.
+        # Missing delegation cannot be masked by an unrelated helper definition.
+        evidence += "\n" + functions.get("__audience_administrator", "")
     # C-12 private history handlers delegate session, role and CSRF to a
     # narrowly named helper in the same Rust file. Only exact reviewed
     # admin-history bindings can use its evidence.
@@ -523,7 +532,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         evidence += "\n" + functions.get("store", "")
     audited_audience = (
         policy == "administrator"
-        and admin_key == ("GET", "/admin/audience", "page")
+        and admin_key in {
+            ("GET", "/admin/audience", "page"),
+            ("GET", "/admin/audience/books", "books::page"),
+        }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
@@ -1290,7 +1302,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
     audience_admin = (
-        route_key == ("GET", "/admin/audience", "page")
+        route_key in {
+            ("GET", "/admin/audience", "page"),
+            ("GET", "/admin/audience/books", "books::page"),
+        }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if audience_admin and policy != "administrator":
@@ -1394,13 +1409,22 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
+        audience_read = ".books_report(&query)" if audience_books else ".report(days)"
         if audience_admin and not (
             "administrator(&state, &headers)" in body
-            and ".report(days)" in body
+            and audience_read in body
             and "session_token_digest(&token)" in evidence
             and "StatusCode::UNAUTHORIZED" in evidence
         ):
             errors.append(f"{label}: FLOW audience must authorize before its bounded read")
+        if audience_books and not (
+            "match timeout_at(deadline, administrator(&state, &headers)).await" in body
+            and "Ok(Err(status)) => return secure(status)" in body
+            and "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)" in body
+            and audience_read in body
+            and body.index("administrator(&state, &headers)") < body.index(audience_read)
+        ):
+            errors.append(f"{label}: FLOW books must reject failed authorization before reading")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}
@@ -1537,6 +1561,19 @@ def check(root: Path = ROOT) -> list[str]:
                 _strip_comments(identity_file.read_text(encoding="utf-8"))
                 if identity_file.exists() else ""
             )
+        if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
+                and (entry.get("method"), entry.get("template"), entry.get("handler"))
+                    == ("GET", "/admin/audience/books", "books::page")):
+            try:
+                child = _strip_comments(_production(path.read_text(encoding="utf-8")))
+                imported = re.search(r"\buse\s+super::\{[^}]*\badministrator\b[^}]*\}", child)
+                parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+                source_cache[path]["__audience_administrator"] = (
+                    parent.get("administrator", "")
+                    if imported and "administrator" not in source_cache[path] else ""
+                )
+            except OSError:
+                source_cache[path]["__audience_administrator"] = ""
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 
