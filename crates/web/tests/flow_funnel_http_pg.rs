@@ -25,6 +25,8 @@ use tower::ServiceExt;
 
 #[path = "flow_funnel_http_pg/fixtures.rs"]
 mod fixtures;
+#[path = "flow_funnel_http_pg/navigation.rs"]
+mod navigation;
 #[path = "flow_funnel_http_pg/outage.rs"]
 mod outage;
 #[path = "flow_funnel_http_pg/paid.rs"]
@@ -276,16 +278,22 @@ async fn actual_navigation_read_save_follow_cohorts_private_report_and_erasure()
         assert_eq!(response.status(), status);
         private(&response);
     }
-    for path in [
-        format!("/books/{}", first.0),
-        format!("/reader/{}", first.1),
-        format!("/read/{}", first.1),
-        format!("/books/{}", viewed.0),
+    for (path, book, kind) in [
+        (format!("/books/{}", first.0), first.0, 0),
+        (format!("/reader/{}", first.1), first.0, 1),
+        (format!("/read/{}", first.1), first.0, 1),
+        (format!("/books/{}", viewed.0), viewed.0, 0),
     ] {
-        assert_eq!(
-            reader_browser.get(&h.app, &path).await.status(),
-            StatusCode::OK
-        );
+        navigation::captured_book_page(
+            &h,
+            &reader_browser,
+            &admin_browser,
+            reader,
+            &path,
+            book,
+            kind,
+        )
+        .await;
     }
     wait_pages(&h.url, reader, 4).await;
     assert_eq!(
@@ -367,10 +375,16 @@ async fn actual_navigation_read_save_follow_cohorts_private_report_and_erasure()
     }
     assert_eq!(pg(&h.url,&format!("SELECT count(*) FROM reader_flow_book_actions a JOIN rec_subjects s USING(subject_id) WHERE s.user_id={reader}")),"2");
     let pinned_path = format!("/me/library/saved/{}", first.1);
-    assert_eq!(
-        reader_browser.get(&h.app, &pinned_path).await.status(),
-        StatusCode::OK
-    );
+    navigation::captured_book_page(
+        &h,
+        &reader_browser,
+        &admin_browser,
+        reader,
+        &pinned_path,
+        first.0,
+        1,
+    )
+    .await;
     let guest_pinned = Browser::default().get(&h.app, &pinned_path).await;
     assert_eq!(guest_pinned.status(), StatusCode::SEE_OTHER);
     assert_eq!(guest_pinned.headers()[header::LOCATION], "/login");

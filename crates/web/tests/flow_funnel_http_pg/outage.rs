@@ -73,4 +73,11 @@ async fn unavailable_funnel_is_private_503_and_does_not_stop_allowed_html() {
         browser.get(&h.app, "/admin/audience/funnel").await.status(),
         StatusCode::OK
     );
+    pg(
+        &h.url,
+        &format!(
+            "UPDATE account_roles SET is_active=false
+             WHERE user_id={admin} AND role='administrator'"
+        ),
+    );
 }
