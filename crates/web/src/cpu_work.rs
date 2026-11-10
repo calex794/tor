@@ -73,6 +73,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn active_limit_prevents_parallel_cpu_oversubscription() {
+        let active = Arc::new(Semaphore::new(1));
+        let in_flight = Arc::new(Semaphore::new(2));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel::<()>();
+        let first = tokio::spawn(run_with_limits(active.clone(), in_flight.clone(), move || {
+            let _ = started_tx.send(());
+            finish_rx.recv().expect("release first job");
+        }));
+        tokio::time::timeout(Duration::from_secs(5), started_rx)
+            .await
+            .expect("first job started")
+            .expect("first job signal");
+
+        let (next_tx, next_rx) = tokio::sync::oneshot::channel();
+        let second = tokio::spawn(run_with_limits(active.clone(), in_flight.clone(), move || {
+            let _ = next_tx.send(());
+        }));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while in_flight.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second request queued");
+
+        assert_eq!(active.available_permits(), 0);
+        assert_eq!(
+            run_with_limits(active.clone(), in_flight.clone(), || ()).await,
+            Err(CpuWorkError::Busy)
+        );
+        assert!(!second.is_finished(), "second CPU task must wait for the active slot");
+
+        finish_tx.send(()).expect("release first job");
+        first.await.expect("first task joined").expect("first task succeeded");
+        second.await.expect("second task joined").expect("second task succeeded");
+        next_rx.await.expect("second job started after first");
+        assert_eq!(active.available_permits(), 1);
+        assert_eq!(in_flight.available_permits(), 2);
+    }
+
+    #[tokio::test]
     async fn cancelled_request_keeps_both_permits_until_work_finishes() {
         let active = Arc::new(Semaphore::new(1));
         let in_flight = Arc::new(Semaphore::new(1));
