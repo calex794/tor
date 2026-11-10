@@ -1,7 +1,7 @@
 //! Repeated multi-wallet financial contention with the real transactional ports.
 //! This is a disposable /tor_ci-only regression, not a production load SLO.
-use super::*;
 use super::d06_refund_approval::{d06_approval_fixture, issue_refund_step_up};
+use super::*;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -55,12 +55,11 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
             .await
             .expect("seed independent creator relation");
 
-            let original_book: i64 =
-                sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
-                    .bind(f.chapter)
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let original_book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+                .bind(f.chapter)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
             let (second_chapter, second_version) =
                 chapter_with_offer(&pool, original_book, 2, PRICE_MINOR).await;
             let purchase = command(f.buyer, second_chapter, second_version, PRICE_MINOR, 'L');
@@ -191,13 +190,10 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
             let mut timings = Vec::new();
             for _ in 0..24 {
                 let started = Instant::now();
-                let connection = tokio::time::timeout(
-                    Duration::from_secs(3),
-                    probe_pool.acquire(),
-                )
-                .await
-                .expect("pool acquire did not finish")
-                .expect("pool acquired an available connection");
+                let connection = tokio::time::timeout(Duration::from_secs(3), probe_pool.acquire())
+                    .await
+                    .expect("pool acquire did not finish")
+                    .expect("pool acquired an available connection");
                 timings.push(started.elapsed());
                 drop(connection);
                 tokio::time::sleep(Duration::from_millis(2)).await;
@@ -241,7 +237,13 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
         acquire_p95.as_millis(),
         acquire_max.as_millis(),
     );
-    assert!(operation_p95 < Duration::from_secs(3), "financial p95 budget exceeded");
-    assert!(acquire_p95 < Duration::from_secs(2), "PgPool p95 budget exceeded");
+    assert!(
+        operation_p95 < Duration::from_secs(3),
+        "financial p95 budget exceeded"
+    );
+    assert!(
+        acquire_p95 < Duration::from_secs(2),
+        "PgPool p95 budget exceeded"
+    );
     pool.close().await;
 }
