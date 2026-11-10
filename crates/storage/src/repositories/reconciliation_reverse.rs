@@ -49,47 +49,44 @@ impl PgRegisteredAudit {
         if !valid_private_bucket(bucket) {
             return Err(InventoryError::Invalid);
         }
-        let row: Option<(
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            bool,
-            bool,
-        )> = sqlx::query_as(
+        let row = sqlx::query(
             "SELECT cycle,expected,scanned,has_ref,healthy,missing,
-                        referenced_missing,mismatch,recently_pending,
-                        unknown_attempts,retries,exhausted,completed
-                   FROM g09_registered_object_scans
-                  WHERE bucket=$1 AND scope=$2",
+                    referenced_missing,mismatch,recently_pending,
+                    unknown_attempts,retries,exhausted,completed
+               FROM g09_registered_object_scans
+              WHERE bucket=$1 AND scope=$2",
         )
         .bind(bucket)
         .bind(scope.kind())
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| InventoryError::Unavailable)?;
-        Ok(row.map(|v| RegisteredAuditProgress {
-            cycle: v.0,
-            expected: v.1,
-            scanned: v.2,
-            has_ref: v.3,
-            healthy: v.4,
-            missing: v.5,
-            referenced_missing: v.6,
-            mismatch: v.7,
-            recently_pending: v.8,
-            unknown_attempts: v.9,
-            retries: v.10,
-            exhausted: v.11,
-            completed: v.12,
-        }))
+        row.map(|v| -> Result<RegisteredAuditProgress, InventoryError> {
+            let number = |name: &str| {
+                v.try_get::<i64, _>(name)
+                    .map_err(|_| InventoryError::Unavailable)
+            };
+            let flag = |name: &str| {
+                v.try_get::<bool, _>(name)
+                    .map_err(|_| InventoryError::Unavailable)
+            };
+            Ok(RegisteredAuditProgress {
+                cycle: number("cycle")?,
+                expected: number("expected")?,
+                scanned: number("scanned")?,
+                has_ref: number("has_ref")?,
+                healthy: number("healthy")?,
+                missing: number("missing")?,
+                referenced_missing: number("referenced_missing")?,
+                mismatch: number("mismatch")?,
+                recently_pending: number("recently_pending")?,
+                unknown_attempts: number("unknown_attempts")?,
+                retries: number("retries")?,
+                exhausted: flag("exhausted")?,
+                completed: flag("completed")?,
+            })
+        })
+        .transpose()
     }
 
     /// One bounded batch per call. The cursor moves only in a PG transaction
