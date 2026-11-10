@@ -352,7 +352,6 @@ impl crate::services::reconciliation::PrivateRegisteredHead for S3PrivateStore {
     }
 }
 
- 
 /// Opt-in G-09 ciphertext audit. Unlike HEAD this independently hashes
 /// actual GET bytes; the server never sends those bytes to any HTTP client.
 #[async_trait]
@@ -365,15 +364,14 @@ impl crate::services::reconciliation::PrivateRegisteredBodyProbe for S3PrivateSt
         &self,
         object: &ObjectRef,
     ) -> Result<crate::services::reconciliation::RegisteredBodyResult, StorageError> {
-        use crate::services::reconciliation::{
-            RegisteredBodyResult, G09_BODY_GET_MAX_BYTES,
-        };
+        use crate::services::reconciliation::{RegisteredBodyResult, G09_BODY_GET_MAX_BYTES};
         // Per-object cap is stricter than the publication limit (16 MiB).
         // Out-of-scope objects are unknown, never counted as corrupted.
         if !Self::valid(object) || object.size_bytes > G09_BODY_GET_MAX_BYTES {
             return Err(StorageError::Invalid);
         }
-        let response = self.client
+        let response = self
+            .client
             .get_object()
             .bucket(&self.bucket)
             .key(Self::key(object))
@@ -399,15 +397,24 @@ impl crate::services::reconciliation::PrivateRegisteredBodyProbe for S3PrivateSt
             response.content_length(),
             response.content_type(),
             response.content_encoding(),
-            response.metadata()
+            response
+                .metadata()
                 .and_then(|m| m.get("sha256"))
                 .map(String::as_str),
         );
         // Never trust Content-Length to protect the memory bound.
-        let mut reader = response.body.into_async_read().take(G09_BODY_GET_MAX_BYTES + 1);
+        let mut reader = response
+            .body
+            .into_async_read()
+            .take(G09_BODY_GET_MAX_BYTES + 1);
         let mut bytes = Vec::with_capacity((object.size_bytes as usize).min(65_536));
-        reader.read_to_end(&mut bytes).await.map_err(|_| StorageError::Unavailable)?;
-        if bytes.len() as u64 != object.size_bytes || sha256_bytes(&bytes) != object.sha256_ciphertext {
+        reader
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+        if bytes.len() as u64 != object.size_bytes
+            || sha256_bytes(&bytes) != object.sha256_ciphertext
+        {
             return Ok(RegisteredBodyResult::BodyMismatch);
         }
         Ok(if metadata_matches {
