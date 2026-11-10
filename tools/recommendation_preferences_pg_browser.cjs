@@ -23,7 +23,7 @@ if (proofImages && process.env.GITHUB_ACTIONS !== 'true') {
 }
 fs.mkdirSync(shots, {recursive:true});
 const ordinaryUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent} =
+const {assertCurrentSchema,optionalSnapshot,assertNoControls,retiredConsent} =
   require('./collection_retirement_fixtures.cjs')(sql);
 const feedbackForm = "form[action='/me/recommendations/feedback']";
 
@@ -142,12 +142,9 @@ async function evidence(page,width) {
   const run=Date.now()+'-'+randomBytes(4).toString('hex');
   const email=`preferences-browser-${run}@tor-ci.example`;
   const users=[],books=[];
-  const previousHold=sql('SELECT hold::text FROM rec_runtime_policy WHERE singleton');
-  assert.match(previousHold,/^(true|false)$/);
   let browser;
   try {
-    // Select the normal contextual fallback, independent of previous test generations.
-    sql('UPDATE rec_runtime_policy SET hold=true WHERE singleton');
+    assertCurrentSchema();
     const book=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
       VALUES('ci:preferences:browser:${run}','ru','Книга для личного выбора ${run}',
       'public','basic') RETURNING id`);
@@ -189,9 +186,8 @@ async function evidence(page,width) {
     await checkStorage(context,page);
     assert.deepEqual(unexpectedAnalytics,[]);
 
-    // Explicit old-installation fixture, outside every browser command.
-    // Cached clients cannot reactivate analytics or erase the independent choice.
-    legacyScope(user);
+    // Old client commands cannot introduce tracking or erase the explicit choice.
+    noSubject(user);
     const scope=optionalSnapshot(user);
     for (const endpoint of ['/me/recommendations/consent','/me/recommendations/flow-consent']) {
       await retiredConsent(page,endpoint,false);
@@ -228,10 +224,9 @@ async function evidence(page,width) {
     assert.deepEqual(command(user,hideKey),savedCommand);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, retired clients preserve exact legacy scope and preference TTL/revision/receipt, no-JS restore, 390/1440');
+    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, current192 barrier and retired clients preserve exact preference TTL/revision/receipt, no-JS restore, 390/1440');
   } finally {
     if (browser) await browser.close();
-    sql(`UPDATE rec_runtime_policy SET hold=${previousHold} WHERE singleton`);
     if (users.length) sql(`DELETE FROM rec_subjects WHERE user_id IN (${users.join(',')})`);
     if (books.length) sql(`UPDATE books SET admin_hold=true WHERE id IN (${books.join(',')})`);
   }

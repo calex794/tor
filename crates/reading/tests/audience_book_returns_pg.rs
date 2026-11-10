@@ -2,6 +2,8 @@
 //! Temporal fixtures are evidence only; production never backfills reading.
 #[path = "audience_book_returns_pg/fixtures.rs"]
 mod fixtures;
+#[path = "support/legacy_analytics.rs"]
+mod legacy;
 
 use fixtures::*;
 use sqlx::PgPool;
@@ -11,11 +13,11 @@ use tor_reading::{
 };
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn flow_book_returns_bounded_episodes_writers_privacy_and_exact_utc() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL URL");
-    assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:"));
+    let url = legacy::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy::assert_schema(&pool).await;
     let before: (i64, i64) = sqlx::query_as(
         "SELECT (SELECT COALESCE(max(id),0) FROM reader_book_return_coverage),
                 (SELECT COALESCE(max(id),0) FROM reader_return_coverage)",
@@ -659,16 +661,16 @@ async fn failure_and_consent_races(
     actors: &mut Vec<i64>,
     books: &mut Vec<i64>,
 ) {
-    let owner_url = std::env::var("MIGRATOR_URL").expect("disposable CI schema owner");
-    assert!(owner_url.ends_with("/tor_ci") && owner_url.contains("@127.0.0.1:"));
+    let owner_url = legacy::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
     let owner = PgPool::connect(&owner_url).await.unwrap();
     assert_eq!(
         sqlx::query_as::<_, (String, String)>("SELECT current_database(),current_user")
             .fetch_one(&owner)
             .await
             .unwrap(),
-        ("tor_ci".into(), "tor_migrator".into())
+        ("tor_ci_legacy_analytics".into(), "tor_migrator".into())
     );
+    legacy::assert_schema(&owner).await;
     let one = book(pool, "fault", false, books).await;
     let a = actor(pool, "fault").await;
     actors.push(a);

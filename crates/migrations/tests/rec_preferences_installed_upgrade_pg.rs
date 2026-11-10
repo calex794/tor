@@ -6,6 +6,22 @@ use std::{borrow::Cow, collections::HashMap, env, error::Error, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
 const PREFERENCE_VERSION: i64 = 202611158256;
+
+// This historical installed-upgrade proof ends at the accepted P1 boundary.
+// Later retirement migrations intentionally reject the old consent UPDATE
+// exercised below. Current P1 product behavior is tested on the latest schema.
+fn preference_boundary() -> Migrator {
+    Migrator {
+        migrations: Cow::Owned(
+            MIGRATOR
+                .iter()
+                .filter(|migration| migration.version <= PREFERENCE_VERSION)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    }
+}
 type PreferenceRow = (i64, bool, i64, String);
 type CommandRow = (i64, Vec<u8>, Vec<u8>, i64, String, String);
 
@@ -172,7 +188,7 @@ async fn installed_preferences_upgrade_preserves_choices_and_fences_old_writers(
     .fetch_all(&mut *legacy)
     .await?;
     let upgrading_pool = pool.clone();
-    let upgrade = tokio::spawn(async move { MIGRATOR.run(&upgrading_pool).await });
+    let upgrade = tokio::spawn(async move { preference_boundary().run(&upgrading_pool).await });
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let waiting: bool = sqlx::query_scalar(
@@ -191,7 +207,7 @@ async fn installed_preferences_upgrade_preserves_choices_and_fences_old_writers(
     .await??;
     legacy.commit().await?;
     upgrade.await??;
-    MIGRATOR.run(&pool).await?;
+    preference_boundary().run(&pool).await?;
 
     assert_eq!(preferences(&pool, actor).await?, expected_preferences);
     assert_eq!(commands(&pool, &actors).await?, expected_commands);
@@ -222,13 +238,14 @@ async fn installed_preferences_upgrade_preserves_choices_and_fences_old_writers(
         sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&pool)
             .await?;
-    assert_eq!(installed_after.len(), MIGRATOR.migrations.len());
+    assert_eq!(installed_after.len(), preference_boundary().migrations.len());
+    assert_eq!(installed_after.len(), 190);
     assert!(installed_after.iter().all(|(_, _, success)| *success));
     for (version, checksum, _) in installed_after {
         if let Some(before) = before_checksums.get(&version) {
             assert_eq!(&checksum, before, "old checksum changed for {version}");
         } else {
-            assert!(version >= PREFERENCE_VERSION);
+            assert_eq!(version, PREFERENCE_VERSION);
         }
     }
 

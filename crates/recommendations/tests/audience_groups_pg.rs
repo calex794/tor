@@ -54,6 +54,7 @@ impl Fixture {
         for table in [
             "rec_quality_daily",
             "organic_discovery_quality_daily",
+            "rec_analytics_invalidations",
             "rec_dirty_buckets",
             "organic_discovery_dirty",
             "rec_worker_health",

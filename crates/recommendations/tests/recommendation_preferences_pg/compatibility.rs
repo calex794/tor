@@ -77,11 +77,6 @@ async fn copied_public_versions_and_command_receipts_keep_exact_replay_semantics
 
     let consent_key = new_ticket().unwrap();
     let consent_hash: [u8; 32] = Sha256::digest("consent:false:4").into();
-    sqlx::query("INSERT INTO rec_subjects(user_id,revision) VALUES($1,5)")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .unwrap();
     sqlx::query(
         "INSERT INTO rec_user_preference_commands
            (user_id,command_key,payload_hash,result_revision,command_type,created_at)
@@ -93,14 +88,6 @@ async fn copied_public_versions_and_command_receipts_keep_exact_replay_semantics
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        store
-            .set_consent(actor, false, 4, &consent_key)
-            .await
-            .unwrap()
-            .revision,
-        5
-    );
     assert_eq!(
         store
             .set_feedback(actor, book, Choice::Clear, 7 * STRIDE + 9, &consent_key)
@@ -309,46 +296,5 @@ async fn expired_keys_do_not_replay_and_current_commands_can_reuse_them() {
     );
     assert_eq!(preference(&pool, actor, book).await.unwrap(), cleared);
 
-    // The one namespace has the same expiry semantics in both consent APIs.
-    sqlx::query(
-        "UPDATE rec_user_preference_commands SET created_at=now()-interval '31 days'
-         WHERE user_id=$1",
-    )
-    .bind(actor)
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        store
-            .set_consent(actor, false, 0, &key)
-            .await
-            .unwrap()
-            .revision,
-        1
-    );
-    sqlx::query(
-        "UPDATE rec_user_preference_commands SET created_at=now()-interval '31 days'
-         WHERE user_id=$1",
-    )
-    .bind(actor)
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        store
-            .set_flow_consent(actor, false, 1, &key)
-            .await
-            .unwrap()
-            .revision,
-        2
-    );
-    assert_eq!(preference(&pool, actor, book).await.unwrap(), cleared);
-    assert_eq!(
-        store
-            .set_feedback(actor, book, Choice::Clear, 2, &key)
-            .await,
-        Err(FeedbackError::IdempotencyConflict)
-    );
-    assert!(!store.consent(actor).await.unwrap().enabled);
-    assert!(store.flow_scope(actor).await.unwrap().is_none());
+    assert_eq!(counts(&pool, actor).await.3, 0);
 }

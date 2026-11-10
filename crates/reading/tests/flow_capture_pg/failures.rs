@@ -2,7 +2,7 @@ use super::*;
 use std::time::{Duration, Instant};
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn capture_lock_failures_preserve_business_and_report_process_failures() {
     let pool = pool(2).await;
     let reader = actor(&pool, "lock-outage").await;
@@ -126,7 +126,7 @@ async fn capture_lock_failures_preserve_business_and_report_process_failures() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn retention_erases_raw_after_thirty_days_even_without_collection() {
     let pool = pool(2).await;
     let old = actor(&pool, "expired").await;

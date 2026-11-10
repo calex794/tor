@@ -7,6 +7,7 @@ use sqlx::Row;
 impl PgFlowVisits {
     /// One read-only snapshot, bounded finite dimensions, no identity output.
     /// Daily archived totals and not-yet-finalized visits never overlap.
+    /// Archived totals do not prove that identity or continuation receipts remain.
     pub async fn report(&self, days: i32) -> Result<FlowVisitsReport, FlowVisitError> {
         if !FLOW_VISIT_DAYS.contains(&days) {
             return Err(FlowVisitError::Invalid);
@@ -111,22 +112,16 @@ SELECT p.ordinal,
        to_char(a.at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS measured_at_utc,
        to_char(p.from_day,'YYYY-MM-DD"T"00:00:00"Z"') AS from_utc,
        to_char(p.until_day,'YYYY-MM-DD"T"00:00:00"Z"') AS until_utc,
-       CASE WHEN p.from_day>=a.today-29 AND (
+       CASE WHEN p.from_day>=a.today-29 AND
          EXISTS(SELECT 1 FROM flow_visit_account_days d
                 WHERE d.bucket_date>=p.from_day AND d.bucket_date<p.until_day)
-         OR EXISTS(SELECT 1 FROM flow_visit_daily d
-                   WHERE d.cohort_day>=p.from_day AND d.cohort_day<p.until_day)
-         OR EXISTS(SELECT 1 FROM flow_visits v
-                   WHERE v.started_at>=p.from_day::timestamp AT TIME ZONE 'UTC'
-                     AND v.started_at<p.until_day::timestamp AT TIME ZONE 'UTC'))
        THEN (SELECT count(DISTINCT d.subject_id) FROM flow_visit_account_days d
              WHERE d.bucket_date>=p.from_day AND d.bucket_date<p.until_day)
        ELSE NULL END AS unique_subjects,
-       CASE WHEN p.from_day>=a.today-29 AND (
-         EXISTS(SELECT 1 FROM flow_visit_account_days d
-                WHERE d.bucket_date>=p.from_day AND d.bucket_date<p.until_day)
-         OR EXISTS(SELECT 1 FROM flow_visit_daily d
-                   WHERE d.cohort_day>=p.from_day AND d.cohort_day<p.until_day))
+       CASE WHEN p.from_day>=a.today-29 AND
+         EXISTS(SELECT 1 FROM flow_visit_receipts r
+                WHERE r.observed_at>=p.from_day::timestamp AT TIME ZONE 'UTC'
+                  AND r.observed_at<p.until_day::timestamp AT TIME ZONE 'UTC')
        THEN (SELECT count(*) FROM flow_visit_receipts r
              WHERE r.continuation_unknown
                AND r.observed_at>=p.from_day::timestamp AT TIME ZONE 'UTC'

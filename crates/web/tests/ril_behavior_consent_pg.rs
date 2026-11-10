@@ -1,4 +1,4 @@
-//! Retired RIL identity: old flags and persisted opt-in cannot identify navigation.
+//! Current-schema RIL: old flags and legacy writers cannot identify navigation.
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -61,7 +61,7 @@ async fn send(
 }
 
 #[tokio::test]
-#[ignore = "isolated PG18 with deliberately enabled legacy RIL flags required"]
+#[ignore = "isolated PG18 with retirement 192 and enabled legacy RIL flags required"]
 async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG test URL");
     assert!(url.ends_with("/tor_ci"), "never run against production");
@@ -71,6 +71,17 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
         Ok("1")
     );
     let catalog = PgCatalog::connect(&url).await.unwrap();
+    let current_schema: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
+                       WHERE version=202611168903 AND success)
+            AND EXISTS(SELECT 1 FROM pg_trigger
+                       WHERE tgrelid='ril_behavior_consents'::regclass
+                         AND tgname='retired_collection_write_fence' AND tgenabled<>'D')",
+    )
+    .fetch_one(catalog.pool())
+    .await
+    .unwrap();
+    assert!(current_schema, "current-schema RIL proof requires retirement 192");
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool());
     let stamp = std::time::SystemTime::now()
@@ -224,11 +235,31 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
         (false, 0),
         "retired HTTP writes no consent row"
     );
-    // Model an installed pre-retirement row through the legacy A repository.
-    // P2a does not claim the later SQL fence/physical cleanup is already applied.
+    // An old process cannot re-enable identity after the SQL fence.
+    // Preservation of real pre-fence rows is proved by the installed-upgrade suite.
+    let rejected = accounts
+        .set_ril_behavior_consent(user, true)
+        .await
+        .unwrap_err();
     assert_eq!(
-        accounts.set_ril_behavior_consent(user, true).await.unwrap(),
-        1
+        rejected
+            .as_database_error()
+            .expect("retirement must reject the legacy SQL writer")
+            .code()
+            .as_deref(),
+        Some("55000")
+    );
+    assert_eq!(
+        accounts.ril_behavior_consent(user).await.unwrap(),
+        (false, 0)
+    );
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!("SELECT count(*) FROM ril_behavior_consents WHERE user_id={user}")
+        ),
+        "0",
+        "the rejected legacy writer must not leave a disabled consent row"
     );
     for _ in 0..3 {
         assert_eq!(
@@ -241,7 +272,7 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     let report = tor_web::ril_path_report_for_diagnostics().unwrap();
     assert_eq!(report.assessed_events, 0);
     assert_eq!(report.active_subjects, 0);
-    // Even a persisted legacy opt-in cannot produce a subject or path queue.
+    // The rejected opt-in cannot produce a subject or path queue.
     for surface in ["/", "/catalog", book_path.as_str(), reader_path.as_str()] {
         let response = send(&app, "GET", surface, "", &cookies, ORIGIN).await;
         assert_eq!(response.status(), StatusCode::OK, "{surface}");
@@ -273,8 +304,8 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     assert_eq!(retired.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
-        (true, 1),
-        "P2a changes runtime, not the legacy SQL consent epoch"
+        (false, 0),
+        "the retired HTTP command cannot change consent or its epoch"
     );
     assert_eq!(
         tor_web::ril_path_report_for_diagnostics()
@@ -304,6 +335,14 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
         0
     );
 
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!("SELECT count(*) FROM ril_behavior_consents WHERE user_id={user}")
+        ),
+        "0",
+        "navigation and both retired commands leave no consent row"
+    );
     accounts.revoke_session(&digest).await.unwrap();
     // A revoked login cookie must not restore identified public navigation.
     assert_eq!(

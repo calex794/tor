@@ -3,38 +3,10 @@ use tor_accounts::repositories::PgAccounts;
 /// Spawned explicitly by the server entry point, never by Router construction.
 pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHandle<()>> {
     let accounts = accounts?;
-    let visits =
-        tor_recommendations::repositories::visits::PgFlowVisits::new(accounts.pool().clone());
-    let funnel =
-        tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
-    let reading =
-        tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
     let preferences =
         tor_recommendations::repositories::PgRecommendations::new(accounts.pool().clone());
-    let returns =
-        tor_reading::repositories::returns::PgReadingReturns::new(accounts.pool().clone());
-    // Local diagnostics say retired. They never authorize capture by another
-    // process; full old-writer fencing and erasure belong to the next migration.
-    if !matches!(
-        tokio::time::timeout(
-            std::time::Duration::from_millis(1000),
-            funnel.initialize(false)
-        )
-        .await,
-        Ok(Ok(()))
-    ) {
-        eprintln!("TOR_FLOW_FUNNEL_INITIALIZE_UNAVAILABLE");
-    }
-    if !matches!(
-        tokio::time::timeout(
-            std::time::Duration::from_millis(1500),
-            crate::recommendation_worker::initialize_retired_returns(&returns)
-        )
-        .await,
-        Ok(Ok(()))
-    ) {
-        eprintln!("TOR_RETIRED_READING_RETURNS_INITIALIZE_UNAVAILABLE");
-    }
+    // The SQL migration closes old coverage. HTTP never waits for a global
+    // drain, and no old generation/consumer/finalizer is initialized here.
     Some(tokio::spawn(async move {
         tokio::join!(
             async move {
@@ -48,11 +20,13 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
                 }
             },
             async move {
-                // Independent from all collection flags and the slower A cleanup.
                 let mut timer = tokio::time::interval(std::time::Duration::from_secs(5));
                 timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut last_pending = None;
                 loop {
                     timer.tick().await;
+                    // Explicit product choices have their own TTL and CAS.
+                    // A blocked/failed legacy erasure cannot stop this cleanup.
                     if !matches!(
                         tokio::time::timeout(
                             std::time::Duration::from_millis(1500),
@@ -63,57 +37,28 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
                     ) {
                         eprintln!("TOR_RECOMMENDATION_PREFERENCES_RETENTION_UNAVAILABLE");
                     }
-                    if !matches!(
-                        tokio::time::timeout(
-                            std::time::Duration::from_millis(2500),
-                            crate::recommendation_worker::maintain_legacy_recommendations(
-                                &preferences
-                            )
-                        )
-                        .await,
-                        Ok(Ok(()))
-                    ) {
-                        eprintln!("TOR_LEGACY_RECOMMENDATION_RETENTION_UNAVAILABLE");
-                    }
-                    if !matches!(
-                        tokio::time::timeout(
-                            std::time::Duration::from_millis(2500),
-                            crate::recommendation_worker::maintain_retired_returns(&returns)
-                        )
-                        .await,
-                        Ok(Ok(()))
-                    ) {
-                        eprintln!("TOR_RETIRED_READING_RETURNS_RETENTION_UNAVAILABLE");
-                    }
-                    if !matches!(
-                        tokio::time::timeout(
-                            std::time::Duration::from_millis(2500),
-                            visits.maintain()
-                        )
-                        .await,
-                        Ok(Ok(_))
-                    ) {
-                        eprintln!("TOR_FLOW_VISIT_RETENTION_UNAVAILABLE");
-                    }
-                    if !matches!(
-                        tokio::time::timeout(
-                            std::time::Duration::from_millis(2500),
-                            funnel.maintain_retired()
-                        )
-                        .await,
-                        Ok(Ok(_))
-                    ) {
-                        eprintln!("TOR_FLOW_FUNNEL_RETENTION_UNAVAILABLE");
-                    }
-                    if !matches!(
-                        tokio::time::timeout(
-                            std::time::Duration::from_millis(1500),
-                            reading.maintain()
-                        )
-                        .await,
-                        Ok(Ok(()))
-                    ) {
-                        eprintln!("TOR_FLOW_READING_RETENTION_UNAVAILABLE");
+                    // F bounds the server statement before entering the SQL
+                    // port; the process timeout also bounds optional waiting.
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(1000),
+                        preferences.retire_analytics_batch(256),
+                    )
+                    .await
+                    {
+                        Ok(Ok((_, pending))) => {
+                            if last_pending != Some(pending) {
+                                if pending {
+                                    eprintln!("TOR_ANALYTICS_RETIREMENT_PENDING");
+                                } else {
+                                    eprintln!("TOR_ANALYTICS_DATABASE_RETIREMENT_IDLE");
+                                }
+                            }
+                            last_pending = Some(pending);
+                        }
+                        _ => {
+                            last_pending = None;
+                            eprintln!("TOR_ANALYTICS_RETIREMENT_UNAVAILABLE");
+                        }
                     }
                 }
             }

@@ -1,6 +1,8 @@
 //! FLOW: exact temporal fixtures exercise the real private HTTP/PG report.
 //! Historical fixtures stay labelled; Chromium proves real C progress adds no collection.
 #![forbid(unsafe_code)]
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 
 use axum::{
     body::{to_bytes, Body},
@@ -26,7 +28,7 @@ const TODAY: &str = "(now() AT TIME ZONE 'UTC')::date";
 const AGES: &str = "45,89,90,179,180";
 
 fn client(url: &str) -> Command {
-    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
     let mut command = Command::new("psql");
     command
         .env(
@@ -277,9 +279,9 @@ async fn report(app: &Router, cookie: &str, days: i32) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires explicit legacy analytics baseline 191"]
 async fn returns_http_exact_maturity_unknown_zero_history_and_live_admin() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    let url = legacy_analytics::url();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());

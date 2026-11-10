@@ -33,7 +33,6 @@ pub struct Harness {
     pub other: Actor,
     pub book: i64,
     pub url: String,
-    previous_hold: String,
 }
 
 impl Harness {
@@ -58,17 +57,7 @@ impl Harness {
                 && url.ends_with("/tor_ci"),
             "use only the disposable loopback tor_ci database"
         );
-        // These tests run serially. The ordinary operator hold selects the
-        // contextual fallback so fixture books do not depend on older generations.
-        let previous_hold = pg(
-            &url,
-            "SELECT hold::text FROM rec_runtime_policy WHERE singleton",
-        );
-        assert!(matches!(previous_hold.as_str(), "true" | "false"));
-        pg(
-            &url,
-            "UPDATE rec_runtime_policy SET hold=true WHERE singleton",
-        );
+        super::assert_current_schema(&url);
         let catalog = PgCatalog::connect(&url).await.unwrap();
         let pool = catalog.pool().clone();
         let accounts = PgAccounts::from_pool(pool.clone());
@@ -102,7 +91,6 @@ impl Harness {
             other,
             book,
             url,
-            previous_hold,
         }
     }
 
@@ -218,9 +206,8 @@ impl Harness {
     pub fn cleanup(&self) {
         self.sql(&format!(
             "DELETE FROM rec_subjects WHERE user_id IN ({},{});
-             UPDATE books SET admin_hold=true WHERE id={};
-             UPDATE rec_runtime_policy SET hold={} WHERE singleton",
-            self.actor.id, self.other.id, self.book, self.previous_hold
+             UPDATE books SET admin_hold=true WHERE id={}",
+            self.actor.id, self.other.id, self.book
         ));
     }
 }

@@ -3,9 +3,9 @@ use super::*;
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn s020_generation_includes_classified_tiers_but_never_reveals_restricted_books_to_guests() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
-    assert!(url.ends_with("/tor_ci"), "never touch production");
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

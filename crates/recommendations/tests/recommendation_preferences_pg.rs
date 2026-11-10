@@ -1,4 +1,5 @@
 //! Explicit book settings are independent of REC/FLOW collection and its scopes.
+use sha2::Digest;
 use sqlx::PgPool;
 use tor_recommendations::{
     domain::feedback::{Choice, FeedbackError, OrganicSource},
@@ -6,74 +7,17 @@ use tor_recommendations::{
     services::feedback::new_ticket,
 };
 
-const STRIDE: i64 = 1_000_000_000;
+#[path = "support/current_analytics.rs"]
+mod current_analytics;
+#[path = "recommendation_preferences_pg/fixtures.rs"]
+mod fixtures;
+use fixtures::*;
 
 async fn fixture(name: &str) -> (PgPool, PgRecommendations, i64, i64) {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
-    assert!(url.contains("127.0.0.1:5432") && url.ends_with("/tor_ci"));
+    let url = current_analytics::url("TEST_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
-    let email = format!("explicit-pref-{name}@tor-ci.example");
-    sqlx::query("DELETE FROM users WHERE email_normalized=$1")
-        .bind(&email)
-        .execute(&pool)
-        .await
-        .unwrap();
-    let actor: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'Explicit preferences','$argon2id$test') RETURNING id",
-    )
-    .bind(email)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
-         VALUES($1,'ru','Explicit preference book','public','basic')
-         ON CONFLICT(source_identity,target_language) DO UPDATE SET
-           visibility='public',visibility_status='active',access_level='basic',
-           admin_hold=false,is_deleted=false,created_at=now()
-         RETURNING id",
-    )
-    .bind(format!("ci:explicit-pref:{name}"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let store = PgRecommendations::new(pool.clone());
-    (pool, store, actor, book)
-}
-
-async fn counts(pool: &PgPool, actor: i64) -> (i64, i64, i64, i64) {
-    sqlx::query_as(
-        "SELECT
-           (SELECT count(*) FROM rec_preference_accounts WHERE user_id=$1),
-           (SELECT count(*) FROM rec_book_preferences WHERE user_id=$1),
-           (SELECT count(*) FROM rec_user_preference_commands WHERE user_id=$1),
-           (SELECT count(*) FROM rec_subjects WHERE user_id=$1)",
-    )
-    .bind(actor)
-    .fetch_one(pool)
-    .await
-    .unwrap()
-}
-
-async fn preference(pool: &PgPool, actor: i64, book: i64) -> Option<(bool, i64, String)> {
-    sqlx::query_as(
-        "SELECT hidden,revision,expires_at::text FROM rec_book_preferences
-         WHERE user_id=$1 AND book_id=$2",
-    )
-    .bind(actor)
-    .bind(book)
-    .fetch_optional(pool)
-    .await
-    .unwrap()
-}
-
-async fn epoch(pool: &PgPool, actor: i64) -> i64 {
-    sqlx::query_scalar("SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1")
-        .bind(actor)
-        .fetch_one(pool)
-        .await
-        .unwrap()
+    current_analytics::assert_schema(&pool).await;
+    fixtures::create(pool, name).await
 }
 
 #[tokio::test]
@@ -95,7 +39,7 @@ async fn explicit_settings_work_without_subject_and_gets_do_not_create_state() {
         .all(|item| item.feedback_revision.is_none()));
     assert_eq!(counts(&pool, actor).await, (0, 0, 0, 0));
 
-    // Use a card actually returned by the current generation or its fallback.
+    // Use a card actually returned by the current catalogue feed.
     let book: i64 = offered.items[0].book_id.parse().unwrap();
     let key = new_ticket().unwrap();
     let hidden = store
@@ -142,7 +86,7 @@ async fn explicit_settings_work_without_subject_and_gets_do_not_create_state() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn explicit_choices_and_receipts_survive_consent_rotations_and_scope_deletion() {
+async fn retired_consent_writes_cannot_change_explicit_choices_or_receipts() {
     let (pool, store, actor, book) = fixture("scope").await;
     let key = new_ticket().unwrap();
     let hidden = store
@@ -158,28 +102,23 @@ async fn explicit_choices_and_receipts_survive_consent_rotations_and_scope_delet
     .fetch_one(&pool)
     .await
     .unwrap();
-    store
-        .set_consent(actor, true, 0, &new_ticket().unwrap())
-        .await
-        .unwrap();
-    store
-        .set_flow_consent(actor, true, 1, &new_ticket().unwrap())
-        .await
-        .unwrap();
-    store
-        .set_consent(actor, false, 2, &new_ticket().unwrap())
-        .await
-        .unwrap();
+    for enabled in [false, true] {
+        assert_eq!(
+            store
+                .set_consent(actor, enabled, 0, &new_ticket().unwrap())
+                .await,
+            Err(FeedbackError::Unavailable),
+            "the installed fence rejects the old writer without committing state"
+        );
+        assert_eq!(
+            store
+                .set_flow_consent(actor, enabled, 0, &new_ticket().unwrap())
+                .await,
+            Err(FeedbackError::Unavailable)
+        );
+    }
     assert!(store.flow_scope(actor).await.unwrap().is_none());
-    store
-        .set_consent(actor, true, 3, &new_ticket().unwrap())
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM rec_subjects WHERE user_id=$1")
-        .bind(actor)
-        .execute(&pool)
-        .await
-        .unwrap();
+    assert_eq!(counts(&pool, actor).await, (1, 1, 1, 0));
 
     assert_eq!(epoch(&pool, actor).await, 0);
     assert_eq!(preference(&pool, actor, book).await.unwrap(), saved);
@@ -220,13 +159,28 @@ async fn explicit_choices_and_receipts_survive_consent_rotations_and_scope_delet
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn command_namespace_is_shared_across_kinds_and_isolated_between_actors() {
+async fn retained_command_keys_and_explicit_payloads_are_isolated_between_actors() {
     let (pool, store, actor, book) = fixture("namespace").await;
     let consent_key = new_ticket().unwrap();
-    store
-        .set_consent(actor, false, 0, &consent_key)
+    // A retained explicit command key stays reserved after subject erasure.
+    // I's installed-upgrade proof establishes the real migration lifecycle.
+    sqlx::query("INSERT INTO rec_preference_accounts(user_id) VALUES($1)")
+        .bind(actor)
+        .execute(&pool)
         .await
         .unwrap();
+    let consent_hash: [u8; 32] = sha2::Sha256::digest("consent:false:0").into();
+    sqlx::query(
+        "INSERT INTO rec_user_preference_commands
+         (user_id,command_key,payload_hash,result_revision,command_type,created_at)
+         VALUES($1,$2,$3,1,'consent',now()-interval '1 day')",
+    )
+    .bind(actor)
+    .bind(tor_recommendations::domain::feedback::token_digest(&consent_key).unwrap().as_slice())
+    .bind(consent_hash.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         store
             .set_feedback(actor, book, Choice::NotInterested, 0, &consent_key)
@@ -239,11 +193,9 @@ async fn command_namespace_is_shared_across_kinds_and_isolated_between_actors() 
         .await
         .unwrap();
     assert_eq!(
-        store.set_consent(actor, true, 1, &feedback_key).await,
-        Err(FeedbackError::IdempotencyConflict)
-    );
-    assert_eq!(
-        store.set_flow_consent(actor, false, 1, &feedback_key).await,
+        store
+            .set_feedback(actor, book, Choice::Clear, 1, &feedback_key)
+            .await,
         Err(FeedbackError::IdempotencyConflict)
     );
     let (_, other_store, other, _) = fixture("namespace-other").await;

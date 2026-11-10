@@ -8,6 +8,9 @@ use tor_recommendations::{
     },
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 struct Fixture {
     app: PgPool,
     owner: PgPool,
@@ -20,10 +23,11 @@ struct Fixture {
 
 impl Fixture {
     async fn new(name: &str) -> Self {
-        let app_url = std::env::var("TEST_DATABASE_URL").expect("disposable app URL");
-        let owner_url = std::env::var("MIGRATOR_URL").expect("disposable migrator URL");
-        assert!(app_url.ends_with("/tor_ci") && owner_url.ends_with("/tor_ci"));
+        let app_url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+        let owner_url =
+            legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
+        legacy_analytics::assert_schema(&owner).await;
         let schema = format!("flow_visits_{name}");
         sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
             .execute(&owner)
@@ -280,7 +284,10 @@ async fn flow_visits_finalize_replay_revoke_and_expiry_keep_only_anonymous_histo
         Some(1),
         "only already anonymous old total remains"
     );
-    assert_eq!(f.store.report(7).await.unwrap().current.visits, Some(0));
+    let recent = f.store.report(7).await.unwrap();
+    assert_eq!(recent.current.visits, Some(0));
+    assert_eq!(recent.current.unique_subjects, None);
+    assert_eq!(recent.current.unattributed_pageviews, None);
     assert!(!f
         .store
         .observe(&f.event(f.now().await, 0, 0))
@@ -439,5 +446,80 @@ async fn flow_visits_long_continuation_erases_origin_without_a_false_new_start()
         .unwrap());
     assert_eq!(f.store.report(7).await.unwrap().current.visits, Some(1));
     assert_eq!(f.store.report(90).await.unwrap().current.visits, Some(2));
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit legacy analytics PostgreSQL baseline 191"]
+async fn flow_visits_archive_totals_do_not_imply_remaining_identity_or_receipt_evidence() {
+    let f = Fixture::new("archive_raw").await;
+    sqlx::query(
+        "INSERT INTO flow_visit_daily
+         (cohort_day,acquisition_hint,landing_surface,last_surface,visits,pageviews,observed_seconds)
+         VALUES((now() AT TIME ZONE 'UTC')::date,3,1,2,7,11,90),
+               ((now() AT TIME ZONE 'UTC')::date-1,3,1,2,3,5,60)",
+    )
+    .execute(&f.app)
+    .await
+    .unwrap();
+    let archive = f.store.report(1).await.unwrap();
+    assert_eq!(archive.current.visits, Some(7));
+    assert_eq!(archive.current.pageviews, Some(11));
+    assert_eq!(archive.current.observed_seconds, Some(90));
+    assert_eq!(archive.previous.visits, Some(3));
+    assert_eq!(archive.previous.pageviews, Some(5));
+    assert_eq!(archive.previous.observed_seconds, Some(60));
+    for period in [&archive.current, &archive.previous] {
+        assert_eq!(period.unique_subjects, None);
+        assert_eq!(period.unattributed_pageviews, None);
+    }
+
+    // A genuine retained observation still proves one account and zero
+    // continuation pageviews; the anonymous archive alone proves neither.
+    assert!(f
+        .store
+        .observe(&f.event(f.now().await, 2, 1))
+        .await
+        .unwrap());
+    let observed = f.store.report(1).await.unwrap();
+    assert_eq!(observed.current.unique_subjects, Some(1));
+    assert_eq!(observed.current.unattributed_pageviews, Some(0));
+    assert_eq!(observed.current.visits, Some(8));
+    assert_eq!(observed.current.pageviews, Some(12));
+
+    // The retirement batch removes receipts before account days. A surviving
+    // account day proves distinct accounts, never zero continuation pageviews.
+    sqlx::query("DELETE FROM flow_visit_receipts")
+        .execute(&f.app)
+        .await
+        .unwrap();
+    let without_receipts = f.store.report(1).await.unwrap();
+    assert_eq!(without_receipts.current.unique_subjects, Some(1));
+    assert_eq!(without_receipts.current.unattributed_pageviews, None);
+
+    // Another genuine observation restores receipts. Removing only the account
+    // ledger must not hide its independently retained continuation measurement.
+    assert!(f
+        .store
+        .observe(&f.event(f.now().await, 3, 1))
+        .await
+        .unwrap());
+    sqlx::query("DELETE FROM flow_visit_account_days")
+        .execute(&f.app)
+        .await
+        .unwrap();
+    let without_accounts = f.store.report(1).await.unwrap();
+    assert_eq!(without_accounts.current.unique_subjects, None);
+    assert_eq!(without_accounts.current.unattributed_pageviews, Some(0));
+    sqlx::query("DELETE FROM flow_visit_receipts")
+        .execute(&f.app)
+        .await
+        .unwrap();
+    let without_raw_proof = f.store.report(1).await.unwrap();
+    assert_eq!(without_raw_proof.current.unique_subjects, None);
+    assert_eq!(without_raw_proof.current.unattributed_pageviews, None);
+    assert_eq!(without_raw_proof.current.visits, Some(8));
+    assert_eq!(without_raw_proof.current.pageviews, Some(13));
+    assert_eq!(without_raw_proof.previous, archive.previous);
     f.cleanup().await;
 }

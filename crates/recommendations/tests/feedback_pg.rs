@@ -1,4 +1,4 @@
-//! REC-13 real PostgreSQL acceptance. Only the disposable tor_ci database.
+//! Retained REC-13 collector acceptance on the explicit pre-retirement 191 database.
 use sqlx::PgPool;
 use tor_recommendations::{
     domain::feedback::{
@@ -8,10 +8,13 @@ use tor_recommendations::{
     services::feedback::new_ticket,
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 async fn fixture(name: &str) -> (PgPool, PgRecommendations, i64, i64) {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
-    assert!(url.ends_with("/tor_ci"), "never use production");
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     sqlx::query("DELETE FROM users WHERE email_normalized=$1")
         .bind(format!("rec13-{name}@tor-ci.example"))
         .execute(&pool)
