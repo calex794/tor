@@ -100,7 +100,14 @@ async fn s018_email_proof_ui_never_autosends_and_requires_actor_csrf_and_consent
 
     let confirm = format!("csrf_token={csrf}&proof_code={code}&email_opt_in=on");
     assert_eq!(
-        consent_post(&app, "/me/notification-email/confirm", &two, ORIGIN, &confirm).await,
+        consent_post(
+            &app,
+            "/me/notification-email/confirm",
+            &two,
+            ORIGIN,
+            &confirm
+        )
+        .await,
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
@@ -127,20 +134,36 @@ async fn s018_email_proof_ui_never_autosends_and_requires_actor_csrf_and_consent
         "proof alone is not opt-in"
     );
     assert_eq!(
-        consent_post(&app, "/me/notification-email/confirm", &one, ORIGIN, &confirm).await,
+        consent_post(
+            &app,
+            "/me/notification-email/confirm",
+            &one,
+            ORIGIN,
+            &confirm
+        )
+        .await,
         StatusCode::SEE_OTHER
     );
     assert!(!consent.email_eligible(alice).await.unwrap(), "cadence off");
     assert!(consent.opted_in(alice).await.unwrap());
     assert!(!consent.opted_in(bob).await.unwrap());
-    assert!(c17_settings_page(&app, &one).await.contains("Отозвать согласие"));
+    assert!(c17_settings_page(&app, &one)
+        .await
+        .contains("Отозвать согласие"));
     prefs
         .set_delivery_preference(alice, tor_reading::repositories::DeliveryMode::Immediate)
         .await
         .unwrap();
     assert!(consent.email_eligible(alice).await.unwrap());
     assert_eq!(
-        consent_post(&app, "/me/notification-email/confirm", &one, ORIGIN, &confirm).await,
+        consent_post(
+            &app,
+            "/me/notification-email/confirm",
+            &one,
+            ORIGIN,
+            &confirm
+        )
+        .await,
         StatusCode::UNPROCESSABLE_ENTITY,
         "replay rejected"
     );

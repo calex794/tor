@@ -75,7 +75,7 @@ impl ProofDelivery {
             // Copy-only code: never place proof in an HTTP URL, query,
             // fragment, error log or tracing event.
             let message = format!(
-                "From: {}\r\nTo: {}\r\nSubject: TOR email verification code\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nВы запросили подтверждение email для будущих уведомлений о главах.\r\n\r\nКод (30 минут): {}\r\n\r\nОткройте страницу {} /me/notification-settings и вставьте код в форму. Если вы не запрашивали код, ничего не делайте.\r\n",
+                "From: {}\r\nTo: {}\r\nSubject: TOR email verification code\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nВы запросили подтверждение email для будущих уведомлений о главах.\r\n\r\nКод (30 минут): {}\r\n\r\nОткройте страницу {}/me/notification-settings и вставьте код в форму. Если вы не запрашивали код, ничего не делайте.\r\n",
                 sender.from,
                 recipient,
                 proof_code,
@@ -107,7 +107,9 @@ impl ProofDelivery {
 fn safe_mailbox(value: &str) -> bool {
     value.len() <= 254
         && value.contains('@')
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"@._+-".contains(&b))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"@._+-".contains(&b))
 }
 
 #[cfg(test)]

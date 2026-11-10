@@ -96,7 +96,8 @@ mod tests {
 
     #[test]
     fn c_17_preferences_form_is_safe_and_does_not_claim_delivery() {
-        let html = delivery_preferences_page(DeliveryMode::DailyDigest, "<bad>", None, false, false).0;
+        let html =
+            delivery_preferences_page(DeliveryMode::DailyDigest, "<bad>", None, false, false).0;
         assert!(html.contains("value=\"daily_digest\" checked"));
         assert!(!html.contains("value=\"immediate\" checked"));
         assert!(!html.contains("value=\"smart_time\" checked"));
@@ -106,7 +107,8 @@ mod tests {
         assert!(html.contains("пока не подключена"));
         assert!(html.contains("/me/library#new-chapters"));
         assert!(!html.contains("<script"));
-        let smart = delivery_preferences_page(DeliveryMode::SmartTime, "csrf", None, false, false).0;
+        let smart =
+            delivery_preferences_page(DeliveryMode::SmartTime, "csrf", None, false, false).0;
         assert!(smart.contains("value=\"smart_time\" checked"));
         assert!(!smart.contains("value=\"daily_digest\" checked"));
         assert!(smart.contains("недостаточно подтверждённых"));
@@ -114,8 +116,14 @@ mod tests {
         buckets[18] = 8;
         let reliable =
             tor_reading::services::notification_send_time::choose_preferred_hour(&buckets);
-        let with_hour =
-            delivery_preferences_page(DeliveryMode::SmartTime, "csrf", Some(reliable), false, false).0;
+        let with_hour = delivery_preferences_page(
+            DeliveryMode::SmartTime,
+            "csrf",
+            Some(reliable),
+            false,
+            false,
+        )
+        .0;
         assert!(with_hour.contains("18:00 UTC"));
         assert!(with_hour.contains("не расписание активной отправки"));
         let disabled = delivery_preferences_page(DeliveryMode::Disabled, "csrf", None, false, false).0;
