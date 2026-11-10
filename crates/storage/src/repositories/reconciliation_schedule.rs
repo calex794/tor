@@ -47,13 +47,46 @@ impl PgG09Schedule {
             .execute(&self.pool)
             .await
             .map_err(|_| InventoryError::Unavailable)?;
+        sqlx::query("SELECT next_allowed_at FROM g09_scheduled_pages LIMIT 0")
+            .execute(&self.pool)
+            .await
+            .map_err(|_| InventoryError::Unavailable)?;
         Ok(())
     }
 
-    /// PostgreSQL checkpoint provides cross-replica rate control. An
-    /// unfinished cycle advances at most once per fifteen minutes per
-    /// scope/direction. Only finished cycles may restart, >= 24 hours after
-    /// their last checkpoint. An exhausted reverse scan is NEVER resumed.
+    /// Reserve the global rate slot *atomically* across TOR replicas.
+    /// Skipping a slot after an outage is deliberate: no catch-up bursts.
+    pub async fn reserve_slot(
+        &self,
+        bucket: &str,
+        scope: PrivateScope,
+        reverse: bool,
+    ) -> Result<bool, InventoryError> {
+        if !valid_private_bucket(bucket) {
+            return Err(InventoryError::Invalid);
+        }
+        let direction = if reverse { "pg-to-s3" } else { "s3-to-pg" };
+        let claimed: Option<bool> = sqlx::query_scalar(
+            "INSERT INTO g09_scheduled_pages(bucket,scope,direction,next_allowed_at)
+             VALUES($1,$2,$3,clock_timestamp()+interval '15 minutes')
+             ON CONFLICT (bucket,scope,direction) DO UPDATE
+                SET next_allowed_at=clock_timestamp()+interval '15 minutes'
+              WHERE g09_scheduled_pages.next_allowed_at<=clock_timestamp()
+             RETURNING TRUE",
+        )
+        .bind(bucket)
+        .bind(scope.kind())
+        .bind(direction)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| InventoryError::Unavailable)?;
+        Ok(claimed == Some(true))
+    }
+
+    /// Checkpoint age is a separate eligibility check, not an atomic lock.
+    /// The worker MUST also call reserve_slot() before running any page.
+    /// Unfinished cycles are due every 15 minutes; completed cycles may
+    /// restart no earlier than 24 hours later. Exhausted scans stay stopped.
     pub async fn action(
         &self,
         bucket: &str,
