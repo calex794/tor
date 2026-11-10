@@ -359,8 +359,8 @@ async fn submit(
 #[cfg(test)]
 mod tests {
     use super::{
-        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorRefundLine,
-        FinanceTab,
+        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorPayoutRequest,
+        CreatorRefundLine, FinanceTab,
     };
 
     #[test]
