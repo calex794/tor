@@ -27,6 +27,9 @@ pub struct InventoryProgress {
     pub unregistered_candidates: i64,
     pub size_mismatch: i64,
     pub unknown: i64,
+    pub unknown_attempts: i64,
+    pub retries: i64,
+    pub exhausted: bool,
     pub completed: bool,
 }
 
@@ -51,9 +54,9 @@ impl PgPrivateInventory {
         if !valid_private_bucket(bucket) {
             return Err(InventoryError::Invalid);
         }
-        let row: Option<(i64, i64, i64, i64, i64, i64, bool)> = sqlx::query_as(
+        let row: Option<(i64, i64, i64, i64, i64, i64, i64, i64, bool, bool)> = sqlx::query_as(
             "SELECT scanned,registered,recently_pending,unregistered_candidates,
-                    size_mismatch,unknown,completed
+                    size_mismatch,unknown,unknown_attempts,retries,exhausted,completed
                FROM g09_private_inventory_scans
               WHERE bucket=$1 AND scope=$2",
         )
@@ -69,7 +72,10 @@ impl PgPrivateInventory {
             unregistered_candidates: value.3,
             size_mismatch: value.4,
             unknown: value.5,
-            completed: value.6,
+            unknown_attempts: value.6,
+            retries: value.7,
+            exhausted: value.8,
+            completed: value.9,
         }))
     }
 
@@ -98,7 +104,7 @@ impl PgPrivateInventory {
             "UPDATE g09_private_inventory_scans
                 SET lease_epoch=lease_epoch+1,
                     leased_until=clock_timestamp()+interval '180 seconds'
-              WHERE bucket=$1 AND scope=$2 AND NOT completed
+              WHERE bucket=$1 AND scope=$2 AND NOT completed AND NOT exhausted
                 AND (leased_until IS NULL OR leased_until<=clock_timestamp())
               RETURNING lease_epoch,continuation,cycle",
         )
@@ -115,7 +121,7 @@ impl PgPrivateInventory {
         let page = match fetched {
             Ok(page) if valid_page(&page, token.as_deref(), scope) => page,
             _ => {
-                self.release(bucket, scope, epoch).await;
+                self.note_unavailable(bucket, scope, epoch).await;
                 return Err(InventoryError::Unavailable);
             }
         };
@@ -184,7 +190,7 @@ impl PgPrivateInventory {
                     unregistered_candidates=unregistered_candidates+$8,
                     size_mismatch=size_mismatch+$9,unknown=unknown+$10,
                     completed=$11,leased_until=NULL,
-                    checkpoint_at=clock_timestamp()
+                    consecutive_failures=0,checkpoint_at=clock_timestamp()
               WHERE bucket=$1 AND scope=$2 AND lease_epoch=$3",
         )
         .bind(bucket)
@@ -218,7 +224,9 @@ impl PgPrivateInventory {
             "UPDATE g09_private_inventory_scans
                 SET cycle=cycle+1,continuation=NULL,scanned=0,registered=0,
                     recently_pending=0,unregistered_candidates=0,
-                    size_mismatch=0,unknown=0,checkpoint_at=NULL,completed=FALSE
+                    size_mismatch=0,unknown=0,checkpoint_at=NULL,
+                    retries=0,unknown_attempts=0,consecutive_failures=0,
+                    exhausted=FALSE,completed=FALSE
               WHERE bucket=$1 AND scope=$2 AND completed
                 AND (leased_until IS NULL OR leased_until<=clock_timestamp())",
         )
@@ -230,16 +238,46 @@ impl PgPrivateInventory {
         Ok(changed.rows_affected() == 1)
     }
 
-    async fn release(&self, bucket: &str, scope: PrivateScope, epoch: i64) {
+    /// Any S3 LIST outage/invalid provider page counts as unknown, not an
+    /// unregistered or missing file. The durable budget requires explicit
+    /// operator recovery after eight consecutive failures.
+    async fn note_unavailable(&self, bucket: &str, scope: PrivateScope, epoch: i64) {
         let _ = sqlx::query(
-            "UPDATE g09_private_inventory_scans SET leased_until=NULL
-              WHERE bucket=$1 AND scope=$2 AND lease_epoch=$3",
+            "UPDATE g09_private_inventory_scans
+                SET leased_until=NULL,retries=retries+1,
+                    unknown_attempts=unknown_attempts+1,
+                    consecutive_failures=consecutive_failures+1,
+                    exhausted=(consecutive_failures+1>=8)
+              WHERE bucket=$1 AND scope=$2 AND lease_epoch=$3
+                AND leased_until>clock_timestamp()",
         )
         .bind(bucket)
         .bind(scope.kind())
         .bind(epoch)
         .execute(&self.pool)
         .await;
+    }
+
+    pub async fn resume_exhausted(
+        &self,
+        bucket: &str,
+        scope: PrivateScope,
+    ) -> Result<bool, InventoryError> {
+        if !valid_private_bucket(bucket) {
+            return Err(InventoryError::Invalid);
+        }
+        let updated = sqlx::query(
+            "UPDATE g09_private_inventory_scans
+                SET exhausted=FALSE,consecutive_failures=0,leased_until=NULL
+              WHERE bucket=$1 AND scope=$2 AND exhausted AND NOT completed
+                AND (leased_until IS NULL OR leased_until<=clock_timestamp())",
+        )
+        .bind(bucket)
+        .bind(scope.kind())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| InventoryError::Unavailable)?;
+        Ok(updated.rows_affected() == 1)
     }
 }
 
