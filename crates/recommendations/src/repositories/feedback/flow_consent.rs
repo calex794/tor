@@ -68,6 +68,8 @@ impl PgRecommendations {
         let key = token_digest(command)?;
         let payload: [u8; 32] = Sha256::digest(format!("flow-consent:{enabled}:{revision}")).into();
         let mut tx = self.pool.begin().await?;
+        lock_preferences(&mut tx, actor).await?;
+        discard_expired_command(&mut tx, actor, &key).await?;
         sqlx::query(
             "INSERT INTO rec_subjects(user_id)
              SELECT id FROM users WHERE id=$1 AND account_state='active'
@@ -88,7 +90,7 @@ impl PgRecommendations {
         .ok_or(FeedbackError::Forbidden)?;
         if let Some(receipt) = sqlx::query(
             "SELECT payload_hash,result_revision,command_type
-             FROM rec_preference_commands WHERE user_id=$1 AND command_key=$2",
+             FROM rec_user_preference_commands WHERE user_id=$1 AND command_key=$2",
         )
         .bind(actor)
         .bind(key.as_slice())
@@ -135,7 +137,7 @@ impl PgRecommendations {
         .execute(&mut *tx)
         .await?;
         sqlx::query(
-            "INSERT INTO rec_preference_commands
+            "INSERT INTO rec_user_preference_commands
                (user_id,command_key,payload_hash,result_revision,command_type)
              VALUES($1,$2,$3,$4,'consent')",
         )

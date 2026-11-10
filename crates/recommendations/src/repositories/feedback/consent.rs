@@ -37,13 +37,15 @@ impl PgRecommendations {
         let key = token_digest(command)?;
         let payload: [u8; 32] = Sha256::digest(format!("consent:{enabled}:{revision}")).into();
         let mut tx = self.pool.begin().await?;
+        lock_preferences(&mut tx, actor).await?;
+        discard_expired_command(&mut tx, actor, &key).await?;
         sqlx::query("INSERT INTO rec_subjects(user_id) VALUES($1) ON CONFLICT DO NOTHING")
             .bind(actor)
             .execute(&mut *tx)
             .await?;
         let state = sqlx::query("SELECT subject_id::text,revision,enabled,flow_epoch::text FROM rec_subjects WHERE user_id=$1 FOR UPDATE")
             .bind(actor).fetch_one(&mut *tx).await?;
-        if let Some(receipt) = sqlx::query("SELECT payload_hash,result_revision,command_type FROM rec_preference_commands WHERE user_id=$1 AND command_key=$2")
+        if let Some(receipt) = sqlx::query("SELECT payload_hash,result_revision,command_type FROM rec_user_preference_commands WHERE user_id=$1 AND command_key=$2")
             .bind(actor).bind(key.as_slice()).fetch_optional(&mut *tx).await? {
             let hash: Vec<u8> = receipt.try_get("payload_hash")?;
             let kind: String = receipt.try_get("command_type")?;
@@ -62,7 +64,7 @@ impl PgRecommendations {
             .bind(actor)
             .execute(&mut *tx)
             .await?;
-            sqlx::query("INSERT INTO rec_preference_commands(user_id,command_key,payload_hash,result_revision,command_type) VALUES($1,$2,$3,$4,'consent')")
+            sqlx::query("INSERT INTO rec_user_preference_commands(user_id,command_key,payload_hash,result_revision,command_type) VALUES($1,$2,$3,$4,'consent')")
                 .bind(actor).bind(key.as_slice()).bind(payload.as_slice()).bind(revision+1).execute(&mut *tx).await?;
             tx.commit().await?;
             return Ok(ConsentState {
@@ -114,21 +116,19 @@ impl PgRecommendations {
             .bind(&subject)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM rec_feedback_state WHERE subject_id=$1::uuid")
-            .bind(&subject)
-            .execute(&mut *tx)
-            .await?;
         sqlx::query("DELETE FROM rec_reader_signals WHERE subject_id=$1::uuid")
             .bind(&subject)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,feedback_epoch=feedback_epoch+CASE WHEN revision=0 THEN 0 ELSE 1 END,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,flow_epoch=NULL,flow_enabled_at=NULL,changed_at=now() WHERE user_id=$1")
+        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,flow_epoch=NULL,flow_enabled_at=NULL,changed_at=now() WHERE user_id=$1")
             .bind(actor).bind(enabled).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM rec_preference_commands WHERE user_id=$1")
-            .bind(actor)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("INSERT INTO rec_preference_commands(user_id,command_key,payload_hash,result_revision,command_type) VALUES($1,$2,$3,$4,'consent')")
+        sqlx::query(
+            "DELETE FROM rec_user_preference_commands WHERE user_id=$1 AND command_type='consent'",
+        )
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO rec_user_preference_commands(user_id,command_key,payload_hash,result_revision,command_type) VALUES($1,$2,$3,$4,'consent')")
             .bind(actor).bind(key.as_slice()).bind(payload.as_slice()).bind(revision+1).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(ConsentState {

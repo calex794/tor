@@ -203,6 +203,11 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'
           E08_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_e08_upgrade' \
             cargo test -p tor-migrations --test e08_installed_upgrade_pg -- --ignored --test-threads=1
+      - name: REC explicit preferences installed upgrade (disposable database)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_rec_preferences_upgrade OWNER tor_migrator'
+          REC_PREFERENCES_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_rec_preferences_upgrade' \
+            cargo test -p tor-migrations --test rec_preferences_installed_upgrade_pg -- --ignored --test-threads=1
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
@@ -410,8 +415,10 @@ jobs:
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
           TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
@@ -489,6 +496,7 @@ jobs:
           path: |
             ${{ runner.temp }}/rec13-browser/shots/audience*.png
             ${{ runner.temp }}/rec13-browser/shots/flow-visits*.png
+            ${{ runner.temp }}/rec13-browser/shots/recommendation-preferences*.png
           if-no-files-found: warn
           retention-days: 14
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)

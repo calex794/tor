@@ -9,6 +9,8 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
         tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
     let reading =
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
+    let preferences =
+        tor_recommendations::repositories::PgRecommendations::new(accounts.pool().clone());
     let collect = crate::recommendation_http::visits::collection_enabled();
     // Record this worker's initial mode before serving requests. C's atomic
     // scope receipts authorize attribution, never this diagnostic singleton.
@@ -40,6 +42,16 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
                 timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     timer.tick().await;
+                    if !matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_millis(1500),
+                            preferences.prune_preferences()
+                        )
+                        .await,
+                        Ok(Ok(_))
+                    ) {
+                        eprintln!("TOR_RECOMMENDATION_PREFERENCES_RETENTION_UNAVAILABLE");
+                    }
                     if !matches!(
                         tokio::time::timeout(
                             std::time::Duration::from_millis(2500),
