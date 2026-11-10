@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     io::Cursor,
     num::NonZeroU32,
+    process::Command,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -157,6 +158,41 @@ fn cover_png() -> Vec<u8> {
         .write_to(&mut output, ImageFormat::Png)
         .expect("encode test cover PNG");
     output.into_inner()
+}
+
+// Only fixture setup/verification, never a competing operation. Avoid a
+// direct SQLx dependency in tor-web: the architectural boundary belongs to
+// PgCatalog, PgCreatorFinance and PgRecommendations.
+fn isolated_psql(url: &str, statement: &str) -> String {
+    assert!(url.ends_with("/tor_ci"), "never use a retained database");
+    let output = Command::new("psql")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=15000 -c lock_timeout=5000",
+        )
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            statement,
+        ])
+        .output()
+        .expect("CI PostgreSQL client is required");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .expect("UTF-8 PostgreSQL result")
+        .trim()
+        .to_owned()
 }
 
 async fn call(
@@ -306,13 +342,13 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
 
     // A disposable wallet with a known value lets finance reads prove both
     // correctness and absence of unintended balance changes under contention.
-    sqlx::query(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES($1,1000,'RUB')",
-    )
-    .bind(owner)
-    .execute(&pool)
-    .await
-    .expect("seed isolated creator wallet");
+    let _ = isolated_psql(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({owner},1000,'RUB')"
+        ),
+    );
 
     const PREVIEWS: usize = 18;
     const FINANCE_READS: usize = 8;
@@ -587,14 +623,12 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         serde_json::from_str::<Value>(&body).unwrap()["status"],
         "succeeded"
     );
-    let wallet_entries: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1")
-            .bind(owner)
-            .fetch_one(&pool)
-            .await
-            .expect("read isolated wallet ledger");
     assert_eq!(
-        wallet_entries, 0,
+        isolated_psql(
+            &url,
+            &format!("SELECT count(*) FROM reader_wallet_entries WHERE user_id={owner}"),
+        ),
+        "0",
         "finance reads must not post wallet entries"
     );
     // Do not leave a partially built REC generation for later shared-CI tests.
