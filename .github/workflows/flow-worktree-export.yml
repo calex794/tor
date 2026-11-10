@@ -40,7 +40,7 @@ jobs:
           rustfmt --edition 2021 crates/web/tests/audience_hours_http_pg.rs
           git diff --check
           test "$(git diff --name-only)" = crates/web/tests/audience_hours_http_pg.rs
-          test "$(git hash-object crates/web/tests/audience_hours_http_pg.rs)" = f5046e4dc094bdfe4a0819f4025e4cf0f97ac147
+          test "$(git hash-object crates/web/tests/audience_hours_http_pg.rs)" = f5046e4bdd4b2720fd4dc9486e5e0b46b9158ecc
           git add crates/web/tests/audience_hours_http_pg.rs
           git config user.name 'FLOW QA'
           git config user.email 'flow-qa@users.noreply.github.com'
