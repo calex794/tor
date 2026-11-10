@@ -1,5 +1,7 @@
 //! Only numerical evidence is rendered; no reader or book identifiers.
 pub(super) mod books;
+mod evidence;
+pub(super) mod groups;
 mod hours;
 mod sources;
 
@@ -17,6 +19,7 @@ fn start(days: i32) -> String {
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",

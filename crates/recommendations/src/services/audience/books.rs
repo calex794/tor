@@ -9,6 +9,8 @@ pub struct BookDiscoveryQuery {
     pub days: i32,
     pub genre: Option<String>,
     pub tag: Option<String>,
+    pub without_genre: bool,
+    pub without_tag: bool,
     /// Ascending public book ID; independent of changing counters and titles.
     pub after_id: Option<i64>,
 }
@@ -20,30 +22,50 @@ impl BookDiscoveryQuery {
         tag: Option<String>,
         after_id: Option<i64>,
     ) -> Result<Self, DiscoveryError> {
+        Self::with_missing(days, genre, tag, false, false, after_id)
+    }
+
+    pub fn with_missing(
+        days: i32,
+        genre: Option<String>,
+        tag: Option<String>,
+        without_genre: bool,
+        without_tag: bool,
+        after_id: Option<i64>,
+    ) -> Result<Self, DiscoveryError> {
         validate_period(days)?;
         if after_id.is_some_and(|id| id <= 0) {
             return Err(DiscoveryError::Invalid);
         }
+        let genre = normalize_label(genre)?;
+        let tag = normalize_label(tag)?;
+        if (without_genre && genre.is_some()) || (without_tag && tag.is_some()) {
+            return Err(DiscoveryError::Invalid);
+        }
         Ok(Self {
             days,
-            genre: normalize_label(genre)?,
-            tag: normalize_label(tag)?,
+            genre,
+            tag,
+            without_genre,
+            without_tag,
             after_id,
         })
     }
 
     pub fn validate(&self) -> Result<(), DiscoveryError> {
-        Self::new(
+        Self::with_missing(
             self.days,
             self.genre.clone(),
             self.tag.clone(),
+            self.without_genre,
+            self.without_tag,
             self.after_id,
         )
         .map(|_| ())
     }
 }
 
-fn normalize_label(value: Option<String>) -> Result<Option<String>, DiscoveryError> {
+pub(super) fn normalize_label(value: Option<String>) -> Result<Option<String>, DiscoveryError> {
     let Some(value) = value else { return Ok(None) };
     // Bound before allocating normalized output, including whitespace-only input.
     if value.len() > 512 || value.chars().any(char::is_control) {
@@ -204,5 +226,23 @@ mod tests {
         );
         value.starts = Some(1);
         assert_eq!(value.observation(), BookDiscoveryObservation::WithStarts);
+    }
+
+    #[test]
+    fn missing_label_filters_are_explicit_and_reject_conflicts() {
+        let missing = BookDiscoveryQuery::with_missing(7, None, None, true, true, None).unwrap();
+        assert!(missing.without_genre && missing.without_tag);
+        for (genre, tag, no_genre, no_tag) in [
+            (Some("жанр".into()), None, true, false),
+            (None, Some("тег".into()), false, true),
+        ] {
+            assert_eq!(
+                BookDiscoveryQuery::with_missing(7, genre, tag, no_genre, no_tag, None),
+                Err(DiscoveryError::Invalid)
+            );
+        }
+        let mut forged = missing;
+        forged.genre = Some("жанр".into());
+        assert_eq!(forged.validate(), Err(DiscoveryError::Invalid));
     }
 }
