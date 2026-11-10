@@ -567,7 +567,6 @@ async fn d_06_refund_step_up_is_bound_to_session_reason_and_expiry() {
     d06_approval_cleanup(f).await;
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_refund_checkout_and_payout_reservation_share_three_connections() {
@@ -600,20 +599,16 @@ async fn d_06_refund_checkout_and_payout_reservation_share_three_connections() {
     .await
     .expect("seed independent creator relationship");
 
-    let original_book: i64 = sqlx::query_scalar(
-        "SELECT book_id FROM chapters WHERE id=$1",
-    )
-    .bind(f.chapter)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
-    let (new_chapter, new_version) =
-        chapter_with_offer(&f.pool, original_book, 2, 300).await;
+    let original_book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+        .bind(f.chapter)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let (new_chapter, new_version) = chapter_with_offer(&f.pool, original_book, 2, 300).await;
     let purchase_command = command(f.buyer, new_chapter, new_version, 300, 'L');
     let payout_key = IdempotencyKey::parse(&format!("{}8", "M".repeat(42))).unwrap();
 
-    let (session_digest, step_up_token) =
-        issue_refund_step_up(&f, "contention approval").await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "contention approval").await;
     let approval = PgDirectRefundApprovals::new(f.pool.clone());
     let finance = PgCreatorFinance::new(f.pool.clone());
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
@@ -671,12 +666,16 @@ async fn d_06_refund_checkout_and_payout_reservation_share_three_connections() {
         (waits[waits.len() * 95 / 100], waits[waits.len() - 1])
     };
 
-    let ((refunded, refund_ms), (reserved, reserve_ms), (purchased, purchase_ms), (acquire_p95, acquire_max)) =
-        tokio::time::timeout(Duration::from_secs(25), async {
-            tokio::join!(refund_action, reserve_action, purchase_action, pool_probe)
-        })
-        .await
-        .expect("refund, purchase, or payout reservation deadlocked");
+    let (
+        (refunded, refund_ms),
+        (reserved, reserve_ms),
+        (purchased, purchase_ms),
+        (acquire_p95, acquire_max),
+    ) = tokio::time::timeout(Duration::from_secs(25), async {
+        tokio::join!(refund_action, reserve_action, purchase_action, pool_probe)
+    })
+    .await
+    .expect("refund, purchase, or payout reservation deadlocked");
 
     let refund_receipt = refunded.expect("valid first refund must complete");
     assert_eq!(refund_receipt.credited_minor, 300);
@@ -699,8 +698,13 @@ async fn d_06_refund_checkout_and_payout_reservation_share_three_connections() {
         "shared pool acquisition p95 exceeded the contention budget"
     );
 
-    let (wallet_balance, postings, refund_entries, purchase_count, ledger_delta):
-        (i64, i64, i64, i64, i64) = sqlx::query_as(
+    let (wallet_balance, postings, refund_entries, purchase_count, ledger_delta): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = sqlx::query_as(
         "SELECT w.balance_minor,
           (SELECT count(*) FROM finance_direct_refund_postings WHERE purchase_id=$2),
           (SELECT count(*) FROM reader_wallet_entries
@@ -724,7 +728,10 @@ async fn d_06_refund_checkout_and_payout_reservation_share_three_connections() {
     let totals = finance.totals(f.buyer).await.unwrap();
     assert_eq!(totals.wallet_balance_minor, wallet_balance);
     assert_eq!(totals.reserved_minor, if reservation_won { 900 } else { 0 });
-    assert_eq!(totals.available_minor, wallet_balance - totals.reserved_minor);
+    assert_eq!(
+        totals.available_minor,
+        wallet_balance - totals.reserved_minor
+    );
     assert!(totals.available_minor >= 0);
 
     println!(
