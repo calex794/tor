@@ -15,53 +15,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 636a996071b3163fbab9014bbc87bbe6c40d03d4
-          fetch-depth: 0
-      - name: Export pinned branches and bounded failed-job diagnostics
+          ref: efd00da1e0b14bc81ba7b287efdf29359c8f7e8e
+          persist-credentials: false
+      - name: Export bounded diagnostics without forwarding authorization to storage
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/flow-export"
-          git branch export-main 636a996071b3163fbab9014bbc87bbe6c40d03d4
-          git branch export-808 81ea311158f3c4a600b7c13262ced0da6d29349e
-          git branch export-812 efd00da1e0b14bc81ba7b287efdf29359c8f7e8e
-          git branch export-810 112a5c4ae1930aad6cbc10533acab5690148dc96
-          git bundle create "$RUNNER_TEMP/flow-export/tor.bundle" export-main export-808 export-812 export-810
           python3 - <<'PY'
-          import json,os,pathlib,re,urllib.request
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-export'
+          import json,os,pathlib,re,subprocess
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-evidence';root.mkdir()
           def get(path):
-              request=urllib.request.Request('https://api.github.com/repos/calex794/tor/'+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              with urllib.request.urlopen(request,timeout=60) as r:return r.read()
-          for run in [42918347476,42919918051,42917952502,42917952427]:
-              jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
-              (root/f'jobs-{run}.json').write_text(json.dumps(jobs,indent=2))
-              for job in jobs:
-                  if job['conclusion'] not in ('failure','timed_out','cancelled'):continue
-                  lines=get(f"actions/jobs/{job['id']}/logs").decode('utf-8-sig').splitlines()
-                  lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in lines]
-                  hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
-                  indices=set()
-                  for i in hits[-16:]:indices.update(range(max(0,i-8),min(len(lines),i+28)))
-                  text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices)) or '\n'.join(lines[-100:])
-                  (root/f"failure-{run}-{job['id']}.txt").write_text(text)
-                  print(job['name'],job['conclusion'],text[-14000:])
+              return subprocess.check_output(['gh','api','--allow-escape-sequences','repos/calex794/tor/'+path],timeout=90)
+          for run in [42919918051,42917952502,42917952427]:
+              try:
+                  jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
+                  (root/f'jobs-{run}.json').write_text(json.dumps(jobs,indent=2))
+                  for job in jobs:
+                      if job['conclusion'] not in ('failure','timed_out','cancelled'):continue
+                      lines=get(f"actions/jobs/{job['id']}/logs").decode('utf-8-sig').splitlines()
+                      lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in lines]
+                      hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
+                      indices=set()
+                      for i in hits[-16:]:indices.update(range(max(0,i-8),min(len(lines),i+28)))
+                      text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices)) or '\n'.join(lines[-100:])
+                      (root/f"failure-{run}-{job['id']}.txt").write_text(text)
+                      print(job['name'],job['conclusion'],text[-16000:])
+              except Exception as e:
+                  (root/f'error-{run}.txt').write_text(type(e).__name__)
+                  print('Diagnostics unavailable',run,type(e).__name__)
           PY
-          sha256sum "$RUNNER_TEMP/flow-export/tor.bundle" > "$RUNNER_TEMP/flow-export/SHA256SUMS"
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: flow-completion-source-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-export/
+          name: flow-completion-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-evidence/
           retention-days: 2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Fetch offline compilation inputs without changing repository
+      - name: Fetch offline compilation inputs
         shell: bash
         run: |
           set -euo pipefail
-          git checkout efd00da1e0b14bc81ba7b287efdf29359c8f7e8e
           cargo fetch
           mkdir -p "$RUNNER_TEMP/flow-deps"
           cp Cargo.lock "$RUNNER_TEMP/flow-deps/Cargo.lock"
