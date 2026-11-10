@@ -34,7 +34,7 @@ use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
-    services::{cover_jobs::CoverObjectStore, image_pipeline::RECIPE_VERSION},
+    services::{cover_jobs::{CoverJobs, CoverObjectStore}, image_pipeline::RECIPE_VERSION},
 };
 use tor_reading::repositories::PgReader;
 use tor_web::{
