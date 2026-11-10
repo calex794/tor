@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 377);
+    assert_eq!(unique.len(), 379);
 }
 
 #[test]
@@ -519,4 +519,28 @@ fn audience_returns_is_an_exact_read_only_administrator_route() {
     ] {
         assert!(!classify(Some(template), method).route_known);
     }
+}
+
+#[test]
+fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
+    let read = classify(Some("/admin/storage/g09"), "GET");
+    let action = classify(
+        Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+        "POST",
+    );
+    assert!(read.route_known && action.route_known);
+    assert_eq!(read.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(action.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(read.product_area, ProductArea::Admin);
+    assert_eq!(action.product_area, ProductArea::Admin);
+    assert_eq!(read.cost_class, CostClass::CheapRead);
+    assert_eq!(action.cost_class, CostClass::Write);
+    assert!(!classify(Some("/admin/storage/g09"), "POST").route_known);
+    assert!(
+        !classify(
+            Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+            "GET"
+        )
+        .route_known
+    );
 }

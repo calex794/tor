@@ -50,6 +50,8 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
+#[cfg(feature = "s3-paid")]
+pub mod g09_operator;
 mod observability;
 mod operator_overview;
 mod operator_traces;
@@ -98,7 +100,6 @@ struct ReaderModes {
     paid_browser: bool,
     admin_reader: bool,
 }
-
 async fn text_issue_script() -> Response {
     (
         [(
@@ -155,7 +156,6 @@ struct TocQuery {
     limit: Option<u16>,
     after: Option<String>,
 }
-
 #[derive(Serialize)]
 struct TocItem {
     chapter_id: String,
@@ -413,7 +413,6 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         None,
     ))
 }
-
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -431,7 +430,6 @@ pub fn router_with_postgres_reading_auth(
         false,
     )
 }
-
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,

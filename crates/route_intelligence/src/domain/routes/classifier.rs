@@ -388,7 +388,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/finance/payouts/{id}/quote"), "GET") => Some(373),
         (Some("/admin/audience/books"), "GET") => Some(374),
         (Some("/admin/audience/groups"), "GET") => Some(375),
-        (Some("/admin/audience/returns"), "GET") => Some(376),
+        (Some("/admin/storage/g09"), "GET") => Some(376),
+        (Some("/admin/storage/g09/{direction}/{scope}/{action}"), "POST") => Some(377),
+        (Some("/admin/audience/returns"), "GET") => Some(378),
         _ => None,
     };
     index
