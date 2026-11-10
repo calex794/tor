@@ -152,18 +152,11 @@ pub(super) async fn check(
         ),
         1
     );
-    let pending_delete = sqlx::query("DELETE FROM social_paid_comment_appeals WHERE id=$1")
-        .bind(appeal_id)
-        .execute(accounts.pool())
-        .await
-        .expect_err("pending paid comment appeal evidence must be immutable");
-    assert_eq!(
-        pending_delete
-            .as_database_error()
-            .and_then(|error| error.code())
-            .as_deref(),
-        Some("23514"),
-        "the database trigger must reject deletion of an undecided appeal",
+    // Keep the negative SQL test on the established disposable-PG fixture:
+    // tor-web intentionally does not depend on sqlx directly.
+    rejected_pg(
+        url,
+        &format!("DELETE FROM social_paid_comment_appeals WHERE id={appeal_id}"),
     );
 
     eprintln!("S049_PAID_APPEAL persisted author submission");
