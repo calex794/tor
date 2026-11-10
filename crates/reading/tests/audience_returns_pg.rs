@@ -99,6 +99,7 @@ async fn flow_returns_confirmed_progress_privacy_and_exact_utc_cohorts() {
     paid_and_archived_cases(&pool, &sync, &mut actors).await;
     failure_and_consent_race(&pool, &report, &sync, &mut actors).await;
     cohort_cases(&pool, &report, &sync, &mut actors).await;
+    multiple_batches_preserve_coverage(&pool, &report).await;
     for actor in actors {
         consent(&pool, actor, false).await;
     }
@@ -106,6 +107,138 @@ async fn flow_returns_confirmed_progress_privacy_and_exact_utc_cohorts() {
     sqlx::query("DELETE FROM reader_return_coverage WHERE id>$1 AND NOT EXISTS(SELECT 1 FROM reader_return_subjects s WHERE s.coverage_epoch_id=reader_return_coverage.id)")
         .bind(coverage_before).execute(&pool).await.unwrap();
     pool.close().await;
+}
+
+async fn multiple_batches_preserve_coverage(pool: &PgPool, report: &PgReadingReturns) {
+    report.tick_collection(true).await.unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .to_string();
+    // A separate closed epoch proves all three historical target days. It is
+    // test evidence only and cannot become the collector's current epoch.
+    let day: String = sqlx::query_scalar("SELECT ((now() AT TIME ZONE 'UTC')::date-32)::text")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let historical: i64 = sqlx::query_scalar(
+        "INSERT INTO reader_return_coverage(started_at,last_heartbeat_at,ended_at)
+         VALUES(($1::date+1)::timestamp AT TIME ZONE 'UTC',
+                ($1::date+31)::timestamp AT TIME ZONE 'UTC',
+                ($1::date+31)::timestamp AT TIME ZONE 'UTC') RETURNING id",
+    )
+    .bind(&day)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let before: Vec<(i32, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT day::int,enrolled,eligible,returned,unknown FROM reader_return_daily WHERE cohort_day=$1::date ORDER BY day",
+    ).bind(&day).fetch_all(pool).await.unwrap();
+    let actors: Vec<i64> = sqlx::query_scalar(
+        "WITH added AS (
+           INSERT INTO users(email_normalized,display_name,password_hash)
+           SELECT concat('returns-batch-',$1::text,'-',n,'@example.invalid'),'Return batch','$argon2id$fixture'
+           FROM generate_series(1,601) n RETURNING id
+         ), consented AS (
+           INSERT INTO rec_subjects(user_id,enabled,enabled_at)
+           SELECT id,true,now() FROM added RETURNING user_id,subject_id
+         ), cohorts AS (
+           INSERT INTO reader_return_subjects(subject_id,cohort_day,coverage_epoch_id,returned_d1,returned_d7,returned_d30)
+           SELECT subject_id,$2::date,$3,true,false,true FROM consented
+         ) SELECT user_id FROM consented ORDER BY user_id",
+    ).bind(&nonce).bind(&day).bind(historical).fetch_all(pool).await.unwrap();
+    assert_eq!(actors.len(), 601);
+    let active: (i64, String) = sqlx::query_as(
+        "SELECT id,started_at::text FROM reader_return_coverage WHERE ended_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let started = std::time::Instant::now();
+    report.tick_collection(true).await.unwrap();
+    eprintln!(
+        "reading returns: 601-cohort tick completed in {:?}",
+        started.elapsed()
+    );
+    let current: (i64, String) = sqlx::query_as(
+        "SELECT id,started_at::text FROM reader_return_coverage WHERE ended_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        current, active,
+        "a second small batch must not break healthy coverage"
+    );
+    let markers: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_return_subjects r JOIN rec_subjects s USING(subject_id)
+         WHERE s.user_id=ANY($1) AND r.enrolled AND r.cohort_day IS NULL
+           AND r.coverage_epoch_id IS NULL AND r.returned_d1 IS NULL
+           AND r.returned_d7 IS NULL AND r.returned_d30 IS NULL",
+    )
+    .bind(&actors)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(markers, 601, "one tick must finish both bounded batches");
+    let after: Vec<(i32, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT day::int,enrolled,eligible,returned,unknown FROM reader_return_daily WHERE cohort_day=$1::date ORDER BY day",
+    ).bind(&day).fetch_all(pool).await.unwrap();
+    let expected: Vec<_> = [1, 7, 30]
+        .into_iter()
+        .map(|day| {
+            let old = before
+                .iter()
+                .find(|row| row.0 == day)
+                .copied()
+                .unwrap_or((day, 0, 0, 0, 0));
+            (
+                day,
+                old.1 + 601,
+                old.2 + 601,
+                old.3 + if day == 7 { 0 } else { 601 },
+                old.4,
+            )
+        })
+        .collect();
+    assert_eq!(after, expected);
+    report.tick_collection(true).await.unwrap();
+    let replay: Vec<(i32, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT day::int,enrolled,eligible,returned,unknown FROM reader_return_daily WHERE cohort_day=$1::date ORDER BY day",
+    ).bind(&day).fetch_all(pool).await.unwrap();
+    assert_eq!(
+        replay, after,
+        "repeating the tick cannot double anonymous counts"
+    );
+
+    // Remove precisely these actors and this contribution, preserving any
+    // pre-existing anonymous rows, including zero rows belonging to a fixture.
+    sqlx::query("DELETE FROM users WHERE id=ANY($1)")
+        .bind(&actors)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE reader_return_daily SET enrolled=enrolled-601,eligible=eligible-601,returned=returned-CASE WHEN day=7 THEN 0 ELSE 601 END WHERE cohort_day=$1::date")
+        .bind(&day).execute(pool).await.unwrap();
+    for horizon in [1, 7, 30] {
+        if !before.iter().any(|row| row.0 == horizon) {
+            sqlx::query("DELETE FROM reader_return_daily WHERE cohort_day=$1::date AND day=$2 AND enrolled=0")
+                .bind(&day).bind(horizon).execute(pool).await.unwrap();
+        }
+    }
+    sqlx::query("DELETE FROM reader_return_coverage WHERE id=$1")
+        .bind(historical)
+        .execute(pool)
+        .await
+        .unwrap();
+    let restored: Vec<(i32, i64, i64, i64, i64)> = sqlx::query_as(
+        "SELECT day::int,enrolled,eligible,returned,unknown FROM reader_return_daily WHERE cohort_day=$1::date ORDER BY day",
+    ).bind(&day).fetch_all(pool).await.unwrap();
+    assert_eq!(
+        restored, before,
+        "cleanup must preserve every earlier contribution"
+    );
 }
 
 async fn writer_cases(

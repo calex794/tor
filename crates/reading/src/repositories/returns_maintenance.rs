@@ -1,6 +1,7 @@
 //! Supervised heartbeat, bounded finalization, and privacy-window cleanup.
 use super::{unavailable, PgReadingReturns, ReadingReturnsError};
 use sqlx::{Postgres, Transaction};
+use std::time::{Duration, Instant};
 
 impl PgReadingReturns {
     /// Call once when the collector process starts, including disabled starts.
@@ -73,6 +74,23 @@ impl PgReadingReturns {
 }
 
 async fn maintain(tx: &mut Transaction<'_, Postgres>) -> Result<bool, ReadingReturnsError> {
+    let started = Instant::now();
+    // A normal midnight cohort can exceed one 500-row batch. Finish a bounded
+    // backlog in this transaction instead of manufacturing a five-second gap
+    // between otherwise healthy ticks. The time budget is checked between
+    // batches; it does not cancel a partially completed SQL statement.
+    for _ in 0..16 {
+        if maintain_batch(tx).await? {
+            return Ok(true);
+        }
+        if started.elapsed() >= Duration::from_millis(500) {
+            break;
+        }
+    }
+    Ok(false)
+}
+
+async fn maintain_batch(tx: &mut Transaction<'_, Postgres>) -> Result<bool, ReadingReturnsError> {
     sqlx::query(FINALIZE)
         .execute(&mut **tx)
         .await
