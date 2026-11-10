@@ -2647,6 +2647,13 @@
       "source": "crates/web/src/auth/admin_creator_payouts.rs",
       "handler": "quote",
       "policy": "admin_payout"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/payouts/{id}/post",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "posting::submit",
+      "policy": "admin_payout"
     }
   ]
 }

@@ -386,6 +386,7 @@ static ROUTES: [RouteRegistration; 376] = [
     RouteRegistration::new("/admin/finance/payouts/{id}/quote", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 373
     RouteRegistration::new("/admin/audience/books", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 374
     RouteRegistration::new("/admin/audience/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 375
+    RouteRegistration::new("/admin/finance/payouts/{id}/post", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 376
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
