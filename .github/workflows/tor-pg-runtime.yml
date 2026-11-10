@@ -220,9 +220,12 @@ jobs:
           cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
+          cargo test -p tor-ingest --test outbox_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
@@ -285,6 +288,14 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
@@ -328,6 +339,8 @@ jobs:
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test d08_finance_pg s038_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_reject_pg d_09_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_approval_quote_pg d_09_quote_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           ci_pg_phase_done "commerce_support"
@@ -346,9 +359,13 @@ jobs:
           cargo test -p tor-web --test auth_postgres -- --ignored
           env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
-          env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_DIRECT_REFUND_REQUESTS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refund_browser_disabled_by_default -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 TOR_REFUND_APPROVAL_HTTP_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
+          env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_ADMIN_SUPPORT_REFUNDS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refunds_not_routed_to_buyer -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_ADMIN_SUPPORT_REFUNDS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_admin_support_search_exact_purchase_prepare_approve_and_replay -- --ignored --test-threads=1
+          
+          env -u TOR_S039_PAYOUT_REJECT_HTTP_ENABLED cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_S039_PAYOUT_REJECT_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_admin_role_csrf_idempotent_rejection -- --ignored --test-threads=1
+          env -u TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_admin_only_and_no_wallet_movement -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1

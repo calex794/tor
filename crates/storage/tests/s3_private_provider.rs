@@ -226,3 +226,165 @@ fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
         ));
     }
 }
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO only"]
+async fn g_09_reconciliation_2501_private_list_pages() {
+    use std::collections::HashSet;
+    use tokio::task::JoinSet;
+    use tor_storage::services::reconciliation::{PrivateInventoryLister, PrivateScope};
+
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "never use a production S3 endpoint"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").unwrap();
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").unwrap();
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(Credentials::new(
+            access,
+            secret,
+            None,
+            None,
+            "loopback-test",
+        ))
+        .endpoint_url(&endpoint)
+        .force_path_style(true)
+        .retry_config(RetryConfig::standard().with_max_attempts(1))
+        .build();
+    let client = Client::from_conf(config);
+    let bucket = "tor-private-inventory-ci";
+    client
+        .create_bucket()
+        .bucket(bucket)
+        .send()
+        .await
+        .expect("create isolated private bucket");
+    let store = S3PrivateStore::new(client.clone(), bucket.to_owned()).unwrap();
+
+    // Actual provider pagination beyond two S3 1000-key pages, not mocked.
+    let mut tasks = JoinSet::new();
+    for number in 1..=2501_u32 {
+        let worker = client.clone();
+        tasks.spawn(async move {
+            let key =
+                format!("private/chapter-versions/{number:08x}-dcb1-4c1a-a000-{number:012x}.enc");
+            worker
+                .put_object()
+                .bucket("tor-private-inventory-ci")
+                .key(key)
+                .body(ByteStream::from_static(b"inventory-test-only"))
+                .send()
+                .await
+                .expect("disposable test object");
+        });
+        if tasks.len() >= 32 {
+            tasks.join_next().await.unwrap().unwrap();
+        }
+    }
+    while let Some(result) = tasks.join_next().await {
+        result.unwrap();
+    }
+
+    let mut continuation: Option<String> = None;
+    let mut pages = Vec::new();
+    let mut keys = HashSet::new();
+    loop {
+        let page = store
+            .list_private_page(PrivateScope::Chapter, continuation.as_deref())
+            .await
+            .unwrap();
+        pages.push(page.objects.len());
+        for object in page.objects {
+            assert!(object.key.starts_with(PrivateScope::Chapter.prefix()));
+            assert!(keys.insert(object.key), "duplicate LIST key across pages");
+        }
+        if let Some(next) = page.continuation {
+            assert_ne!(continuation.as_deref(), Some(next.as_str()));
+            continuation = Some(next);
+        } else {
+            break;
+        }
+        assert!(pages.len() <= 3, "LIST cursor must advance");
+    }
+    assert_eq!(pages, vec![1000, 1000, 501]);
+    assert_eq!(keys.len(), 2501);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO only"]
+async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
+    use tor_storage::services::reconciliation::{PrivateRegisteredHead, RegisteredHeadResult};
+
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "never test against a production S3 endpoint"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").unwrap();
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").unwrap();
+    let configure = |key: String, password: String| {
+        aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::new(key, password, None, None, "loopback-test"))
+            .endpoint_url(&endpoint)
+            .force_path_style(true)
+            .retry_config(RetryConfig::standard().with_max_attempts(1))
+            .build()
+    };
+    let client = Client::from_conf(configure(access, secret));
+    let bucket = "tor-private-reverse-head-ci";
+    client.create_bucket().bucket(bucket).send().await.unwrap();
+    let store = S3PrivateStore::new(client.clone(), bucket.into()).unwrap();
+    let id = ObjectId::parse("9b000000-0000-4000-8000-000000000001").unwrap();
+    let body = b"immutable ciphertext metadata test bytes";
+    let record = object(body, id);
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            record.object_id.as_str()
+        ))
+        .content_type("application/octet-stream")
+        .metadata("sha256", hex::encode(record.sha256_ciphertext))
+        .body(ByteStream::from(body.to_vec()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        store.head_registered(&record).await,
+        Ok(RegisteredHeadResult::Present)
+    );
+    let forged = object(
+        b"forged ciphertext metadata exactly here",
+        record.object_id.clone(),
+    );
+    assert_eq!(
+        store.head_registered(&forged).await,
+        Ok(RegisteredHeadResult::MetadataMismatch)
+    );
+    let missing = object(
+        body,
+        ObjectId::parse("9b000000-0000-4000-8000-000000000002").unwrap(),
+    );
+    assert_eq!(
+        store.head_registered(&missing).await,
+        Ok(RegisteredHeadResult::Missing)
+    );
+
+    // Authentication failure must NOT be classified as a missing object.
+    let wrong = Client::from_conf(configure(
+        "invalid-ci-key".into(),
+        "invalid-ci-secret".into(),
+    ));
+    let blocked = S3PrivateStore::new(wrong, bucket.into()).unwrap();
+    assert_eq!(
+        blocked.head_registered(&record).await,
+        Err(StorageError::Unavailable)
+    );
+}

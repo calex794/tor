@@ -35,6 +35,8 @@ use tor_reading::services::{
 mod access_audit;
 mod account_form_http;
 mod account_home;
+mod admin_creator_payouts;
+mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
@@ -105,7 +107,6 @@ mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
 mod referral_routes;
-mod refund_browser;
 mod reply_read_state;
 mod reset_delivery;
 mod saved_free_chapters;
@@ -211,8 +212,7 @@ fn router_inner(
         paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
     let swap_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
-    let refund_browser_enabled = paid_checkout_enabled
-        && std::env::var("TOR_DIRECT_REFUND_REQUESTS_ENABLED").as_deref() == Ok("1");
+
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
@@ -224,7 +224,6 @@ fn router_inner(
         layer_checkout_enabled,
         layer_pages_enabled,
         swap_browser_enabled,
-        refund_browser_enabled,
         paid_reader_available,
         paid_author_available,
         authoring,
@@ -273,7 +272,9 @@ fn router_inner(
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
+        .merge(admin_jobs::router())
         .merge(admin_refund_review::router())
+        .merge(admin_creator_payouts::router())
         .merge(moderation_books::router())
         .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
@@ -356,7 +357,6 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
-        .merge(refund_browser::router())
         .route(
             "/me/refunds/swap",
             get(direct_swap_browser::page).post(direct_swap_browser::submit),
@@ -430,7 +430,7 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(session_security::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -583,11 +583,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    session_security::logout(State(state), headers, Form(form)).await
 }

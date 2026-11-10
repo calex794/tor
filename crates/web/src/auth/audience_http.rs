@@ -1,5 +1,7 @@
-//! FLOW: site-administrator access to canonical C reading aggregates.
+//! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
+mod books;
+mod groups;
 mod render;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -15,12 +17,18 @@ use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_reading::{repositories::audience::PgAudience, services::audience::AudienceError};
+use tor_recommendations::{
+    repositories::audience::PgDiscoveryAudience, services::audience::DiscoveryError,
+};
+use tor_traffic_behavior::{repositories::PgFlowAudience, services::audience::FlowHourlyError};
 
 #[derive(Clone)]
 struct AudienceState {
     accounts: PgAccounts,
     cookies: CookiePolicy,
     store: PgAudience,
+    discovery: PgDiscoveryAudience,
+    traffic: PgFlowAudience,
 }
 
 #[derive(Default, Deserialize)]
@@ -40,12 +48,18 @@ impl AudienceQuery {
 
 pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let store = PgAudience::new(accounts.pool().clone());
+    let discovery = PgDiscoveryAudience::new(accounts.pool().clone());
+    let traffic = PgFlowAudience::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/books", get(books::page))
+        .route("/admin/audience/groups", get(groups::page))
         .with_state(AudienceState {
             accounts,
             cookies,
             store,
+            discovery,
+            traffic,
         })
 }
 
@@ -80,7 +94,7 @@ async fn page(
     headers: HeaderMap,
     query: Result<Query<AudienceQuery>, QueryRejection>,
 ) -> Response {
-    // One deadline covers both fresh authorization and the aggregate read.
+    // One deadline covers fresh authorization and all independent aggregate reads.
     let deadline = Instant::now() + Duration::from_millis(950);
     match timeout_at(deadline, administrator(&state, &headers)).await {
         Ok(Ok(())) => {}
@@ -95,13 +109,37 @@ async fn page(
         Ok(days) => days,
         Err(status) => return secure(status),
     };
-    match timeout_at(deadline, state.store.report(days)).await {
-        Ok(Ok(report)) => secure(render::page(&report)),
-        Ok(Err(AudienceError::Invalid)) => secure(StatusCode::BAD_REQUEST),
-        Ok(Err(AudienceError::Unavailable)) | Err(_) => {
-            secure((StatusCode::SERVICE_UNAVAILABLE, render::unavailable(days)))
-        }
+    let hours_supported = matches!(days, 1 | 7);
+    let (reading, sources, hours) = tokio::join!(
+        timeout_at(deadline, state.store.report(days)),
+        timeout_at(deadline, state.discovery.report(days)),
+        async {
+            if hours_supported {
+                timeout_at(deadline, state.traffic.report(days)).await.ok()
+            } else {
+                None
+            }
+        },
+    );
+    if matches!(reading, Ok(Err(AudienceError::Invalid)))
+        || matches!(sources, Ok(Err(DiscoveryError::Invalid)))
+        || matches!(hours, Some(Err(FlowHourlyError::Invalid)))
+    {
+        return secure(StatusCode::BAD_REQUEST);
     }
+    let reading = reading.ok().and_then(Result::ok);
+    let sources = sources.ok().and_then(Result::ok);
+    let hours = hours.and_then(Result::ok);
+    let status = if reading.is_some() && sources.is_some() && (!hours_supported || hours.is_some())
+    {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    secure((
+        status,
+        render::page(days, reading.as_ref(), sources.as_ref(), hours.as_ref()),
+    ))
 }
 
 #[cfg(test)]

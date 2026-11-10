@@ -249,3 +249,105 @@ impl OrphanDeletePort for S3PrivateStore {
 
 #[cfg(test)]
 mod tests;
+
+/// Read-only listing: no DELETE, GET, public URL or untrusted prefix.
+#[async_trait]
+impl crate::services::reconciliation::PrivateInventoryLister for S3PrivateStore {
+    fn private_bucket(&self) -> &str {
+        &self.bucket
+    }
+
+    async fn list_private_page(
+        &self,
+        scope: crate::services::reconciliation::PrivateScope,
+        continuation: Option<&str>,
+    ) -> Result<crate::services::reconciliation::PrivateInventoryPage, StorageError> {
+        use crate::services::reconciliation::{ListedPrivateObject, PrivateInventoryPage};
+
+        let page = self
+            .client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(scope.prefix())
+            .max_keys(1000)
+            .set_continuation_token(continuation.map(str::to_owned))
+            .send()
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+
+        let objects = page
+            .contents()
+            .iter()
+            .map(|entry| ListedPrivateObject {
+                key: entry.key().unwrap_or("").to_owned(),
+                size_bytes: entry.size(),
+                modified_at: entry
+                    .last_modified()
+                    .and_then(|date| u64::try_from(date.secs()).ok())
+                    .and_then(|secs| std::time::UNIX_EPOCH.checked_add(Duration::from_secs(secs))),
+            })
+            .collect();
+        Ok(PrivateInventoryPage {
+            objects,
+            continuation: page.next_continuation_token().map(str::to_owned),
+        })
+    }
+}
+
+/// G-09 reverse reconciliation. Only a known private bucket and an immutable
+/// canonical ObjectRef from PostgreSQL may be checked; no body is downloaded.
+#[async_trait]
+impl crate::services::reconciliation::PrivateRegisteredHead for S3PrivateStore {
+    fn private_bucket(&self) -> &str {
+        &self.bucket
+    }
+
+    async fn head_registered(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<crate::services::reconciliation::RegisteredHeadResult, StorageError> {
+        use crate::services::reconciliation::RegisteredHeadResult;
+        if !Self::valid(object) {
+            return Err(StorageError::Invalid);
+        }
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(Self::key(object))
+            .send()
+            .await;
+        match head {
+            Ok(response) => Ok(
+                if Self::head_is_exact(
+                    object,
+                    response.content_length(),
+                    response.content_type(),
+                    response.content_encoding(),
+                    response
+                        .metadata()
+                        .and_then(|values| values.get("sha256"))
+                        .map(String::as_str),
+                ) {
+                    RegisteredHeadResult::Present
+                } else {
+                    RegisteredHeadResult::MetadataMismatch
+                },
+            ),
+            Err(error) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let missing = error
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .is_some_and(|code| matches!(code, "NotFound" | "NoSuchKey" | "404"));
+                if missing {
+                    Ok(RegisteredHeadResult::Missing)
+                } else {
+                    // 403/5xx, expired credentials, network failures and any
+                    // unrecognised response are NOT proof that an object is absent.
+                    Err(StorageError::Unavailable)
+                }
+            }
+        }
+    }
+}

@@ -755,7 +755,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "logout",
+      "handler": "session_security::logout",
       "policy": "csrf_only"
     },
     {
@@ -1754,17 +1754,17 @@
     },
     {
       "method": "GET",
-      "template": "/me/refunds",
-      "source": "crates/web/src/auth/refund_browser.rs",
-      "handler": "page",
-      "policy": "session"
+      "template": "/admin/finance/refunds/user/{id}",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "buyer",
+      "policy": "admin_refund"
     },
     {
       "method": "POST",
-      "template": "/me/refunds",
-      "source": "crates/web/src/auth/refund_browser.rs",
-      "handler": "submit",
-      "policy": "scoped"
+      "template": "/admin/finance/refunds/prepare",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "prepare::submit",
+      "policy": "admin_refund_prepare"
     },
     {
       "method": "GET",
@@ -2580,6 +2580,20 @@
     },
     {
       "method": "GET",
+      "template": "/admin/audience/books",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "books::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/groups",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "groups::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
       "template": "/me/free-comment-appeals",
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::author_page",
@@ -2605,6 +2619,34 @@
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::decide",
       "policy": "admin_free_comment_appeals"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/admin/jobs/{id}/retry",
+      "source": "crates/web/src/auth/admin_jobs.rs",
+      "handler": "retry",
+      "policy": "admin_outbox_retry"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/payouts",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "queue",
+      "policy": "admin_payout"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/payouts/{id}/reject",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "reject",
+      "policy": "admin_payout"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/payouts/{id}/quote",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "quote",
+      "policy": "admin_payout"
     }
   ]
 }

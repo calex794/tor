@@ -60,3 +60,15 @@ ci_rec_step_done "browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_pg_browser.cjs
 ci_rec_step_done "audience_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_sources_pg_browser.cjs
+ci_rec_step_done "audience_sources_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_hours_pg_browser.cjs
+ci_rec_step_done "audience_hours_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_books_pg_browser.cjs
+ci_rec_step_done "audience_books_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_groups_pg_browser.cjs
+ci_rec_step_done "audience_groups_browser_acceptance"

@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 370);
+    assert_eq!(unique.len(), 376);
 }
 
 #[test]
@@ -431,4 +431,75 @@ fn s049_independent_free_comment_appeals_route_guard_distinction() {
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/free-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
+    let route = "/api/v1/admin/jobs/{id}/retry";
+    let passport = classify(Some(route), "POST");
+    assert!(passport.route_known);
+    assert_eq!(passport.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(passport.product_area, ProductArea::Admin);
+    assert_eq!(passport.cost_class, CostClass::Write);
+    assert!(!classify(Some(route), "GET").route_known);
+}
+
+#[test]
+fn s036_refunds_are_administrator_only_not_buyer_self_service() {
+    for method in ["GET", "POST"] {
+        assert!(!classify(Some("/me/refunds"), method).route_known);
+    }
+    for (template, method) in [
+        ("/admin/finance/refunds", "GET"),
+        ("/admin/finance/refunds/user/{id}", "GET"),
+        ("/admin/finance/refunds/prepare", "POST"),
+        ("/admin/finance/refunds/approve", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Billing);
+    }
+}
+
+#[test]
+fn s039_admin_quote_is_private_read_without_an_http_post() {
+    let quote = classify(Some("/admin/finance/payouts/{id}/quote"), "GET");
+    assert!(quote.route_known);
+    assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(quote.cost_class, CostClass::CheapRead);
+    assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
+}
+
+#[test]
+fn audience_books_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/books"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/books", "POST"),
+        ("/admin/audience/books/export", "GET"),
+        ("/admin/audience/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn audience_groups_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/groups"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/groups", "POST"),
+        ("/admin/audience/groups/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
 }

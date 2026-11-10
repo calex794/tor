@@ -153,6 +153,27 @@ impl PgDirectRefundApprovals {
             .try_get("user_id")
             .map_err(|_| DirectRefundApproveError::Unavailable)?;
 
+        // A manual support exception is tied to this exact purchase, buyer,
+        // support conversation and the administrator who initiated it.
+        let support_basis: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+               SELECT 1 FROM finance_support_refund_intents si
+               JOIN support_conversations c
+                 ON c.id=si.support_conversation_id
+                AND c.requester_user_id=si.buyer_user_id
+               WHERE si.request_id=$1 AND si.purchase_id=$2
+                 AND si.buyer_user_id=$3 AND si.admin_user_id=$4
+                 AND si.basis='support_discretion'
+             )",
+        )
+        .bind(request_id)
+        .bind(purchase_id)
+        .bind(buyer)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+
         // Match the checkout lock order. A concurrent checkout must never
         // overwrite the refunded buyer balance or reverse a non-owned fact.
         let balance: i64 = sqlx::query_scalar(
@@ -310,21 +331,21 @@ impl PgDirectRefundApprovals {
         let approved: bool = purchase
             .try_get("approved_policy")
             .map_err(|_| DirectRefundApproveError::Unavailable)?;
-        if policy.is_none() || !approved {
+        if !support_basis && (policy.is_none() || !approved) {
             return Err(DirectRefundApproveError::PolicyUnavailable);
         }
-        if tracking.as_deref() != Some("c06-first-issue-v1") {
+        if !support_basis && tracking.as_deref() != Some("c06-first-issue-v1") {
             return Err(DirectRefundApproveError::UnverifiedPurchase);
         }
         let within_deadline: bool = sqlx::query_scalar(
-            "SELECT clock_timestamp() <= refund_deadline_at
+            "SELECT COALESCE(clock_timestamp() <= refund_deadline_at,FALSE)
              FROM chapter_purchase_facts WHERE id=$1",
         )
         .bind(purchase_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| DirectRefundApproveError::Unavailable)?;
-        if !within_deadline {
+        if !support_basis && !within_deadline {
             return Err(DirectRefundApproveError::WindowExpired);
         }
         // After acquiring the purchase lock, re-read exposed/revoked state
@@ -347,9 +368,10 @@ impl PgDirectRefundApprovals {
         {
             return Err(DirectRefundApproveError::Revoked);
         }
-        if evidence
-            .try_get::<bool, _>("opened")
-            .map_err(|_| DirectRefundApproveError::Unavailable)?
+        if !support_basis
+            && evidence
+                .try_get::<bool, _>("opened")
+                .map_err(|_| DirectRefundApproveError::Unavailable)?
         {
             return Err(DirectRefundApproveError::AlreadyOpened);
         }
@@ -363,11 +385,11 @@ impl PgDirectRefundApprovals {
         let creator: i64 = purchase
             .try_get("creator_pool_minor")
             .map_err(|_| DirectRefundApproveError::Unavailable)?;
-        let finance_policy: String = purchase
+        let finance_policy: Option<String> = purchase
             .try_get("finance_refund_policy")
             .map_err(|_| DirectRefundApproveError::Unavailable)?;
         let deadline_matches: bool = sqlx::query_scalar(
-            "SELECT p.refund_deadline_at=fp.refund_deadline_at
+            "SELECT p.refund_deadline_at IS NOT DISTINCT FROM fp.refund_deadline_at
              FROM chapter_purchase_facts p
              JOIN finance_chapter_postings fp ON fp.purchase_id=p.id
              WHERE p.id=$1",
@@ -377,7 +399,7 @@ impl PgDirectRefundApprovals {
         .await
         .map_err(|_| DirectRefundApproveError::Unavailable)?;
         if !deadline_matches
-            || policy.as_deref() != Some(finance_policy.as_str())
+            || policy != finance_policy
             || amount <= 0
             || platform < 0
             || creator < 0
@@ -507,6 +529,19 @@ impl PgDirectRefundApprovals {
         .await
         .map_err(|_| DirectRefundApproveError::Unavailable)?
         .ok_or(DirectRefundApproveError::RevisionConflict)?;
+        if support_basis {
+            sqlx::query(
+                "INSERT INTO admin_action_audit
+                 (actor_id,action,resource_type,resource_id,request_id,outcome)
+                 VALUES($1,'finance.refund.approve','chapter_purchase',$2,$3,'approved')",
+            )
+            .bind(actor)
+            .bind(purchase_id)
+            .bind(request_id.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        }
         tx.commit()
             .await
             .map_err(|_| DirectRefundApproveError::Unavailable)?;

@@ -249,8 +249,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/settings/sources"), "POST") => Some(236),
         (Some("/read/admin/{chapter_id}"), "GET") => Some(237),
         (Some("/assets/newboo-admin-reader.mjs"), "GET") => Some(238),
-        (Some("/me/refunds"), "GET") => Some(239),
-        (Some("/me/refunds"), "POST") => Some(240),
+        (Some("/admin/finance/refunds/user/{id}"), "GET") => Some(239),
+        (Some("/admin/finance/refunds/prepare"), "POST") => Some(240),
         (Some("/admin/finance/refunds"), "GET") => Some(241),
         (Some("/assets/book-title-suggestions.js"), "GET") => Some(242),
         (Some("/me/books/title-suggestions"), "GET") => Some(243),
@@ -382,6 +382,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/free-comment-appeals/{hide_event_id}"), "POST") => Some(367),
         (Some("/admin/free-comment-appeals"), "GET") => Some(368),
         (Some("/admin/free-comment-appeals/{appeal_id}/decision"), "POST") => Some(369),
+        (Some("/api/v1/admin/jobs/{id}/retry"), "POST") => Some(370),
+        (Some("/admin/finance/payouts"), "GET") => Some(371),
+        (Some("/admin/finance/payouts/{id}/reject"), "POST") => Some(372),
+        (Some("/admin/finance/payouts/{id}/quote"), "GET") => Some(373),
+        (Some("/admin/audience/books"), "GET") => Some(374),
+        (Some("/admin/audience/groups"), "GET") => Some(375),
         _ => None,
     };
     index
