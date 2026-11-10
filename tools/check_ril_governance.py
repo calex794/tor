@@ -526,11 +526,19 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and admin_key == ("GET", "/admin/audience", "page")
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
+    audited_g09 = (
+        policy == "admin_storage_reconciliation"
+        and entry["source"] == "crates/web/src/auth/admin_storage_reconciliation/enabled.rs"
+        and admin_key in {
+            ("GET", "/admin/storage/reconciliation", "page"),
+            ("POST", "/admin/storage/reconciliation/run", "run"),
+        }
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -684,12 +692,18 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "state.cookies.valid_csrf(&headers, &input.csrf_token)",
                 "direction(&input.direction)", "scope(&input.scope)",
                 "PgReconciliationCommands::new",
-                ".record(actor, direction.name(), scope",
                 "S3PrivateStore::new", "scan_page(&store, scope)",
                 "begin_next_cycle(&bucket, scope)",
                 "resume_exhausted(&bucket, scope)",
             ))
-            guarded = guarded and body.index(".record(") < body.index("S3PrivateStore::new")
+            guarded = (
+                guarded
+                and bool(re.search(
+                    r"\.record\s*\(\s*actor\s*,\s*direction\.name\(\)\s*,\s*scope\s*,",
+                    body
+                ))
+                and body.index(".record(") < body.index("S3PrivateStore::new")
+            )
         if not guarded:
             errors.append(f"{label}: G-09 console must preserve bounded read-only audited flow")
     if policy == "admin_outbox_retry":

@@ -278,8 +278,7 @@ pub(super) async fn run(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let (Some(direction), Some(scope)) = (direction(&input.direction), scope(&input.scope))
-    else {
+    let (Some(direction), Some(scope)) = (direction(&input.direction), scope(&input.scope)) else {
         return deny(StatusCode::BAD_REQUEST);
     };
     if !matches!(
@@ -354,10 +353,12 @@ pub(super) async fn run(
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/admin/storage/reconciliation", get(page)).route(
-        "/admin/storage/reconciliation/run",
-        post(run).layer(DefaultBodyLimit::max(4096)),
-    )
+    Router::new()
+        .route("/admin/storage/reconciliation", get(page))
+        .route(
+            "/admin/storage/reconciliation/run",
+            post(run).layer(DefaultBodyLimit::max(4096)),
+        )
 }
 
 #[cfg(test)]
