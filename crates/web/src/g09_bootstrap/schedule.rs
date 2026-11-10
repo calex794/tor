@@ -22,10 +22,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(150);
 /// This task is never created unless BOTH G-09 operator and scheduler flags
 /// are explicitly enabled in the authenticated PostgreSQL + private S3 build.
 /// Initial 15-minute delay avoids S3 traffic before HTTP binds.
-pub(super) fn start(
-    accounts: PgAccounts,
-    store: S3PrivateStore,
-) -> tokio::task::JoinHandle<()> {
+pub(super) fn start(accounts: PgAccounts, store: S3PrivateStore) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let pool = accounts.pool().clone();
         let due = PgG09Schedule::new(pool.clone());
@@ -38,21 +35,30 @@ pub(super) fn start(
                     let result = tokio::time::timeout(
                         CALL_TIMEOUT,
                         tick_one(&due, &forward, &reverse, &store, scope, reverse_direction),
-                    ).await;
+                    )
+                    .await;
                     match result {
                         Ok(Ok(())) => (),
                         Ok(Err(error)) => {
                             tracing::warn!(
                                 ?error,
                                 scope = scope.kind(),
-                                direction = if reverse_direction { "pg-to-s3" } else { "s3-to-pg" },
+                                direction = if reverse_direction {
+                                    "pg-to-s3"
+                                } else {
+                                    "s3-to-pg"
+                                },
                                 "G-09 scheduled diagnostic page failed (no DELETE/GET)"
                             );
                         }
                         Err(_) => {
                             tracing::warn!(
                                 scope = scope.kind(),
-                                direction = if reverse_direction { "pg-to-s3" } else { "s3-to-pg" },
+                                direction = if reverse_direction {
+                                    "pg-to-s3"
+                                } else {
+                                    "s3-to-pg"
+                                },
                                 "G-09 scheduled diagnostic page timed out; lease will expire"
                             );
                         }
