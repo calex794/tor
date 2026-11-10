@@ -25,7 +25,8 @@ impl PgReadingReturns {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let rows = sqlx::query(books_query::REPORT)
+        let statement = books_query::book_report();
+        let rows = sqlx::query(&statement)
             .bind(days)
             .bind(book_id)
             .fetch_all(&mut *tx)
@@ -53,7 +54,7 @@ impl PgReadingReturns {
     }
 }
 
-fn period(rows: &[PgRow]) -> Result<BookReadingReturnsPeriod, ReadingReturnsError> {
+pub(super) fn period(rows: &[PgRow]) -> Result<BookReadingReturnsPeriod, ReadingReturnsError> {
     let mut metrics = Vec::with_capacity(2);
     for row in rows {
         metrics.push(ReadingReturnsMetric {

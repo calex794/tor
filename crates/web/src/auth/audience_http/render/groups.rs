@@ -51,7 +51,8 @@ pub(crate) fn page(
         «Нет сохранённых наблюдений» не означает, что книги нигде не показывали или что они неинтересны.</p>
         <p>Сбор учитывает действующее согласие. Отзыв останавливает новые события;
         недавние сведения убираются при пересчёте. Обезличенные прежние итоги сохраняются
-        в пределах действующего срока хранения. Возвращаемость здесь не измеряется.</p></details>
+        в пределах действующего срока хранения. Для каждой группы доступен отдельный отчёт
+        о возвращениях к её книгам на 7-й и 30-й день.</p></details>
         <p><a href="/me">Вернуться в личный кабинет</a></p></div></section>"#);
     layout(
         "Жанры и теги — Аудитория",
@@ -192,10 +193,12 @@ fn group_row(body: &mut String, query: &GroupDiscoveryQuery, group: &GroupDiscov
         data-label="{}" data-missing="{}" data-kind="{}">
         <h3>{}</h3><p>Книг: <strong data-testid="audience-group-book-count">{}</strong>.</p>
         <p><a class="button button--quiet" data-testid="audience-group-books" href="{}">Открыть книги этой группы</a></p>
+        <p><a class="button button--quiet" data-testid="audience-group-returns-link" href="{}">Возвращения к книгам группы</a></p>
         <div class="audience-source-grid">"#,
         escape_html(group.label.as_deref().unwrap_or("")), group.label.is_none(), kind_key(query.kind),
         escape_html(group.label.as_deref().unwrap_or(missing)), group.matched_books,
-        escape_html(&books_url(query, group.label.as_deref()))).expect("String");
+        escape_html(&books_url(query, group.label.as_deref())),
+        escape_html(&returns_url(query, group.label.as_deref()))).expect("String");
     for (key, title, metrics, counts) in [
         (
             "current",
@@ -252,4 +255,17 @@ fn books_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
             query.days
         ),
     }
+}
+
+fn returns_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
+    let mut url = format!(
+        "/admin/audience/returns?days={}&kind={}",
+        query.days,
+        kind_key(query.kind)
+    );
+    match label {
+        Some(label) => write!(url, "&label={}", evidence::encode(label)).expect("String"),
+        None => url.push_str("&without_label=true"),
+    }
+    url
 }
