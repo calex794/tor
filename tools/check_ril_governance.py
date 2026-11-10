@@ -254,8 +254,8 @@ def _contains_scoped_call(body: str, names: set[str]) -> bool:
 
 
 def _audience_returns_are_bounded(body: str) -> bool:
-    # Both branches share one unconditional live guard and one request budget.
-    # An authorized global read must not hide a bypass in the book branch.
+    # All three branches share one unconditional live guard and request budget.
+    # A guarded global/book read must not hide a bypass in the group branch.
     guard = re.search(
         r"\)\s*->\s*Response\s*\{\s*"
         r"let\s+deadline\s*=\s*Instant::now\(\)\s*\+\s*Duration::from_millis\(950\);\s*"
@@ -270,10 +270,12 @@ def _audience_returns_are_bounded(body: str) -> bool:
     for method, arguments in (
         ("returns_report", r"days"),
         ("book_returns_report", r"book,\s*days"),
+        ("group_book_returns_report", r"&group_query"),
     ):
         calls = list(re.finditer(rf"\.{method}\s*\(", body))
         bounded = re.search(
-            rf"timeout_at\(deadline,\s*state\.returns\.{method}\({arguments}\)\)\.await",
+            rf"timeout_at\(\s*deadline,\s*state\.returns\.{method}"
+            rf"\(\s*{arguments}\s*\)\s*,?\s*\)\s*\.await",
             body,
         )
         if len(calls) != 1 or bounded is None or bounded.start() < guard.end():
@@ -1510,7 +1512,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
         if audience_returns and not _audience_returns_are_bounded(body):
             errors.append(
-                f"{label}: FLOW returns must keep both report reads behind live authorization and its deadline"
+                f"{label}: FLOW returns must keep all three report reads behind live authorization and its deadline"
             )
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
