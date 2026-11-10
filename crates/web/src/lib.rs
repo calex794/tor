@@ -100,7 +100,6 @@ struct ReaderModes {
     paid_browser: bool,
     admin_reader: bool,
 }
-
 async fn text_issue_script() -> Response {
     (
         [(
@@ -157,7 +156,6 @@ struct TocQuery {
     limit: Option<u16>,
     after: Option<String>,
 }
-
 #[derive(Serialize)]
 struct TocItem {
     chapter_id: String,
