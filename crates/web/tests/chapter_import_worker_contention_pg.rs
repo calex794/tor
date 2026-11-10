@@ -1,6 +1,7 @@
 //! P1: actual S023 importer + G-09 image worker + authenticated HTTP all
-//! share one real three-connection PostgreSQL pool. Both private object ports
-//! are isolated in-memory fakes; image processing and database jobs are real.
+//! compete with real REC generation, creator finance reads, and authenticated
+//! HTTP on one three-connection PostgreSQL pool. Both private object ports are
+//! isolated in-memory fakes; image processing and database jobs are real.
 //! No external storage, production data, deployments or schema mutations.
 use async_trait::async_trait;
 use axum::{
@@ -23,6 +24,7 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
+use tor_commerce::repositories::creator_finance::PgCreatorFinance;
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
     services::{
@@ -40,6 +42,7 @@ use tor_ingest::{
     },
 };
 use tor_reading::repositories::PgReader;
+use tor_recommendations::repositories::PgRecommendations;
 use tor_web::{
     chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult},
     cover_worker::{CoverRunner, CoverRunnerMonitor},
@@ -293,9 +296,28 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         .await
         .expect("enqueue private G-09 worker job");
 
+    // Real REC worker: schedule a generation before contention, then advance
+    // one bounded page at the same start gate as the other workers.
+    let recommendations = PgRecommendations::new(pool.clone());
+    recommendations
+        .request_refresh()
+        .await
+        .expect("schedule real recommendation generation");
+
+    // A disposable wallet with a known value lets finance reads prove both
+    // correctness and absence of unintended balance changes under contention.
+    sqlx::query(
+        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES($1,1000,'RUB')",
+    )
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .expect("seed isolated creator wallet");
+
     const PREVIEWS: usize = 18;
-    // 18 author HTTP requests + 1 S023 worker + 1 G-09 worker + 1 probe.
-    let barrier = Arc::new(Barrier::new(PREVIEWS + 3));
+    const FINANCE_READS: usize = 8;
+    // Previews + importer + cover + REC + finance readers + health probe.
+    let barrier = Arc::new(Barrier::new(PREVIEWS + FINANCE_READS + 4));
     let worker = ChapterImportWorker::new(&catalog, Arc::new(store.clone()));
     let worker_gate = Arc::clone(&barrier);
     let worker_task = tokio::spawn(async move {
@@ -318,6 +340,30 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         let completed = cover_runner.run_one_bounded(Duration::from_secs(20)).await;
         (completed, started.elapsed())
     });
+
+    let recommendation_gate = Arc::clone(&barrier);
+    let recommendation_task = tokio::spawn(async move {
+        recommendation_gate.wait().await;
+        let started = Instant::now();
+        let advanced = recommendations
+            .advance_generation()
+            .await
+            .expect("real recommendation worker page");
+        (advanced, started.elapsed())
+    });
+
+    let finance = PgCreatorFinance::new(pool.clone());
+    let mut finance_tasks = tokio::task::JoinSet::new();
+    for _ in 0..FINANCE_READS {
+        let reader = finance.clone();
+        let gate = Arc::clone(&barrier);
+        finance_tasks.spawn(async move {
+            gate.wait().await;
+            let started = Instant::now();
+            let totals = reader.totals(owner).await.expect("real finance totals");
+            (totals, started.elapsed())
+        });
+    }
 
     let mut pending = tokio::task::JoinSet::new();
     let preview_path = format!("/me/books/{book_id}/chapters/import-preview");
@@ -412,6 +458,25 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
             .await
             .expect("cover worker did not hang")
             .expect("cover runner joined");
+    let (recommendation_advanced, recommendation_elapsed) =
+        tokio::time::timeout(Duration::from_secs(25), recommendation_task)
+            .await
+            .expect("recommendation worker did not hang")
+            .expect("recommendation worker joined");
+    let mut finance_elapsed = Vec::new();
+    while let Some(joined) = tokio::time::timeout(Duration::from_secs(25), finance_tasks.join_next())
+        .await
+        .expect("finance reader did not hang")
+    {
+        let (totals, elapsed) = joined.expect("finance reader joined");
+        assert_eq!(totals.wallet_balance_minor, 1000);
+        assert_eq!(totals.available_minor, 1000);
+        assert_eq!(totals.reserved_minor, 0);
+        finance_elapsed.push(elapsed);
+    }
+    assert_eq!(finance_elapsed.len(), FINANCE_READS);
+    finance_elapsed.sort_unstable();
+    let finance_p95 = finance_elapsed[finance_elapsed.len() * 95 / 100];
     let (mut health, mut ready, mut acquire) = probes.await.expect("liveness probe joined");
     health.sort_unstable();
     ready.sort_unstable();
@@ -422,14 +487,20 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     let acquire_max = acquire[acquire.len() - 1];
 
     println!(
-        "TOR_MIXED_G09_S023_CONTENTION previews={} success={} backpressure_429={} import_worker_ms={} cover_worker_ms={} health_p95_ms={} ready_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
-        PREVIEWS, successes, rejected, worker_elapsed.as_millis(),
-        cover_elapsed.as_millis(), health_p95.as_millis(),
-        ready_p95.as_millis(), acquire_p95.as_millis(), acquire_max.as_millis()
+        "TOR_MIXED_REC_FINANCE_G09_S023_CONTENTION previews={} success={} backpressure_429={} finance_reads={} finance_p95_ms={} rec_worker_ms={} import_worker_ms={} cover_worker_ms={} health_p95_ms={} ready_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
+        PREVIEWS, successes, rejected, FINANCE_READS, finance_p95.as_millis(),
+        recommendation_elapsed.as_millis(), worker_elapsed.as_millis(),
+        cover_elapsed.as_millis(), health_p95.as_millis(), ready_p95.as_millis(),
+        acquire_p95.as_millis(), acquire_max.as_millis()
     );
     assert_eq!(successes + rejected, PREVIEWS);
     assert!(successes > 0, "at least one preview must be served");
     assert_eq!(worker_status, ChapterImportWorkerResult::Completed);
+    assert!(recommendation_advanced, "recommendation generation must advance");
+    assert!(
+        finance_p95 < Duration::from_secs(2),
+        "finance balance reads saturated the shared PgPool"
+    );
     assert!(
         health_p95 < Duration::from_millis(250),
         "worker starved Tokio"
