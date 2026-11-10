@@ -47,17 +47,6 @@ impl Drop for VisitLock {
     }
 }
 
-fn dropped(html: &str) -> u64 {
-    html.split("Переполнения очереди или записи без подтверждения</dt><dd>")
-        .nth(1)
-        .expect("current process loss counter")
-        .split('<')
-        .next()
-        .unwrap()
-        .parse()
-        .unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly() {
@@ -98,11 +87,13 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
         &url,
         &format!("INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator')"),
     );
-    set_choice(&reader_browser, &app, REC_FORM, true).await;
-    set_choice(&reader_browser, &app, FLOW_FORM, true).await;
+    legacy_scope(&url, reader);
+    let baseline = optional_snapshot(&url, reader);
     let initial = admin_browser.get(&app, "/admin/audience/visits").await;
     assert_eq!(initial.status(), StatusCode::OK);
-    let dropped_before = dropped(&text(initial).await);
+    assert!(text(initial)
+        .await
+        .contains("data-testid=\"collection-retired\""));
     let lock = VisitLock::acquire(&url);
     let started = Instant::now();
     let allowed = reader_browser.get(&app, "/").await;
@@ -111,25 +102,12 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
         started.elapsed() < Duration::from_millis(950),
         "telemetry write delayed allowed HTML"
     );
-    let mut saw_drop = false;
-    // Each bounded report waits for the real lock and must return an honest
-    // 503. The queue exhausts its three retries without stopping the page.
-    for _ in 0..6 {
-        let response = admin_browser.get(&app, "/admin/audience/visits").await;
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        private(&response);
-        let html = text(response).await;
-        assert!(html.contains("data-testid=\"flow-visits-unavailable\""));
-        assert!(!html.contains("data-testid=\"flow-visits-current\""));
-        if dropped(&html) > dropped_before {
-            saw_drop = true;
-            break;
-        }
-    }
-    assert!(
-        saw_drop,
-        "failed optional write must be visible as a dropped observation"
-    );
+    let response = admin_browser.get(&app, "/admin/audience/visits").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    private(&response);
+    let html = text(response).await;
+    assert!(html.contains("data-testid=\"flow-visits-unavailable\""));
+    assert!(!html.contains("data-testid=\"flow-visits-current\""));
     drop(lock);
     assert_eq!(
         own_pages(&url, reader),
@@ -137,7 +115,8 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
         "failed transaction did not persist a partial page"
     );
     assert_eq!(reader_browser.get(&app, "/").await.status(), StatusCode::OK);
-    wait_pages(&url, reader, 1).await;
+    assert_eq!(own_pages(&url, reader), 0);
+    assert_eq!(optional_snapshot(&url, reader), baseline);
     assert_eq!(
         admin_browser
             .get(&app, "/admin/audience/visits")
@@ -145,6 +124,6 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
             .status(),
         StatusCode::OK
     );
-    set_choice(&reader_browser, &app, FLOW_FORM, false).await;
+    retired_choice(&reader_browser, &app, FLOW_FORM, false).await;
     pg(&url, &format!("DELETE FROM account_roles WHERE user_id={admin}; DELETE FROM users WHERE id IN({admin},{reader})"));
 }

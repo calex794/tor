@@ -1,72 +1,30 @@
-//! I-owned configuration and scheduling; C owns collection and cohort decisions.
-use std::{env, time::Duration};
-use tokio::{task::JoinHandle, time::sleep};
+//! Retired collection gates and maintenance over previously saved C cohorts.
 use tor_reading::repositories::returns::PgReadingReturns;
 use tor_reading::services::returns::ReadingReturnsError;
 
+/// Old environment variables are deliberately inert in the v2 runtime.
 pub fn reading_returns_enabled() -> bool {
-    [
-        "TOR_READING_RETURNS_ENABLED",
-        "TOR_RECOMMENDATIONS_ENABLED",
-        "TOR_REC_ATTRIBUTION_ENABLED",
-    ]
-    .iter()
-    .all(|name| env::var(name).as_deref() == Ok("1"))
+    false
 }
 
 pub fn book_reading_returns_enabled() -> bool {
-    reading_returns_enabled() && env::var("TOR_BOOK_READING_RETURNS_ENABLED").as_deref() == Ok("1")
+    false
 }
 
-pub fn validate_reading_returns_runtime(demo: bool) -> Result<bool, &'static str> {
-    let enabled = match env::var("TOR_READING_RETURNS_ENABLED") {
-        Ok(value) if value == "1" => true,
-        Ok(value) if value == "0" => false,
-        Err(env::VarError::NotPresent) => false,
-        _ => return Err("TOR_READING_RETURNS_ENABLED must be 0 or 1"),
-    };
-    let books = match env::var("TOR_BOOK_READING_RETURNS_ENABLED") {
-        Ok(value) if value == "1" => true,
-        Ok(value) if value == "0" => false,
-        Err(env::VarError::NotPresent) => false,
-        _ => return Err("TOR_BOOK_READING_RETURNS_ENABLED must be 0 or 1"),
-    };
-    if books && !enabled {
-        return Err("Book reading returns require TOR_READING_RETURNS_ENABLED=1");
-    }
-    if enabled
-        && (demo
-            || env::var_os("DATABASE_URL").is_none()
-            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
-            || !reading_returns_enabled())
-    {
-        return Err("Reading returns require authenticated PostgreSQL and enabled REC collection");
-    }
-    Ok(enabled)
+/// Close legacy observation intervals without publishing a new heartbeat.
+/// The caller bounds startup errors; optional analytics cannot block HTTP.
+pub(crate) async fn initialize_retired_returns(
+    store: &PgReadingReturns,
+) -> Result<(), ReadingReturnsError> {
+    store.start_collection(false).await?;
+    store.start_book_collection(false).await
 }
 
-/// Start even when collection is off: close old coverage and expire private state.
-/// First progress waits for a successful heartbeat; startup never backfills history.
-pub async fn spawn_reading_returns(
-    store: Option<PgReadingReturns>,
-    collect: bool,
-) -> Result<Option<JoinHandle<()>>, ReadingReturnsError> {
-    let Some(store) = store else {
-        return Ok(None);
-    };
-    let collect_books = book_reading_returns_enabled();
-    // Complete the new coverage boundary before HTTP can accept any progress.
-    store.start_collection(collect).await?;
-    store.start_book_collection(collect_books).await?;
-    Ok(Some(tokio::spawn(async move {
-        loop {
-            if store.tick_collection(collect).await.is_err() {
-                eprintln!("reading_returns_worker: batch failed; coverage will expire");
-            }
-            if store.tick_book_collection(collect_books).await.is_err() {
-                eprintln!("book_reading_returns_worker: batch failed; coverage will expire");
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    })))
+/// FALSE only closes coverage, finalizes saved flags and applies existing TTL.
+/// These C methods never consume outbox events or collect new reading activity.
+pub(crate) async fn maintain_retired_returns(
+    store: &PgReadingReturns,
+) -> Result<(), ReadingReturnsError> {
+    store.tick_collection(false).await?;
+    store.tick_book_collection(false).await
 }

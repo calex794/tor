@@ -474,31 +474,13 @@ fn make_router_with_paid_checkout(
     } else {
         book_router
     };
-    // Only the four public HTML routes get A-owned optional consent
-    // verification. The account/session lookup is disabled by default and
-    // shares the same signer, opt-in and single-instance safety gates as RIL.
+    // Public pages carry no per-account analytics identity. RIL still records
+    // finite anonymous route, status, latency and HTML request counters.
     let public_pages = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/reader/{id}", get(reader_page));
-    let public_pages = if let Some(control) = follow_control.as_ref() {
-        let (accounts, cookies) = control.browser_context();
-        let context = auth::behavior_consent::PublicFlowConsentContext::new(
-            accounts.clone(),
-            cookies.clone(),
-        );
-        if context.enabled() {
-            public_pages.layer(axum::middleware::from_fn_with_state(
-                context,
-                auth::behavior_consent::annotate_public_flow,
-            ))
-        } else {
-            public_pages
-        }
-    } else {
-        public_pages
-    };
     let mut app = Router::new()
         .merge(public_pages)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))

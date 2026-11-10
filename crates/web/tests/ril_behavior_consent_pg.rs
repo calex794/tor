@@ -1,4 +1,4 @@
-//! PG18 browser contract: explicit consent and local path erasure.
+//! Retired RIL identity: old flags and persisted opt-in cannot identify navigation.
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -61,8 +61,8 @@ async fn send(
 }
 
 #[tokio::test]
-#[ignore = "isolated PG18 and test-only RIL signer required"]
-async fn consent_is_default_off_and_local_erasure_is_confirmed() {
+#[ignore = "isolated PG18 with deliberately enabled legacy RIL flags required"]
+async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG test URL");
     assert!(url.ends_with("/tor_ci"), "never run against production");
     assert_eq!(std::env::var("TOR_RIL_SINGLE_INSTANCE").as_deref(), Ok("1"));
@@ -73,19 +73,19 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let user = accounts
         .insert_user(
-            "ril-opt-in-ci@example.invalid",
+            &format!("ril-retired-{stamp}@example.invalid"),
             "RIL Test",
             &hash_password("unused-test-passphrase").unwrap(),
         )
         .await
         .unwrap();
     // Real published pages, not just accepted route templates.
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
     let book: i64 = fixture_sql(
         &url,
         &format!(
@@ -156,7 +156,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .to_owned();
     let html =
         String::from_utf8(to_bytes(first.into_body(), 100_000).await.unwrap().to_vec()).unwrap();
-    // Internal RIL consent remains independent of the visible account UI.
+    // No separate consent UI remains on the ordinary account page.
     assert!(!html.contains("Анализ ваших переходов"));
     assert!(!html.contains("Приватность"));
     let csrf = html
@@ -167,8 +167,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .next()
         .unwrap();
     let cookies = format!("{session}; {csrf_cookie}");
-    // Before explicit opt-in, a valid logged-in cookie cannot become an
-    // identified public route path, even when the FLOW feature is available.
+    // A valid account cookie never enables the retired identity observer.
     assert_eq!(
         send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(),
         StatusCode::OK
@@ -216,15 +215,20 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    assert_eq!(
-        send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
-    );
+    let retired = send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN).await;
+    assert_eq!(retired.status(), StatusCode::GONE);
+    assert_eq!(retired.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(retired.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
-        (true, 1)
+        (false, 0),
+        "retired HTTP writes no consent row"
+    );
+    // Model an installed pre-retirement row through the legacy A repository.
+    // P2a does not claim the later SQL fence/physical cleanup is already applied.
+    assert_eq!(
+        accounts.set_ril_behavior_consent(user, true).await.unwrap(),
+        1
     );
     for _ in 0..3 {
         assert_eq!(
@@ -235,10 +239,9 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         );
     }
     let report = tor_web::ril_path_report_for_diagnostics().unwrap();
-    assert_eq!(report.assessed_events, 3);
-    assert_eq!(report.active_subjects, 1);
-    // Explicitly opted-in live account sessions now carry the same verified
-    // HMAC across public home/catalog, with no additional tracking cookie.
+    assert_eq!(report.assessed_events, 0);
+    assert_eq!(report.active_subjects, 0);
+    // Even a persisted legacy opt-in cannot produce a subject or path queue.
     for surface in ["/", "/catalog", book_path.as_str(), reader_path.as_str()] {
         let response = send(&app, "GET", surface, "", &cookies, ORIGIN).await;
         assert_eq!(response.status(), StatusCode::OK, "{surface}");
@@ -251,7 +254,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
 
     // Guests can read the same pages without becoming identified visitors.
@@ -264,15 +267,14 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     }
 
     let disable = format!("choice=disable&csrf_token={csrf}");
-    assert_eq!(
-        send(&app, "POST", "/me/behavior", &disable, &cookies, ORIGIN)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
-    );
+    let retired = send(&app, "POST", "/me/behavior", &disable, &cookies, ORIGIN).await;
+    assert_eq!(retired.status(), StatusCode::GONE);
+    assert_eq!(retired.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(retired.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
-        (false, 2)
+        (true, 1),
+        "P2a changes runtime, not the legacy SQL consent epoch"
     );
     assert_eq!(
         tor_web::ril_path_report_for_diagnostics()
@@ -299,7 +301,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
 
     accounts.revoke_session(&digest).await.unwrap();
@@ -314,7 +316,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
     assert_eq!(
         send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN)

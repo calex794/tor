@@ -7,6 +7,7 @@ pub(super) mod group_returns;
 pub(super) mod groups;
 mod hours;
 mod quality;
+mod retirement;
 pub(super) mod returns;
 mod sources;
 pub(super) mod visits;
@@ -24,11 +25,11 @@ fn start(days: i32) -> String {
          <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">Визиты, входы и последние страницы</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">Путь от визита к чтению книги</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">Возвращаются ли к чтению</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",
@@ -80,6 +81,10 @@ pub(super) fn page(
     let mut body = start(days);
     hours::section(&mut body, days, traffic);
     quality::section(&mut body, days, traffic, capture, pump);
+    retirement::notice(
+        &mut body,
+        "источник перехода, связанный с первым чтением книги",
+    );
     match discovery {
         Some(report) => sources::section(&mut body, report),
         None => body.push_str("<section data-testid=\"audience-sources-unavailable\"><h2>Источники первого чтения книги</h2><p role=\"alert\">Сводка источников временно недоступна. Нулевые значения не подставляются.</p></section>"),

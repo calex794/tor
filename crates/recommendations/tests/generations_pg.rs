@@ -69,9 +69,36 @@ async fn rec13_generation_visibility_cas_and_rollback() {
         .await
         .unwrap();
     let feed = store.feed(None, Some(books[0]), 20).await.unwrap();
-    assert_eq!(feed.generation_id.as_deref(), Some(generation.as_str()));
-    assert_eq!(feed.items[0].book_id, books[1].to_string());
-    assert_eq!(feed.items[0].source, "related_books");
+    // Legacy generation construction remains an independently tested adapter.
+    // Production serving no longer consumes it or its combined ranking.
+    let manual: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_candidate_edges
+         WHERE generation_id=$1::uuid AND seed_id=$2 AND book_id=$3
+           AND source='related_books' AND reason='manually_related' AND score=1000",
+    )
+    .bind(&generation)
+    .bind(books[0])
+    .bind(books[1])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(manual, 1);
+    assert!(feed.generation_id.is_none() && !feed.personalized);
+    assert!(feed
+        .items
+        .iter()
+        .all(|item| item.source == "catalog" && item.reason == "new_release"));
+    assert_eq!(
+        feed.items
+            .iter()
+            .map(|item| &item.book_id)
+            .collect::<Vec<_>>(),
+        before
+            .items
+            .iter()
+            .map(|item| &item.book_id)
+            .collect::<Vec<_>>()
+    );
     assert!(feed
         .items
         .iter()

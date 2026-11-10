@@ -44,6 +44,21 @@ SUPPORT_REQUESTER_HANDLERS = {
     ("GET", "/api/v1/support/tickets", "widget"),
     ("POST", "/api/v1/support/tickets", "json_submit"),
 }
+
+# These exact compatibility bindings cannot mutate an analytics scope any more.
+# They keep their existing policies; 410 is not an alternative authorization path.
+RETIRED_COLLECTION_ROUTES = {
+    ("POST", "/me/behavior", "crates/web/src/auth.rs", "behavior_consent::set_behavior_consent"): "session",
+    ("POST", "/me/recommendations/consent", "crates/web/src/recommendation_http/mod.rs", "pages::consent"): "scoped",
+    ("POST", "/me/recommendations/flow-consent", "crates/web/src/recommendation_http/mod.rs", "pages::consent"): "scoped",
+    ("POST", "/api/v1/recommendations/impressions", "crates/web/src/recommendation_http/mod.rs", "api::impressions"): "scoped",
+    ("POST", "/api/v1/recommendations/activate", "crates/web/src/recommendation_http/mod.rs", "api::activate"): "scoped",
+    ("POST", "/api/v1/discovery/activate", "crates/web/src/recommendation_http/mod.rs", "organic::activate"): "scoped",
+    ("GET", "/api/v1/admin/recommendations/quality", "crates/web/src/recommendation_http/mod.rs", "admin::quality"): "administrator",
+    ("POST", "/api/v1/admin/recommendations/control", "crates/web/src/recommendation_http/mod.rs", "admin::control"): "administrator",
+    ("POST", "/me/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
+}
+
 SCOPE_CALLS = {
     "consent", "set_consent", "set_flow_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
@@ -254,6 +269,58 @@ def _contains_scoped_call(body: str, names: set[str]) -> bool:
     return False
 
 
+
+def _retired_policy(entry: dict[str, str]) -> str | None:
+    key = tuple(entry.get(field, "") for field in ("method", "template", "source", "handler"))
+    return RETIRED_COLLECTION_ROUTES.get(key)
+
+
+def _retired_no_write(body: str, evidence: str, functions: dict[str, str]) -> bool:
+    # The only successful branch is the common zero-argument private 410 helper.
+    # Ordinary A/CSRF/role checks still run below in _verify, including failures.
+    if "crate::recommendation_http::retired()" in body:
+        terminal = re.search(
+            r"match\s+session_user\(&state,\s*&headers\)\.await\s*\{\s*"
+            r"Ok\(Some\(_\)\)\s*=>\s*crate::recommendation_http::retired\(\),\s*"
+            r"Ok\(None\)\s*=>\s*deny\(StatusCode::UNAUTHORIZED\),\s*"
+            r"Err\(status\)\s*=>\s*deny\(status\),?\s*\}\s*\}\s*$",
+            body,
+        )
+        max_awaits = 1
+    else:
+        terminal = re.search(r"(?<!\w)(?:api::)?retired\(\)\s*\}\s*$", body)
+        rejection = re.search(
+            r"if\s+let\s+Err\(status\)\s*=\s*(?:api::)?actor"
+            r"\(&state,\s*&headers\)\.await\s*\{\s*return\s+deny\(status\);\s*\}",
+            body,
+        )
+        if rejection is None:
+            return False
+        max_awaits = 2
+    helper = functions.get("__retired_response", "")
+    if not (
+        terminal
+        and re.search(r"fn\s+retired\(\)\s*->\s*Response", helper)
+        and "StatusCode::GONE" in helper
+        and 'code: "COLLECTION_RETIRED"' in helper
+        and "private_response(" in helper
+        and '"x-robots-tag"' in helper
+        and '"noindex, nofollow"' in helper
+    ):
+        return False
+    # Input validation is allowed; analytics reads/writes, task spawn, and extra
+    # asynchronous work are not. This is a narrow source alarm, paired with PG.
+    forbidden = (
+        r"\b(?:sqlx|Pg\w+|tokio)::|"
+        r"\.\s*(?:store|publishing|recommendations|visits|funnel|pool)\b|"
+        r"\.\s*(?:set_\w+|issue_\w+|record\w*|capture\w*|accept\w*|"
+        r"tick\w*|execute|query\w*|begin|commit|rollback|spawn)\s*\("
+    )
+    if re.search(forbidden, evidence):
+        return False
+    return len(re.findall(r"\.\s*await\b", evidence)) <= max_awaits
+
+
 def _audience_returns_are_bounded(body: str) -> bool:
     # All three branches share one unconditional live guard and request budget.
     # A guarded global/book read must not hide a bypass in the group branch.
@@ -316,6 +383,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    retired_policy = _retired_policy(entry)
+    retired_ok = False
+    if retired_policy:
+        if re.search(r"\bapi::actor\s*\(", body):
+            evidence += "\n" + functions.get("__retired_actor", "")
+        if re.search(r"\bapi::csrf\s*\(", body):
+            evidence += "\n" + functions.get("__retired_csrf", "")
+        if re.search(r"\bvalidate_control\s*\(", body):
+            evidence += "\n" + functions.get("validate_control", "")
+        retired_ok = _retired_no_write(body, evidence, functions)
+        if entry.get("policy") != retired_policy:
+            errors.append(f"{label}: retired collection route changed its reviewed policy")
+        if not retired_ok:
+            errors.append(f"{label}: retired collection route must terminate in private 410 without analytics work")
     audience_books = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
@@ -1385,6 +1466,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             operation = "list" if entry["method"] == "GET" else "create"
             scoped = bool(re.search(rf"\.{operation}\s*\(\s*actor\s*,", body)
                 and re.search(r"\bauthorized\s*\(\s*&state,", body))
+        elif retired_policy:
+            # No actor-bound mutation is permitted after retirement. The exact
+            # route must instead prove guarded terminal 410 and no analytics IO.
+            scoped = retired_ok
         else:
             scoped = _contains_scoped_call(evidence, proof)
         if not scoped:
@@ -1714,6 +1799,15 @@ def check(root: Path = ROOT) -> list[str]:
                 )
             except OSError:
                 source_cache[path]["__audience_administrator"] = ""
+        if _retired_policy(entry):
+            try:
+                api = _functions((root / "crates/web/src/recommendation_http/api.rs")
+                                 .read_text(encoding="utf-8"))
+                source_cache[path]["__retired_response"] = api.get("retired", "")
+                source_cache[path]["__retired_actor"] = api.get("actor", "")
+                source_cache[path]["__retired_csrf"] = api.get("csrf", "")
+            except OSError:
+                source_cache[path]["__retired_response"] = ""
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

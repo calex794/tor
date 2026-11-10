@@ -2694,7 +2694,7 @@
       "method": "POST",
       "template": "/me/recommendations/flow-consent",
       "source": "crates/web/src/recommendation_http/mod.rs",
-      "handler": "flow_consent::submit",
+      "handler": "pages::consent",
       "policy": "scoped"
     },
     {

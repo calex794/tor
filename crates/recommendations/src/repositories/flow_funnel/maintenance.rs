@@ -45,6 +45,12 @@ impl PgFlowFunnel {
             .rows_affected();
             tx.commit().await.map_err(unavailable)?;
         }
+        affected += self.prune_expired().await?;
+        Ok(affected)
+    }
+
+    pub(super) async fn prune_expired(&self) -> Result<u64, FlowFunnelError> {
+        let mut affected = 0;
         let mut tx = self.begin().await?;
         affected += sqlx::query(
             "DELETE FROM event_deliveries d WHERE d.consumer=$1 AND d.event_id IN(
@@ -130,7 +136,7 @@ WHERE c.id=s.id AND c.d7_state<>s.next_state
 // Finalization and deletion share a transaction. A retry either sees raw
 // inputs, or the committed anonymous bucket, never both. The stored marker also
 // lets the erasure helper retract a retained finalized input during recovery.
-const FINALIZE_SQL: &str = r#"
+pub(super) const FINALIZE_SQL: &str = r#"
 WITH finalized AS (
  UPDATE flow_book_cohorts SET finalized_at=clock_timestamp(),
    d7_state=CASE WHEN d7_state=1 THEN 3 ELSE d7_state END

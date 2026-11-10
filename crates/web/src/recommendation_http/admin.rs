@@ -1,18 +1,16 @@
-//! Independently verified A administrator role; a normal reader session is insufficient.
+//! Retired analytics controls still require the original live administrator and CSRF gates.
 use super::{api, pages, Runtime};
-use crate::{
-    auth_cookies::{deny, private_response},
-    pages as html,
-};
+use crate::{auth_cookies::deny, pages as html};
 use axum::{
     extract::{Form, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    response::Response,
     Json,
 };
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_accounts::services::security::session_token_digest;
+use tor_recommendations::{domain::feedback::FeedbackError, services::feedback::validate_revision};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,42 +74,44 @@ pub(super) async fn quality(
     if let Err(status) = actor(&state, &headers).await {
         return deny(status);
     }
-    match query.channel.as_deref() {
-        None | Some("recommendation") => match state.store.quality(query.days.unwrap_or(7)).await {
-            Ok(rows) => private_response(Json(rows), &[]),
-            Err(error) => api::error(error),
-        },
-        Some("organic") => match state.store.organic_quality(query.days.unwrap_or(7)).await {
-            Ok(rows) => private_response(Json(rows), &[]),
-            Err(error) => api::error(error),
-        },
-        _ => deny(StatusCode::BAD_REQUEST),
-    }
-}
-async fn apply(state: &Runtime, body: Control) -> Response {
-    let result = match body.action {
-        Action::Refresh => match state.store.request_refresh().await {
-            Ok(id) => return private_response(Json(id), &[]),
-            Err(error) => Err(error),
-        },
-        Action::Activate => {
-            state
-                .store
-                .activate_generation(
-                    body.generation.as_deref().unwrap_or(""),
-                    body.expected_revision,
-                    body.percent.unwrap_or(0),
-                )
-                .await
-        }
-        Action::Hold => state.store.hold(body.expected_revision).await,
-        Action::Rollback => state.store.rollback(body.expected_revision).await,
+    let max_days = match query.channel.as_deref() {
+        None | Some("recommendation") => 30,
+        Some("organic") => 180,
+        _ => return deny(StatusCode::BAD_REQUEST),
     };
-    match result {
-        Ok(revision) => private_response(Json(revision), &[]),
-        Err(error) => api::error(error),
+    if !(1..=max_days).contains(&query.days.unwrap_or(7)) {
+        return api::error(FeedbackError::Invalid);
     }
+    api::retired()
 }
+
+fn validate_control(body: &Control) -> Result<(), FeedbackError> {
+    validate_revision(body.expected_revision)?;
+    if body
+        .percent
+        .is_some_and(|value| ![0, 1, 5, 10, 25, 50, 100].contains(&value))
+    {
+        return Err(FeedbackError::Invalid);
+    }
+    if let Some(generation) = &body.generation {
+        if generation.len() != 36
+            || !generation.bytes().enumerate().all(|(index, byte)| {
+                if [8, 13, 18, 23].contains(&index) {
+                    byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            })
+        {
+            return Err(FeedbackError::Invalid);
+        }
+    }
+    if matches!(&body.action, Action::Activate) && body.generation.is_none() {
+        return Err(FeedbackError::Invalid);
+    }
+    Ok(())
+}
+
 pub(super) async fn control(
     State(state): State<Runtime>,
     headers: HeaderMap,
@@ -130,8 +130,12 @@ pub(super) async fn control(
     if let Err(status) = actor(&state, &headers).await {
         return deny(status);
     }
-    apply(&state, body).await
+    if let Err(error) = validate_control(&body) {
+        return api::error(error);
+    }
+    api::retired()
 }
+
 pub(super) async fn form_control(
     State(state): State<Runtime>,
     headers: HeaderMap,
@@ -143,35 +147,22 @@ pub(super) async fn form_control(
     if let Err(status) = actor(&state, &headers).await {
         return deny(status);
     }
-    let response = apply(
-        &state,
-        Control {
-            action: body.action,
-            generation: body.generation,
-            expected_revision: body.expected_revision,
-            percent: body.percent,
-        },
-    )
-    .await;
-    if response.status().is_success() {
-        private_response(Redirect::to("/me/recommendations/manage"), &[])
-    } else {
-        response
+    if let Err(error) = validate_control(&Control {
+        action: body.action,
+        generation: body.generation,
+        expected_revision: body.expected_revision,
+        percent: body.percent,
+    }) {
+        return api::error(error);
     }
+    api::retired()
 }
+
 pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Response {
-    let user = match actor(&state, &headers).await {
-        Ok(user) => user,
-        Err(status) => return deny(status),
-    };
-    let status = match state.store.runtime_status().await {
-        Ok(value) => value,
-        Err(error) => return api::error(error),
-    };
-    let generations = match state.store.recent_generations().await {
-        Ok(value) => value,
-        Err(error) => return api::error(error),
-    };
+    if let Err(status) = actor(&state, &headers).await {
+        return deny(status);
+    }
+    // Keep ordinary explicit book settings available under a fresh live role.
     let role = match state
         .accounts
         .session_actor(&session_token_digest(
@@ -180,50 +171,32 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         .await
     {
         Ok(Some(role)) if role.administrator => role,
-        _ => return deny(StatusCode::FORBIDDEN),
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let books = match state.publishing.manageable_books(role, 0).await {
         Ok(value) => value,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut body=format!("<section class=\"section\"><div class=\"container\"><h1>Управление рекомендациями</h1><p>Активное поколение: {}. Доля: {}%. Пауза: {}. Сбор событий: {}.</p><p>Атрибуция — наблюдение, не доказательство причинного эффекта. Автоматические штрафы за отсутствие клика отключены.</p>",html::escape_html(status.0.as_deref().unwrap_or("нет")),status.3,status.4,state.collection);
-    for (action, label) in [
-        ("refresh", "Построить поколение"),
-        ("hold", "Остановить выдачу поколения"),
-        ("rollback", "Вернуть предыдущее"),
-    ] {
-        let _=write!(body,"<form method=\"post\" action=\"/me/recommendations/manage\"><input type=\"hidden\" name=\"action\" value=\"{action}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button type=\"submit\">{label}</button></form>",status.2,html::escape_html(&csrf));
-    }
-    body.push_str("<h2>Последние поколения</h2>");
-    for (id, build_status, count) in generations {
-        let _ = write!(
-            body,
-            "<article><p>{}: {}; связей {count}</p>",
-            html::escape_html(&id),
-            html::escape_html(&build_status)
-        );
-        if build_status == "validated" {
-            let _=write!(body,"<form method=\"post\" action=\"/me/recommendations/manage\"><input type=\"hidden\" name=\"action\" value=\"activate\"><input type=\"hidden\" name=\"generation\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><label>Доля <select name=\"percent\"><option>0</option><option>1</option><option>5</option><option>10</option><option>25</option><option>50</option><option>100</option></select></label><button type=\"submit\">Активировать</button></form>",html::escape_html(&id),status.2,html::escape_html(&csrf));
-        }
-        body.push_str("</article>");
-    }
-    body.push_str("<h2>Категории книг</h2><p>Опубликованные книги базового уровня не требуют отдельного одобрения рекомендаций. Явные категории adult и unreviewed исключаются; блокировки и доступ проверяются в момент выдачи.</p><ul>");
+    let mut body = String::from(
+        "<section class=\"section\"><div class=\"container\"><h1>Настройки рекомендаций</h1>\
+         <p data-testid=\"recommendation-model-retired\">Прежний подбор по истории чтения и сбор событий прекращены. \
+         Сейчас показываются новые доступные книги с учётом ваших явных скрытий.</p>\
+         <p><a href=\"/admin/audience\">Исторические отчёты аудитории</a></p>\
+         <h2>Явные настройки книг</h2><p>Категории и ручные связи книг остаются обычными настройками. \
+         Новый список книг проверяет текущие права доступа; ручные связи не определяют порядок этого списка.</p><ul>",
+    );
     for (id, title) in books {
         let _ = write!(
             body,
             "<li><a href=\"/me/books/{id}/recommendations\">{}</a></li>",
-            html::escape_html(&title)
+            html::escape_html(&title),
         );
     }
-    let _ = user; // Verified role above; no raw identity is rendered in analytics.
-    body.push_str("</ul><p><a href=\"/api/v1/admin/recommendations/quality\">Ограниченная статистика JSON</a></p></div></section>");
+    body.push_str("</ul></div></section>");
     pages::secure_page(
-        html::layout(
-            "Управление рекомендациями",
-            "Настройки и проверенные агрегаты",
-            &body,
-        ),
-        &cookies,
+        html::layout("Настройки рекомендаций", "Явные настройки книг", &body),
+        &[],
     )
 }

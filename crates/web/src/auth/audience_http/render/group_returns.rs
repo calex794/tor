@@ -28,6 +28,7 @@ pub(crate) fn page(
         <p><a class="button button--quiet" data-testid="audience-group-returns-books" href="{}">Открыть книги этой группы</a></p>"#,
         escape_html(query.label.as_deref().unwrap_or(missing)), query.kind.as_str(), query.days,
         escape_html(&books_url(query))).expect("String");
+    super::retirement::notice(&mut body, "возвращения на заданный день и их доля");
     filters(&mut body, query);
     match report {
         Some(report) => report_body(&mut body, report),
@@ -107,7 +108,7 @@ fn filters(body: &mut String, query: &GroupBookReadingReturnsQuery) {
 }
 
 fn report_body(body: &mut String, report: &GroupBookReadingReturnsReport) {
-    write!(body, r#"<section data-testid="audience-group-returns" data-healthy="{}">
+    write!(body, r#"<section data-testid="audience-group-returns" data-healthy="{}" data-measurement="legacy-consented">
         <p>Доступных книг в группе: <strong data-testid="audience-group-returns-book-count">{}</strong>.
         В расчёт входят все книги группы, включая следующие страницы списка.</p>
         <p>Время расчёта: {}.</p><p>Два соседних периода одинаковой длительности по дню
@@ -123,7 +124,7 @@ fn report_body(body: &mut String, report: &GroupBookReadingReturnsReport) {
     let Some(start) = &report.observation_started_at_utc else {
         body.push_str(
             r#"<p class="book-section-card" data-testid="audience-group-returns-not-started">
-            Измерение возвращений по книгам ещё не началось. Общая история возвращений
+            В прежней выборке нет начала измерения возвращений по книгам. Общая история возвращений
             и сохранённые места чтения не заменяют это измерение. Значения и доли пока
             не рассчитаны.</p></section>"#,
         );
@@ -132,21 +133,27 @@ fn report_body(body: &mut String, report: &GroupBookReadingReturnsReport) {
     write!(body, r#"<p data-testid="audience-group-returns-observation-start">Начало измерения по книгам: {}.</p>"#,
         time(start)).expect("String");
     if let Some(last) = &report.last_observed_at_utc {
-        write!(body, r#"<p data-testid="audience-group-returns-last-observed">Состояние сбора проверено: {}.</p>"#,
+        write!(body, r#"<p data-testid="audience-group-returns-last-observed">Состояние исторической выборки проверено: {}.</p>"#,
             time(last)).expect("String");
     }
     if !report.collection_healthy {
         body.push_str(r#"<p class="book-section-card" role="status" data-testid="audience-group-returns-collection-gap">
-            Сбор сейчас выключен или его непрерывность не подтверждена.
+            Новый сбор прекращён. Непрерывность прежнего измерения не подтверждена.
             Результаты, затронутые разрывом, не считаются нулевыми возвращениями.</p>"#);
     }
     body.push_str(r#"<div class="audience-source-grid">"#);
-    book_returns::period(body, PREFIX, "current", "Текущий период", &report.current);
+    book_returns::period(
+        body,
+        PREFIX,
+        "current",
+        super::retirement::CURRENT,
+        &report.current,
+    );
     book_returns::period(
         body,
         PREFIX,
         "previous",
-        "Предыдущий период",
+        super::retirement::PREVIOUS,
         &report.previous,
     );
     body.push_str("</div>");

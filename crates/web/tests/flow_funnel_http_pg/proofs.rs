@@ -1,67 +1,21 @@
+//! Cached and forged attribution tickets are inert even for old enabled scopes.
 use super::*;
+use tor_accounts::services::security::session_token_digest;
+use tor_recommendations::{
+    domain::feedback::{Feed, FeedItem, OrganicSource, Surface, ALGORITHM},
+    repositories::PgRecommendations,
+};
 
-fn organic_ticket(html: &str, book: i64) -> String {
-    let target = format!("href=\"/books/{book}\"");
-    html.split('<')
-        .find(|tag| tag.contains(&target) && tag.contains("data-organic-ticket="))
-        .expect("actual rendered result has a server ticket")
-        .split("data-organic-ticket=\"")
-        .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
-async fn rec_ticket(browser: &Browser, app: &Router, book: i64) -> String {
-    let response = browser
-        .get(app, "/api/v1/recommendations?surface=home")
-        .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let feed: Value = serde_json::from_str(&text(response).await).unwrap();
-    feed["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["book_id"].as_str() == Some(book.to_string().as_str()))
-        .expect("real fallback feed includes the fixture")["ticket"]
-        .as_str()
-        .unwrap()
-        .to_owned()
-}
-
-async fn activate(browser: &Browser, app: &Router, ticket: &str, organic: bool) {
-    let endpoint = if organic {
-        "/api/v1/discovery/activate"
-    } else {
-        "/api/v1/recommendations/activate"
-    };
-    let response = browser
-        .request(
-            app,
-            "POST",
-            endpoint,
-            &format!(
-                "ticket={ticket}&csrf_token={}",
-                browser.cookies["tor-dev-csrf"]
-            ),
-            &[],
-        )
-        .await;
-    assert_eq!(
-        response.status(),
-        if organic {
-            StatusCode::NO_CONTENT
-        } else {
-            StatusCode::SEE_OTHER
-        }
-    );
+async fn assert_retired(response: Response) {
+    assert_eq!(response.status(), StatusCode::GONE);
+    private(&response);
+    let body: Value = serde_json::from_str(&text(response).await).unwrap();
+    assert_eq!(body["error"]["code"], "COLLECTION_RETIRED");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn discovery_requires_real_current_session_proof_and_keeps_unknown_honest() {
+async fn old_tickets_and_forged_navigation_cannot_restart_individual_attribution() {
     let h = setup().await;
     let (browser, reader) = registration(
         &h.app,
@@ -69,168 +23,200 @@ async fn discovery_requires_real_current_session_proof_and_keeps_unknown_honest(
         &format!("funnel-proof-{}@tor-ci.example", h.stamp),
     )
     .await;
-    let hold = pg(
+    let (other, other_id) = registration(
+        &h.app,
         &h.url,
-        "SELECT hold FROM rec_runtime_policy WHERE singleton",
-    ) == "t";
+        &format!("funnel-proof-other-{}@tor-ci.example", h.stamp),
+    )
+    .await;
+    let item = book(&h.url, &format!("FLOW-proof-search-{}", h.stamp));
+    let catalog = PgCatalog::connect(&h.url).await.unwrap();
+    let store = PgRecommendations::new(catalog.pool().clone());
+
+    // Only this explicit fixture uses the retained legacy repository ports.
+    // It models already issued, session-bound tickets before runtime retirement.
+    legacy_scope(&h.url, reader);
+    let digest = session_token_digest(&browser.cookies["tor-dev-session"]);
+    // Use the historical candidate shape. Today's catalogue feed deliberately
+    // has source=catalog and cannot be passed to the retired assignment schema.
+    let feed = Feed {
+        items: vec![FeedItem {
+            book_id: item.0.to_string(),
+            title: "Historical FLOW candidate".to_owned(),
+            source: "content".to_owned(),
+            reason: "similar_by_content".to_owned(),
+            algorithm_version: ALGORITHM,
+            ticket: None,
+            feedback_revision: None,
+        }],
+        generation_id: None,
+        next_cursor: None,
+        personalized: false,
+    };
+    let old_feed = store
+        .issue_tickets(reader, &digest, Surface::Home, feed)
+        .await
+        .unwrap();
+    let book_id = item.0.to_string();
+    let rec_ticket = old_feed
+        .items
+        .iter()
+        .find(|entry| entry.book_id == book_id)
+        .unwrap()
+        .ticket
+        .as_ref()
+        .unwrap()
+        .clone();
+    let organic = store
+        .issue_organic_tickets(reader, &digest, OrganicSource::Catalog, &[item.0])
+        .await
+        .unwrap();
+    assert_eq!(organic.len(), 1);
+    let stale_ticket = organic[0].1.clone();
     pg(
         &h.url,
-        "UPDATE rec_runtime_policy SET hold=true WHERE singleton",
+        &format!(
+            "UPDATE organic_discovery_touches
+        SET created_at=created_at-interval '16 minutes',expires_at=expires_at-interval '16 minutes'
+        WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id={reader})"
+        ),
     );
-    let before = book(&h.url, "FLOW proof preconsent");
-    let catalog = book(&h.url, "FLOW proof catalog");
-    let search_title = format!("FLOW-proof-search-{}", h.stamp);
-    let search = book(&h.url, &search_title);
-    let rec = book(&h.url, "FLOW proof recommendation");
-    let forged = book(&h.url, "FLOW proof forged");
-    let stale = book(&h.url, "FLOW proof stale");
-    set_choice(&browser, &h.app, REC_FORM, true).await;
-    let ticket = rec_ticket(&browser, &h.app, before.0).await;
-    activate(&browser, &h.app, &ticket, false).await;
-    set_choice(&browser, &h.app, FLOW_FORM, true).await;
-    assert_eq!(
-        browser
-            .get(&h.app, &format!("/books/{}", before.0))
-            .await
-            .status(),
-        StatusCode::OK
-    );
-    wait_pages(&h.url, reader, 1).await;
-
-    let page = browser.get(&h.app, "/catalog?sort=newest").await;
-    assert_eq!(page.status(), StatusCode::OK);
-    let ticket = organic_ticket(&text(page).await, catalog.0);
-    activate(&browser, &h.app, &ticket, true).await;
-    assert_eq!(
-        browser
-            .get(&h.app, &format!("/books/{}", catalog.0))
-            .await
-            .status(),
-        StatusCode::OK
-    );
-    wait_pages(&h.url, reader, 3).await;
-    let page = browser
-        .get(&h.app, &format!("/catalog?q={search_title}"))
-        .await;
-    assert_eq!(page.status(), StatusCode::OK);
-    let ticket = organic_ticket(&text(page).await, search.0);
-    activate(&browser, &h.app, &ticket, true).await;
-    assert_eq!(
-        browser
-            .get(&h.app, &format!("/books/{}", search.0))
-            .await
-            .status(),
-        StatusCode::OK
-    );
-    wait_pages(&h.url, reader, 5).await;
-    let ticket = rec_ticket(&browser, &h.app, rec.0).await;
-    activate(&browser, &h.app, &ticket, false).await;
-    assert_eq!(
-        browser
-            .get(&h.app, &format!("/books/{}", rec.0))
-            .await
-            .status(),
-        StatusCode::OK
-    );
-    wait_pages(&h.url, reader, 6).await;
+    let before = optional_snapshot(&h.url, reader);
+    let other_before = optional_snapshot(&h.url, other_id);
 
     let response = browser
-        .request(
-            &h.app,
-            "POST",
-            "/api/v1/recommendations/activate",
-            &format!(
-                "ticket={}&csrf_token={}",
-                "A".repeat(43),
-                browser.cookies["tor-dev-csrf"]
-            ),
-            &[],
-        )
+        .get(&h.app, "/api/v1/recommendations?surface=home")
         .await;
-    assert!(!response.status().is_success() && response.status() != StatusCode::SEE_OTHER);
-    let path=format!("/books/{}?source=recommendations&book_id={}&rec_assignment=00000000-0000-0000-0000-000000000000",forged.0,rec.0);
+    assert_eq!(response.status(), StatusCode::OK);
+    private(&response);
+    let feed: Value = serde_json::from_str(&text(response).await).unwrap();
+    assert!(feed["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry["ticket"].is_null()));
+    for path in [
+        "/catalog?sort=newest".to_owned(),
+        format!("/catalog?q=FLOW-proof-search-{}", h.stamp),
+        format!("/books/{}", item.0),
+        format!("/reader/{}", item.1),
+    ] {
+        let html = navigation::page_without_collection(&h, &browser, reader, &path).await;
+        assert!(!html.contains("data-rec-ticket"));
+        assert!(!html.contains("data-organic-ticket"));
+    }
+    let forged_path = format!(
+        "/books/{}?source=recommendations&rec_assignment=00000000-0000-0000-0000-000000000000",
+        item.0
+    );
     assert_eq!(
         browser
             .request(
                 &h.app,
                 "GET",
-                &path,
+                &forged_path,
                 "",
                 &[
-                    ("x-flow-book-id", &rec.0.to_string()),
-                    ("x-flow-discovery-kind", "0")
+                    ("x-flow-book-id", "9223372036854775807"),
+                    ("x-flow-discovery-kind", "0"),
                 ]
             )
             .await
             .status(),
         StatusCode::OK
     );
-    wait_pages(&h.url, reader, 7).await;
 
-    let page = browser.get(&h.app, "/catalog?sort=newest").await;
-    let ticket = organic_ticket(&text(page).await, stale.0);
-    activate(&browser, &h.app, &ticket, true).await;
-    // Age an actually accepted navigation proof past its valid 15-minute age.
+    let forged_ticket = "A".repeat(43);
+    for (endpoint, ticket) in [
+        ("/api/v1/recommendations/activate", rec_ticket.as_str()),
+        ("/api/v1/discovery/activate", stale_ticket.as_str()),
+        ("/api/v1/recommendations/activate", forged_ticket.as_str()),
+    ] {
+        for actor in [&browser, &other] {
+            let body = format!(
+                "ticket={ticket}&csrf_token={}",
+                actor.cookies["tor-dev-csrf"]
+            );
+            assert_retired(actor.request(&h.app, "POST", endpoint, &body, &[]).await).await;
+            let forbidden = actor
+                .request(
+                    &h.app,
+                    "POST",
+                    endpoint,
+                    &body,
+                    &[("origin", "https://attacker.invalid")],
+                )
+                .await;
+            assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+            private(&forbidden);
+            let forged = body.replace(&actor.cookies["tor-dev-csrf"], "wrong");
+            let forbidden = actor.request(&h.app, "POST", endpoint, &forged, &[]).await;
+            assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+            private(&forbidden);
+        }
+    }
+    let claim = json!({"items":[{"ticket":rec_ticket,"visible_fraction_per_mille":500,
+        "continuous_visible_ms":1000,"document_visible":true}]})
+    .to_string();
+    let csrf = browser.cookies["tor-dev-csrf"].as_str();
+    assert_retired(
+        browser
+            .request(
+                &h.app,
+                "POST",
+                "/api/v1/recommendations/impressions",
+                &claim,
+                &[("content-type", "application/json"), ("x-csrf-token", csrf)],
+            )
+            .await,
+    )
+    .await;
+    let invalid = browser
+        .request(
+            &h.app,
+            "POST",
+            "/api/v1/recommendations/impressions",
+            "{\"items\":[]}",
+            &[("content-type", "application/json"), ("x-csrf-token", csrf)],
+        )
+        .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    private(&invalid);
+    let invalid = browser
+        .request(
+            &h.app,
+            "POST",
+            "/api/v1/recommendations/activate",
+            &format!("ticket=malformed&csrf_token={csrf}"),
+            &[],
+        )
+        .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    private(&invalid);
+
+    assert_eq!(
+        optional_snapshot(&h.url, reader),
+        before,
+        "old opaque tickets must not be viewed, clicked, opened, delivered or refreshed"
+    );
+    assert_eq!(
+        optional_snapshot(&h.url, other_id),
+        other_before,
+        "another valid session cannot create an analytics subject"
+    );
+    assert_eq!(
+        pg(
+            &h.url,
+            &format!("SELECT count(*) FROM reader_chapter_starts WHERE user_id={reader}")
+        ),
+        "0"
+    );
     pg(
         &h.url,
         &format!(
-            "UPDATE organic_discovery_touches SET created_at=created_at-interval '16 minutes',
-      expires_at=expires_at-interval '16 minutes',clicked_at=clicked_at-interval '16 minutes'
-      WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id={reader}) AND book_id={}",
-            stale.0
+            "DELETE FROM rec_subjects WHERE user_id={reader};
+        UPDATE books SET admin_hold=true WHERE id={}",
+            item.0
         ),
-    );
-    assert_eq!(
-        browser
-            .get(&h.app, &format!("/books/{}", stale.0))
-            .await
-            .status(),
-        StatusCode::OK
-    );
-    wait_pages(&h.url, reader, 9).await;
-
-    let expected = [
-        (before.0, 3),
-        (catalog.0, 1),
-        (search.0, 2),
-        (rec.0, 0),
-        (forged.0, 3),
-        (stale.0, 3),
-    ];
-    for (book, kind) in expected {
-        assert_eq!(
-            pg(
-                &h.url,
-                &format!(
-                    "SELECT discovery_kind FROM flow_visit_receipts r
-          JOIN rec_subjects s USING(subject_id) WHERE s.user_id={reader} AND book_id={book}"
-                )
-            ),
-            kind.to_string()
-        );
-    }
-    age_facts(&h.url, reader);
-    settle_funnel(&h.funnel, &h.url).await;
-    for (book, kind) in expected {
-        assert_eq!(
-            pg(
-                &h.url,
-                &format!(
-                    "SELECT discovery_kind,started,completed FROM flow_book_cohorts c
-          JOIN rec_subjects s USING(subject_id) WHERE s.user_id={reader} AND book_id={book}"
-                )
-            ),
-            format!("{kind}|f|f")
-        );
-    }
-    set_choice(&browser, &h.app, FLOW_FORM, false).await;
-    pg(
-        &h.url,
-        &format!("UPDATE rec_runtime_policy SET hold={hold} WHERE singleton"),
-    );
-    let ids = expected.map(|(id, _)| id.to_string()).join(",");
-    pg(
-        &h.url,
-        &format!("UPDATE books SET admin_hold=true WHERE id IN({ids})"),
     );
 }

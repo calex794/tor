@@ -11,18 +11,29 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
     let preferences =
         tor_recommendations::repositories::PgRecommendations::new(accounts.pool().clone());
-    let collect = crate::recommendation_http::visits::collection_enabled();
-    // Record this worker's initial mode before serving requests. C's atomic
-    // scope receipts authorize attribution, never this diagnostic singleton.
+    let returns =
+        tor_reading::repositories::returns::PgReadingReturns::new(accounts.pool().clone());
+    // Local diagnostics say retired. They never authorize capture by another
+    // process; full old-writer fencing and erasure belong to the next migration.
     if !matches!(
         tokio::time::timeout(
             std::time::Duration::from_millis(1000),
-            funnel.initialize(collect)
+            funnel.initialize(false)
         )
         .await,
         Ok(Ok(()))
     ) {
         eprintln!("TOR_FLOW_FUNNEL_INITIALIZE_UNAVAILABLE");
+    }
+    if !matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            crate::recommendation_worker::initialize_retired_returns(&returns)
+        )
+        .await,
+        Ok(Ok(()))
+    ) {
+        eprintln!("TOR_RETIRED_READING_RETURNS_INITIALIZE_UNAVAILABLE");
     }
     Some(tokio::spawn(async move {
         tokio::join!(
@@ -55,6 +66,28 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
                     if !matches!(
                         tokio::time::timeout(
                             std::time::Duration::from_millis(2500),
+                            crate::recommendation_worker::maintain_legacy_recommendations(
+                                &preferences
+                            )
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    ) {
+                        eprintln!("TOR_LEGACY_RECOMMENDATION_RETENTION_UNAVAILABLE");
+                    }
+                    if !matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_millis(2500),
+                            crate::recommendation_worker::maintain_retired_returns(&returns)
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    ) {
+                        eprintln!("TOR_RETIRED_READING_RETURNS_RETENTION_UNAVAILABLE");
+                    }
+                    if !matches!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_millis(2500),
                             visits.maintain()
                         )
                         .await,
@@ -65,12 +98,12 @@ pub async fn start(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHand
                     if !matches!(
                         tokio::time::timeout(
                             std::time::Duration::from_millis(2500),
-                            funnel.cycle(collect)
+                            funnel.maintain_retired()
                         )
                         .await,
                         Ok(Ok(_))
                     ) {
-                        eprintln!("TOR_FLOW_FUNNEL_CYCLE_UNAVAILABLE");
+                        eprintln!("TOR_FLOW_FUNNEL_RETENTION_UNAVAILABLE");
                     }
                     if !matches!(
                         tokio::time::timeout(

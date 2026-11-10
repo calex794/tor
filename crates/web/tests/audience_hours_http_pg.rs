@@ -217,6 +217,8 @@ fn period_summary(html: &str, key: &str, period: &FlowHourlyPeriod) {
             metric(card, "recorded-hours"),
             period.recorded_hours[index].to_string()
         );
+        assert_eq!(metric(card, "opted-in-requests"), "Не измеряется");
+        assert_eq!(metric(card, "observed-visit-starts"), "Не измеряется");
     }
 }
 

@@ -12,7 +12,7 @@ pub(in crate::auth::audience_http) fn page(
         "<section class=\"section\"><div class=\"container author-width\">\
          <p class=\"eyebrow\">Администратору сайта</p><h1>Визиты и входы</h1>\
          <p><a href=\"/admin/audience?days={days}\">Аудитория</a> · <a href=\"/admin/audience/books?days={days}\">Книги</a> · <a href=\"/admin/audience/funnel?days={days}\">Путь к чтению</a></p>\
-         <p>Наблюдаемые визиты зарегистрированных аккаунтов, отдельно согласившихся на это измерение. \
+         <p>Исторические наблюдения визитов аккаунтов, отдельно согласившихся на прежнее измерение. \
          Гости и аккаунты без согласия сюда не входят. Это не число людей и не все посещения сайта.</p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience/visits\">\
          <label for=\"flow-visit-days\">Длительность периода</label><select id=\"flow-visit-days\" name=\"days\">"
@@ -29,7 +29,11 @@ pub(in crate::auth::audience_http) fn page(
     body.push_str(
         "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
     );
-    body.push_str("<section class=\"book-section-card\"><h2>Границы измерения</h2><p>Визит объединяет наблюдаемую активность аккаунта, в том числе на разных устройствах, до перерыва в 30 минут. Последняя поверхность — последняя замеченная страница, а не подтверждённый уход. Первый источник — подсказка браузера на первом наблюдаемом запросе; он может отсутствовать или быть подменён. Вход по поисковой ссылке без доступной сессии остаётся неизвестным.</p><p>Визиты и их просмотры относятся к периоду начала визита. Уникальные аккаунты учитываются по любой сохранённой странице в выбранном периоде, один раз за весь период. Поэтому эти числа имеют разные основания. Текущий день UTC ещё не завершён. Продолжительность — интервал между первой и последней страницей, не время непрерывного чтения.</p><p>Подробности удаляются через 30 суток; обезличенные итоги сохраняются до 180 дней. Для 90 дней и предыдущего 30-дневного периода точная уникальность недоступна. Отзыв согласия исключает ещё сохраняемые персональные наблюдения. Пропуски сбора не восстанавливаются.</p></section>");
+    super::retirement::notice(
+        &mut body,
+        "визиты, точные уникальные посетители и страницы входа и выхода",
+    );
+    body.push_str("<section class=\"book-section-card\"><h2>Границы измерения</h2><p>Визит объединяет наблюдаемую активность аккаунта, в том числе на разных устройствах, до перерыва в 30 минут. Последняя поверхность — последняя замеченная страница, а не подтверждённый уход. Первый источник — подсказка браузера на первом наблюдаемом запросе; он может отсутствовать или быть подменён. Вход по поисковой ссылке без доступной сессии остаётся неизвестным.</p><p>Визиты и их просмотры относятся к периоду начала визита. Уникальные аккаунты учитываются по любой сохранённой странице в выбранном периоде, один раз за весь период. Поэтому эти числа имеют разные основания. Текущий день UTC ещё не завершён. Продолжительность — интервал между первой и последней страницей, не время непрерывного чтения.</p><p>Подробности удаляются через 30 суток; обезличенные итоги сохраняются до 180 дней. Для 90 дней и предыдущего 30-дневного периода точная уникальность недоступна. В прежней модели отзыв согласия исключал ещё сохраняемые персональные наблюдения. Пропуски сбора не восстанавливаются.</p></section>");
     if let Some(report) = report {
         write!(
             body,
@@ -37,8 +41,18 @@ pub(in crate::auth::audience_http) fn page(
             escape_html(&report.measured_at_utc)
         )
         .expect("String");
-        period(&mut body, "current", "Текущий период", &report.current);
-        period(&mut body, "previous", "Предыдущий период", &report.previous);
+        period(
+            &mut body,
+            "current",
+            super::retirement::CURRENT,
+            &report.current,
+        );
+        period(
+            &mut body,
+            "previous",
+            super::retirement::PREVIOUS,
+            &report.previous,
+        );
     } else {
         body.push_str("<p role=\"alert\" data-testid=\"flow-visits-unavailable\">Сводка визитов временно недоступна. Нулевые значения не подставляются.</p>");
     }
@@ -58,7 +72,7 @@ fn number(value: Option<i64>) -> String {
 }
 
 fn period(body: &mut String, key: &str, title: &str, data: &FlowVisitsPeriod) {
-    write!(body,"<section class=\"book-section-card\" data-testid=\"flow-visits-{key}\"><h2>{title}</h2><p>С {} до {} UTC, конец не включён.</p><dl>",escape_html(&data.from_utc),escape_html(&data.until_utc)).expect("String");
+    write!(body,"<section class=\"book-section-card\" data-testid=\"flow-visits-{key}\" data-measurement=\"legacy-consented\"><h2>{title}</h2><p>С {} до {} UTC, конец не включён.</p><dl>",escape_html(&data.from_utc),escape_html(&data.until_utc)).expect("String");
     for (metric, label, value) in [
         ("visits", "Начавшиеся наблюдаемые визиты", data.visits),
         (

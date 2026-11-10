@@ -1,5 +1,5 @@
 'use strict';
-// P1: explicit hide/restore is independent of optional REC/FLOW collection.
+// P2a: explicit hide/restore survives retirement of individual REC/FLOW collection.
 // This script exercises real HTML forms, A sessions, F storage and PostgreSQL.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
@@ -23,7 +23,8 @@ if (proofImages && process.env.GITHUB_ACTIONS !== 'true') {
 }
 fs.mkdirSync(shots, {recursive:true});
 const ordinaryUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-const recConsent = "form[action='/me/recommendations/consent']";
+const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent} =
+  require('./collection_retirement_fixtures.cjs')(sql);
 const feedbackForm = "form[action='/me/recommendations/feedback']";
 
 function sql(statement) {
@@ -97,13 +98,6 @@ async function submit(page,form,endpoint) {
   await privateResponse(response,303);
   await page.waitForURL('**/me/recommendations');
 }
-async function chooseConsent(page,enabled) {
-  await privateResponse(await page.goto(base+'/me/recommendations'));
-  const form=page.locator(recConsent);
-  await form.getByRole('checkbox').setChecked(enabled);
-  await submit(page,form,'/me/recommendations/consent');
-  assert.equal(await page.locator(recConsent).getByRole('checkbox').isChecked(),enabled);
-}
 async function checkStorage(context,page) {
   for (const cookie of await context.cookies()) {
     assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),
@@ -117,8 +111,7 @@ async function checkStorage(context,page) {
 async function evidence(page,width) {
   await page.setViewportSize({width,height:900});
   await privateResponse(await page.goto(base+'/me/recommendations'));
-  assert.equal(await page.locator(recConsent).getByRole('checkbox').isChecked(),false);
-  assert.equal(await page.locator('form[data-flow-consent]').getByRole('checkbox').isChecked(),false);
+  await assertNoControls(page);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   const name='recommendation-preferences-'+width;
   await page.screenshot({path:path.join(shots,name+'.png'),fullPage:true,animations:'disabled'});
@@ -163,10 +156,9 @@ async function evidence(page,width) {
     const context=await browser.newContext({viewport:{width:1440,height:900},userAgent:ordinaryUA});
     const page=await context.newPage();
     const errors=[],unexpectedAnalytics=[];
-    let assertNoAnalytics=true;
     page.on('pageerror',error=>errors.push(error.message));
     page.on('request',request=>{
-      if (assertNoAnalytics && /\/api\/v1\/(?:recommendations\/(?:impressions|activate)|discovery\/activate)$/.test(new URL(request.url()).pathname)) {
+      if (/\/api\/v1\/(?:recommendations\/(?:impressions|activate)|discovery\/activate)$/.test(new URL(request.url()).pathname)) {
         unexpectedAnalytics.push(new URL(request.url()).pathname);
       }
     });
@@ -174,8 +166,7 @@ async function evidence(page,width) {
     users.push(user);
     noSubject(user);
     await privateResponse(await page.goto(base+'/me/recommendations'));
-    assert.equal(await page.locator(recConsent).getByRole('checkbox').isChecked(),false);
-    assert.equal(await page.locator('form[data-flow-consent]').getByRole('checkbox').isChecked(),false);
+    await assertNoControls(page);
     const visible=card(page,book);
     assert.equal(await visible.count(),1);
     assert.equal(await visible.getAttribute('data-rec-ticket'),null);
@@ -186,7 +177,7 @@ async function evidence(page,width) {
     noSubject(user);
     assert.equal(await clearForm(page,book).count(),1);
     assert.equal(await card(page,book).count(),0);
-    assert.match(await page.locator('body').innerText(),/Эта настройка работает независимо/);
+    assert.match(await page.locator('body').innerText(),/он не включает учёт посещений и чтения/);
     const saved=preference(user,book),savedCommand=command(user,hideKey);
     assert.equal(saved.hidden,true);
     assert.equal(saved.revision,1);
@@ -198,24 +189,24 @@ async function evidence(page,width) {
     await checkStorage(context,page);
     assert.deepEqual(unexpectedAnalytics,[]);
 
-    // Exercise an existing installation's explicit opt-in then opt-out through
-    // the genuine forms. P1 must preserve choices while existing analytics erases.
-    assertNoAnalytics=false;
-    await chooseConsent(page,true);
-    await chooseConsent(page,false);
-    assert.equal(sql(`SELECT enabled::text||'|'||(flow_epoch IS NULL)::text
-      FROM rec_subjects WHERE user_id=${user}`),'false|true');
+    // Explicit old-installation fixture, outside every browser command.
+    // Cached clients cannot reactivate analytics or erase the independent choice.
+    legacyScope(user);
+    const scope=optionalSnapshot(user);
+    for (const endpoint of ['/me/recommendations/consent','/me/recommendations/flow-consent']) {
+      await retiredConsent(page,endpoint,false);
+      await retiredConsent(page,endpoint,true);
+    }
+    assert.deepEqual(optionalSnapshot(user),scope);
     assert.deepEqual(preference(user,book),saved);
     assert.deepEqual(command(user,hideKey),savedCommand);
     assert.equal(sql(`SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=${user}`),epoch);
+    await privateResponse(await page.goto(base+'/me/recommendations'));
+    await assertNoControls(page);
     assert.equal(await clearForm(page,book).count(),1);
     assert.equal(await card(page,book).count(),0);
-    assert.equal(scalar(`SELECT count(*) FROM rec_assignments a
-      JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user}`),0);
-    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches t
-      JOIN rec_subjects s ON s.subject_id=t.subject_id WHERE s.user_id=${user}`),0);
-    assert.equal(scalar(`SELECT count(*) FROM flow_visits v
-      JOIN rec_subjects s ON s.subject_id=v.subject_id WHERE s.user_id=${user}`),0);
+    await checkStorage(context,page);
+    assert.deepEqual(unexpectedAnalytics,[]);
     for (const width of [390,1440]) await evidence(page,width);
 
     // Native form restore must also work without JavaScript after a fresh login.
@@ -233,11 +224,11 @@ async function evidence(page,width) {
     assert.equal(await clearForm(plain,book).count(),0);
     assert.equal(await card(plain,book).count(),1);
     assert.equal(await card(plain,book).getAttribute('data-rec-ticket'),null);
-    assert.equal(sql(`SELECT enabled::text||'|'||(flow_epoch IS NULL)::text
-      FROM rec_subjects WHERE user_id=${user}`),'false|true');
+    assert.deepEqual(optionalSnapshot(user),scope);
     assert.deepEqual(command(user,hideKey),savedCommand);
+    assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, opt-out preserves TTL/revision/receipt, no-JS restore, 390/1440');
+    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, retired clients preserve exact legacy scope and preference TTL/revision/receipt, no-JS restore, 390/1440');
   } finally {
     if (browser) await browser.close();
     sql(`UPDATE rec_runtime_policy SET hold=${previousHold} WHERE singleton`);

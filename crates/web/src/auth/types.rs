@@ -44,7 +44,6 @@ pub(super) struct AuthState {
     pub(super) achievements: tor_recommendations::repositories::PgAchievements,
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
-    pub(super) ril_signer: Option<RilSubjectSigner>,
     pub(super) cover_preview_storage: Option<Arc<dyn CoverObjectStore>>,
     pub(super) cover_upload_enabled: bool,
     /// Off by default until S020/#486 full cross-surface acceptance.

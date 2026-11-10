@@ -1,6 +1,6 @@
 'use strict';
-// FLOW-02: explicit opt-in, actual pages, account scope, private report, erasure.
-// Positive visit observations are never inserted by these catalogue fixtures.
+// FLOW-02 retirement: native navigation stays usable, historical reports stay labeled.
+// Historical visit measurements are explicit fixtures; current HTML creates none.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -19,8 +19,9 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
 }
 fs.mkdirSync(shots, {recursive:true});
 const ordinaryUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-const recForm = "form[action='/me/recommendations/consent']";
-const flowForm = 'form[data-flow-consent]';
+const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent,historicalVisits} =
+  require('./collection_retirement_fixtures.cjs')(sql);
+const preview = require('./ci_browser_preview.cjs');
 
 function sql(statement) {
   return execFileSync('psql', ['-X','-A','-t','-q','-v','ON_ERROR_STOP=1',
@@ -33,23 +34,9 @@ function scalar(statement) {
   assert.match(value, /^\d+$/);
   return Number(value);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<100; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  throw new Error('not observed: '+label);
-}
 function ownPages(user) {
   return scalar(`SELECT COALESCE(sum(v.pageviews),0) FROM flow_visits v
     JOIN rec_subjects s ON s.subject_id=v.subject_id WHERE s.user_id=${user}`);
-}
-async function waitPages(user, expected) {
-  await waitFor(() => {
-    const count = ownPages(user);
-    assert.ok(count <= expected, `duplicate/extra capture ${count} > ${expected}`);
-    return count === expected;
-  }, `${expected} successful consented HTML pages`);
 }
 async function register(page, email) {
   await page.goto(base+'/register');
@@ -67,31 +54,12 @@ async function login(page, email) {
   await page.getByRole('button', {name:'Войти', exact:true}).click();
   await page.waitForURL('**/me');
 }
-async function choose(page, selector, enabled) {
-  await page.goto(base+'/me/recommendations');
-  const form = page.locator(selector);
-  await form.getByRole('checkbox').setChecked(enabled);
-  await form.getByRole('button').click();
-  await page.waitForURL('**/me/recommendations');
-  assert.equal(await page.locator(selector).getByRole('checkbox').isChecked(), enabled);
-}
 async function privateResponse(response, status=200) {
   assert.equal(response.status(), status);
   const headers = await response.allHeaders();
   assert.equal(headers['cache-control'], 'no-store');
   assert.match(headers['x-robots-tag'], /noindex/);
   assert.match(headers['x-robots-tag'], /nofollow/);
-}
-async function invalidConsent(page, csrf) {
-  return page.evaluate(async ({selector,csrf}) => {
-    const form = document.querySelector(selector);
-    const data = new URLSearchParams(new FormData(form));
-    data.set('enabled','1');
-    if (csrf !== null) data.set('csrf_token', csrf);
-    const response = await fetch(form.action, {method:'POST', credentials:'same-origin',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:data});
-    return response.status;
-  }, {selector:flowForm,csrf});
 }
 async function assertReport(page, days) {
   const day = sql("SELECT (now() AT TIME ZONE 'UTC')::date::text");
@@ -145,108 +113,108 @@ async function assertReport(page, days) {
       VALUES(${chapter},1,'FLOW readable fixture') RETURNING id`);
     sql(`INSERT INTO chapter_publications(chapter_id,version_id) VALUES(${chapter},${version})`);
     browser = await chromium.launch({headless:true});
-    const errors = [];
+    const errors = [],unexpectedAnalytics = [];
     const adminContext = await browser.newContext({viewport:{width:1440,height:900},userAgent:ordinaryUA});
     const readerContext = await browser.newContext({viewport:{width:390,height:844},userAgent:ordinaryUA});
-    const adminPage = await adminContext.newPage();
-    const readerPage = await readerContext.newPage();
-    for (const page of [adminPage,readerPage]) page.on('pageerror', error => errors.push(error.message));
+    const adminPage = await adminContext.newPage(), readerPage = await readerContext.newPage();
+    for (const page of [adminPage,readerPage]) {
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('request', request => {
+        if (/\/api\/v1\/(?:recommendations\/(?:impressions|activate)|discovery\/activate)$/.test(new URL(request.url()).pathname)) {
+          unexpectedAnalytics.push(new URL(request.url()).pathname);
+        }
+      });
+    }
     const admin = await register(adminPage, `flow-visits-admin-${run}@tor-ci.example`);
-    users.push(admin);
     const reader = await register(readerPage, readerEmail);
-    users.push(reader);
+    users.push(admin,reader);
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${admin},'administrator')`);
     await readerPage.goto(base+'/me/recommendations');
-    assert.equal(await readerPage.locator(recForm).getByRole('checkbox').isChecked(), false);
-    assert.equal(await readerPage.locator(flowForm).getByRole('checkbox').isChecked(), false);
-    assert.equal(await invalidConsent(readerPage, null), 403, 'FLOW requires separate REC prerequisite');
-    await choose(readerPage, recForm, true);
-    assert.equal(await readerPage.locator(flowForm).getByRole('checkbox').isChecked(), false,
-      'earlier REC consent never grants FLOW collection');
-    assert.equal((await readerPage.goto(base+`/books/${book}`)).status(), 200);
-    assert.equal(ownPages(reader), 0);
-    await readerPage.goto(base+'/me/recommendations');
-    assert.equal(await invalidConsent(readerPage, 'invalid'), 403);
-    assert.equal(sql(`SELECT flow_epoch IS NULL FROM rec_subjects WHERE user_id=${reader}`), 't');
-    await choose(readerPage, flowForm, true);
-    const scope = JSON.parse(sql(`SELECT json_build_object('subject',subject_id,'epoch',flow_epoch)
-      FROM rec_subjects WHERE user_id=${reader}`));
-    assert.equal((await readerPage.goto(base+`/books/${book}`)).status(), 200);
-    await waitPages(reader, 1);
-    assert.equal((await readerPage.goto(base+'/catalog?sort=newest')).status(), 200);
-    await waitPages(reader, 2);
+    await assertNoControls(readerPage);
+    assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${reader}`),0);
+    for (const endpoint of ['/me/recommendations/consent','/me/recommendations/flow-consent']) {
+      await retiredConsent(readerPage,endpoint,true);
+    }
+    assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${reader}`),0,
+      'retired requests cannot introduce an analytics subject');
+
+    // Separate old-installation fixtures: never added by navigation helpers.
+    const scope = legacyScope(reader);
+    historicalVisits(reader);
+    const before = optionalSnapshot(reader);
+    assert.equal(ownPages(reader),2);
+    for (const target of [`/books/${book}`,'/catalog?sort=newest',`/reader/${chapter}`,
+      `/read/${chapter}`,'/me/library','/']) {
+      assert.equal((await readerPage.goto(base+target)).status(),200,target);
+      await assertNoControls(readerPage);
+      assert.deepEqual(optionalSnapshot(reader),before,target);
+    }
+    // The ordinary server has no private paid-reader adapter. Its positive
+    // purchased-library route is covered with a real checkout in paid HTTP tests.
+    assert.equal((await readerPage.goto(base+'/me/purchases')).status(),404);
+    assert.deepEqual(optionalSnapshot(reader),before);
+    await readerPage.goto(base+'/catalog?sort=newest');
     await readerPage.locator(`a.book-mini-card__link[href='/books/${book}']`).first().click();
     await readerPage.waitForURL(base+`/books/${book}`);
-    await waitPages(reader, 3);
-    assert.equal((await readerPage.goto(base+`/read/${chapter}`)).status(), 200);
-    await waitPages(reader, 4);
-    assert.equal((await readerPage.goto(base+'/me/library')).status(), 200);
-    await waitPages(reader, 5);
-    assert.equal(sql(`SELECT count(*),min(landing_surface),min(last_surface) FROM flow_visits
-      WHERE subject_id='${scope.subject}'::uuid`), '1|2|4');
-    // A second browser login is the same opted-in account, not a second human.
     const secondContext = await browser.newContext({userAgent:ordinaryUA});
     const secondPage = await secondContext.newPage();
-    await login(secondPage, readerEmail);
-    assert.equal((await secondPage.goto(base+`/books/${book}`)).status(), 200);
-    await waitPages(reader, 6);
-    assert.equal(scalar(`SELECT count(*) FROM flow_visits WHERE subject_id='${scope.subject}'::uuid`), 1);
+    await login(secondPage,readerEmail);
+    assert.equal((await secondPage.goto(base+`/books/${book}`)).status(),200);
+    await assertNoControls(secondPage);
     await secondContext.close();
-    const before = scalar('SELECT count(*) FROM flow_visit_receipts');
     const guestContext = await browser.newContext({userAgent:ordinaryUA});
     const guestPage = await guestContext.newPage();
-    assert.equal((await guestPage.goto(base+`/books/${book}`)).status(), 200);
-    await privateResponse(await guestPage.goto(base+'/admin/audience/visits'), 401);
+    assert.equal((await guestPage.goto(base+`/books/${book}`)).status(),200);
+    await assertNoControls(guestPage);
+    await privateResponse(await guestPage.goto(base+'/admin/audience/visits'),401);
     await guestContext.close();
-    const botContext = await browser.newContext({storageState:await readerContext.storageState(), userAgent:'Googlebot/2.1'});
+    const botContext = await browser.newContext({storageState:await readerContext.storageState(),userAgent:'Googlebot/2.1'});
     const botPage = await botContext.newPage();
-    assert.equal((await botPage.goto(base+`/books/${book}`)).status(), 200);
+    assert.equal((await botPage.goto(base+`/books/${book}`)).status(),200);
     await botContext.close();
-    await readerPage.evaluate(async () => {
-      for (const path of ['/api/v1/books?limit=1','/assets/site.css']) {
-        const response = await fetch(path, {credentials:'same-origin'});
-        if (!response.ok) throw new Error('negative capture fixture unavailable');
-      }
-    });
-    assert.equal((await readerPage.goto(base+'/books/9223372036854775807')).status(), 404);
-    await privateResponse(await readerPage.goto(base+'/admin/audience/visits'), 403);
-    assert.equal((await readerPage.goto(base+`/read/${chapter}`)).status(), 200);
-    await waitPages(reader, 7);
-    assert.equal(scalar('SELECT count(*) FROM flow_visit_receipts'), before+1);
+    // These explicit HTTP reads share the real browser's session. Public book
+    // HTML retains its strict CSP; analytics no longer relaxes it for fetch().
+    for (const target of ['/api/v1/books?limit=1','/assets/site.css']) {
+      assert.equal((await readerPage.request.get(base+target)).status(),200,target);
+    }
+    assert.equal((await readerPage.goto(base+'/books/9223372036854775807')).status(),404);
+    await privateResponse(await readerPage.goto(base+'/admin/audience/visits'),403);
+    assert.deepEqual(optionalSnapshot(reader),before);
     for (const days of [1,7,30,90]) {
       await privateResponse(await adminPage.goto(base+`/admin/audience/visits?days=${days}`));
-      await assertReport(adminPage, days);
+      assert.equal(await adminPage.getByTestId('collection-retired').count(),1);
+      assert.equal(await adminPage.locator('[data-current-measurement="unavailable"]').count(),1);
+      assert.equal(await adminPage.locator('[data-measurement="legacy-consented"]').count(),2);
+      await assertReport(adminPage,days);
       const html = await adminPage.content();
       for (const forbidden of [readerEmail,scope.subject,scope.epoch,`FLOW-VISITS-PRIVATE-${run}`,'FLOW readable fixture']) {
-        assert.equal(html.includes(forbidden), false, 'private per-account/content information leaked');
+        assert.equal(html.includes(forbidden),false,'private identity/content leaked');
       }
     }
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:900});
       await adminPage.goto(base+'/admin/audience/visits?days=7');
       assert.ok(await adminPage.getByRole('heading',{name:'Визиты и входы',exact:true}).isVisible());
-      assert.equal(await adminPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth+1), true);
+      assert.equal(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1),true);
       await adminPage.screenshot({path:path.join(shots,`flow-visits-${width}.png`),fullPage:true});
+      await preview(adminPage,`flow-visits-${width}`);
     }
-    const beforeReports = ownPages(reader);
-    assert.equal(beforeReports, 7, 'admin report GETs are read-only and excluded from capture');
-    await choose(readerPage, flowForm, false);
-    assert.equal(await readerPage.locator(recForm).getByRole('checkbox').isChecked(), true);
-    for (const table of ['flow_visits','flow_visit_receipts','flow_visit_account_days']) {
-      assert.equal(scalar(`SELECT count(*) FROM ${table} WHERE subject_id='${scope.subject}'::uuid`), 0);
+    await readerPage.goto(base+'/me/recommendations');
+    for (const endpoint of ['/me/recommendations/consent','/me/recommendations/flow-consent']) {
+      await retiredConsent(readerPage,endpoint,false);
+      await retiredConsent(readerPage,endpoint,true);
     }
-    await choose(readerPage, flowForm, true);
-    assert.notEqual(sql(`SELECT flow_epoch FROM rec_subjects WHERE user_id=${reader}`), scope.epoch);
-    await readerPage.goto(base+`/books/${book}`);
-    await waitPages(reader, 1);
-    await choose(readerPage, recForm, false);
-    assert.equal(await readerPage.locator(flowForm).getByRole('checkbox').isChecked(), false);
-    assert.equal(ownPages(reader), 0);
+    assert.deepEqual(optionalSnapshot(reader),before,
+      'all HTML, reports, browser restarts and cached commands leave historical scope unchanged');
+    for (const cookie of await readerContext.cookies()) {
+      assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),'unexpected cookie '+cookie.name);
+    }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${admin} AND role='administrator'`);
-    await privateResponse(await adminPage.goto(base+'/admin/audience/visits'), 403);
-    assert.equal(await adminPage.locator('[data-metric]').count(), 0);
-    assert.deepEqual(errors, []);
-    console.log('FLOW visits browser PASS: explicit scope, 7 actual pages, one account visit across browsers, all periods, private report, erasure');
+    await privateResponse(await adminPage.goto(base+'/admin/audience/visits'),403);
+    assert.equal(await adminPage.locator('[data-metric]').count(),0);
+    assert.deepEqual(unexpectedAnalytics,[]);
+    assert.deepEqual(errors,[]);
+    console.log('FLOW visits browser PASS: old enabled scope inert, native navigation across browsers, exact historical fixture preserved, retired consent410, all periods/ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) {
