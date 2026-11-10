@@ -2646,14 +2646,14 @@
       "template": "/admin/storage/g09",
       "source": "crates/web/src/g09_operator.rs",
       "handler": "page",
-      "policy": "administrator"
+      "policy": "admin_g09"
     },
     {
       "method": "POST",
       "template": "/admin/storage/g09/{direction}/{scope}/{action}",
       "source": "crates/web/src/g09_operator.rs",
       "handler": "command",
-      "policy": "administrator"
+      "policy": "admin_g09"
     }
   ]
 }
