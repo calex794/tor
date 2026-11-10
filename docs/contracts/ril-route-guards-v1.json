@@ -2594,6 +2594,13 @@
     },
     {
       "method": "GET",
+      "template": "/admin/audience/returns",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "returns::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
       "template": "/me/free-comment-appeals",
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::author_page",

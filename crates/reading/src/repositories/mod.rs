@@ -28,3 +28,4 @@ pub use book_likes::{LikeMutation, LikeSummary, PgBookLikes};
 pub mod chapter_thanks;
 pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};
 pub mod audience;
+pub mod returns;

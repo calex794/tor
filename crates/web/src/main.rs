@@ -11,7 +11,8 @@ use tor_books::{
     services::PublicBookRepository,
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
-use tor_reading::repositories::PgReader;
+use tor_reading::repositories::{returns::PgReadingReturns, PgReader};
+use tor_web::recommendation_worker::{spawn_reading_returns, validate_reading_returns_runtime};
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -21,6 +22,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
+    let reading_returns_enabled = validate_reading_returns_runtime(demo)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -197,6 +199,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
+    let mut pending_reading_returns = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
@@ -338,6 +341,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     );
                 }
                 pending_security_retention = Some(accounts.clone());
+                pending_reading_returns = Some(PgReadingReturns::new(pool.clone()));
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -500,18 +504,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let app = if let Some(routes) = pending_g09_routes {
-        app.merge(tor_web::instrument_additional_routes(routes))
-    } else {
-        app
-    };
-    let app = if let Some(routes) = pending_chapter_import_routes {
-        // The base router already has RIL instrumentation. Instrument this
-        // late-bound route group with the same process recorder before merge.
-        app.merge(tor_web::instrument_additional_routes(routes))
-    } else {
-        app
-    };
+    let app = [pending_g09_routes, pending_chapter_import_routes]
+        .into_iter()
+        .flatten()
+        .fold(app, |app, routes| {
+            // The base router already has RIL instrumentation. Instrument each
+            // late-bound route group with the same process recorder before merge.
+            app.merge(tor_web::instrument_additional_routes(routes))
+        });
     let listener = tokio::net::TcpListener::bind(address).await?;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
@@ -578,6 +578,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
     let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
+    let _reading_returns =
+        spawn_reading_returns(pending_reading_returns, reading_returns_enabled).await?;
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
