@@ -96,6 +96,7 @@ mod tests {
     #[test]
     fn layer_shell_contains_safe_real_chapter_metadata_and_no_purchase_secrets() {
         let anchor = LayerTocAnchor {
+            book_id: 7,
             chapter_id: 42,
             chapter_no: 28,
             chapter_title: "Заголовок <script>alert(1)</script>".into(),

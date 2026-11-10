@@ -2703,6 +2703,13 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "visits::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/funnel",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "funnel::page",
+      "policy": "administrator"
     }
   ]
 }

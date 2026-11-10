@@ -74,6 +74,7 @@ mod continuation_demand;
 mod creator_finance;
 mod creator_follows;
 mod direct_swap_browser;
+mod flow_reading;
 mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
@@ -197,17 +198,13 @@ fn router_inner(
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
-    let activity = crate::recommendation_worker::reading_returns_enabled();
-    let book_returns = crate::recommendation_worker::book_reading_returns_enabled();
-    let progress = PgReadingProgress::new(accounts.pool().clone())
-        .with_activity_collection(activity)
-        .with_book_return_collection(book_returns);
-    let sync = PgReadingSync::new(accounts.pool().clone())
-        .with_activity_collection(activity)
-        .with_book_return_collection(book_returns);
-    let bookmarks = PgLibrary::new(accounts.pool().clone());
+    let flow_reading::Stores {
+        progress,
+        sync,
+        bookmarks,
+        book_follows,
+    } = flow_reading::stores(&accounts);
     let demand = PgContinuationDemand::new(accounts.pool().clone());
-    let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let creator_follows = tor_social::services::follow::PgCreatorFollows::new(pool.clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());

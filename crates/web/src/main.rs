@@ -585,7 +585,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
     let account_retention =
-        pending_security_retention.map(tor_web::start_account_security_retention);
+        tor_web::start_account_security_retention(pending_security_retention).await;
     let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

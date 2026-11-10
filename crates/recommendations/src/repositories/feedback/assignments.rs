@@ -107,6 +107,19 @@ impl PgRecommendations {
         session: &[u8; 32],
         book: i64,
     ) -> Result<(), FeedbackError> {
+        self.record_book_open_with_flow(actor, session, book)
+            .await?;
+        Ok(())
+    }
+
+    /// Returns only the proof from the actual session-bound navigation write.
+    /// FLOW rechecks its subject, book, click time and current consent epoch.
+    pub async fn record_book_open_with_flow(
+        &self,
+        actor: i64,
+        session: &[u8; 32],
+        book: i64,
+    ) -> Result<Option<String>, FeedbackError> {
         validate_actor(actor)?;
         validate_actor(book)?;
         let mut tx = self.pool.begin().await?;
@@ -125,14 +138,25 @@ impl PgRecommendations {
             .bind(book)
             .fetch_optional(&mut *tx)
             .await?;
-        if let Some(id) = id {
+        if let Some(id) = id.as_deref() {
             sqlx::query("UPDATE rec_assignments SET book_opened_at=COALESCE(book_opened_at,now()) WHERE id=$1::uuid")
-                .bind(&id).execute(&mut *tx).await?;
+                .bind(id).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,occurred_at,trust) SELECT id,'book_opened',book_opened_at,'server_navigation' FROM rec_assignments WHERE id=$1::uuid ON CONFLICT(assignment_id,kind) DO NOTHING")
-                .bind(&id).execute(&mut *tx).await?;
-            dirty(&mut tx, &id).await?;
+                .bind(id).execute(&mut *tx).await?;
+            dirty(&mut tx, id).await?;
         }
+        let proof = if let Some(id) = id.as_deref() {
+            sqlx::query_scalar(
+                "SELECT a.id::text FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id
+                 WHERE a.id=$1::uuid AND s.flow_epoch IS NOT NULL AND a.clicked_at>=s.flow_enabled_at",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
         tx.commit().await?;
-        Ok(())
+        Ok(proof)
     }
 }

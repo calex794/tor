@@ -4,6 +4,7 @@
 /// An owned, readable edition. Never contains paid text or signed object URLs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadablePurchase {
+    pub book_id: i64,
     pub purchase_id: i64,
     pub chapter_id: i64,
     pub version_id: i64,
@@ -126,6 +127,7 @@ mod toc_window_tests {
 /// D-05 Layer CURRENT navigation. Metadata is not a purchase grant.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayerTocAnchor {
+    pub book_id: i64,
     pub chapter_id: i64,
     pub chapter_no: i32,
     pub chapter_title: String,

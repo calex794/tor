@@ -98,6 +98,9 @@ impl PgReadingSync {
             .begin()
             .await
             .map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         // Block the D purchase before a concurrent refund can insert its FK.
         // Hold B moderation and the immutable attached G object through commit.
         let row = sqlx::query(
@@ -279,9 +282,14 @@ impl PgReadingSync {
             place,
             self.activity_collection,
             self.book_return_collection,
+            self.flow_collection,
         )
         .await?;
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
         Ok((event_id, is_new))
     }
 }

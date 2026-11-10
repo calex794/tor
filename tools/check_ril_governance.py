@@ -284,6 +284,30 @@ def _audience_returns_are_bounded(body: str) -> bool:
     return True
 
 
+def _audience_funnel_is_bounded(body: str) -> bool:
+    guard = re.search(
+        r"\)\s*->\s*Response\s*\{\s*"
+        r"let\s+deadline\s*=\s*Instant::now\(\)\s*\+\s*Duration::from_millis\(950\);\s*"
+        r"match\s+timeout_at\(deadline,\s*administrator\(&state,\s*&headers\)\)\.await\s*\{\s*"
+        r"Ok\(Ok\(\(\)\)\)\s*=>\s*\{\s*\}\s*"
+        r"Ok\(Err\(status\)\)\s*=>\s*return\s+secure\(status\),\s*"
+        r"Err\(_\)\s*=>\s*return\s+secure\(StatusCode::SERVICE_UNAVAILABLE\),?\s*\}",
+        body,
+    )
+    bounded = re.search(
+        r"timeout_at\(\s*deadline,\s*state\.funnel\.report\(\s*days\s*\)\s*,?\s*\)\s*\.await",
+        body,
+    )
+    return bool(
+        guard and bounded and bounded.start() > guard.end()
+        and len(re.findall(r"\blet\s+(?:mut\s+)?deadline\b", body)) == 1
+        and len(re.findall(r"\.report\s*\(", body)) == 1
+        and all(re.match(r"\s*secure\s*\(", body[returned.end():])
+                for returned in re.finditer(r"\breturn\b", body))
+        and re.search(r"\bsecure\(\(.*\)\)\s*\}\s*$", body, re.DOTALL)
+    )
+
+
 def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
@@ -312,9 +336,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/visits", "visits::page")
     )
+    audience_funnel = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/funnel", "funnel::page")
+    )
     audience_child = (
         "books" if audience_books else "groups" if audience_groups
-        else "returns" if audience_returns else "visits" if audience_visits else None
+        else "returns" if audience_returns else "visits" if audience_visits
+        else "funnel" if audience_funnel else None
     )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
@@ -598,6 +628,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/groups", "groups::page"),
             ("GET", "/admin/audience/returns", "returns::page"),
             ("GET", "/admin/audience/visits", "visits::page"),
+            ("GET", "/admin/audience/funnel", "funnel::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1395,6 +1426,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/groups", "groups::page"),
             ("GET", "/admin/audience/returns", "returns::page"),
             ("GET", "/admin/audience/visits", "visits::page"),
+            ("GET", "/admin/audience/funnel", "funnel::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1500,7 +1532,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
         audience_read = (
-            ".report(days)" if audience_visits
+            ".report(days)" if audience_visits or audience_funnel
             else ".returns_report(days)" if audience_returns
             else f".{audience_child}_report(&query)" if audience_child else ".report(days)"
         )
@@ -1522,6 +1554,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if audience_returns and not _audience_returns_are_bounded(body):
             errors.append(
                 f"{label}: FLOW returns must keep all three report reads behind live authorization and its deadline"
+            )
+        if audience_funnel and not _audience_funnel_is_bounded(body):
+            errors.append(
+                f"{label}: FLOW funnel must keep its secure report behind live authorization and one deadline"
             )
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
@@ -1665,7 +1701,8 @@ def check(root: Path = ROOT) -> list[str]:
                         ("GET", "/admin/audience/books", "books::page"),
                         ("GET", "/admin/audience/groups", "groups::page"),
                         ("GET", "/admin/audience/returns", "returns::page"),
-            ("GET", "/admin/audience/visits", "visits::page"),
+                        ("GET", "/admin/audience/visits", "visits::page"),
+                        ("GET", "/admin/audience/funnel", "funnel::page"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))

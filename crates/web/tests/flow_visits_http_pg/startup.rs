@@ -5,6 +5,8 @@ use std::{
     process::{Child, Stdio},
     time::Instant,
 };
+#[path = "startup_funnel.rs"]
+mod funnel;
 
 struct Server(Child);
 
@@ -74,6 +76,7 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
         ),
     );
     assert_eq!(retained(&url, actor), "3|3|2|1");
+    let expired_book = funnel::seed(&url, actor).await;
     let rollup = "SELECT COALESCE(sum(visits),0) FROM flow_visit_daily
                   WHERE cohort_day=((now()-interval '31 days') AT TIME ZONE 'UTC')::date
                     AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4";
@@ -111,6 +114,7 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
             .await
             .is_ok_and(|response| response.status().is_success())
             && retained(&url, actor) == "2|2|1|0"
+            && funnel::expired(&url, actor)
         {
             break;
         }
@@ -143,6 +147,11 @@ async fn public_postgres_startup_erases_expired_flow_without_auth_or_collection(
             .is_success());
     }
     assert_eq!(retained(&url, actor), "2|2|1|0");
+    funnel::assert_preserved(&url, actor, expired_book);
     drop(server);
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={expired_book}"),
+    );
 }
