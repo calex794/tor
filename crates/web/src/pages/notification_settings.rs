@@ -2,8 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use tor_reading::services::{
-    notification_preferences::DeliveryMode,
-    notification_send_time::PreferredSendHour,
+    notification_preferences::DeliveryMode, notification_send_time::PreferredSendHour,
 };
 
 pub fn delivery_preferences_page(
@@ -82,8 +81,10 @@ mod tests {
         assert!(smart.contains("недостаточно подтверждённых"));
         let mut buckets = [0; 24];
         buckets[18] = 8;
-        let reliable = tor_reading::services::notification_send_time::choose_preferred_hour(&buckets);
-        let with_hour = delivery_preferences_page(DeliveryMode::SmartTime, "csrf", Some(reliable)).0;
+        let reliable =
+            tor_reading::services::notification_send_time::choose_preferred_hour(&buckets);
+        let with_hour =
+            delivery_preferences_page(DeliveryMode::SmartTime, "csrf", Some(reliable)).0;
         assert!(with_hour.contains("18:00 UTC"));
         assert!(with_hour.contains("не расписание активной отправки"));
         let disabled = delivery_preferences_page(DeliveryMode::Disabled, "csrf", None).0;

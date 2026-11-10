@@ -1,7 +1,7 @@
 //! E / S018: bounded UTC cadence policy based on confirmed first chapter starts.
 //! No transport selection, contact consent, queue, or external delivery.
-use chrono::{DateTime, Duration, Timelike, Utc};
 use super::notification_preferences::DeliveryMode;
+use chrono::{DateTime, Duration, Timelike, Utc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HourConfidence {
@@ -20,7 +20,10 @@ pub struct PreferredSendHour {
 
 impl PreferredSendHour {
     pub const fn is_reliable(self) -> bool {
-        matches!(self.confidence, HourConfidence::Medium | HourConfidence::High)
+        matches!(
+            self.confidence,
+            HourConfidence::Medium | HourConfidence::High
+        )
     }
 }
 
@@ -162,7 +165,11 @@ mod tests {
             )
         );
         assert_eq!(
-            plan_send_time(DeliveryMode::SmartTime, choose_preferred_hour(&[0; 24]), now),
+            plan_send_time(
+                DeliveryMode::SmartTime,
+                choose_preferred_hour(&[0; 24]),
+                now
+            ),
             SendTiming::Now
         );
     }

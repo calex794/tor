@@ -206,8 +206,14 @@ async fn flow_reading_periods_count_accounts_once_without_truncating_or_rebuildi
     let preferred = hour_repo.estimate(f.users[0]).await.unwrap();
     assert_eq!(preferred.confidence, HourConfidence::High);
     assert_eq!(preferred.observed_starts, 122);
-    assert_eq!(hour_repo.estimate(f.users[1]).await.unwrap().confidence, HourConfidence::None);
-    assert_eq!(hour_repo.estimate(0).await, Err(tor_reading::repositories::PreferenceError::Invalid));
+    assert_eq!(
+        hour_repo.estimate(f.users[1]).await.unwrap().confidence,
+        HourConfidence::None
+    );
+    assert_eq!(
+        hour_repo.estimate(0).await,
+        Err(tor_reading::repositories::PreferenceError::Invalid)
+    );
 
     // Re-delivery cannot duplicate the canonical row or create another account.
     events(&f, f.users[0], (1, 120), 36, true).await;

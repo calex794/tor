@@ -43,7 +43,10 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         None
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::delivery_preferences_page(mode, &csrf, smart_hour), &cookies)
+    private_response(
+        pages::delivery_preferences_page(mode, &csrf, smart_hour),
+        &cookies,
+    )
 }
 
 pub(super) async fn save(
