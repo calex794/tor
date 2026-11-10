@@ -245,6 +245,7 @@ jobs:
           cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_import_worker_contention_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test book_related_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test public_related_http_pg -- --ignored --test-threads=1
