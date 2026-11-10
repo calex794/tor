@@ -73,28 +73,38 @@ impl ChapterImportWorker {
             }
             Err(_) => return self.terminal_failure(&claim, "source_object_invalid").await,
         };
-        let text = match String::from_utf8(bytes) {
-            Ok(text) => text,
+        // One worker consumes one claimed batch at a time. Keep UTF-8
+        // conversion, structural parsing and SHA-256 fingerprinting off
+        // Tokio: an imported source can be 700 KiB. A cancelled waiter cannot
+        // stop a spawn_blocking task; it has no PostgreSQL or S3 side effects.
+        // The epoch-fenced completion below remains the only place that writes.
+        let filename = claim.source_filename.clone();
+        let expected_count = claim.expected_chapter_count;
+        let approved_fingerprint = claim.approved_fingerprint.clone();
+        let book_id = claim.book_id;
+        let parsed = tokio::task::spawn_blocking(move || {
+            let text =
+                String::from_utf8(bytes).map_err(|_| "source_encoding_invalid")?;
+            let chapters =
+                parse_text(&filename, &text).map_err(|_| "source_structure_invalid")?;
+            if chapters.len() != expected_count as usize
+                || fingerprint(book_id, &chapters).as_slice()
+                    != approved_fingerprint.as_slice()
+            {
+                return Err("preview_changed");
+            }
+            Ok(chapters)
+        })
+        .await;
+        let chapters = match parsed {
+            Ok(Ok(chapters)) => chapters,
+            Ok(Err(code)) => return self.terminal_failure(&claim, code).await,
             Err(_) => {
                 return self
-                    .terminal_failure(&claim, "source_encoding_invalid")
+                    .retryable_failure(&claim, "source_parse_unavailable")
                     .await;
             }
         };
-        let chapters = match parse_text(&claim.source_filename, &text) {
-            Ok(chapters) => chapters,
-            Err(_) => {
-                return self
-                    .terminal_failure(&claim, "source_structure_invalid")
-                    .await;
-            }
-        };
-        if chapters.len() != claim.expected_chapter_count as usize
-            || fingerprint(claim.book_id, &chapters).as_slice()
-                != claim.approved_fingerprint.as_slice()
-        {
-            return self.terminal_failure(&claim, "preview_changed").await;
-        }
 
         match self
             .authoring
