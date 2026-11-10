@@ -67,11 +67,13 @@ impl PgPrivateInventory {
         .map_err(|_| InventoryError::Unavailable)?;
         row.map(|value| -> Result<InventoryProgress, InventoryError> {
             let count = |name: &str| {
-                value.try_get::<i64, _>(name)
+                value
+                    .try_get::<i64, _>(name)
                     .map_err(|_| InventoryError::Unavailable)
             };
             let flag = |name: &str| {
-                value.try_get::<bool, _>(name)
+                value
+                    .try_get::<bool, _>(name)
                     .map_err(|_| InventoryError::Unavailable)
             };
             Ok(InventoryProgress {
