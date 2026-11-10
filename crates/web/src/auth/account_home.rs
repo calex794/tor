@@ -58,7 +58,13 @@ pub(super) async fn page(
         false,
     );
     let audience_link = if administrator {
-        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
+        if cfg!(feature = "s3-paid")
+            && std::env::var("TOR_G09_OPERATOR_ENABLED").as_deref() == Ok("1")
+        {
+            "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a><a class=\"dashboard-nav__item\" href=\"/admin/storage/reconciliation\">Аудит S3</a>"
+        } else {
+            "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
+        }
     } else {
         ""
     };

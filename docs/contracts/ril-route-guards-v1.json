@@ -2633,6 +2633,20 @@
       "source": "crates/web/src/auth/admin_creator_payouts.rs",
       "handler": "quote",
       "policy": "admin_payout"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/storage/reconciliation",
+      "source": "crates/web/src/auth/admin_storage_reconciliation/enabled.rs",
+      "handler": "page",
+      "policy": "admin_storage_reconciliation"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/storage/reconciliation/run",
+      "source": "crates/web/src/auth/admin_storage_reconciliation/enabled.rs",
+      "handler": "run",
+      "policy": "admin_storage_reconciliation"
     }
   ]
 }

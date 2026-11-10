@@ -187,6 +187,36 @@ async fn g_09_s3_recon_2501_private_keys_restart_and_no_delete() {
         registry_objects, 0,
         "inventory never writes the live registry"
     );
+    assert!(
+        inventory
+            .begin_next_cycle(BUCKET, PrivateScope::Chapter)
+            .await
+            .unwrap(),
+        "only an explicitly completed scan can be restarted"
+    );
+    assert!(
+        !inventory
+            .begin_next_cycle(BUCKET, PrivateScope::Chapter)
+            .await
+            .unwrap(),
+        "an active new cycle cannot be overwritten"
+    );
+    let resumed = inventory
+        .progress(BUCKET, PrivateScope::Chapter)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.scanned, 0);
+    assert!(!resumed.completed);
+    let previous: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM g09_private_inventory_findings
+         WHERE bucket=$1 AND scope='chapter' AND cycle=1",
+    )
+    .bind(BUCKET)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(previous, 2501, "old findings must survive next cycle");
     pool.close().await;
 }
 
