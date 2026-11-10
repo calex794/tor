@@ -895,7 +895,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         )
         guarded = bool(
             reviewed_payout_post
-            and 'post(posting::submit).layer(DefaultBodyLimit::max(4096))' in source
+            and 'post(posting::submit).layer(DefaultBodyLimit::max(4096))'
+                in _production((ROOT / entry["source"]).read_text(encoding="utf-8"))
             and all(marker in http for marker in required_http)
             and all(marker in proof_repo for marker in required_proof)
             and all(marker in post_repo for marker in required_posting)
