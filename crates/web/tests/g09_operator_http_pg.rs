@@ -150,7 +150,16 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", body_command, Some(&session), &csrf, &csrf, ORIGIN).await,
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -158,7 +167,16 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        request(&app, "POST", body_command, Some(&session), &csrf, &csrf, ORIGIN).await,
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
         StatusCode::FORBIDDEN
     );
     pg(
@@ -173,17 +191,42 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         StatusCode::OK
     );
     assert_eq!(
-        request(&app, "POST", body_command, Some(&session), &csrf, "wrong", ORIGIN).await,
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            "wrong",
+            ORIGIN
+        )
+        .await,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", body_command, Some(&session), &csrf, &csrf,
-            "https://attacker.invalid").await,
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            "https://attacker.invalid"
+        )
+        .await,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", "/admin/storage/g09/get-sha/cover/run",
-            Some(&session), &csrf, &csrf, ORIGIN).await,
+        request(
+            &app,
+            "POST",
+            "/admin/storage/g09/get-sha/cover/run",
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
