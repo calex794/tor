@@ -156,7 +156,7 @@ BEGIN
 END;
 $$;
 CREATE CONSTRAINT TRIGGER s039_request_posted_complete
-    AFTER UPDATE ON finance_creator_payout_requests
+    AFTER INSERT OR UPDATE ON finance_creator_payout_requests
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW WHEN (NEW.state='posted')
     EXECUTE FUNCTION s039_verify_posted_request();

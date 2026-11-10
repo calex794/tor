@@ -388,3 +388,30 @@ async fn d_09_post_concurrent_retries_have_one_journal_effect() {
     assert_eq!(count, 1);
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_09_post_rejects_unsupported_terminal_insert_at_commit() {
+    let f = setup("orphan").await;
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO finance_creator_payout_requests
+         (user_id, amount_minor, intent_key, intent_digest,
+          reservation_minor, state, decided_at, decision_actor_id, decision_reason)
+         VALUES($1, 25, $2, decode(repeat('a',64),'hex'),
+                25, 'posted', clock_timestamp(), $3, 'Forged posting')",
+    )
+    .bind(f.owner)
+    .bind(format!("{}8", "Y".repeat(42)))
+    .bind(f.admin)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let err = tx.commit().await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("S039 posted request has no immutable posting"),
+        "{err}"
+    );
+    f.finish().await;
+}
