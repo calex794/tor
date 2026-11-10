@@ -40,6 +40,7 @@ mod admin_jobs;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
+mod admin_storage_reconciliation;
 mod audience_http;
 pub(crate) mod auth_observation;
 mod author_book_page;
@@ -275,6 +276,7 @@ fn router_inner(
         .merge(admin_jobs::router())
         .merge(admin_refund_review::router())
         .merge(admin_creator_payouts::router())
+        .merge(admin_storage_reconciliation::router())
         .merge(moderation_books::router())
         .merge(moderation_covers::router())
         .merge(book_project_status::router().merge(book_titles::router()))
