@@ -48,6 +48,7 @@ async fn c_17_modes_default_disabled_and_are_actor_scoped() {
     );
     for mode in [
         DeliveryMode::Immediate,
+        DeliveryMode::SmartTime,
         DeliveryMode::DailyDigest,
         DeliveryMode::Disabled,
     ] {

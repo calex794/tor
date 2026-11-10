@@ -17,6 +17,7 @@ pub fn delivery_preferences_page(mode: DeliveryMode, csrf: &str) -> Html<String>
 <fieldset class="notification-delivery-choices">
 <legend>Будущая внешняя доставка</legend>
 <label><input type="radio" name="delivery_mode" value="immediate"{immediate}> Сразу после выхода главы</label>
+<label><input type="radio" name="delivery_mode" value="smart_time"{smart}> В удобное время</label>
 <label><input type="radio" name="delivery_mode" value="daily_digest"{daily}> Ежедневная сводка</label>
 <label><input type="radio" name="delivery_mode" value="disabled"{disabled}> Отключено</label>
 </fieldset>
@@ -29,6 +30,7 @@ pub fn delivery_preferences_page(mode: DeliveryMode, csrf: &str) -> Html<String>
 </section>"#,
         csrf = escape_html(csrf),
         immediate = checked(DeliveryMode::Immediate),
+        smart = checked(DeliveryMode::SmartTime),
         daily = checked(DeliveryMode::DailyDigest),
         disabled = checked(DeliveryMode::Disabled),
     );
@@ -48,12 +50,16 @@ mod tests {
         let html = delivery_preferences_page(DeliveryMode::DailyDigest, "<bad>").0;
         assert!(html.contains("value=\"daily_digest\" checked"));
         assert!(!html.contains("value=\"immediate\" checked"));
+        assert!(!html.contains("value=\"smart_time\" checked"));
         assert!(!html.contains("value=\"disabled\" checked"));
         assert!(html.contains("value=\"&lt;bad&gt;\""));
         assert!(!html.contains("<bad>"));
         assert!(html.contains("пока не подключена"));
         assert!(html.contains("/me/library#new-chapters"));
         assert!(!html.contains("<script"));
+        let smart = delivery_preferences_page(DeliveryMode::SmartTime, "csrf").0;
+        assert!(smart.contains("value=\"smart_time\" checked"));
+        assert!(!smart.contains("value=\"daily_digest\" checked"));
         let disabled = delivery_preferences_page(DeliveryMode::Disabled, "csrf").0;
         assert!(disabled.contains("value=\"disabled\" checked"));
     }
