@@ -230,28 +230,38 @@ pub(super) async fn preview(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let (chapters, extracted_text) = match preview_source(&input) {
-        Ok(chapters) => chapters,
-        Err(error) => return import_error(error),
-    };
-    let preview = chapters
-        .iter()
-        .map(|chapter| ChapterPreview {
-            number: chapter.number,
-            title: chapter.title.clone(),
-            characters: chapter.body.chars().count(),
-            excerpt: chapter.body.chars().take(160).collect(),
-        })
-        .collect();
-    private_response(
-        Json(PreviewResponse {
+    // The archive decoder, XML parser and chapter fingerprint are CPU-bound.
+    // Keep them away from the HTTP runtime with a bounded, cancellation-safe
+    // blocking executor. Authorization is always checked before scheduling.
+    let preview = crate::cpu_work::run(move || {
+        let (chapters, extracted_text) = preview_source(&input)?;
+        let cards = chapters
+            .iter()
+            .map(|chapter| ChapterPreview {
+                number: chapter.number,
+                title: chapter.title.clone(),
+                characters: chapter.body.chars().count(),
+                excerpt: chapter.body.chars().take(160).collect(),
+            })
+            .collect();
+        Ok::<_, ImportError>(PreviewResponse {
             fingerprint: digest_hex(id, &chapters),
             count: chapters.len(),
-            chapters: preview,
+            chapters: cards,
             extracted_text,
-        }),
-        &[],
-    )
+        })
+    })
+    .await;
+    match preview {
+        Ok(Ok(data)) => private_response(Json(data), &[]),
+        Ok(Err(error)) => import_error(error),
+        Err(crate::cpu_work::CpuWorkError::Busy) => {
+            fail(StatusCode::TOO_MANY_REQUESTS, "Обработка файлов занята. Повторите запрос.")
+        }
+        Err(crate::cpu_work::CpuWorkError::Unavailable) => {
+            fail(StatusCode::SERVICE_UNAVAILABLE, "Обработка файлов недоступна.")
+        }
+    }
 }
 
 pub(super) async fn confirm(
@@ -293,23 +303,35 @@ pub(super) async fn confirm(
             "Сначала проверьте и подтвердите извлечённый текст DOCX или ZIP.",
         );
     }
-    let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
-        Ok(chapters) => chapters,
-        Err(error) => return import_error(error),
+    let expected_fingerprint = input.fingerprint.clone();
+    let Some(key) = input.command_key.clone() else {
+        return fail(StatusCode::BAD_REQUEST, "Отсутствует ключ подтверждения.");
     };
-    let actual = digest_hex(id, &chapters);
-    if input.fingerprint.as_deref() != Some(actual.as_str()) {
+    let parsed = crate::cpu_work::run(move || {
+        let chapters = parse_text(&input.filename, &input.text)?;
+        let actual = digest_hex(id, &chapters);
+        Ok::<_, ImportError>((chapters, actual))
+    })
+    .await;
+    let (chapters, actual) = match parsed {
+        Ok(Ok(parsed)) => parsed,
+        Ok(Err(error)) => return import_error(error),
+        Err(crate::cpu_work::CpuWorkError::Busy) => {
+            return fail(StatusCode::TOO_MANY_REQUESTS, "Обработка файлов занята. Повторите запрос.");
+        }
+        Err(crate::cpu_work::CpuWorkError::Unavailable) => {
+            return fail(StatusCode::SERVICE_UNAVAILABLE, "Обработка файлов недоступна.");
+        }
+    };
+    if expected_fingerprint.as_deref() != Some(actual.as_str()) {
         return fail(
             StatusCode::CONFLICT,
             "Файл изменился после предпросмотра. Проверьте главы заново.",
         );
     }
-    let Some(key) = input.command_key.as_deref() else {
-        return fail(StatusCode::BAD_REQUEST, "Отсутствует ключ подтверждения.");
-    };
     match state
         .authoring
-        .import_draft_chapter_batch(actor, id, key, &chapters)
+        .import_draft_chapter_batch(actor, id, &key, &chapters)
         .await
     {
         Ok(saved) => private_response(
