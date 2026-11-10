@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -157,23 +158,52 @@ class RilGovernanceTests(unittest.TestCase):
             path, global_read, guard + global_read,
         )
         self.assert_detected(
-            "FLOW returns must keep both report reads behind live authorization and its deadline"
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
         )
 
-    def test_audience_returns_neither_branch_can_drop_the_shared_timeout(self):
+    def test_audience_group_returns_cannot_read_before_authorization(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        guard = (
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {\n"
+            "        Ok(Ok(())) => {}\n"
+            "        Ok(Err(status)) => return secure(status),\n"
+            "        Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),\n"
+            "    }\n"
+        )
+        # Keep the book and global reads guarded, but let a group return first.
+        self.mutate(path, guard, "")
+        self.mutate(
+            path,
+            "    if let Some(book) = query.book_id {",
+            guard + "    if let Some(book) = query.book_id {",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_no_branch_can_drop_the_shared_timeout(self):
         path = "crates/web/src/auth/audience_http/returns.rs"
         target = self.root / path
         original = target.read_text(encoding="utf-8")
-        for operation in ("returns_report(days)", "book_returns_report(book, days)"):
+        for operation in (
+            "returns_report(days)", "book_returns_report(book, days)",
+            "group_book_returns_report(&group_query)",
+        ):
             with self.subTest(operation=operation):
                 target.write_text(original, encoding="utf-8")
+                bounded = re.search(
+                    rf"timeout_at\(\s*deadline,\s*state\.returns\."
+                    rf"{re.escape(operation)}\s*,?\s*\)\s*\.await",
+                    original,
+                )
+                self.assertIsNotNone(bounded, operation)
                 self.mutate(
                     path,
-                    f"timeout_at(deadline, state.returns.{operation}).await",
+                    bounded.group(0),
                     f"Ok::<_, tokio::time::error::Elapsed>(state.returns.{operation}.await)",
                 )
                 self.assert_detected(
-                    "FLOW returns must keep both report reads behind live authorization and its deadline"
+                    "FLOW returns must keep all three report reads behind live authorization and its deadline"
                 )
 
     def test_audience_book_returns_cannot_ignore_denied_authorization(self):
@@ -184,7 +214,18 @@ class RilGovernanceTests(unittest.TestCase):
             " => return secure(status),\n        Ok(Err(_)) => {},",
         )
         self.assert_detected(
-            "FLOW returns must keep both report reads behind live authorization and its deadline"
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_group_returns_cannot_ignore_denied_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status),",
+            "Ok(Err(status)) if query.as_ref().is_ok_and(|Query(query)| query.kind.is_none())"
+            " => return secure(status),\n        Ok(Err(_)) => {},",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
         )
 
     def test_audience_returns_cannot_restart_the_request_deadline_for_a_book(self):
@@ -195,7 +236,18 @@ class RilGovernanceTests(unittest.TestCase):
             "        let deadline = Instant::now() + Duration::from_millis(950);",
         )
         self.assert_detected(
-            "FLOW returns must keep both report reads behind live authorization and its deadline"
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_cannot_restart_the_request_deadline_for_a_group(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "if let Some(group_query) = group_query {",
+            "if let Some(group_query) = group_query {\n"
+            "        let deadline = Instant::now() + Duration::from_millis(950);",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
         )
 
     def test_admin_mail_cannot_read_with_unverified_digest(self):

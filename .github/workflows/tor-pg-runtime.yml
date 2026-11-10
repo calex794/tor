@@ -299,6 +299,8 @@ jobs:
           cargo test -p tor-web --test audience_returns_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_book_returns_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_book_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_group_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored

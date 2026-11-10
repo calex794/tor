@@ -2,6 +2,7 @@
 pub(super) mod book_returns;
 pub(super) mod books;
 mod evidence;
+pub(super) mod group_returns;
 pub(super) mod groups;
 mod hours;
 pub(super) mod returns;

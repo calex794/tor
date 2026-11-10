@@ -132,27 +132,63 @@ fn report_body(body: &mut String, report: &BookReadingReturnsReport) {
             Результаты, затронутые разрывом, не считаются нулевыми возвращениями.</p>"#);
     }
     body.push_str(r#"<div class="audience-source-grid">"#);
-    period(body, "current", "Текущий период", &report.current);
-    period(body, "previous", "Предыдущий период", &report.previous);
+    period(
+        body,
+        "audience-book-returns",
+        "current",
+        "Текущий период",
+        &report.current,
+    );
+    period(
+        body,
+        "audience-book-returns",
+        "previous",
+        "Предыдущий период",
+        &report.previous,
+    );
     body.push_str("</div>");
-    comparison(body, &report.current, &report.previous);
+    comparison(
+        body,
+        "audience-book-returns",
+        &report.current,
+        &report.previous,
+    );
     body.push_str("</section>");
 }
 
-fn period(body: &mut String, key: &str, title: &str, period: &BookReadingReturnsPeriod) {
-    write!(body, r#"<section class="book-section-card audience-source-card" data-testid="audience-book-returns-{key}"
+pub(super) fn period(
+    body: &mut String,
+    prefix: &str,
+    key: &str,
+    title: &str,
+    period: &BookReadingReturnsPeriod,
+) {
+    write!(
+        body,
+        r#"<section class="book-section-card audience-source-card" data-testid="{prefix}-{key}"
         data-coverage-complete="{}"><h2>{title}</h2><p>С {}<br>до {}.</p>
         <p>Начатых наблюдений: <strong data-metric="cohort">{}</strong>.</p>"#,
-        period.coverage_complete, time(&period.from_utc), time(&period.until_utc), period.enrolled).expect("String");
+        period.coverage_complete,
+        time(&period.from_utc),
+        time(&period.until_utc),
+        period.enrolled
+    )
+    .expect("String");
     if !period.coverage_complete {
-        body.push_str(r#"<p data-testid="audience-book-returns-partial">Измерение охватывает период не полностью.
-            Числа относятся только к сохранённым наблюдениям.</p>"#);
+        write!(
+            body,
+            r#"<p data-testid="{prefix}-partial">Измерение охватывает период не полностью.
+            Числа относятся только к сохранённым наблюдениям.</p>"#
+        )
+        .expect("String");
     }
     if period.enrolled == 0 {
-        body.push_str(
-            r#"<p data-testid="audience-book-returns-empty">Нет сохранённых начал наблюдения.
-            Это не означает, что книгу никто не читал.</p>"#,
-        );
+        write!(
+            body,
+            r#"<p data-testid="{prefix}-empty">Нет сохранённых начал наблюдения.
+            Это не означает отсутствие чтения.</p>"#
+        )
+        .expect("String");
     }
     for metric in &period.metrics {
         metric_row(body, metric);
@@ -160,15 +196,18 @@ fn period(body: &mut String, key: &str, title: &str, period: &BookReadingReturns
     body.push_str("</section>");
 }
 
-fn comparison(
+pub(super) fn comparison(
     body: &mut String,
+    prefix: &str,
     current: &BookReadingReturnsPeriod,
     previous: &BookReadingReturnsPeriod,
 ) {
-    body.push_str(
-        r#"<section class="book-section-card" data-testid="audience-book-returns-comparison">
-        <h2>Изменение к предыдущему периоду</h2><dl>"#,
-    );
+    write!(
+        body,
+        r#"<section class="book-section-card" data-testid="{prefix}-comparison">
+        <h2>Изменение к предыдущему периоду</h2><dl>"#
+    )
+    .expect("String");
     for (now, before) in current.metrics.iter().zip(&previous.metrics) {
         let comparable = current.coverage_complete
             && previous.coverage_complete
