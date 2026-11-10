@@ -122,10 +122,12 @@ impl PgRecommendations {
             .await?;
         sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,flow_epoch=NULL,flow_enabled_at=NULL,changed_at=now() WHERE user_id=$1")
             .bind(actor).bind(enabled).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM rec_user_preference_commands WHERE user_id=$1 AND command_type='consent'")
-            .bind(actor)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "DELETE FROM rec_user_preference_commands WHERE user_id=$1 AND command_type='consent'",
+        )
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("INSERT INTO rec_user_preference_commands(user_id,command_key,payload_hash,result_revision,command_type) VALUES($1,$2,$3,$4,'consent')")
             .bind(actor).bind(key.as_slice()).bind(payload.as_slice()).bind(revision+1).execute(&mut *tx).await?;
         tx.commit().await?;

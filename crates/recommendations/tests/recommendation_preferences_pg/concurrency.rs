@@ -203,12 +203,9 @@ async fn retention_skips_a_locked_prefix_and_busy_user_before_applying_the_limit
 
     // Neither the 32 setting locks nor the A-side transition may consume all
     // work slots or make the cleaner wait before reaching the free account.
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        store.prune_preferences(),
-    )
-    .await
-    .expect("retention must not wait for either row lock");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), store.prune_preferences())
+        .await
+        .expect("retention must not wait for either row lock");
     result.unwrap();
     assert!(preference(&pool, actors[33], book).await.is_none());
     assert_eq!(epoch(&pool, actors[33]).await, 1);

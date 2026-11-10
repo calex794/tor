@@ -120,6 +120,9 @@ pub(super) fn assert_preserved(url: &str, actor: i64, probe: &Probe) {
 pub(super) fn cleanup(url: &str, probe: &Probe) {
     pg(
         url,
-        &format!("UPDATE books SET admin_hold=true WHERE id={}", probe.live_book),
+        &format!(
+            "UPDATE books SET admin_hold=true WHERE id={}",
+            probe.live_book
+        ),
     );
 }

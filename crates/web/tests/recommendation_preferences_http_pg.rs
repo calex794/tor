@@ -304,8 +304,7 @@ async fn preferences_keep_origin_csrf_live_acl_and_work_with_operator_collection
         "0"
     );
     receipt(
-        h.feedback(actor, &hide, &key, (ORIGIN, &actor.csrf))
-            .await,
+        h.feedback(actor, &hide, &key, (ORIGIN, &actor.csrf)).await,
         1,
         true,
     )

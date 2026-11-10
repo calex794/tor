@@ -8,13 +8,11 @@ async fn copied_public_versions_and_command_receipts_keep_exact_replay_semantics
     let (pool, store, actor, book) = fixture("copied").await;
     // The I-owned upgrade test performs the real 189 -> 190 backfill. Here the
     // adapter exercises its exact persisted public CAS/hash/time representation.
-    sqlx::query(
-        "INSERT INTO rec_preference_accounts(user_id,feedback_epoch) VALUES($1,7)",
-    )
-    .bind(actor)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO rec_preference_accounts(user_id,feedback_epoch) VALUES($1,7)")
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO rec_book_preferences(user_id,book_id,hidden,revision,expires_at)
          VALUES($1,$2,false,9,now()+interval '2 days')",
@@ -26,8 +24,7 @@ async fn copied_public_versions_and_command_receipts_keep_exact_replay_semantics
     .unwrap();
     let old_key = new_ticket().unwrap();
     let expected = 7 * STRIDE + 7;
-    let payload: [u8; 32] =
-        Sha256::digest(format!("feedback:{book}:true:{expected}")).into();
+    let payload: [u8; 32] = Sha256::digest(format!("feedback:{book}:true:{expected}")).into();
     sqlx::query(
         "INSERT INTO rec_user_preference_commands
            (user_id,command_key,payload_hash,result_revision,command_type,created_at)
@@ -291,7 +288,10 @@ async fn expired_keys_do_not_replay_and_current_commands_can_reuse_them() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(retained_expired, "the rejected command rolls back its cleanup");
+    assert!(
+        retained_expired,
+        "the rejected command rolls back its cleanup"
+    );
 
     let restored = store
         .set_feedback(actor, book, Choice::Clear, 1, &key)
@@ -344,7 +344,9 @@ async fn expired_keys_do_not_replay_and_current_commands_can_reuse_them() {
     );
     assert_eq!(preference(&pool, actor, book).await.unwrap(), cleared);
     assert_eq!(
-        store.set_feedback(actor, book, Choice::Clear, 2, &key).await,
+        store
+            .set_feedback(actor, book, Choice::Clear, 2, &key)
+            .await,
         Err(FeedbackError::IdempotencyConflict)
     );
     assert!(!store.consent(actor).await.unwrap().enabled);

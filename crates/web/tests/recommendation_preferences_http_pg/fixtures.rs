@@ -56,9 +56,15 @@ impl Harness {
         );
         // These tests run serially. The ordinary operator hold selects the
         // contextual fallback so fixture books do not depend on older generations.
-        let previous_hold = pg(&url, "SELECT hold::text FROM rec_runtime_policy WHERE singleton");
+        let previous_hold = pg(
+            &url,
+            "SELECT hold::text FROM rec_runtime_policy WHERE singleton",
+        );
         assert!(matches!(previous_hold.as_str(), "true" | "false"));
-        pg(&url, "UPDATE rec_runtime_policy SET hold=true WHERE singleton");
+        pg(
+            &url,
+            "UPDATE rec_runtime_policy SET hold=true WHERE singleton",
+        );
         let catalog = PgCatalog::connect(&url).await.unwrap();
         let pool = catalog.pool().clone();
         let accounts = PgAccounts::from_pool(pool.clone());
@@ -249,7 +255,10 @@ fn pg(url: &str, statement: &str) -> String {
             "--command",
             statement,
         ])
-        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c lock_timeout=2000",
+        )
         .output()
         .unwrap();
     assert!(

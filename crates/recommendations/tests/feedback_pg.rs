@@ -456,13 +456,12 @@ async fn rec13_consent_changes_preserve_explicit_choice_and_replay() {
         Err(FeedbackError::Conflict)
     );
     assert_eq!(store.hidden_books(actor, 0).await.unwrap()[0].revision, 1);
-    let epoch: i64 = sqlx::query_scalar(
-        "SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let epoch: i64 =
+        sqlx::query_scalar("SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(epoch, 0);
 
     store
@@ -511,13 +510,12 @@ async fn rec13_preference_epoch_survives_ttl_erasure() {
     .unwrap();
     store.prune().await.unwrap();
 
-    let retained: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM rec_book_preferences WHERE user_id=$1",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let retained: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM rec_book_preferences WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(retained, 0, "expired personal preferences must be erased");
     let receipts: i64 =
         sqlx::query_scalar("SELECT count(*) FROM rec_user_preference_commands WHERE user_id=$1")
@@ -533,11 +531,12 @@ async fn rec13_preference_epoch_survives_ttl_erasure() {
             .await,
         Err(FeedbackError::Conflict)
     );
-    let epoch: i64 = sqlx::query_scalar("SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1")
-        .bind(actor)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let epoch: i64 =
+        sqlx::query_scalar("SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(epoch, 1);
     let current = epoch * 1_000_000_000;
     let expected_book_id = book.to_string();

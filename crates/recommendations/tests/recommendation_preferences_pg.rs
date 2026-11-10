@@ -303,10 +303,7 @@ async fn ttl_hides_without_extension_then_erases_and_fences_stale_commands() {
     .await
     .unwrap();
     let restarted = PgRecommendations::new(pool.clone());
-    let (left, right) = tokio::join!(
-        store.prune_preferences(),
-        restarted.prune_preferences()
-    );
+    let (left, right) = tokio::join!(store.prune_preferences(), restarted.prune_preferences());
     left.unwrap();
     right.unwrap();
     assert_eq!(counts(&pool, actor).await, (1, 0, 0, 0));

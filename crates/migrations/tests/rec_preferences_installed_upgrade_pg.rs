@@ -310,12 +310,11 @@ async fn installed_preferences_upgrade_preserves_choices_and_fences_old_writers(
         .await?;
     assert!(preferences(&pool, actor).await?.is_empty());
     assert!(commands(&pool, &[actor]).await?.is_empty());
-    let account_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM rec_preference_accounts WHERE user_id=$1)",
-    )
-    .bind(actor)
-    .fetch_one(&pool)
-    .await?;
+    let account_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM rec_preference_accounts WHERE user_id=$1)")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await?;
     assert!(!account_exists);
 
     pool.close().await;

@@ -54,12 +54,10 @@ async fn lock_preferences(
     .fetch_optional(&mut **tx)
     .await?
     .ok_or(FeedbackError::Forbidden)?;
-    sqlx::query(
-        "INSERT INTO rec_preference_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING",
-    )
-    .bind(actor)
-    .execute(&mut **tx)
-    .await?;
+    sqlx::query("INSERT INTO rec_preference_accounts(user_id) VALUES($1) ON CONFLICT DO NOTHING")
+        .bind(actor)
+        .execute(&mut **tx)
+        .await?;
     Ok(sqlx::query_scalar(
         "SELECT feedback_epoch FROM rec_preference_accounts WHERE user_id=$1 FOR UPDATE",
     )
