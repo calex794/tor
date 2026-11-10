@@ -158,8 +158,13 @@ mod tests {
         .is_ok();
         assert!(!job.is_finished(), "CPU task must still be executing");
         release_tx.send(()).expect("release CPU task");
-        job.await.expect("join CPU task").expect("CPU task succeeded");
-        assert!(heartbeat, "blocking author work starved the Tokio event loop");
+        job.await
+            .expect("join CPU task")
+            .expect("CPU task succeeded");
+        assert!(
+            heartbeat,
+            "blocking author work starved the Tokio event loop"
+        );
     }
 
     #[tokio::test]
