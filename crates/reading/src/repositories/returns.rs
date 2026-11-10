@@ -14,6 +14,8 @@ mod books_capture;
 mod books_maintenance;
 #[path = "returns_books_query.rs"]
 mod books_query;
+#[path = "returns_groups.rs"]
+mod groups;
 
 #[path = "returns_capture.rs"]
 mod capture;

@@ -66,20 +66,7 @@ impl BookDiscoveryQuery {
 }
 
 pub(super) fn normalize_label(value: Option<String>) -> Result<Option<String>, DiscoveryError> {
-    let Some(value) = value else { return Ok(None) };
-    // Bound before allocating normalized output, including whitespace-only input.
-    if value.len() > 512 || value.chars().any(char::is_control) {
-        return Err(DiscoveryError::Invalid);
-    }
-    let clean = value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase();
-    if clean.chars().count() > 40 {
-        return Err(DiscoveryError::Invalid);
-    }
-    Ok((!clean.is_empty()).then_some(clean))
+    tor_contracts::audience::normalize_audience_label(value).map_err(|_| DiscoveryError::Invalid)
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

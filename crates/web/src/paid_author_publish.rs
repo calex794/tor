@@ -18,7 +18,9 @@ use tor_storage::{
     domain::provider::valid_private_bucket,
     repositories::registry::PgStorageRegistry,
     services::{
-        crypto::{fresh_private_object_id, seal_chapter_with_keyring, ContentKeyring},
+        crypto::{
+            fresh_private_object_id, seal_chapter_with_keyring, ContentKeyring, EncryptedChapter,
+        },
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -55,6 +57,25 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
 }
 
 impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
+    /// Seal only after the canonical paid version has been reserved by B.
+    /// The keyring and plaintext live inside a bounded blocking task; if the
+    /// awaiting HTTP request is cancelled, the task retains its CPU permit.
+    async fn seal_in_blocking_pool(
+        &self,
+        version: ChapterVersionRef,
+        object_id: tor_contracts::paid_delivery::ObjectId,
+        markdown: &str,
+    ) -> Result<EncryptedChapter, AuthorError> {
+        let keyring = Arc::clone(&self.keyring);
+        let markdown = zeroize::Zeroizing::new(markdown.to_owned());
+        crate::cpu_work::run(move || {
+            seal_chapter_with_keyring(version, object_id, &markdown, &keyring)
+        })
+        .await
+        .map_err(|_| AuthorError::Unavailable)?
+        .map_err(|_| AuthorError::Unavailable)
+    }
+
     /// Reusable orchestration for the browser and isolated PG/S3 tests.
     pub async fn publish(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
@@ -70,9 +91,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
                 .map_err(|_| AuthorError::Unavailable)?,
         };
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
-        let sealed =
-            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
-                .map_err(|_| AuthorError::Unavailable)?;
+        let sealed = self
+            .seal_in_blocking_pool(version, object_id.clone(), &request.body)
+            .await?;
         let object = self
             .registry
             .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
@@ -161,9 +182,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
                 .map_err(|_| AuthorError::Unavailable)?,
         };
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
-        let sealed =
-            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
-                .map_err(|_| AuthorError::Unavailable)?;
+        let sealed = self
+            .seal_in_blocking_pool(version, object_id.clone(), &request.body)
+            .await?;
         let object = self
             .registry
             .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
@@ -238,9 +259,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
                 .map_err(|_| AuthorError::Unavailable)?,
         };
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
-        let sealed =
-            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
-                .map_err(|_| AuthorError::Unavailable)?;
+        let sealed = self
+            .seal_in_blocking_pool(version, object_id.clone(), &request.body)
+            .await?;
         let object = self
             .registry
             .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
