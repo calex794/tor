@@ -44,6 +44,8 @@ sha2 = "0.10"
 zeroize = "1"
 
 [dev-dependencies]
+# PostgreSQL-only contention checks use SQLx directly; runtime deps unchanged.
+sqlx.workspace = true
 hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 
