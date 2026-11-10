@@ -76,13 +76,34 @@ class RilGovernanceTests(unittest.TestCase):
         path = self.root / INVENTORY
         original = path.read_text(encoding="utf-8")
         for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
-                      "/admin/audience/returns"):
+                      "/admin/audience/returns", "/admin/audience/visits"):
             with self.subTest(route=route):
                 inventory = json.loads(original)
                 row = next(row for row in inventory["routes"] if row["template"] == route)
                 row["policy"] = "session"
                 path.write_text(json.dumps(inventory), encoding="utf-8")
                 self.assert_detected("FLOW audience must remain administrator-only")
+
+    def test_audience_visits_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_audience_visits_cannot_ignore_authorization_timeout(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_flow_consent_cannot_write_as_another_actor(self):
+        self.mutate(
+            "crates/web/src/recommendation_http/flow_consent.rs",
+            "set_flow_consent(", "unscoped_flow_consent(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
 
     def test_audience_books_cannot_skip_parent_authorization(self):
         self.mutate(

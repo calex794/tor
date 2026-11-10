@@ -6,6 +6,7 @@ mod assignments;
 mod consent;
 mod conversions;
 mod discovery;
+mod flow_consent;
 mod generations;
 mod maintenance;
 mod observations;

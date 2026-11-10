@@ -45,7 +45,7 @@ SUPPORT_REQUESTER_HANDLERS = {
     ("POST", "/api/v1/support/tickets", "json_submit"),
 }
 SCOPE_CALLS = {
-    "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
+    "consent", "set_consent", "set_flow_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
     "archived_free_state", "save_archived_free",
@@ -307,9 +307,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/returns", "returns::page")
     )
+    audience_visits = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/visits", "visits::page")
+    )
     audience_child = (
         "books" if audience_books else "groups" if audience_groups
-        else "returns" if audience_returns else None
+        else "returns" if audience_returns else "visits" if audience_visits else None
     )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
@@ -592,6 +597,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
             ("GET", "/admin/audience/returns", "returns::page"),
+            ("GET", "/admin/audience/visits", "visits::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1388,6 +1394,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
             ("GET", "/admin/audience/returns", "returns::page"),
+            ("GET", "/admin/audience/visits", "visits::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1493,7 +1500,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
         audience_read = (
-            ".returns_report(days)" if audience_returns
+            ".report(days)" if audience_visits
+            else ".returns_report(days)" if audience_returns
             else f".{audience_child}_report(&query)" if audience_child else ".report(days)"
         )
         if audience_admin and not (
@@ -1657,6 +1665,7 @@ def check(root: Path = ROOT) -> list[str]:
                         ("GET", "/admin/audience/books", "books::page"),
                         ("GET", "/admin/audience/groups", "groups::page"),
                         ("GET", "/admin/audience/returns", "returns::page"),
+            ("GET", "/admin/audience/visits", "visits::page"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))
