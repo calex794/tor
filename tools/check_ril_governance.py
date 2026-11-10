@@ -874,6 +874,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 )
             ) and "UPDATE reader_wallet_accounts" not in quote_repo
         if operation == "posting_intent":
+            # Exact sibling helper is part of this reviewed route's evidence
+            # only when the POST handler actually invokes the opt-in gate.
+            if re.search(r"!\s*enabled\s*\(\)", body):
+                evidence += "\n" + functions.get("enabled", "")
             posting_repo = _production((
                 ROOT / "crates/commerce/src/repositories/creator_payout_posting.rs"
             ).read_text(encoding="utf-8"))
