@@ -3,9 +3,10 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: write
+  contents: read
+  actions: read
 concurrency:
-  group: flow-observed-source-publication
+  group: flow-diagnostics-export
   cancel-in-progress: false
 jobs:
   worktree:
@@ -14,47 +15,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: payload
+          ref: 352062300d280755a94a52a8cfaa612bc3b7d000
           persist-credentials: false
-      - name: Check complete payload
-        id: payload
-        shell: bash
-        run: |
-          if test -f payload/.qa/flow-observed-3.txt; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/checkout@v4
-        if: steps.payload.outputs.ready == 'true'
-        with:
-          ref: 7b922159c48ea74ff5fcf2f4763c71964e940b69
-          path: tor
-      - name: Apply exact patch only to new feature branch
-        if: steps.payload.outputs.ready == 'true'
+      - name: Export tracked source and bounded diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import base64,hashlib,lzma,pathlib
-          data=''.join(pathlib.Path(f'payload/.qa/flow-observed-{i}.txt').read_text().strip() for i in range(4))
-          patch=lzma.decompress(base64.b64decode(data,validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='aed76374f3292265efeeae9df8818f93e2c88fdb1364a132bb26fe7aa0475ea7'
-          pathlib.Path('observation.patch').write_bytes(patch)
-          PY
-          cd tor
-          test "$(git rev-parse HEAD)" = 7b922159c48ea74ff5fcf2f4763c71964e940b69
-          git apply --check ../observation.patch
-          git apply --index ../observation.patch
-          test "$(git write-tree)" = ee8a70bf15f224f6cbd46d79703873013743db31
-          git diff --check --cached
-          git config user.name 'FLOW QA'
-          git config user.email 'flow-qa@users.noreply.github.com'
-          git commit -m 'FLOW-02/04: anonymous observation-hour reports with real PG HTTP and browser acceptance'
-          test -z "$(git ls-remote --heads origin refs/heads/feat/flow-observed-hours-20261111)"
-          git push origin HEAD:refs/heads/feat/flow-observed-hours-20261111
           mkdir -p "$RUNNER_TEMP/flow-export"
+          git archive HEAD | gzip > "$RUNNER_TEMP/flow-export/flow-source.tar.gz"
           git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
-          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-export/TREE"
+          gh api repos/calex794/tor/actions/jobs/130178565934/logs > "$RUNNER_TEMP/flow-job.log"
+          python3 - <<'PY'
+          import os,pathlib,re
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          lines=(root/'flow-job.log').read_text().splitlines()
+          hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
+          indices=set()
+          for i in hits[-12:]:
+              indices.update(range(max(0,i-8),min(len(lines),i+18)))
+          text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices))
+          if not text: text='\n'.join(lines[-100:])
+          (root/'flow-export/failure.txt').write_text(text)
+          print(text[:28000])
+          PY
       - uses: actions/upload-artifact@v4
-        if: steps.payload.outputs.ready == 'true'
         with:
-          name: flow-observed-publication-${{ github.sha }}
+          name: flow-diagnostics-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
           retention-days: 1
