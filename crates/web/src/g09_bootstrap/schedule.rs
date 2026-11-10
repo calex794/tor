@@ -78,7 +78,16 @@ async fn tick_one(
     reverse_direction: bool,
 ) -> Result<(), InventoryError> {
     let bucket = PrivateInventoryLister::private_bucket(store);
-    match schedule.action(bucket, scope, reverse_direction).await? {
+    let action = schedule.action(bucket, scope, reverse_direction).await?;
+    if action == ScheduledAuditAction::Wait {
+        return Ok(());
+    }
+    // A checkpoint check alone is racy across processes. Atomically reserve
+    // one G-owned slot per direction/scope BEFORE opening the S3 scan lease.
+    if !schedule.reserve_slot(bucket, scope, reverse_direction).await? {
+        return Ok(());
+    }
+    match action {
         ScheduledAuditAction::Wait => return Ok(()),
         ScheduledAuditAction::NewCycle => {
             let changed = if reverse_direction {
