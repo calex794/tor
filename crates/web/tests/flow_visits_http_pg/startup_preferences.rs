@@ -127,21 +127,33 @@ pub(super) fn cleanup(url: &str, probe: &Probe) {
     );
 }
 
-
 pub(super) async fn arm_next_pass(url: &str, actor: i64, book: i64, probe: &Probe) {
     let catalog = PgCatalog::connect(url).await.unwrap();
     let key = generate_session_token();
     PgRecommendations::new(catalog.pool().clone())
-        .set_feedback(actor, book, Choice::NotInterested, (probe.epoch_before + 1) * 1_000_000_000, &key)
-        .await.unwrap();
+        .set_feedback(
+            actor,
+            book,
+            Choice::NotInterested,
+            (probe.epoch_before + 1) * 1_000_000_000,
+            &key,
+        )
+        .await
+        .unwrap();
     catalog.pool().close().await;
-    let digest: String = session_token_digest(&key).iter().map(|byte| format!("{byte:02x}")).collect();
-    pg(url, &format!(
-        "UPDATE rec_book_preferences SET expires_at=now()-interval '2 hours'
+    let digest: String = session_token_digest(&key)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    pg(
+        url,
+        &format!(
+            "UPDATE rec_book_preferences SET expires_at=now()-interval '2 hours'
            WHERE user_id={actor} AND book_id={book};
          UPDATE rec_user_preference_commands SET created_at=now()-interval '31 days'
            WHERE user_id={actor} AND command_key=decode('{digest}','hex')"
-    ));
+        ),
+    );
 }
 
 pub(super) fn next_pass_done(url: &str, actor: i64, book: i64, probe: &Probe) -> bool {

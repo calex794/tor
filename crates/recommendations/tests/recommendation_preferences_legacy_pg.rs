@@ -8,10 +8,10 @@ use tor_recommendations::{
     services::feedback::new_ticket,
 };
 
-#[path = "support/legacy_analytics.rs"]
-mod legacy_analytics;
 #[path = "recommendation_preferences_pg/fixtures.rs"]
 mod fixtures;
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 use fixtures::*;
 
 async fn fixture(name: &str) -> (PgPool, PgRecommendations, i64, i64) {
@@ -224,7 +224,11 @@ async fn copied_consent_receipt_replays_and_reserves_its_original_key() {
     .await
     .unwrap();
     assert_eq!(
-        store.set_consent(actor, false, 4, &key).await.unwrap().revision,
+        store
+            .set_consent(actor, false, 4, &key)
+            .await
+            .unwrap()
+            .revision,
         5
     );
     assert_eq!(

@@ -24,8 +24,7 @@ struct Fixture {
 impl Fixture {
     async fn new(name: &str) -> Self {
         let app_url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
-        let owner_url =
-            legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
+        let owner_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
         legacy_analytics::assert_schema(&owner).await;
         let schema = format!("flow_visits_{name}");

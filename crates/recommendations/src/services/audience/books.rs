@@ -221,7 +221,10 @@ mod tests {
         value.starts = Some(1);
         assert_eq!(value.observation(), BookDiscoveryObservation::WithStarts);
         value.evidence_invalidated = true;
-        assert_eq!(value.observation(), BookDiscoveryObservation::UnknownEvidence);
+        assert_eq!(
+            value.observation(),
+            BookDiscoveryObservation::UnknownEvidence
+        );
     }
 
     #[test]

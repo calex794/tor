@@ -78,27 +78,46 @@ async fn book_metrics_preserve_independent_channels_and_unknown_is_not_zero() {
         assert!(!row.previous.evidence_invalidated);
         assert_eq!(
             values(&row.previous),
-            if index < 5 { BOOK_VALUES.map(Some) } else { [None; 5] }
+            if index < 5 {
+                BOOK_VALUES.map(Some)
+            } else {
+                [None; 5]
+            }
         );
     }
     let counts = &report.current.counts;
     assert_eq!(
-        (counts.unknown_evidence, counts.no_observations,
-         counts.observed_without_starts, counts.with_starts),
+        (
+            counts.unknown_evidence,
+            counts.no_observations,
+            counts.observed_without_starts,
+            counts.with_starts
+        ),
         (5, 2, 1, 2)
     );
     assert_eq!(count_sum(counts), report.matched_books);
     assert_eq!(values(&report.current.totals), [None; 5]);
     assert!(report.current.totals.evidence_invalidated);
-    assert_eq!(values(&report.previous.totals), BOOK_VALUES.map(|n| Some(n * 5)));
+    assert_eq!(
+        values(&report.previous.totals),
+        BOOK_VALUES.map(|n| Some(n * 5))
+    );
     assert_eq!(report.previous.counts.unknown_evidence, 0);
     assert_eq!(count_sum(&report.previous.counts), 10);
 
-    let untouched = f.store.books_report(&query(1, Some("g-004"), None)).await.unwrap();
+    let untouched = f
+        .store
+        .books_report(&query(1, Some("g-004"), None))
+        .await
+        .unwrap();
     assert_eq!(untouched.matched_books, 1);
     assert_eq!(values(&untouched.current.totals), BOOK_VALUES.map(Some));
     assert!(!untouched.current.totals.evidence_invalidated);
-    let unattributed = f.store.books_report(&query(1, Some("g-003"), None)).await.unwrap();
+    let unattributed = f
+        .store
+        .books_report(&query(1, Some("g-003"), None))
+        .await
+        .unwrap();
     assert_eq!(
         values(&unattributed.current.totals),
         [Some(30), Some(100), Some(10), Some(15), None]

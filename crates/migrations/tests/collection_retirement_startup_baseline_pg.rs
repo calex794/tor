@@ -15,8 +15,11 @@ use fixtures::{count, Fixture, TestResult};
 async fn prepare_real_installed_retirement_state_for_production_startup() -> TestResult {
     let owner = harness::connect(
         "COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL",
-        "tor_ci_collection_retirement_startup", "tor_migrator", 2,
-    ).await?;
+        "tor_ci_collection_retirement_startup",
+        "tor_migrator",
+        2,
+    )
+    .await?;
     harness::grant_app(&owner).await?;
     let before = harness::baseline(&owner).await?;
     let fixture = Fixture::seed(&owner).await?;
@@ -30,8 +33,14 @@ async fn prepare_real_installed_retirement_state_for_production_startup() -> Tes
     assert_eq!(fixture.preferences(&owner).await?, preferences);
     assert_eq!(count(&owner, "SELECT count(*) FROM rec_subjects").await?, 2);
     assert_eq!(count(&owner, "SELECT count(*) FROM flow_visits").await?, 6);
-    assert_eq!(count(&owner, "SELECT count(*) FROM flow_book_cohorts").await?, 2);
-    assert_eq!(count(&owner, "SELECT count(*) FROM rec_analytics_invalidations").await?, 0);
+    assert_eq!(
+        count(&owner, "SELECT count(*) FROM flow_book_cohorts").await?,
+        2
+    );
+    assert_eq!(
+        count(&owner, "SELECT count(*) FROM rec_analytics_invalidations").await?,
+        0
+    );
     owner.close().await;
     Ok(())
 }

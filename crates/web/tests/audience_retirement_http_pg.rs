@@ -218,11 +218,7 @@ async fn upgraded_reports_keep_unknown_evidence_private_and_unaffected_books_mea
             paths[1].to_owned()
         }
     };
-    let books = body(
-        get(&app, &book_path(linked), &cookie).await,
-        StatusCode::OK,
-    )
-    .await;
+    let books = body(get(&app, &book_path(linked), &cookie).await, StatusCode::OK).await;
     let linked_row = part(&books, &format!("data-book-id=\"{linked}\""), "</article>");
     let linked_current = part(linked_row, "data-period=\"current\"", "</section>");
     assert!(linked_current.contains("data-state=\"unknown-evidence\""));
@@ -263,14 +259,21 @@ async fn upgraded_reports_keep_unknown_evidence_private_and_unaffected_books_mea
     let visits = body(get(&app, paths[3], &cookie).await, StatusCode::OK).await;
     let visit_current = part(&visits, "data-testid=\"flow-visits-current\"", "</section>");
     assert_eq!(metric(visit_current, "unique-subjects"), "Нет измерения");
-    assert_eq!(metric(visit_current, "unattributed-pageviews"), "Нет измерения");
+    assert_eq!(
+        metric(visit_current, "unattributed-pageviews"),
+        "Нет измерения"
+    );
     for html in [&sources, &books, &untouched_html, &groups, &visits] {
         assert!(html.contains("data-current-measurement=\"unavailable\""));
         assert!(!html.contains("retirement-main@ci.invalid"));
         assert!(!html.contains("session_digest"));
         assert!(!html.contains("subject_id"));
     }
-    assert_eq!(snapshot(&url), before, "GET must preserve C, P1 and evidence");
+    assert_eq!(
+        snapshot(&url),
+        before,
+        "GET must preserve C, P1 and evidence"
+    );
     pg(
         &url,
         &format!(
@@ -284,7 +287,9 @@ async fn upgraded_reports_keep_unknown_evidence_private_and_unaffected_books_mea
     }
     pg(
         &url,
-        &format!("DELETE FROM account_roles WHERE user_id={user}; DELETE FROM users WHERE id={user}"),
+        &format!(
+            "DELETE FROM account_roles WHERE user_id={user}; DELETE FROM users WHERE id={user}"
+        ),
     );
     pool.close().await;
 }

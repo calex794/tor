@@ -2,10 +2,10 @@
 //! Ordinary current-schema catalogue behavior remains in catalog_feed_pg.
 use sqlx::PgPool;
 
-#[path = "support/legacy_analytics.rs"]
-mod legacy_analytics;
 #[path = "catalog_feed_pg/fixtures.rs"]
 mod fixtures;
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 use fixtures::*;
 
 async fn fixture(name: &str) -> Fixture {

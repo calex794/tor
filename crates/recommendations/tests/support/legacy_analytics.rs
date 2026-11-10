@@ -13,8 +13,14 @@ pub fn url(variable: &str, role: &str) -> String {
 }
 
 pub async fn assert_schema(pool: &PgPool) {
-    let (database, count, last, successful, primitives, barrier):
-        (String, i64, i64, bool, bool, bool) = sqlx::query_as(
+    let (database, count, last, successful, primitives, barrier): (
+        String,
+        i64,
+        i64,
+        bool,
+        bool,
+        bool,
+    ) = sqlx::query_as(
         "SELECT current_database()::text,count(*),max(version),bool_and(success),
            to_regclass('public.rec_analytics_invalidations') IS NOT NULL,
            to_regprocedure('public.rec_retire_analytics_batch(integer)') IS NOT NULL
@@ -26,6 +32,12 @@ pub async fn assert_schema(pool: &PgPool) {
     .unwrap();
     assert_eq!(database, "tor_ci_legacy_analytics");
     assert_eq!((count, last, successful), (191, 202611163274, true));
-    assert!(primitives, "the explicit 191 baseline includes invalidation primitives");
-    assert!(!barrier, "positive collector tests must never bypass installed retirement fences");
+    assert!(
+        primitives,
+        "the explicit 191 baseline includes invalidation primitives"
+    );
+    assert!(
+        !barrier,
+        "positive collector tests must never bypass installed retirement fences"
+    );
 }

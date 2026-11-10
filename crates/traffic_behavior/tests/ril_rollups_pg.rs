@@ -19,7 +19,10 @@ async fn require_current_schema(pool: &sqlx::PgPool) {
     .fetch_one(pool)
     .await
     .unwrap();
-    assert!(current_schema, "current-schema RIL proof requires retirement 192");
+    assert!(
+        current_schema,
+        "current-schema RIL proof requires retirement 192"
+    );
 }
 
 async fn transition_count(pool: &sqlx::PgPool) -> i64 {

@@ -71,18 +71,31 @@ impl Fixture {
         )).await?;
         let (subject, epoch): (String, String) = sqlx::query_as(
             "SELECT subject_id::text,flow_epoch::text FROM rec_subjects WHERE user_id=$1",
-        ).bind(actor_id).fetch_one(pool).await?;
+        )
+        .bind(actor_id)
+        .fetch_one(pool)
+        .await?;
         let chapter: i64 = sqlx::query_scalar(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level)
              VALUES($1,1,'Installed canonical chapter','public','free') RETURNING id",
-        ).bind(book_id).fetch_one(pool).await?;
+        )
+        .bind(book_id)
+        .fetch_one(pool)
+        .await?;
         let version: i64 = sqlx::query_scalar(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES($1,1,'Canonical content remains unchanged') RETURNING id",
-        ).bind(chapter).fetch_one(pool).await?;
-        run(pool, &format!(
+        )
+        .bind(chapter)
+        .fetch_one(pool)
+        .await?;
+        run(
+            pool,
+            &format!(
             "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
-        )).await?;
+        ),
+        )
+        .await?;
         let event = text(pool, &format!(
             "INSERT INTO outbox_events(event_type,schema_version,aggregate_kind,aggregate_id,
                 dedupe_key,payload,required_consumers,created_at,lease_until)
@@ -94,14 +107,18 @@ impl Fixture {
              RETURNING id::text"
         )).await?;
         // No canonical business row points to this separate parent-delete probe.
-        let delete_event = text(pool,
+        let delete_event = text(
+            pool,
             "INSERT INTO outbox_events(event_type,schema_version,aggregate_kind,aggregate_id,
                 dedupe_key,payload,required_consumers)
              VALUES('RetirementProbeV1',1,'test',1,'ci:retirement:delete-probe','{}',
-                ARRAY['recommendation-feedback-v1']) RETURNING id::text"
-        ).await?;
-        run(pool, &format!(
-            "INSERT INTO reader_chapter_starts(user_id,book_id,chapter_id,first_version_id,
+                ARRAY['recommendation-feedback-v1']) RETURNING id::text",
+        )
+        .await?;
+        run(
+            pool,
+            &format!(
+                "INSERT INTO reader_chapter_starts(user_id,book_id,chapter_id,first_version_id,
                 started_at,source_event_id)
              VALUES({actor_id},{book_id},{chapter},{version},now()-interval '2 days','{event}');
              INSERT INTO reader_library_items(user_id,book_id) VALUES({actor_id},{book_id});
@@ -121,15 +138,21 @@ impl Fixture {
                     4000000007,'feedback',now()-interval '2 days'),
                    ({actor_id},decode(repeat('22',32),'hex'),decode(repeat('bb',32),'hex'),
                     9,'consent',now()-interval '2 days')"
-        )).await?;
-        let assignment = text(pool, &format!(
-            "INSERT INTO rec_assignments(subject_id,session_digest,ticket_digest,book_id,
+            ),
+        )
+        .await?;
+        let assignment = text(
+            pool,
+            &format!(
+                "INSERT INTO rec_assignments(subject_id,session_digest,ticket_digest,book_id,
                 surface,source,reason,position,created_at,expires_at,viewed_at,cohort_day)
              VALUES('{subject}',decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),
                 {book_id},'home','content','similar_by_content',1,now()-interval '2 days',
                 now()-interval '1 day',now()-interval '2 days',
                 (now() AT TIME ZONE 'UTC')::date-2) RETURNING id::text"
-        )).await?;
+            ),
+        )
+        .await?;
         run(pool, &format!(
             "INSERT INTO rec_attribution_events(assignment_id,kind,source_event_id,occurred_at,trust)
              SELECT '{assignment}'::uuid,kind,
@@ -212,35 +235,68 @@ impl Fixture {
         )).await?;
         let ril_batch = text(pool, "SELECT gen_random_uuid()::text").await?;
         Ok(Self {
-            actor: actor_id, subject, epoch, book: book_id, untouched_book, dirty_book,
-            boundary_book, chapter, version, event, delete_event, assignment,
-            cascade_actor, cascade_book, ril_batch,
+            actor: actor_id,
+            subject,
+            epoch,
+            book: book_id,
+            untouched_book,
+            dirty_book,
+            boundary_book,
+            chapter,
+            version,
+            event,
+            delete_event,
+            assignment,
+            cascade_actor,
+            cascade_book,
+            ril_batch,
         })
     }
 
     pub async fn canonical(&self, pool: &PgPool) -> TestResult<Vec<String>> {
         let mut result = Vec::new();
-        for relation in ["reader_chapter_starts", "reader_library_items", "reader_book_follows"] {
+        for relation in [
+            "reader_chapter_starts",
+            "reader_library_items",
+            "reader_book_follows",
+        ] {
             result.push(text(pool, &format!(
                 "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text
                  FROM {relation} t WHERE user_id={} AND book_id={}", self.actor, self.book
             )).await?);
         }
-        result.push(text(pool, &format!(
+        result.push(
+            text(
+                pool,
+                &format!(
             "SELECT jsonb_build_array(id,event_type,schema_version,aggregate_kind,aggregate_id,
                 dedupe_key,payload,created_at,attempts,next_attempt_at,lease_epoch,dead_at)::text
              FROM outbox_events WHERE id='{}'", self.event
-        )).await?);
-        result.push(text(pool, &format!(
-            "SELECT to_jsonb(d)::text FROM event_deliveries d
-             WHERE event_id='{}' AND consumer='unrelated-v1'", self.event
-        )).await?);
+        ),
+            )
+            .await?,
+        );
+        result.push(
+            text(
+                pool,
+                &format!(
+                    "SELECT to_jsonb(d)::text FROM event_deliveries d
+             WHERE event_id='{}' AND consumer='unrelated-v1'",
+                    self.event
+                ),
+            )
+            .await?,
+        );
         Ok(result)
     }
 
     pub async fn preferences(&self, pool: &PgPool) -> TestResult<Vec<String>> {
         let mut result = Vec::new();
-        for relation in ["rec_preference_accounts", "rec_book_preferences", "rec_user_preference_commands"] {
+        for relation in [
+            "rec_preference_accounts",
+            "rec_book_preferences",
+            "rec_user_preference_commands",
+        ] {
             result.push(text(pool, &format!(
                 "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text
                  FROM {relation} t WHERE user_id={}", self.actor

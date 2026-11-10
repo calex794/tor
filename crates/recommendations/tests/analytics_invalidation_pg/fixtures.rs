@@ -225,7 +225,12 @@ pub fn values(metrics: &BookDiscoveryMetrics) -> [Option<i64>; 5] {
 }
 
 pub fn channel_values(channel: &DiscoveryChannel) -> [Option<i64>; 4] {
-    [channel.clicks, channel.book_opens, channel.starts, channel.completions]
+    [
+        channel.clicks,
+        channel.book_opens,
+        channel.starts,
+        channel.completions,
+    ]
 }
 
 pub fn count_sum(counts: &BookDiscoveryCounts) -> i64 {

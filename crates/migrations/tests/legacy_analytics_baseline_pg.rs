@@ -12,7 +12,8 @@ const RETIREMENT_VERSION: i64 = 202611168903;
 
 #[tokio::test]
 #[ignore = "requires disposable loopback tor_ci_legacy_analytics owned by tor_migrator"]
-async fn prepare_explicit_legacy_analytics_baseline_with_sqlx_ledger() -> Result<(), Box<dyn Error>> {
+async fn prepare_explicit_legacy_analytics_baseline_with_sqlx_ledger() -> Result<(), Box<dyn Error>>
+{
     let url = env::var("LEGACY_ANALYTICS_MIGRATOR_URL")?;
     let options = PgConnectOptions::from_str(&url)?;
     assert_eq!(options.get_host(), "127.0.0.1", "loopback fixtures only");
@@ -99,7 +100,9 @@ async fn prepare_explicit_legacy_analytics_baseline_with_sqlx_ledger() -> Result
         !invalid_baseline,
         "legacy baseline requires the primitives and no installed barrier objects"
     );
-    println!("TOR_LEGACY_ANALYTICS_SQLX_OK 191/191 database=tor_ci_legacy_analytics barrier=absent");
+    println!(
+        "TOR_LEGACY_ANALYTICS_SQLX_OK 191/191 database=tor_ci_legacy_analytics barrier=absent"
+    );
     pool.close().await;
     Ok(())
 }

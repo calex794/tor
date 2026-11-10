@@ -22,8 +22,11 @@ use std::time::Duration;
 async fn installed_retirement_preserves_business_and_erases_with_bounded_evidence() -> TestResult {
     let owner = harness::connect(
         "COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL",
-        "tor_ci_collection_retirement_upgrade", "tor_migrator", 5,
-    ).await?;
+        "tor_ci_collection_retirement_upgrade",
+        "tor_migrator",
+        5,
+    )
+    .await?;
     harness::grant_app(&owner).await?;
     let before = harness::baseline(&owner).await?;
     let fixture = Fixture::seed(&owner).await?;
@@ -33,34 +36,55 @@ async fn installed_retirement_preserves_business_and_erases_with_bounded_evidenc
     let prepared = harness::through(harness::PRIMITIVES);
     assert_eq!(prepared.migrations.len(), 191);
     prepared.run(&owner).await?;
-    assert_eq!(count(&owner,
-        "SELECT count(*) FROM pg_trigger WHERE tgname='retired_collection_write_fence'"
-    ).await?, 0, "191 is a preparatory test boundary, not a production retirement");
+    assert_eq!(
+        count(
+            &owner,
+            "SELECT count(*) FROM pg_trigger WHERE tgname='retired_collection_write_fence'"
+        )
+        .await?,
+        0,
+        "191 is a preparatory test boundary, not a production retirement"
+    );
     harness::grant_app(&owner).await?;
     let app = harness::connect(
         "COLLECTION_RETIREMENT_APP_DATABASE_URL",
-        "tor_ci_collection_retirement_upgrade", "tor_app", 6,
-    ).await?;
+        "tor_ci_collection_retirement_upgrade",
+        "tor_app",
+        6,
+    )
+    .await?;
     // A real old writer holds its table/row lock while the barrier migration
     // waits; it must commit before the database can advertise the new fence.
     let mut old_writer = app.begin().await?;
     sqlx::query("UPDATE rec_assignments SET book_opened_at=now() WHERE id=$1::uuid")
-        .bind(&fixture.assignment).execute(&mut *old_writer).await?;
+        .bind(&fixture.assignment)
+        .execute(&mut *old_writer)
+        .await?;
     let migration_pool = owner.clone();
     let migration = tokio::spawn(async move {
-        harness::through(harness::BARRIER).run(&migration_pool).await
+        harness::through(harness::BARRIER)
+            .run(&migration_pool)
+            .await
     });
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
-        let waiting = count(&owner,
+        let waiting = count(
+            &owner,
             "SELECT count(*) FROM pg_locks WHERE relation='rec_assignments'::regclass
-             AND mode='ShareRowExclusiveLock' AND NOT granted"
-        ).await?;
+             AND mode='ShareRowExclusiveLock' AND NOT granted",
+        )
+        .await?;
         if waiting > 0 {
             break;
         }
-        assert!(!migration.is_finished(), "migration did not wait for the old writer");
-        assert!(tokio::time::Instant::now() < deadline, "migration lock was not observed");
+        assert!(
+            !migration.is_finished(),
+            "migration did not wait for the old writer"
+        );
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "migration lock was not observed"
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     old_writer.commit().await?;

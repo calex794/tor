@@ -22,7 +22,11 @@ pub fn url() -> String {
         )
         .output()
         .expect("legacy PostgreSQL boundary proof");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "t");
     url
 }

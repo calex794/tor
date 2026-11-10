@@ -81,7 +81,10 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     .fetch_one(catalog.pool())
     .await
     .unwrap();
-    assert!(current_schema, "current-schema RIL proof requires retirement 192");
+    assert!(
+        current_schema,
+        "current-schema RIL proof requires retirement 192"
+    );
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool());
     let stamp = std::time::SystemTime::now()

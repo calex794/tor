@@ -238,7 +238,10 @@ async fn installed_preferences_upgrade_preserves_choices_and_fences_old_writers(
         sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(&pool)
             .await?;
-    assert_eq!(installed_after.len(), preference_boundary().migrations.len());
+    assert_eq!(
+        installed_after.len(),
+        preference_boundary().migrations.len()
+    );
     assert_eq!(installed_after.len(), 190);
     assert!(installed_after.iter().all(|(_, _, success)| *success));
     for (version, checksum, _) in installed_after {

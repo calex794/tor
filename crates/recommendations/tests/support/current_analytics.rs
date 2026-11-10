@@ -28,5 +28,8 @@ pub async fn assert_schema(pool: &PgPool) {
         .unwrap();
     assert_eq!(database, "tor_ci");
     assert_eq!((count, last, successful), (192, 202611168903, true));
-    assert!(barrier, "ordinary business must work behind the installed retirement fence");
+    assert!(
+        barrier,
+        "ordinary business must work behind the installed retirement fence"
+    );
 }

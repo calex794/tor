@@ -84,4 +84,3 @@ pub fn assert_catalog(feed: &Feed) {
             && item.ticket.is_none()
     }));
 }
-

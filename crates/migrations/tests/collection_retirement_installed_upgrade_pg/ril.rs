@@ -4,13 +4,15 @@ use sqlx::PgPool;
 
 pub async fn seed(pool: &PgPool, batch: &str) -> TestResult {
     stage(pool, batch, 11).await?;
-    run(pool,
+    run(
+        pool,
         "INSERT INTO ril_flow_hourly(bucket,surface_code,acquisition_hint,html_requests,
              opted_in_html_requests,observed_opted_in_visit_starts)
          VALUES(date_trunc('hour',now()),1,0,20,5,2);
          INSERT INTO ril_transition_hourly(bucket,from_code,to_code,gap_group,transition_count)
-         VALUES(date_trunc('hour',now()),1,2,0,2)"
-    ).await
+         VALUES(date_trunc('hour',now()),1,2,0,2)",
+    )
+    .await
 }
 
 async fn stage(pool: &PgPool, batch: &str, requests: i64) -> TestResult {
@@ -30,9 +32,11 @@ async fn stage(pool: &PgPool, batch: &str, requests: i64) -> TestResult {
 
 async fn materialize(pool: &PgPool, batch: &str) -> TestResult<bool> {
     let mut tx = pool.begin().await?;
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM ril_flush_batches WHERE batch_id=$1 FOR UPDATE",
-    ).bind(batch).fetch_one(&mut *tx).await?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM ril_flush_batches WHERE batch_id=$1 FOR UPDATE")
+            .bind(batch)
+            .fetch_one(&mut *tx)
+            .await?;
     if status == "done" {
         tx.rollback().await?;
         return Ok(false);
@@ -77,13 +81,25 @@ async fn materialize(pool: &PgPool, batch: &str) -> TestResult<bool> {
 pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
     let new_batch = text(pool, "SELECT gen_random_uuid()::text").await?;
     stage(pool, &new_batch, 5).await?;
-    assert_eq!(text(pool, &format!(
+    assert_eq!(
+        text(
+            pool,
+            &format!(
         "SELECT concat_ws('|',html_requests,opted_in_html_requests,observed_opted_in_visit_starts)
          FROM ril_flush_flow WHERE batch_id='{new_batch}'"
-    )).await?, "5|0|0");
-    assert_eq!(count(pool, &format!(
-        "SELECT count(*) FROM ril_flush_transitions WHERE batch_id='{new_batch}'"
-    )).await?, 0);
+    )
+        )
+        .await?,
+        "5|0|0"
+    );
+    assert_eq!(
+        count(
+            pool,
+            &format!("SELECT count(*) FROM ril_flush_transitions WHERE batch_id='{new_batch}'")
+        )
+        .await?,
+        0
+    );
     for batch in [&fixture.ril_batch, &new_batch] {
         assert!(materialize(pool, batch).await?);
         assert!(!materialize(pool, batch).await?);
@@ -92,17 +108,33 @@ pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
         "SELECT concat_ws('|',html_requests,opted_in_html_requests,observed_opted_in_visit_starts)
          FROM ril_flow_hourly WHERE surface_code=1 AND acquisition_hint=0"
     ).await?, "36|5|2");
-    assert_eq!(count(pool,
-        "SELECT request_count FROM ril_route_hourly
+    assert_eq!(
+        count(
+            pool,
+            "SELECT request_count FROM ril_route_hourly
          WHERE route_code=1 AND status_group=2 AND latency_group=0"
-    ).await?, 16);
-    assert_eq!(text(pool,
-        "SELECT concat_ws('|',observed_requests,observed_queries,sqlx_elapsed_us)
+        )
+        .await?,
+        16
+    );
+    assert_eq!(
+        text(
+            pool,
+            "SELECT concat_ws('|',observed_requests,observed_queries,sqlx_elapsed_us)
          FROM ril_sql_cost_hourly WHERE route_code=1"
-    ).await?, "16|32|1600");
-    assert_eq!(count(pool,
-        "SELECT transition_count FROM ril_transition_hourly
+        )
+        .await?,
+        "16|32|1600"
+    );
+    assert_eq!(
+        count(
+            pool,
+            "SELECT transition_count FROM ril_transition_hourly
          WHERE from_code=1 AND to_code=2 AND gap_group=0"
-    ).await?, 2, "old anonymous historical transition stays frozen");
+        )
+        .await?,
+        2,
+        "old anonymous historical transition stays frozen"
+    );
     Ok(())
 }

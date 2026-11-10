@@ -176,7 +176,11 @@ async fn retained_command_keys_and_explicit_payloads_are_isolated_between_actors
          VALUES($1,$2,$3,1,'consent',now()-interval '1 day')",
     )
     .bind(actor)
-    .bind(tor_recommendations::domain::feedback::token_digest(&consent_key).unwrap().as_slice())
+    .bind(
+        tor_recommendations::domain::feedback::token_digest(&consent_key)
+            .unwrap()
+            .as_slice(),
+    )
     .bind(consent_hash.as_slice())
     .execute(&pool)
     .await

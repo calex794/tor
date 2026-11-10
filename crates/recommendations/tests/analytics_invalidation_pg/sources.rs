@@ -93,6 +93,9 @@ async fn partial_channel_buckets_stay_unknown_only_in_intersecting_periods() {
     .fetch_one(&f.owner)
     .await
     .unwrap();
-    assert_eq!(after, before, "read reports cannot rewrite retained evidence");
+    assert_eq!(
+        after, before,
+        "read reports cannot rewrite retained evidence"
+    );
     f.finish().await;
 }

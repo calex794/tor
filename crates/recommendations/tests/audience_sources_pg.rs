@@ -29,8 +29,7 @@ const COUNTS: [[i64; 4]; 4] = [
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
     let app_url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
-    let migrator_url =
-        legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
+    let migrator_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
     let database = PgPool::connect(&migrator_url).await.unwrap();
     legacy_analytics::assert_schema(&database).await;
     let identity: (String, String) = sqlx::query_as("SELECT current_database(),current_user")
@@ -39,7 +38,10 @@ async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
         .unwrap();
     assert_eq!(
         identity,
-        ("tor_ci_legacy_analytics".to_owned(), "tor_migrator".to_owned())
+        (
+            "tor_ci_legacy_analytics".to_owned(),
+            "tor_migrator".to_owned()
+        )
     );
     // Clone actual migrated schemas into an isolated empty namespace. Other
     // suites may have retained daily facts in public; never erase their data.

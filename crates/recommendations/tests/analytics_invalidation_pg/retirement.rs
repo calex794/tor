@@ -1,19 +1,28 @@
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
-use tor_recommendations::{
-    domain::feedback::FeedbackError, repositories::PgRecommendations,
-};
+use tor_recommendations::{domain::feedback::FeedbackError, repositories::PgRecommendations};
 
 #[tokio::test]
 #[ignore = "requires the installed retirement migration on disposable tor_ci"]
 async fn retirement_adapter_bounds_transactions_and_does_not_wait_for_a_busy_gate() {
     let url = super::current_analytics::url("TEST_DATABASE_URL", "tor_app");
-    let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
     super::current_analytics::assert_schema(&pool).await;
-    let locker = PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+    let locker = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
     let store = PgRecommendations::new(pool.clone());
     for limit in [0, 1001] {
-        assert_eq!(store.retire_analytics_batch(limit).await, Err(FeedbackError::Invalid));
+        assert_eq!(
+            store.retire_analytics_batch(limit).await,
+            Err(FeedbackError::Invalid)
+        );
     }
     let settings: (String, String) = sqlx::query_as(
         "SELECT current_setting('lock_timeout'),current_setting('statement_timeout')",
@@ -31,7 +40,11 @@ async fn retirement_adapter_bounds_transactions_and_does_not_wait_for_a_busy_gat
         .await
         .expect("a busy retirement gate must not wait")
         .unwrap();
-    assert_eq!(busy, (0, true), "busy is pending work, never a drained acknowledgement");
+    assert_eq!(
+        busy,
+        (0, true),
+        "busy is pending work, never a drained acknowledgement"
+    );
     held_gate.rollback().await.unwrap();
 
     // Call the actual SQL function at both limits and the production size.
@@ -56,7 +69,10 @@ async fn retirement_adapter_bounds_transactions_and_does_not_wait_for_a_busy_gat
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(after, settings, "transaction-local bounds cannot leak into the pool");
+    assert_eq!(
+        after, settings,
+        "transaction-local bounds cannot leak into the pool"
+    );
     store.retire_analytics_batch(1).await.unwrap();
     locker.close().await;
     pool.close().await;

@@ -67,4 +67,3 @@ pub async fn epoch(pool: &PgPool, actor: i64) -> i64 {
         .await
         .unwrap()
 }
-
