@@ -17,11 +17,17 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
 
     // Absence of a checkpoint allows a first page only after explicit worker opt-in.
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, false).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::ScanPage
     );
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, true).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
+            .await
+            .unwrap(),
         Action::ScanPage
     );
 
@@ -31,9 +37,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
          VALUES($1,'chapter',TRUE,clock_timestamp())",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, false).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::Wait,
         "a completed cycle cannot restart immediately"
     );
@@ -43,9 +54,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
           WHERE bucket=$1 AND scope='chapter'",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, false).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::NewCycle
     );
     sqlx::query(
@@ -54,9 +70,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
           WHERE bucket=$1 AND scope='chapter'",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, false).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::Wait
     );
     sqlx::query(
@@ -65,9 +86,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
           WHERE bucket=$1 AND scope='chapter'",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, false).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
+            .await
+            .unwrap(),
         Action::ScanPage
     );
 
@@ -77,9 +103,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
          VALUES($1,'chapter',TRUE,FALSE,clock_timestamp()-interval '25 hours')",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, true).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
+            .await
+            .unwrap(),
         Action::Wait,
         "scheduler must never bypass the eight-S3-error operator gate"
     );
@@ -89,9 +120,14 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
           WHERE bucket=$1 AND scope='chapter'",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, true).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
+            .await
+            .unwrap(),
         Action::ScanPage
     );
     sqlx::query(
@@ -100,16 +136,27 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
           WHERE bucket=$1 AND scope='chapter'",
     )
     .bind(SCHEDULE_BUCKET)
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
-        schedule.action(SCHEDULE_BUCKET, PrivateScope::Chapter, true).await.unwrap(),
+        schedule
+            .action(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
+            .await
+            .unwrap(),
         Action::Wait
     );
 
     // G-owned test rows only, never source storage objects.
     sqlx::query("DELETE FROM g09_registered_object_scans WHERE bucket=$1")
-        .bind(SCHEDULE_BUCKET).execute(&pool).await.unwrap();
+        .bind(SCHEDULE_BUCKET)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM g09_private_inventory_scans WHERE bucket=$1")
-        .bind(SCHEDULE_BUCKET).execute(&pool).await.unwrap();
+        .bind(SCHEDULE_BUCKET)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
