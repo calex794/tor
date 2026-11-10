@@ -6,6 +6,7 @@ use crate::services::security::{generate_session_token, session_token_digest, Ve
 use sqlx::Row;
 
 const REFUND_SCOPE: &str = "finance.refund.approve.v1";
+const PAYOUT_SCOPE: &str = "finance.payout.post.v1";
 const MAX_STEP_UP_SECONDS: f64 = 300.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,10 +17,15 @@ pub enum StepUpIssueError {
     Unavailable,
 }
 
+struct StepUpBinding<'a> {
+    request_id: i64,
+    revision: i64,
+    digest: &'a [u8; 32],
+}
+
 impl PgAccounts {
-    /// Authorizes only the specified decision digest. The caller must
-    /// construct this digest from the exact pending financial operation.
-    /// A one-time proof is stored only as SHA-256 on the active session.
+    /// A one-use proof tied to a fresh password, active admin session and
+    /// exact request+revision+reason digest. Existing refund callers unchanged.
     pub async fn issue_administrator_refund_step_up(
         &self,
         actor: i64,
@@ -29,6 +35,61 @@ impl PgAccounts {
         expected_revision: i64,
         decision_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            REFUND_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id,
+                revision: expected_revision,
+                digest: decision_digest,
+            },
+        )
+        .await
+    }
+
+    /// No public payout approval route. Bind the proof's revision slot to
+    /// the immutable request amount: a different amount cannot reuse it.
+    pub async fn issue_administrator_payout_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        request_id: i64,
+        amount_minor: i64,
+        decision_digest: &[u8; 32],
+    ) -> Result<String, StepUpIssueError> {
+        self.issue_administrator_step_up(
+            PAYOUT_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            StepUpBinding {
+                request_id,
+                revision: amount_minor,
+                digest: decision_digest,
+            },
+        )
+        .await
+    }
+
+    /// Authorizes only the specified decision digest. The caller must
+    /// construct this digest from the exact pending financial operation.
+    /// A one-time proof is stored only as SHA-256 on the active session.
+    async fn issue_administrator_step_up(
+        &self,
+        scope: &'static str,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        binding: StepUpBinding<'_>,
+    ) -> Result<String, StepUpIssueError> {
+        let StepUpBinding {
+            request_id,
+            revision: expected_revision,
+            digest: decision_digest,
+        } = binding;
         if actor <= 0 || request_id <= 0 || expected_revision <= 0 {
             return Err(StepUpIssueError::InvalidIntent);
         }
@@ -94,7 +155,7 @@ impl PgAccounts {
         .bind(session_digest.as_slice())
         .bind(actor)
         .bind(token_hash.as_slice())
-        .bind(REFUND_SCOPE)
+        .bind(scope)
         .bind(request_id)
         .bind(expected_revision)
         .bind(decision_digest.as_slice())

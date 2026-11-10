@@ -4,6 +4,7 @@ pub mod admin_support_refunds;
 pub mod checkout;
 pub mod creator_finance;
 pub mod creator_payout_admin;
+pub mod creator_payout_posting;
 pub mod creator_wallet_credits;
 pub mod direct_exposure;
 pub mod direct_swaps;
