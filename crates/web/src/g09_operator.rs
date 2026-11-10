@@ -159,10 +159,11 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
                 Ok(value) => value,
                 Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
             };
-            let (description, completed, exhausted) = if direction == Direction::Body {
-                match body_audit.progress(bucket, scope).await {
-                    Ok(Some(p)) => (
-                        format!(
+            let (description, completed, exhausted) =
+                if direction == Direction::Body {
+                    match body_audit.progress(bucket, scope).await {
+                        Ok(Some(p)) => (
+                            format!(
                             "Просмотрено записей: {}/{}; SHA совпал: {}; подтверждённые 404: {};
                              искажение байтов: {}; расхождение метаданных: {};
                              пропущено (pending/deleting/более 4 МиБ): {};
@@ -171,56 +172,56 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
                             p.body_mismatch, p.metadata_mismatch,
                             p.skipped, p.unknown_attempts, p.retries
                         ),
-                        p.completed,
-                        p.exhausted,
-                    ),
-                    Ok(None) => ("Не запускался (только по кнопке)".to_owned(), false, false),
-                    Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-                }
-            } else if reverse_direction {
-                match reverse.progress(bucket, scope).await {
-                    Ok(Some(p)) => (
-                        format!(
-                            "Ожидалось: {}; просмотрено: {}; со ссылками: {}; исправно: {};
+                            p.completed,
+                            p.exhausted,
+                        ),
+                        Ok(None) => ("Не запускался (только по кнопке)".to_owned(), false, false),
+                        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                    }
+                } else if reverse_direction {
+                    match reverse.progress(bucket, scope).await {
+                        Ok(Some(p)) => (
+                            format!(
+                                "Ожидалось: {}; просмотрено: {}; со ссылками: {}; исправно: {};
                             отсутствуют: {}; из них со ссылками: {}; расхождения: {};
                             переходные: {}; неопределённые попытки: {}; повторы: {}",
-                            p.expected,
-                            p.scanned,
-                            p.has_ref,
-                            p.healthy,
-                            p.missing,
-                            p.referenced_missing,
-                            p.mismatch,
-                            p.recently_pending,
-                            p.unknown_attempts,
-                            p.retries
+                                p.expected,
+                                p.scanned,
+                                p.has_ref,
+                                p.healthy,
+                                p.missing,
+                                p.referenced_missing,
+                                p.mismatch,
+                                p.recently_pending,
+                                p.unknown_attempts,
+                                p.retries
+                            ),
+                            p.completed,
+                            p.exhausted,
                         ),
-                        p.completed,
-                        p.exhausted,
-                    ),
-                    Ok(None) => ("Ещё не запускался".to_owned(), false, false),
-                    Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-                }
-            } else {
-                match forward.progress(bucket, scope).await {
-                    Ok(Some(p)) => (
-                        format!(
-                            "Просмотрено: {}; в реестре: {}; переходные: {}; кандидаты: {};
+                        Ok(None) => ("Ещё не запускался".to_owned(), false, false),
+                        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                    }
+                } else {
+                    match forward.progress(bucket, scope).await {
+                        Ok(Some(p)) => (
+                            format!(
+                                "Просмотрено: {}; в реестре: {}; переходные: {}; кандидаты: {};
                             расхождения размеров: {}; неизвестные: {}",
-                            p.scanned,
-                            p.registered,
-                            p.recently_pending,
-                            p.unregistered_candidates,
-                            p.size_mismatch,
-                            p.unknown
+                                p.scanned,
+                                p.registered,
+                                p.recently_pending,
+                                p.unregistered_candidates,
+                                p.size_mismatch,
+                                p.unknown
+                            ),
+                            p.completed,
+                            false,
                         ),
-                        p.completed,
-                        false,
-                    ),
-                    Ok(None) => ("Ещё не запускался".to_owned(), false, false),
-                    Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-                }
-            };
+                        Ok(None) => ("Ещё не запускался".to_owned(), false, false),
+                        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                    }
+                };
             write!(body,
                 "<section><h2>{} — {}</h2><p>{}</p><p>Цикл: {}; контрольная точка UTC: {}; аренда: {}</p>",
                 match direction { Direction::Forward => "S3 → PostgreSQL", Direction::Reverse => "PostgreSQL → S3", Direction::Body => "GET/SHA-256 шифротекста" },
