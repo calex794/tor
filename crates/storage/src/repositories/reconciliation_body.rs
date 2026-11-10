@@ -149,11 +149,18 @@ impl PgBodyAudit {
         let mut last = cursor;
 
         for row in &rows {
-            let id: String = row.try_get("object_id").map_err(|_| InventoryError::Unavailable)?;
-            let size: i64 = row.try_get("size_bytes").map_err(|_| InventoryError::Unavailable)?;
-            let hash: Vec<u8> = row.try_get("sha256_ciphertext")
+            let id: String = row
+                .try_get("object_id")
                 .map_err(|_| InventoryError::Unavailable)?;
-            let state: String = row.try_get("state").map_err(|_| InventoryError::Unavailable)?;
+            let size: i64 = row
+                .try_get("size_bytes")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let hash: Vec<u8> = row
+                .try_get("sha256_ciphertext")
+                .map_err(|_| InventoryError::Unavailable)?;
+            let state: String = row
+                .try_get("state")
+                .map_err(|_| InventoryError::Unavailable)?;
             last = Some(id.clone());
 
             // Pending/deleting/oversized objects have no evidence of corruption;
@@ -171,7 +178,9 @@ impl PgBodyAudit {
                 PrivateScope::Chapter => EncryptedObjectKind::Chapter,
                 PrivateScope::ChapterAsset => EncryptedObjectKind::ChapterAsset,
             };
-            let digest: [u8; 32] = hash.as_slice().try_into()
+            let digest: [u8; 32] = hash
+                .as_slice()
+                .try_into()
                 .map_err(|_| InventoryError::Invalid)?;
             let object = ObjectRef::new(object_id.clone(), kind, digest, size as u64)
                 .map_err(|_| InventoryError::Invalid)?;
@@ -199,7 +208,11 @@ impl PgBodyAudit {
             }
         }
 
-        let mut tx = self.pool.begin().await.map_err(|_| InventoryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InventoryError::Unavailable)?;
         let owned: Option<(i64,)> = sqlx::query_as(
             "SELECT lease_epoch FROM g09_body_sha_scans
               WHERE bucket=$1 AND scope=$2 AND cycle=$3 AND lease_epoch=$4
