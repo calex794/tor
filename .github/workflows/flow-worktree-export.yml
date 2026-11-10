@@ -5,7 +5,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: flow-selector-fix-publication
+  group: flow05-intents-publication
   cancel-in-progress: false
 jobs:
   worktree:
@@ -14,44 +14,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 352062300d280755a94a52a8cfaa612bc3b7d000
-      - name: Apply bounded test-selector fix to staging only
+          path: payload
+          persist-credentials: false
+      - name: Check complete payload
+        id: payload
+        shell: bash
+        run: |
+          if test -f payload/.qa/flow05-intents-2.txt; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.payload.outputs.ready == 'true'
+        with:
+          ref: 81ea311158f3c4a600b7c13262ced0da6d29349e
+          path: tor
+      - name: Apply verified patch to new feature branch only
+        if: steps.payload.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 352062300d280755a94a52a8cfaa612bc3b7d000
           python3 - <<'PY'
-          from pathlib import Path
-          p=Path('crates/web/tests/audience_hours_http_pg.rs')
-          s=p.read_text()
-          old='        assert!(!html.contains("audience-hours-table"));'
-          new='''        // Both projections share presentation classes; only the legacy table
-                  // is absent for long periods. The observation-hour report stays live.
-                  assert!(!html.contains("data-testid=\\"audience-hours-table\\""));
-                  assert!(html.contains("data-testid=\\"audience-observed-table\\""));
-                  assert_eq!(html.matches("data-observed-hour=").count(), 168);'''
-          assert s.count(old)==1
-          s=s.replace(old,new)
-          old='    assert!(html.contains("audience-hours-unavailable"));'
-          assert s.count(old)==1
-          s=s.replace(old,old+'\n    assert!(html.contains("data-testid=\\"audience-observed-current\\""));')
-          p.write_text(s)
+          import base64,hashlib,lzma,pathlib
+          data=''.join(pathlib.Path(f'payload/.qa/flow05-intents-{i}.txt').read_text().strip() for i in range(3))
+          patch=lzma.decompress(base64.b64decode(data,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='d7a39d407b72bc73ab9764546c782e26f4ceb73366f11dfd2844ba4b6d1f8ba4'
+          pathlib.Path('flow05.patch').write_bytes(patch)
           PY
-          rustfmt --edition 2021 crates/web/tests/audience_hours_http_pg.rs
-          git diff --check
-          test "$(git diff --name-only)" = crates/web/tests/audience_hours_http_pg.rs
-          test "$(git hash-object crates/web/tests/audience_hours_http_pg.rs)" = f5046e4bdd4b2720fd4dc9486e5e0b46b9158ecc
-          git add crates/web/tests/audience_hours_http_pg.rs
+          cd tor
+          test "$(git rev-parse HEAD)" = 81ea311158f3c4a600b7c13262ced0da6d29349e
+          git apply --check ../flow05.patch
+          git apply --index ../flow05.patch
+          test "$(git write-tree)" = e850cfbe8833b39a12715f49a2940a83b3b474d7
+          git diff --cached --check
           git config user.name 'FLOW QA'
           git config user.email 'flow-qa@users.noreply.github.com'
-          git commit -m 'FLOW: distinguish legacy and observed hour tables in HTTP acceptance'
-          test -z "$(git ls-remote --heads origin refs/heads/qa/flow808-selector-fix-20261111)"
-          git push origin HEAD:refs/heads/qa/flow808-selector-fix-20261111
+          git commit -m 'FLOW-05: read-only explicit library and book-follow snapshots with real acceptance'
+          test -z "$(git ls-remote --heads origin refs/heads/feat/flow-explicit-choices-20261111)"
+          git push origin HEAD:refs/heads/feat/flow-explicit-choices-20261111
           mkdir -p "$RUNNER_TEMP/flow-export"
           git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
           git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-export/TREE"
       - uses: actions/upload-artifact@v4
+        if: steps.payload.outputs.ready == 'true'
         with:
-          name: flow-selector-fix-${{ github.sha }}
+          name: flow05-publication-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
           retention-days: 1
