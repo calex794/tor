@@ -1,12 +1,14 @@
 -- S039/MONEY-03: a posted INTERNAL wallet obligation, never a bank payment.
 -- No public route, provider integration or automatic cash-out is added here.
 -- All state, debit, entry and posting evidence must commit or roll back together.
+-- Preserve the separately generated reservation_minor CHECK. The legacy
+-- table-level pending/rejected decision shape is check1, not check.
 ALTER TABLE finance_creator_payout_requests
     DROP CONSTRAINT finance_creator_payout_requests_state_check,
-    DROP CONSTRAINT finance_creator_payout_requests_check,
+    DROP CONSTRAINT finance_creator_payout_requests_check1,
     ADD CONSTRAINT finance_creator_payout_requests_state_check
         CHECK (state IN ('pending','rejected','posted')),
-    ADD CONSTRAINT finance_creator_payout_requests_check CHECK (
+    ADD CONSTRAINT s039_payout_decision_shape CHECK (
         (state='pending' AND decided_at IS NULL
             AND decision_actor_id IS NULL AND decision_reason IS NULL)
         OR
