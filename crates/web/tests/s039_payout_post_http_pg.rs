@@ -312,18 +312,16 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
         .status(),
         StatusCode::CONFLICT
     );
-    let (postings, debits): (i64, i64) = sqlx::query_as(
-        "SELECT
-             (SELECT count(*) FROM finance_creator_payout_postings WHERE payout_request_id=$1),
-             (SELECT count(*) FROM reader_wallet_entries
-              WHERE user_id=$2 AND kind='creator_payout_debit')",
-    )
-    .bind(id)
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!((postings, debits), (1, 1));
+    let evidence = pg(
+        &url,
+        &format!(
+            "SELECT (SELECT count(*) FROM finance_creator_payout_postings
+                     WHERE payout_request_id={id})::text || ':' ||
+                    (SELECT count(*) FROM reader_wallet_entries
+                     WHERE user_id={owner} AND kind='creator_payout_debit')::text"
+        ),
+    );
+    assert_eq!(evidence, "1:1");
     assert_eq!(
         pg(
             &url,
