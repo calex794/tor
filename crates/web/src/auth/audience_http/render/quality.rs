@@ -69,10 +69,13 @@ pub(super) fn section(
                 ),
             }
             let stale = pump.running_for_s.is_some_and(|s| s >= STALE_SECONDS)
-                || pump.age_since_last_completion_s.is_some_and(|s| s >= STALE_SECONDS)
-                || (pump.cycles == 0
-                    && pump.age_since_start_s.is_some_and(|s| s >= STALE_SECONDS))
-                || pump.age_since_last_success_s.is_some_and(|s| s >= STALE_SECONDS);
+                || pump
+                    .age_since_last_completion_s
+                    .is_some_and(|s| s >= STALE_SECONDS)
+                || (pump.cycles == 0 && pump.age_since_start_s.is_some_and(|s| s >= STALE_SECONDS))
+                || pump
+                    .age_since_last_success_s
+                    .is_some_and(|s| s >= STALE_SECONDS);
             if stale || pump.consecutive_failures > 0 {
                 body.push_str(
                     "<p role=\"alert\">Фоновая запись могла отстать или завершаться с ошибками. \

@@ -234,7 +234,9 @@ mod tests {
         assert!(!page(7, Some(&report), None, None, None, None)
             .0
             .contains("data-metric=\"readers\""));
-        assert!(page(30, None, None, None, None, None).0.contains("role=\"alert\""));
+        assert!(page(30, None, None, None, None, None)
+            .0
+            .contains("role=\"alert\""));
     }
 
     #[test]
