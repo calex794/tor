@@ -3,7 +3,17 @@ use crate::services::returns::{
     validate_period, ReadingReturnsError, ReadingReturnsMetric, ReadingReturnsPeriod,
     ReadingReturnsReport,
 };
-use sqlx::{postgres::PgRow, PgPool, Row};
+use crate::services::{progress::ReadingPlace, sync::SyncError};
+use sqlx::{postgres::PgRow, PgPool, Postgres, Row, Transaction};
+
+#[path = "returns_books.rs"]
+mod books;
+#[path = "returns_books_capture.rs"]
+mod books_capture;
+#[path = "returns_books_maintenance.rs"]
+mod books_maintenance;
+#[path = "returns_books_query.rs"]
+mod books_query;
 
 #[path = "returns_capture.rs"]
 mod capture;
@@ -12,7 +22,17 @@ mod maintenance;
 #[path = "returns_query.rs"]
 mod query;
 
-pub(super) use capture::record;
+pub(super) async fn record(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: i64,
+    book: i64,
+    place: ReadingPlace,
+    collect_global: bool,
+    collect_book: bool,
+) -> Result<(), SyncError> {
+    capture::record(tx, actor, book, place, collect_global).await?;
+    books_capture::record(tx, actor, book, place, collect_book).await
+}
 
 #[derive(Clone)]
 pub struct PgReadingReturns {

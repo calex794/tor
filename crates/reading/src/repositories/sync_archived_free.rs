@@ -215,6 +215,7 @@ impl PgReadingSync {
             book_id,
             place,
             self.activity_collection,
+            self.book_return_collection,
         )
         .await?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;

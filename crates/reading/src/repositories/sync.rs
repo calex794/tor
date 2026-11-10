@@ -11,6 +11,7 @@ use sqlx::{postgres::PgRow, PgPool, Row};
 pub struct PgReadingSync {
     pool: PgPool,
     activity_collection: bool,
+    book_return_collection: bool,
 }
 
 impl PgReadingSync {
@@ -18,11 +19,17 @@ impl PgReadingSync {
         Self {
             pool,
             activity_collection: false,
+            book_return_collection: false,
         }
     }
 
     pub fn with_activity_collection(mut self, enabled: bool) -> Self {
         self.activity_collection = enabled;
+        self
+    }
+
+    pub fn with_book_return_collection(mut self, enabled: bool) -> Self {
+        self.book_return_collection = enabled;
         self
     }
 
@@ -245,7 +252,15 @@ impl PgReadingSync {
             .await
             .map_err(|_| SyncError::Unavailable)?;
         }
-        super::returns::record(&mut tx, actor, book_id, place, self.activity_collection).await?;
+        super::returns::record(
+            &mut tx,
+            actor,
+            book_id,
+            place,
+            self.activity_collection,
+            self.book_return_collection,
+        )
+        .await?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok(receipt)
     }
@@ -484,8 +499,15 @@ impl PgReadingSync {
             .map_err(|_| SyncError::Unavailable)?;
         }
         if storage_object.is_none() {
-            super::returns::record(&mut tx, actor, book_id, place, self.activity_collection)
-                .await?;
+            super::returns::record(
+                &mut tx,
+                actor,
+                book_id,
+                place,
+                self.activity_collection,
+                self.book_return_collection,
+            )
+            .await?;
         }
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok(receipt)

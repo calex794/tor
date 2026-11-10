@@ -54,7 +54,8 @@ pub(crate) fn page(
         Измеренный ноль показан как 0. «Нет сохранённых наблюдений» не означает,
         что книгу нигде не показывали или что она никому не интересна.</p>
         <p>Это не число людей и не строгая последовательность действий.
-        Доля начавших чтение и возвращаемость здесь не вычисляются.</p>
+        Доля начавших чтение здесь не вычисляется. Ссылка «Возвращения к книге» открывает
+        отдельный отчёт о подтверждённом продолжении чтения этой книги на 7-й и 30-й день.</p>
         <p>Данные учитывают действующие правила согласия. Отзыв останавливает новый сбор;
         недавние сведения убираются при обновлении итогов. Обезличенные исторические
         итоги сохраняются в пределах действующего срока хранения.</p></details>
@@ -118,7 +119,7 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
         .expect("String");
     }
     for book in &report.rows {
-        book_row(body, book);
+        book_row(body, book, query.days);
     }
     body.push_str(
         r#"<nav class="audience-books-pagination" aria-label="Страницы отчёта по книгам">"#,
@@ -138,9 +139,10 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
     body.push_str("</nav></section>");
 }
 
-fn book_row(body: &mut String, book: &BookDiscoveryRow) {
+fn book_row(body: &mut String, book: &BookDiscoveryRow, days: i32) {
     write!(body, r#"<article class="book-section-card audience-book-row" data-testid="audience-book-row" data-book-id="{}">
         <h3><a href="/books/{}">{}</a></h3>"#, book.book_id, book.book_id, escape_html(&book.title)).expect("String");
+    write!(body, r#"<p><a data-testid="audience-book-returns-link" href="/admin/audience/returns?book_id={}&amp;days={days}">Возвращения к книге</a></p>"#, book.book_id).expect("String");
     for (label, values) in [("Жанры", &book.genres), ("Теги", &book.tags)] {
         write!(
             body,

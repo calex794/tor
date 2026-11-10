@@ -1,4 +1,5 @@
 //! Only numerical evidence is rendered; no reader or book identifiers.
+pub(super) mod book_returns;
 pub(super) mod books;
 mod evidence;
 pub(super) mod groups;

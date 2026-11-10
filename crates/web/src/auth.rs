@@ -196,9 +196,13 @@ fn router_inner(
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
     let activity = crate::recommendation_worker::reading_returns_enabled();
-    let progress =
-        PgReadingProgress::new(accounts.pool().clone()).with_activity_collection(activity);
-    let sync = PgReadingSync::new(accounts.pool().clone()).with_activity_collection(activity);
+    let book_returns = crate::recommendation_worker::book_reading_returns_enabled();
+    let progress = PgReadingProgress::new(accounts.pool().clone())
+        .with_activity_collection(activity)
+        .with_book_return_collection(book_returns);
+    let sync = PgReadingSync::new(accounts.pool().clone())
+        .with_activity_collection(activity)
+        .with_book_return_collection(book_returns);
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
