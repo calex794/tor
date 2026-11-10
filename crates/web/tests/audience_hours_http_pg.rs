@@ -386,3 +386,6 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
     );
     pg(&url, &format!("BEGIN; DELETE FROM account_roles WHERE user_id IN({admin},{reader},{moderator}); DELETE FROM users WHERE id IN({admin},{reader},{moderator}); COMMIT"));
 }
+
+#[path = "audience_hours_http_pg/observed.rs"]
+mod observed;

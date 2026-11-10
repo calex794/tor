@@ -45,6 +45,7 @@ struct AudienceState {
 #[serde(deny_unknown_fields)]
 struct AudienceQuery {
     days: Option<i32>,
+    time_zone: Option<String>,
 }
 
 impl AudienceQuery {
@@ -126,17 +127,23 @@ async fn page(
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
     // Carry extractor errors through authorization, and secure error responses too.
-    let days = match query
+    let (days, zone) = match query
         .map_err(|_| StatusCode::BAD_REQUEST)
-        .and_then(|Query(query)| query.days())
-    {
-        Ok(days) => days,
+        .and_then(|Query(query)| {
+            let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
+                query.time_zone.as_deref().unwrap_or("UTC"),
+            )
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+            Ok((query.days()?, zone))
+        }) {
+        Ok(selection) => selection,
         Err(status) => return secure(status),
     };
     let hours_supported = matches!(days, 1 | 7);
-    let (reading, sources, hours) = tokio::join!(
+    let (reading, sources, observed, hours) = tokio::join!(
         timeout_at(deadline, state.store.report(days)),
         timeout_at(deadline, state.discovery.report(days)),
+        timeout_at(deadline, state.traffic.observed_report(days, zone)),
         async {
             if hours_supported {
                 timeout_at(deadline, state.traffic.report(days)).await.ok()
@@ -154,7 +161,11 @@ async fn page(
     let reading = reading.ok().and_then(Result::ok);
     let sources = sources.ok().and_then(Result::ok);
     let hours = hours.and_then(Result::ok);
-    let status = if reading.is_some() && sources.is_some() && (!hours_supported || hours.is_some())
+    let observed = observed.ok().and_then(Result::ok);
+    let status = if reading.is_some()
+        && sources.is_some()
+        && observed.is_some()
+        && (!hours_supported || hours.is_some())
     {
         StatusCode::OK
     } else {
@@ -169,6 +180,7 @@ async fn page(
             hours.as_ref(),
             crate::ril::flow_capture_counters(),
             crate::ril::pump_health_snapshot(),
+            (zone, observed.as_ref()),
         ),
     ))
 }

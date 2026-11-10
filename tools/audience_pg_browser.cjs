@@ -154,7 +154,7 @@ async function periodBoundaries(page, days) {
       await adminPage.screenshot({path:path.join(shots,`audience-${width}.png`),fullPage:true});
       await adminPage.locator('select[name="days"]').selectOption('30');
       await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL('**/admin/audience?days=30');
+      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')==='30');
       await periodBoundaries(adminPage, 30);
     }
     for (const days of [1,90]) {
