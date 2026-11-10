@@ -55,7 +55,7 @@ class RilGovernanceTests(unittest.TestCase):
     def test_audience_cannot_downgrade_to_a_normal_session(self):
         path = self.root / INVENTORY
         original = path.read_text(encoding="utf-8")
-        for route in ("/admin/audience", "/admin/audience/books"):
+        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups"):
             with self.subTest(route=route):
                 inventory = json.loads(original)
                 row = next(row for row in inventory["routes"] if row["template"] == route)
@@ -82,6 +82,29 @@ class RilGovernanceTests(unittest.TestCase):
         findings = check(self.root)
         self.assertTrue(any(
             "/admin/audience/books" in finding
+            and "missing independent administrator role guard" in finding
+            for finding in findings
+        ), findings)
+
+    def test_audience_groups_cannot_skip_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/groups.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW groups must reject failed authorization before reading")
+
+    def test_audience_groups_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/groups.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW groups must reject failed authorization before reading")
+
+    def test_audience_groups_checks_the_live_parent_role_guard(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        findings = check(self.root)
+        self.assertTrue(any(
+            "/admin/audience/groups" in finding
             and "missing independent administrator role guard" in finding
             for finding in findings
         ), findings)

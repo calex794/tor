@@ -266,8 +266,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/books", "books::page")
     )
-    if audience_books and re.search(r"\badministrator\(&state, &headers\)", body):
-        # Only this reviewed child handler imports the parent's live A guard.
+    audience_groups = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/groups", "groups::page")
+    )
+    audience_child = "books" if audience_books else "groups" if audience_groups else None
+    if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
+        # Only these reviewed child handlers import the parent's live A guard.
         # Missing delegation cannot be masked by an unrelated helper definition.
         evidence += "\n" + functions.get("__audience_administrator", "")
     # C-12 private history handlers delegate session, role and CSRF to a
@@ -535,6 +541,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and admin_key in {
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
+            ("GET", "/admin/audience/groups", "groups::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1305,6 +1312,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         route_key in {
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
+            ("GET", "/admin/audience/groups", "groups::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1409,7 +1417,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
-        audience_read = ".books_report(&query)" if audience_books else ".report(days)"
+        audience_read = f".{audience_child}_report(&query)" if audience_child else ".report(days)"
         if audience_admin and not (
             "administrator(&state, &headers)" in body
             and audience_read in body
@@ -1417,14 +1425,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "StatusCode::UNAUTHORIZED" in evidence
         ):
             errors.append(f"{label}: FLOW audience must authorize before its bounded read")
-        if audience_books and not (
+        if audience_child and not (
             "match timeout_at(deadline, administrator(&state, &headers)).await" in body
             and "Ok(Err(status)) => return secure(status)" in body
             and "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)" in body
             and audience_read in body
             and body.index("administrator(&state, &headers)") < body.index(audience_read)
         ):
-            errors.append(f"{label}: FLOW books must reject failed authorization before reading")
+            errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}
@@ -1563,7 +1571,10 @@ def check(root: Path = ROOT) -> list[str]:
             )
         if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
                 and (entry.get("method"), entry.get("template"), entry.get("handler"))
-                    == ("GET", "/admin/audience/books", "books::page")):
+                    in {
+                        ("GET", "/admin/audience/books", "books::page"),
+                        ("GET", "/admin/audience/groups", "groups::page"),
+                    }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))
                 imported = re.search(r"\buse\s+super::\{[^}]*\badministrator\b[^}]*\}", child)
