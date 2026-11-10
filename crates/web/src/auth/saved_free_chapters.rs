@@ -193,7 +193,7 @@ pub(super) async fn read(
     response
         .headers_mut()
         .insert("content-security-policy", csp.parse().expect("static CSP"));
-    response
+    crate::recommendation_http::visits::book_response(response, saved.book_id, 1)
 }
 
 #[derive(Deserialize)]

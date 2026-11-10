@@ -42,10 +42,14 @@ impl PgFlowVisits {
         if eligible.is_none() {
             return Ok(false);
         }
+        let discovery = super::book::discovery(&mut tx, observation).await?;
+        let book = observation.book.as_ref();
         let receipt = sqlx::query(
             "INSERT INTO flow_visit_receipts
-               (event_id,subject_id,flow_epoch,observed_at,surface,acquisition_hint)
-             VALUES($1::uuid,$2::uuid,$3::uuid,to_timestamp($4::double precision/1000),$5,$6)
+               (event_id,subject_id,flow_epoch,observed_at,surface,acquisition_hint,
+                book_id,book_kind,rec_assignment,organic_touch,discovery_kind)
+             VALUES($1::uuid,$2::uuid,$3::uuid,to_timestamp($4::double precision/1000),$5,$6,
+                    $7,$8,$9::uuid,$10::uuid,$11)
              ON CONFLICT(event_id) DO NOTHING",
         )
         .bind(&observation.event_id)
@@ -54,6 +58,11 @@ impl PgFlowVisits {
         .bind(at)
         .bind(observation.surface)
         .bind(observation.acquisition_hint)
+        .bind(book.map(|b| b.book_id))
+        .bind(book.map(|b| b.kind))
+        .bind(book.and_then(|b| b.rec_assignment.as_deref()))
+        .bind(book.and_then(|b| b.organic_touch.as_deref()))
+        .bind(discovery)
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
@@ -62,6 +71,10 @@ impl PgFlowVisits {
                 "SELECT subject_id=$2::uuid AND flow_epoch=$3::uuid
                         AND observed_at=to_timestamp($4::double precision/1000)
                         AND surface=$5 AND acquisition_hint=$6
+                        AND book_id IS NOT DISTINCT FROM $7::bigint
+                        AND book_kind IS NOT DISTINCT FROM $8::smallint
+                        AND rec_assignment IS NOT DISTINCT FROM $9::uuid
+                        AND organic_touch IS NOT DISTINCT FROM $10::uuid
                  FROM flow_visit_receipts WHERE event_id=$1::uuid",
             )
             .bind(&observation.event_id)
@@ -70,6 +83,10 @@ impl PgFlowVisits {
             .bind(at)
             .bind(observation.surface)
             .bind(observation.acquisition_hint)
+            .bind(book.map(|b| b.book_id))
+            .bind(book.map(|b| b.kind))
+            .bind(book.and_then(|b| b.rec_assignment.as_deref()))
+            .bind(book.and_then(|b| b.organic_touch.as_deref()))
             .fetch_one(&mut *tx)
             .await
             .map_err(unavailable)?;

@@ -105,6 +105,7 @@ async fn d_05_layer_toc_205_pages_canonical_entitlement_and_revocation() {
     assert_eq!(
         actual_anchor,
         LayerTocAnchor {
+            book_id: book,
             chapter_id: anchor,
             chapter_no: 1,
             chapter_title: "Глава 1".into(),

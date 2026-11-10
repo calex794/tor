@@ -33,3 +33,5 @@ pub mod chapter_thanks;
 pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};
 pub mod audience;
 pub mod returns;
+
+pub mod flow_capture;

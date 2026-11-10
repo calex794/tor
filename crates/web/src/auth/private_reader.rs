@@ -110,5 +110,5 @@ pub(super) async fn page(
         "content-security-policy",
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
     );
-    response
+    crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }

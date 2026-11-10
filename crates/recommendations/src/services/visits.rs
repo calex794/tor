@@ -13,6 +13,17 @@ pub struct FlowScope {
     pub epoch: String,
 }
 
+/// Trusted server navigation context, attached only after permitted HTML.
+/// Opaque proof IDs are checked against F's existing navigation facts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlowBookNavigation {
+    pub book_id: i64,
+    /// 0 book detail, 1 authorized reader; never an entitlement or paywall.
+    pub kind: i16,
+    pub rec_assignment: Option<String>,
+    pub organic_touch: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisitObservation {
     pub event_id: String,
@@ -23,6 +34,7 @@ pub struct VisitObservation {
     /// Untrusted request hint: 0 search, 1 referral, 3 direct/unknown.
     /// Code 2 is reserved and cannot be claimed from an HTTP referrer.
     pub acquisition_hint: i16,
+    pub book: Option<FlowBookNavigation>,
 }
 
 impl VisitObservation {
@@ -52,6 +64,7 @@ impl VisitObservation {
             observed_at_millis,
             surface,
             acquisition_hint,
+            book: None,
         };
         observation.validate()?;
         Ok(observation)
@@ -65,6 +78,22 @@ impl VisitObservation {
             || !(0..=4).contains(&self.surface)
             || !matches!(self.acquisition_hint, 0 | 1 | 3)
         {
+            return Err(FlowVisitError::Invalid);
+        }
+        if self.book.as_ref().is_some_and(|book| {
+            book.book_id <= 0
+                || !matches!(book.kind, 0 | 1)
+                || (book.kind == 0 && self.surface != 2)
+                || (book.kind == 1 && self.surface != 3)
+                || book
+                    .rec_assignment
+                    .as_deref()
+                    .is_some_and(|id| !valid_uuid(id))
+                || book
+                    .organic_touch
+                    .as_deref()
+                    .is_some_and(|id| !valid_uuid(id))
+        }) {
             return Err(FlowVisitError::Invalid);
         }
         Ok(())

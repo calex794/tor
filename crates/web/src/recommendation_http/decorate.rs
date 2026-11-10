@@ -131,7 +131,7 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     let path = request.uri().path().to_owned();
     let query = request.uri().query().unwrap_or_default().to_owned();
     let headers = request.headers().clone();
-    let response = next.run(request).await;
+    let mut response = next.run(request).await;
     if !state.enabled
         || response.status() != StatusCode::OK
         || !response
@@ -177,12 +177,29 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     };
     if state.collection && surface == Surface::BookDetail {
         if let (Some((actor, digest)), Some(book)) = (identity, seed) {
-            let _ = state.store.record_book_open(actor, &digest, book).await;
-            if state.organic {
-                let _ = state
+            let rec_assignment = state
+                .store
+                .record_book_open_with_flow(actor, &digest, book)
+                .await
+                .ok()
+                .flatten();
+            let organic_touch = if state.organic {
+                state
                     .store
-                    .record_organic_book_open(actor, &digest, book)
-                    .await;
+                    .record_organic_book_open_with_flow(actor, &digest, book)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            if let Some(context) = response
+                .extensions_mut()
+                .get_mut::<tor_recommendations::services::visits::FlowBookNavigation>()
+                .filter(|context| context.book_id == book && context.kind == 0)
+            {
+                context.rec_assignment = rec_assignment;
+                context.organic_touch = organic_touch;
             }
         }
     }

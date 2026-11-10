@@ -1,6 +1,7 @@
 //! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
 mod books;
+mod funnel;
 mod groups;
 mod render;
 mod returns;
@@ -36,6 +37,8 @@ struct AudienceState {
     traffic: PgFlowAudience,
     returns: PgReadingReturns,
     visits: tor_recommendations::repositories::visits::PgFlowVisits,
+    funnel: tor_recommendations::repositories::flow_funnel::PgFlowFunnel,
+    capture: tor_reading::repositories::flow_capture::PgFlowCapture,
 }
 
 #[derive(Default, Deserialize)]
@@ -60,12 +63,17 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let returns = PgReadingReturns::new(accounts.pool().clone());
     let visits =
         tor_recommendations::repositories::visits::PgFlowVisits::new(accounts.pool().clone());
+    let funnel =
+        tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
+    let capture =
+        tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/books", get(books::page))
         .route("/admin/audience/groups", get(groups::page))
         .route("/admin/audience/returns", get(returns::page))
         .route("/admin/audience/visits", get(visits::page))
+        .route("/admin/audience/funnel", get(funnel::page))
         .with_state(AudienceState {
             accounts,
             cookies,
@@ -74,6 +82,8 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             traffic,
             returns,
             visits,
+            funnel,
+            capture,
         })
 }
 

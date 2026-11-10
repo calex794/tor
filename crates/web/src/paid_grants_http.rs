@@ -291,7 +291,7 @@ async fn paid_reader(
     response
         .headers_mut()
         .insert("x-robots-tag", HeaderValue::from_static("noindex"));
-    response
+    crate::recommendation_http::visits::book_response(response, details.book_id, 1)
 }
 
 /// The only entry point to the paid reader. It never derives a grant from

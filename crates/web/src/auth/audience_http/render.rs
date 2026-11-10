@@ -2,6 +2,7 @@
 pub(super) mod book_returns;
 pub(super) mod books;
 mod evidence;
+pub(super) mod funnel;
 pub(super) mod group_returns;
 pub(super) mod groups;
 mod hours;
@@ -23,6 +24,7 @@ fn start(days: i32) -> String {
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">Визиты, входы и последние страницы</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">Путь от визита к чтению книги</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">Возвращаются ли к чтению</a></p>\

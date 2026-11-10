@@ -2,6 +2,7 @@
 use crate::services::visits::FlowVisitError;
 use sqlx::PgPool;
 
+mod book;
 mod maintenance;
 mod observe;
 mod report;

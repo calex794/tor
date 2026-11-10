@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_recommendations::{
     repositories::{visits::PgFlowVisits, PgRecommendations},
-    services::visits::VisitObservation,
+    services::visits::{FlowBookNavigation, VisitObservation},
 };
 
 mod queue;
@@ -65,6 +65,28 @@ pub(crate) fn collection_enabled() -> bool {
     .all(|key| std::env::var(key).as_deref() == Ok("1"))
 }
 
+/// Server-only context, attached after the real B/C/D handler admitted HTML.
+/// It is not a header, browser claim or grant, and never contains chapter text.
+pub(crate) fn book_response<T: TryInto<i64>>(
+    mut response: Response,
+    book_id: T,
+    kind: i16,
+) -> Response {
+    if html_success(&response) && matches!(kind, 0 | 1) {
+        if let Ok(book_id) = book_id.try_into() {
+            if book_id > 0 {
+                response.extensions_mut().insert(FlowBookNavigation {
+                    book_id,
+                    kind,
+                    rec_assignment: None,
+                    organic_touch: None,
+                });
+            }
+        }
+    }
+    response
+}
+
 fn surface(method: &Method, template: Option<&str>) -> Option<i16> {
     if method != Method::GET {
         return None;
@@ -73,9 +95,11 @@ fn surface(method: &Method, template: Option<&str>) -> Option<i16> {
         "/" => Some(0),
         "/catalog" => Some(1),
         "/books/{id}" => Some(2),
-        "/reader/{id}" | "/read/{id}" | "/read/paid/{chapter_id}" | "/read/layer/{chapter_id}" => {
-            Some(3)
-        }
+        "/reader/{id}"
+        | "/read/{id}"
+        | "/read/paid/{chapter_id}"
+        | "/read/layer/{chapter_id}"
+        | "/me/library/saved/{id}" => Some(3),
         "/me/library" | "/me/purchases" => Some(4),
         _ => None,
     }
@@ -154,7 +178,11 @@ async fn observe(State(state): State<Capture>, request: Request, next: Next) -> 
         if let Some(scope) = scope {
             if let Ok(elapsed) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 if let Ok(millis) = i64::try_from(elapsed.as_millis()) {
-                    if let Ok(observation) = VisitObservation::new(scope, millis, surface, source) {
+                    if let Ok(mut observation) =
+                        VisitObservation::new(scope, millis, surface, source)
+                    {
+                        observation.book =
+                            response.extensions().get::<FlowBookNavigation>().cloned();
                         state.queue.offer(observation);
                     }
                 }
@@ -177,6 +205,7 @@ mod tests {
             "/read/{id}",
             "/read/paid/{chapter_id}",
             "/read/layer/{chapter_id}",
+            "/me/library/saved/{id}",
             "/me/library",
             "/me/purchases",
         ] {

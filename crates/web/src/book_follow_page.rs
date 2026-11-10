@@ -19,7 +19,8 @@ pub(super) struct FollowBookControl {
 
 impl FollowBookControl {
     pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
-        let follows = PgBookFollows::new(accounts.pool().clone());
+        let follows = PgBookFollows::new(accounts.pool().clone())
+            .with_flow_collection(crate::recommendation_http::visits::collection_enabled());
         let creator_follows = PgCreatorFollows::new(accounts.pool().clone());
         let authoring = PgAuthoring::new(accounts.pool().clone());
         Self {

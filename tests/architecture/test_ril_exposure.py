@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 386)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 384)  # Includes G09, email proof and FLOW consent/visits.
+        self.assertEqual(report["route_bindings"], 387)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 385)  # Includes FLOW consent, visits and book funnel.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -78,7 +78,7 @@ class RilExposureTests(unittest.TestCase):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         original = path.read_text(encoding="utf-8")
         for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
-                      "/admin/audience/returns", "/admin/audience/visits"):
+                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
             for field, value in (("template", route + "/export"), ("policy", "session")):
                 with self.subTest(route=route, field=field):
                     data = json.loads(original)
