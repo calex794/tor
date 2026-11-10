@@ -1,5 +1,6 @@
-//! P1: actual S023 background importer and authenticated HTTP previews compete
-//! for the SAME three-connection PostgreSQL pool, with a fake S3 object port.
+//! P1: actual S023 importer + G-09 image worker + authenticated HTTP all
+//! share one real three-connection PostgreSQL pool. Both private object ports
+//! are isolated in-memory fakes; image processing and database jobs are real.
 //! No external storage, production data, deployments or schema mutations.
 use async_trait::async_trait;
 use axum::{
@@ -7,10 +8,12 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
+use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
+    io::Cursor,
     num::NonZeroU32,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -28,8 +31,19 @@ use tor_books::{
     },
 };
 use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
+use tor_ingest::{
+    domain::cover::CoverError,
+    repositories::cover_jobs::PgCoverJobs,
+    services::{
+        cover_jobs::{CoverJobs, CoverObjectStore},
+        image_pipeline::RECIPE_VERSION,
+    },
+};
 use tor_reading::repositories::PgReader;
-use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
+use tor_web::{
+    chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult},
+    cover_worker::{CoverRunner, CoverRunnerMonitor},
+};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -81,6 +95,65 @@ impl ChapterImportObjectStore for MemoryStore {
         self.0.lock().await.remove(key);
         Ok(())
     }
+}
+
+/// Covers are staged and verified in a separate fake S3 port; the real
+/// G-09 image worker still performs image decoding, WebP encoding and SQL.
+#[derive(Clone, Default)]
+struct MemoryCoverStore(Arc<Mutex<HashMap<String, Vec<u8>>>>);
+
+impl MemoryCoverStore {
+    async fn add(&self, key: &str, bytes: Vec<u8>) {
+        self.0.lock().await.insert(key.to_owned(), bytes);
+    }
+}
+
+#[async_trait]
+impl CoverObjectStore for MemoryCoverStore {
+    async fn get_bounded(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, CoverError> {
+        let store = self.0.lock().await;
+        let source = store.get(key).ok_or(CoverError::Unavailable)?;
+        if source.len() > max_bytes {
+            return Err(CoverError::Invalid);
+        }
+        Ok(source.clone())
+    }
+
+    async fn put_verified(&self, key: &str, bytes: &[u8]) -> Result<(), CoverError> {
+        if !key.starts_with("staging/covers/variants/") {
+            return Err(CoverError::Forbidden);
+        }
+        self.add(key, bytes.to_vec()).await;
+        Ok(())
+    }
+
+    async fn exists_verified(
+        &self,
+        key: &str,
+        hash: &[u8; 32],
+        size: i64,
+    ) -> Result<bool, CoverError> {
+        Ok(self.0.lock().await.get(key).is_some_and(|bytes| {
+            bytes.len() as i64 == size && Sha256::digest(bytes).as_slice() == hash
+        }))
+    }
+}
+
+fn cover_png() -> Vec<u8> {
+    // Nontrivial pixels: this exercises the actual image resize and
+    // lossless-WebP encoder, not an already-encoded cached variant.
+    let image = RgbImage::from_fn(720, 1080, |x, y| {
+        Rgb([
+            (x % 256) as u8,
+            (y % 256) as u8,
+            ((x / 3 + y / 7) % 256) as u8,
+        ])
+    });
+    let mut output = Cursor::new(Vec::new());
+    DynamicImage::ImageRgb8(image)
+        .write_to(&mut output, ImageFormat::Png)
+        .expect("encode test cover PNG");
+    output.into_inner()
 }
 
 async fn call(
@@ -196,8 +269,33 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         .as_i64()
         .unwrap();
 
+    // Register the real G-09 cover job against the exact same author/book.
+    // Moderation remains separate: processing never makes a cover public.
+    let cover_store = MemoryCoverStore::default();
+    let cover_bytes = cover_png();
+    let cover_key = format!("staging/covers/ci-mixed-{nonce}-source.png");
+    cover_store.add(&cover_key, cover_bytes.clone()).await;
+    let cover_jobs = PgCoverJobs::new(pool.clone());
+    let cover_hash: [u8; 32] = Sha256::digest(&cover_bytes).into();
+    let source_id = cover_jobs
+        .register_verified_source(
+            book_id,
+            owner,
+            &cover_key,
+            "image/png",
+            cover_bytes.len() as i64,
+            &cover_hash,
+        )
+        .await
+        .expect("register verified private cover source");
+    let cover_job_id = cover_jobs
+        .enqueue(source_id, book_id, owner, 0, RECIPE_VERSION)
+        .await
+        .expect("enqueue private G-09 worker job");
+
     const PREVIEWS: usize = 18;
-    let barrier = Arc::new(Barrier::new(PREVIEWS + 2));
+    // 18 author HTTP requests + 1 S023 worker + 1 G-09 worker + 1 probe.
+    let barrier = Arc::new(Barrier::new(PREVIEWS + 3));
     let worker = ChapterImportWorker::new(&catalog, Arc::new(store.clone()));
     let worker_gate = Arc::clone(&barrier);
     let worker_task = tokio::spawn(async move {
@@ -205,6 +303,20 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         let started = Instant::now();
         let result = worker.run_one().await.expect("actual S023 worker");
         (result, started.elapsed())
+    });
+
+    let cover_monitor = CoverRunnerMonitor::default();
+    let cover_runner = CoverRunner::new(
+        catalog.clone(),
+        Arc::new(cover_store.clone()),
+        cover_monitor.clone(),
+    );
+    let cover_gate = Arc::clone(&barrier);
+    let cover_task = tokio::spawn(async move {
+        cover_gate.wait().await;
+        let started = Instant::now();
+        let completed = cover_runner.run_one_bounded(Duration::from_secs(20)).await;
+        (completed, started.elapsed())
     });
 
     let mut pending = tokio::task::JoinSet::new();
@@ -237,11 +349,13 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     // Liveness probes run on the same Axum router and the same PgPool as the
     // real worker and authenticated previews, not a separately opened pool.
     let probe_app = public_app.clone();
+    let probe_pool = pool.clone();
     let probe_gate = Arc::clone(&barrier);
     let probes = tokio::spawn(async move {
         probe_gate.wait().await;
         let mut health = Vec::new();
         let mut ready = Vec::new();
+        let mut acquire = Vec::new();
         for index in 0..80 {
             let start = Instant::now();
             let (status, _) = call(&probe_app, "/healthz", "", None).await;
@@ -253,9 +367,21 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
                 assert_eq!(status, StatusCode::OK);
                 ready.push(start.elapsed());
             }
+            if index % 2 == 0 {
+                // Measure *pool acquisition wait*, not SQL query execution.
+                // All 3 shared connections are available to G-09, S023,
+                // authenticated HTTP and this probe; no separate test pool.
+                let start = Instant::now();
+                let connection = tokio::time::timeout(Duration::from_secs(3), probe_pool.acquire())
+                    .await
+                    .expect("shared PostgreSQL pool acquire timeout")
+                    .expect("shared PostgreSQL connection available");
+                acquire.push(start.elapsed());
+                drop(connection);
+            }
             tokio::time::sleep(Duration::from_millis(4)).await;
         }
-        (health, ready)
+        (health, ready, acquire)
     });
 
     let mut successes = 0_usize;
@@ -281,16 +407,25 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
             .await
             .expect("worker did not hang")
             .expect("worker joined");
-    let (mut health, mut ready) = probes.await.expect("liveness probe joined");
+    let (cover_completed, cover_elapsed) =
+        tokio::time::timeout(Duration::from_secs(25), cover_task)
+            .await
+            .expect("cover worker did not hang")
+            .expect("cover runner joined");
+    let (mut health, mut ready, mut acquire) = probes.await.expect("liveness probe joined");
     health.sort_unstable();
     ready.sort_unstable();
+    acquire.sort_unstable();
     let health_p95 = health[health.len() * 95 / 100];
     let ready_p95 = ready[ready.len() * 95 / 100];
+    let acquire_p95 = acquire[acquire.len() * 95 / 100];
+    let acquire_max = acquire[acquire.len() - 1];
 
     println!(
-        "TOR_REAL_WORKER_CONTENTION previews={} success={} backpressure_429={} worker_ms={} health_p95_ms={} ready_p95_ms={}",
+        "TOR_MIXED_G09_S023_CONTENTION previews={} success={} backpressure_429={} import_worker_ms={} cover_worker_ms={} health_p95_ms={} ready_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
         PREVIEWS, successes, rejected, worker_elapsed.as_millis(),
-        health_p95.as_millis(), ready_p95.as_millis()
+        cover_elapsed.as_millis(), health_p95.as_millis(),
+        ready_p95.as_millis(), acquire_p95.as_millis(), acquire_max.as_millis()
     );
     assert_eq!(successes + rejected, PREVIEWS);
     assert!(successes > 0, "at least one preview must be served");
@@ -301,7 +436,47 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     );
     assert!(
         ready_p95 < Duration::from_secs(2),
-        "worker blocked shared PgPool"
+        "workers blocked shared PgPool"
+    );
+    assert!(
+        acquire_p95 < Duration::from_secs(2),
+        "three-connection PgPool saturated for too long"
+    );
+    assert!(cover_completed, "cover worker timed out");
+    let cover_snapshot = cover_monitor.snapshot();
+    assert_eq!(cover_snapshot.attached, 1, "cover candidate must be staged");
+    assert_eq!(cover_snapshot.errors, 0);
+    assert_eq!(cover_snapshot.timeouts, 0);
+    assert_eq!(
+        cover_jobs
+            .job_status(cover_job_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("done")
+    );
+    let cover_variants = cover_jobs.existing_variants(cover_job_id).await.unwrap();
+    assert_eq!(
+        cover_variants.len(),
+        2,
+        "WebP main/card variants must exist"
+    );
+    for variant in &cover_variants {
+        assert!(
+            cover_store
+                .exists_verified(&variant.storage_key, &variant.sha256, variant.size_bytes)
+                .await
+                .unwrap(),
+            "cover variant must match the registered SHA-256"
+        );
+    }
+    assert!(
+        tor_books::repositories::cover_slots::PgCoverSlots::new(pool.clone())
+            .current_slot(book_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "queued moderation must not expose a private cover"
     );
     // The legacy list_owned_chapters API deliberately caps results at 200.
     // Check every page using the canonical owner-scoped keyset cursor.
