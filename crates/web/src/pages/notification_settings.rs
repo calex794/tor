@@ -46,7 +46,7 @@ pub fn delivery_preferences_page(
 </div>
 </section>"#,
         csrf = escape_html(csrf),
-        smart_estimate,
+        smart_estimate = smart_estimate,
         immediate = checked(DeliveryMode::Immediate),
         smart = checked(DeliveryMode::SmartTime),
         daily = checked(DeliveryMode::DailyDigest),
