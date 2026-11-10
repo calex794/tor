@@ -1,0 +1,18 @@
+{
+  "source_commit": "0e185cbf3ae283b6fb6a6e9543079b48a2dae57a",
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "tor-web",
+    "--features",
+    "s3-free",
+    "--lib",
+    "free_reader_http::verified_grant::tests",
+    "--",
+    "--nocapture"
+  ],
+  "returncode": 101,
+  "six_tests_passed": false
+}
