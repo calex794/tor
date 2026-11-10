@@ -407,7 +407,13 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
         aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new("us-east-1"))
-            .credentials_provider(Credentials::new(user, password, None, None, "loopback-test"))
+            .credentials_provider(Credentials::new(
+                user,
+                password,
+                None,
+                None,
+                "loopback-test",
+            ))
             .endpoint_url(&endpoint)
             .force_path_style(true)
             .retry_config(RetryConfig::standard().with_max_attempts(1))
@@ -432,7 +438,8 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
         EncryptedObjectKind::Chapter,
         sha256_bytes(b"wrong-expected-ciphertext"),
         ciphertext.len() as u64,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         store.probe_registered_body(&wrong).await,
         Ok(RegisteredBodyResult::BodyMismatch)
@@ -441,13 +448,19 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
     // Actual bytes match but GET metadata is tampered with.
     let metadata_id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa5678").unwrap();
     let metadata_ref = object(ciphertext, metadata_id.clone());
-    client.put_object()
+    client
+        .put_object()
         .bucket(bucket)
-        .key(format!("private/chapter-versions/{}.enc", metadata_id.as_str()))
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            metadata_id.as_str()
+        ))
         .content_type("application/octet-stream")
         .metadata("sha256", "incorrect-metadata")
         .body(ByteStream::from_static(ciphertext))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(
         store.probe_registered_body(&metadata_ref).await,
         Ok(RegisteredBodyResult::MetadataMismatch)
@@ -476,7 +489,8 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
         EncryptedObjectKind::Chapter,
         valid.sha256_ciphertext,
         G09_BODY_GET_MAX_BYTES + 1,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(
         store.probe_registered_body(&large).await,
         Err(StorageError::Invalid)
