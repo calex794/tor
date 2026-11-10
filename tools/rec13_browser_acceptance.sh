@@ -35,7 +35,7 @@ else
   node_path="$root/node/node_modules"
 fi
 ci_rec_step_done "playwright_setup"
-TOR_AUTH_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
+TOR_AUTH_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
   TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
   DATABASE_URL="$TEST_DATABASE_URL" ./target/debug/tor-web >"$root/server.log" 2>&1 &
 pid=$!
@@ -75,3 +75,6 @@ ci_rec_step_done "audience_groups_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_returns_pg_browser.cjs
 ci_rec_step_done "audience_returns_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_book_returns_pg_browser.cjs
+ci_rec_step_done "audience_book_returns_browser_acceptance"

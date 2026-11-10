@@ -253,6 +253,34 @@ def _contains_scoped_call(body: str, names: set[str]) -> bool:
     return False
 
 
+def _audience_returns_are_bounded(body: str) -> bool:
+    # Both branches share one unconditional live guard and one request budget.
+    # An authorized global read must not hide a bypass in the book branch.
+    guard = re.search(
+        r"\)\s*->\s*Response\s*\{\s*"
+        r"let\s+deadline\s*=\s*Instant::now\(\)\s*\+\s*Duration::from_millis\(950\);\s*"
+        r"match\s+timeout_at\(deadline,\s*administrator\(&state,\s*&headers\)\)\.await\s*\{\s*"
+        r"Ok\(Ok\(\(\)\)\)\s*=>\s*\{\s*\}\s*"
+        r"Ok\(Err\(status\)\)\s*=>\s*return\s+secure\(status\),\s*"
+        r"Err\(_\)\s*=>\s*return\s+secure\(StatusCode::SERVICE_UNAVAILABLE\),?\s*\}",
+        body,
+    )
+    if guard is None or len(re.findall(r"\blet\s+(?:mut\s+)?deadline\b", body)) != 1:
+        return False
+    for method, arguments in (
+        ("returns_report", r"days"),
+        ("book_returns_report", r"book,\s*days"),
+    ):
+        calls = list(re.finditer(rf"\.{method}\s*\(", body))
+        bounded = re.search(
+            rf"timeout_at\(deadline,\s*state\.returns\.{method}\({arguments}\)\)\.await",
+            body,
+        )
+        if len(calls) != 1 or bounded is None or bounded.start() < guard.end():
+            return False
+    return True
+
+
 def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
@@ -1480,6 +1508,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and body.index("administrator(&state, &headers)") < body.index(audience_read)
         ):
             errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
+        if audience_returns and not _audience_returns_are_bounded(body):
+            errors.append(
+                f"{label}: FLOW returns must keep both report reads behind live authorization and its deadline"
+            )
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}
