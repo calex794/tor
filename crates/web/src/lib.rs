@@ -415,7 +415,6 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         None,
     ))
 }
-
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -433,7 +432,6 @@ pub fn router_with_postgres_reading_auth(
         false,
     )
 }
-
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
