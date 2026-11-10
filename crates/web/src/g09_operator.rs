@@ -17,6 +17,7 @@ use tor_accounts::{repositories::PgAccounts, services::security::session_token_d
 use tor_storage::{
     repositories::{
         reconciliation::{InventoryError, PgPrivateInventory},
+        reconciliation_body::PgBodyAudit,
         reconciliation_operator::PgG09Operator,
         reconciliation_reverse::PgRegisteredAudit,
         s3::S3PrivateStore,
@@ -35,11 +36,13 @@ struct OperatorState {
 enum Direction {
     Forward,
     Reverse,
+    Body,
 }
 fn target(dir: &str, scope: &str) -> Option<(Direction, PrivateScope)> {
     let direction = match dir {
         "s3-to-pg" => Direction::Forward,
         "pg-to-s3" => Direction::Reverse,
+        "get-sha" => Direction::Body,
         _ => return None,
     };
     let scope = match scope {
@@ -50,10 +53,10 @@ fn target(dir: &str, scope: &str) -> Option<(Direction, PrivateScope)> {
     Some((direction, scope))
 }
 fn slug(dir: Direction) -> &'static str {
-    if dir == Direction::Forward {
-        "s3-to-pg"
-    } else {
-        "pg-to-s3"
+    match dir {
+        Direction::Forward => "s3-to-pg",
+        Direction::Reverse => "pg-to-s3",
+        Direction::Body => "get-sha",
     }
 }
 fn escape(s: &str) -> String {
@@ -111,6 +114,7 @@ fn action_button(
         action,
         escape(csrf),
         match action {
+            "run" if direction == Direction::Body => "GET/SHA-256: проверить до 8 объектов",
             "run" => "Запустить / продолжить",
             "resume" => "Возобновить после ошибок",
             _ => "Новый цикл",
@@ -126,26 +130,54 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
     let pool = state.accounts.pool().clone();
     let op = PgG09Operator::new(pool.clone());
     let forward = PgPrivateInventory::new(pool.clone());
-    let reverse = PgRegisteredAudit::new(pool);
+    let reverse = PgRegisteredAudit::new(pool.clone());
+    let body_audit = PgBodyAudit::new(pool);
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut body = String::from(
         "<section class=\"me-page\"><div class=\"container\">
         <h1>G-09 — сверка приватного хранилища</h1>
-        <p>Диагностика без удаления, чтения тел файлов и изменения пользовательских прав.
+        <p>Диагностика без удаления и изменения пользовательских прав.
+        GET/SHA-256 проверяет только шифротекст: до 8 объектов и 32 МиБ на нажатие.
         Ошибка S3 не означает потерю файла.</p>",
     );
-    for direction in [Direction::Forward, Direction::Reverse] {
+    for direction in [Direction::Forward, Direction::Reverse, Direction::Body] {
         for scope in [PrivateScope::Chapter, PrivateScope::ChapterAsset] {
             let reverse_direction = direction == Direction::Reverse;
-            let checkpoint = match op.checkpoint(bucket, scope, reverse_direction).await {
+            let checkpoint = match if direction == Direction::Body {
+                op.body_checkpoint(bucket, scope).await
+            } else {
+                op.checkpoint(bucket, scope, reverse_direction).await
+            } {
                 Ok(value) => value,
                 Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
             };
-            let findings = match op.findings(bucket, scope, reverse_direction).await {
+            let findings = match if direction == Direction::Body {
+                op.body_findings(bucket, scope).await
+            } else {
+                op.findings(bucket, scope, reverse_direction).await
+            } {
                 Ok(value) => value,
                 Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
             };
-            let (description, completed, exhausted) = if reverse_direction {
+            let (description, completed, exhausted) = if direction == Direction::Body {
+                match body_audit.progress(bucket, scope).await {
+                    Ok(Some(p)) => (
+                        format!(
+                            "GET объектов: {}/{}; SHA совпал: {}; подтверждённые 404: {};
+                             искажение байтов: {}; расхождение метаданных: {};
+                             пропущено (pending/deleting/более 4 МиБ): {};
+                             неопределённые попытки: {}; повторы: {}",
+                            p.scanned, p.expected, p.verified, p.missing,
+                            p.body_mismatch, p.metadata_mismatch,
+                            p.skipped, p.unknown_attempts, p.retries
+                        ),
+                        p.completed,
+                        p.exhausted,
+                    ),
+                    Ok(None) => ("Не запускался (только по кнопке)".to_owned(), false, false),
+                    Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+                }
+            } else if reverse_direction {
                 match reverse.progress(bucket, scope).await {
                     Ok(Some(p)) => (
                         format!(
@@ -191,7 +223,7 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
             };
             write!(body,
                 "<section><h2>{} — {}</h2><p>{}</p><p>Цикл: {}; контрольная точка UTC: {}; аренда: {}</p>",
-                if reverse_direction { "PostgreSQL → S3" } else { "S3 → PostgreSQL" },
+                match direction { Direction::Forward => "S3 → PostgreSQL", Direction::Reverse => "PostgreSQL → S3", Direction::Body => "GET/SHA-256 шифротекста" },
                 if scope == PrivateScope::Chapter { "главы" } else { "изображения глав" },
                 description,
                 checkpoint.as_ref().map_or(0, |c| c.cycle),
@@ -263,11 +295,14 @@ async fn command(
     let bucket = PrivateInventoryLister::private_bucket(&state.store);
     let pool = state.accounts.pool().clone();
     let forward = PgPrivateInventory::new(pool.clone());
-    let reverse = PgRegisteredAudit::new(pool);
+    let reverse = PgRegisteredAudit::new(pool.clone());
+    let body_audit = PgBodyAudit::new(pool);
     let result = match (direction, action.as_str()) {
         (Direction::Forward, "next") => forward.begin_next_cycle(bucket, scope).await,
         (Direction::Reverse, "next") => reverse.begin_next_cycle(bucket, scope).await,
+        (Direction::Body, "next") => body_audit.begin_next_cycle(bucket, scope).await,
         (Direction::Reverse, "resume") => reverse.resume_exhausted(bucket, scope).await,
+        (Direction::Body, "resume") => body_audit.resume_exhausted(bucket, scope).await,
         (_, "run") => {
             let available = match direction {
                 Direction::Forward => forward
@@ -275,6 +310,10 @@ async fn command(
                     .await
                     .map(|p| p.is_none_or(|p| !p.completed)),
                 Direction::Reverse => reverse
+                    .progress(bucket, scope)
+                    .await
+                    .map(|p| p.is_none_or(|p| !p.completed && !p.exhausted)),
+                Direction::Body => body_audit
                     .progress(bucket, scope)
                     .await
                     .map(|p| p.is_none_or(|p| !p.completed && !p.exhausted)),
@@ -300,7 +339,16 @@ async fn command(
                             .scan_page(&store, scope)
                             .await
                             .map(|p| p.map(|p| p.completed || p.exhausted)),
+                        Direction::Body => body_audit
+                            .scan_page(&store, scope)
+                            .await
+                            .map(|p| p.map(|p| p.completed || p.exhausted)),
                     };
+                    // Body scanning costs at most 8 * 4 MiB per explicit click;
+                    // never inherit the 32-page LIST/HEAD loop budget.
+                    if direction == Direction::Body {
+                        break;
+                    }
                     match outcome {
                         Ok(Some(false)) => tokio::time::sleep(Duration::from_millis(75)).await,
                         _ => break,
@@ -333,8 +381,10 @@ mod tests {
     #[test]
     fn only_private_directions_and_scopes() {
         assert!(target("pg-to-s3", "chapter").is_some());
+        assert!(target("get-sha", "chapter").is_some());
         assert!(target("s3-to-pg", "chapter_asset").is_some());
         assert!(target("s3-to-pg", "cover").is_none());
+        assert!(target("get-sha", "cover").is_none());
         assert!(target("delete", "chapter").is_none());
     }
     #[test]
