@@ -67,7 +67,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         markdown: &str,
     ) -> Result<EncryptedChapter, AuthorError> {
         let keyring = Arc::clone(&self.keyring);
-        let markdown = markdown.to_owned();
+        let markdown = zeroize::Zeroizing::new(markdown.to_owned());
         crate::cpu_work::run(move || {
             seal_chapter_with_keyring(version, object_id, &markdown, &keyring)
         })
