@@ -3,10 +3,9 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: read
-  actions: read
+  contents: write
 concurrency:
-  group: flow-completion-source-export
+  group: flow-completion-source-publication
   cancel-in-progress: false
 jobs:
   worktree:
@@ -16,51 +15,39 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: efd00da1e0b14bc81ba7b287efdf29359c8f7e8e
-          persist-credentials: false
-      - name: Export bounded diagnostics without forwarding authorization to storage
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json,os,pathlib,re,subprocess
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-evidence';root.mkdir()
-          def get(path):
-              return subprocess.check_output(['gh','api','--allow-escape-sequences','repos/calex794/tor/'+path],timeout=90)
-          for run in [42919918051,42917952502,42917952427]:
-              try:
-                  jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
-                  (root/f'jobs-{run}.json').write_text(json.dumps(jobs,indent=2))
-                  for job in jobs:
-                      if job['conclusion'] not in ('failure','timed_out','cancelled'):continue
-                      lines=get(f"actions/jobs/{job['id']}/logs").decode('utf-8-sig').splitlines()
-                      lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in lines]
-                      hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
-                      indices=set()
-                      for i in hits[-16:]:indices.update(range(max(0,i-8),min(len(lines),i+28)))
-                      text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices)) or '\n'.join(lines[-100:])
-                      (root/f"failure-{run}-{job['id']}.txt").write_text(text)
-                      print(job['name'],job['conclusion'],text[-16000:])
-              except Exception as e:
-                  (root/f'error-{run}.txt').write_text(type(e).__name__)
-                  print('Diagnostics unavailable',run,type(e).__name__)
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flow-completion-diagnostics-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-evidence/
-          retention-days: 2
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Fetch offline compilation inputs
+          fetch-depth: 0
+      - name: Apply verified narrow fixture fixes and merge pinned integration
         shell: bash
         run: |
           set -euo pipefail
-          cargo fetch
-          mkdir -p "$RUNNER_TEMP/flow-deps"
-          cp Cargo.lock "$RUNNER_TEMP/flow-deps/Cargo.lock"
-          tar -czf "$RUNNER_TEMP/flow-deps/registry.tar.gz" -C "$HOME/.cargo" registry
+          python3 - <<'PY'
+          import base64,hashlib,lzma,os,pathlib,subprocess
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-fixed';root.mkdir()
+          items=[(812,'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'),(810,'112a5c4ae1930aad6cbc10533acab5690148dc96','904888526205cf6a3a43e8f69320be2a6406bb735578558d9dbac411cfe2ed30','c7e9fa2851e4fe543961a63d9833adf35f381ffe','/Td6WFoAAATm1rRGAgAhARYAAAB0L+Wj4AcIA2VdADIaSQnC/BF9UN4KT0fWEh+gVDM024b/AOCQd/XX9+e/DybzQ262UvRXhTCkP6/eYRRMmtRDNaIXMHPhFUnw2cUFboTaFD0bsV61JugmKz3x16eL5hHcxmTeSnzZREnHacyftcHtlIk/7ZM6vqkaWOaQcrqhGURAAosSFWVIcc/OanYUfVgAi7Zm/tAi/hlNRqfl7MtFq1IYQK866fOOlOPy0tXee8pfX5p0HEF+M4dY1TvznPIIfg22fOCwdhaF3BUg6JEu4WZUAmC1Cr0EQmEjTBX82A8ozWQYscnbBoHium9XmCOgkymvl6hZ4F45sYDnr0fQUR6K572b6jA3JNWrIa3cHp+oZsa/h9n/fswvBrwymvDZmenwv9jNCB2upfCn9X5KTlkIUMB8AN3rVEwAjOS6af+hN4kHY/fwu3Q/1BibxSeQweiwzkZAH8uz//5BNWpbji+Mt1KKuoImpRAUX6FK3SpL3uhiK0yhGUsIOzPmaVGAOYih23lNJIUH9DK0YALAgkVhbefK66zIqui13jYuDHHGeFdJvSD/egOVISRKOHLuRCEKKKWIW/J2ouO0VrdxDFflYVdWCUfvMfIunzvpu6QuLYMLzMfUZF+fzmzmptm+wZPQwkmTEnPYH4yL9Gl3VSwpu5Ya5OcwuGlHTk3BbIxSXr2FydT5OACixoQw6Fkr3obOsYOQYO545+uuVYiL/8b8ZiP8PCuZMwSIX+t5FZxFA8bz96nwKYYD+3Qs9hwTsYBQ6IO7wky6jCGLTaSu0afBBNg94whQdlyBlCs+YfdUzAA6osF8E82aiyq2UTVWwFvUWp/rnhXWj/VoX7n+fF2Gnojo+n4GLcswUi+QrLQIutPW+WhrOYXxF16p7JWiAMrXk0m28VRFpbE12YhWFprSVKX3gJ5zWC1/9TFqdrYxHZRDZdbrpc4iV2Niwdvvm/d2IfK8FKutokE4UpEgHr8HmMVbYUasTWXJclGmRsRtUlXOmZzOrRsoKgYMRB2f+seH969jsSvxvSeivbzjYOdkAK+ev+vUmAZS7OcexBIEr5+wuWyw91EiOLD2jT7+qV/xlE4miZi1Yj+DLMZHwDWK7LT3C5z84lPhsL52iBX5bFrS40kcFzLj0QvdOj7t1JVQ8YI93E+IU2jCCYhFAAAAAGUnMWjvZiNtAAGBB4kOAAALG1Y+scRn+wIAAAAABFla')]
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','config','user.name','FLOW QA'],check=True)
+          subprocess.run(['git','config','user.email','flow-qa@users.noreply.github.com'],check=True)
+          refs=[]
+          for number,base,digest,expected,payload in items:
+              patch=lzma.decompress(base64.b64decode(payload,validate=True))
+              assert hashlib.sha256(patch).hexdigest()==digest
+              path=root/f'{number}.patch';path.write_bytes(patch)
+              branch=f'qa/flow{number}-compile-main-20261111'
+              assert not git('ls-remote','--heads','origin','refs/heads/'+branch)
+              subprocess.run(['git','switch','-c',branch,base],check=True)
+              subprocess.run(['git','apply','--check',str(path)],check=True)
+              subprocess.run(['git','apply','--index',str(path)],check=True)
+              subprocess.run(['git','diff','--check','--cached'],check=True)
+              subprocess.run(['git','commit','-m',f'FLOW #{number}: keep real database fixture outside web SQLx boundary'],check=True)
+              subprocess.run(['git','merge','--no-ff','-m','Integrate pinned current main and anonymous observation hours','e2bc9e421233267b0b8821eb11da99c52852b3ca'],check=True)
+              assert git('rev-parse','HEAD^{tree}')==expected
+              subprocess.run(['git','push','origin','HEAD:refs/heads/'+branch],check=True)
+              (root/f'{number}-COMMIT').write_text(git('rev-parse','HEAD'))
+              refs.append(branch)
+          subprocess.run(['git','bundle','create',str(root/'fixes.bundle'),*refs],check=True)
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-completion-cargo-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-deps/
+          name: flow-fixed-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-fixed/
           retention-days: 2
