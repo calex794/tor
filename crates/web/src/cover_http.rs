@@ -136,7 +136,11 @@ pub(super) async fn book_html(
         Err(status) => return book_error(state, status).await,
     };
     let response = book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
-    cdn_image_csp(response, origin.as_deref())
+    crate::recommendation_http::visits::book_response(
+        cdn_image_csp(response, origin.as_deref()),
+        book_id,
+        0,
+    )
 }
 
 /// The registry must be attached deliberately; merely having an S3 adapter

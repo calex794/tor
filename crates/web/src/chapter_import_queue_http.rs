@@ -13,7 +13,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::{
         authoring::{valid_command_key, AuthorError},
-        chapter_file_import::{fingerprint, parse_text, ImportedChapter},
+        chapter_file_import::{fingerprint, parse_text},
     },
 };
 use tor_imports::{
@@ -189,16 +189,42 @@ async fn enqueue(
 
     // The browser has already shown this exact canonical UTF-8 text to the
     // author. Archives are converted to the same editable text before enqueue.
-    let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
-        Ok(chapters) => chapters,
-        Err(_) => {
+    // Parsing, fingerprinting and SHA-256 of up to 700 KiB are CPU-bound.
+    // Move the owned command into the same bounded executor as preview, after
+    // actor, owner and publication checks; do not copy its full text.
+    let parsed = crate::cpu_work::run(move || {
+        let chapters = parse_text(&input.filename, &input.text)?;
+        let approved = fingerprint(book_id, &chapters);
+        let source_hash: [u8; 32] = Sha256::digest(input.text.as_bytes()).into();
+        Ok::<_, tor_books::services::chapter_file_import::ImportError>((
+            input,
+            chapters,
+            approved,
+            source_hash,
+        ))
+    })
+    .await;
+    let (input, chapters, approved, source_hash) = match parsed {
+        Ok(Ok(parsed)) => parsed,
+        Ok(Err(_)) => {
             return fail(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "Проверьте формат и структуру глав.",
             )
         }
+        Err(crate::cpu_work::CpuWorkError::Busy) => {
+            return fail(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Обработка импорта занята. Повторите запрос с тем же ключом.",
+            )
+        }
+        Err(crate::cpu_work::CpuWorkError::Unavailable) => {
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Обработка импорта недоступна. Повторите запрос с тем же ключом.",
+            )
+        }
     };
-    let approved = fingerprint(book_id, &chapters);
     let Some(expected) = parse_hex_hash(&input.fingerprint) else {
         return fail(
             StatusCode::BAD_REQUEST,
@@ -218,7 +244,6 @@ async fn enqueue(
             "Текст превышает допустимый размер.",
         );
     }
-    let source_hash: [u8; 32] = Sha256::digest(bytes).into();
 
     // Replay lookup comes before S3 so a completed retry does not recreate an
     // already-cleaned source object. A reused key with changed content is 409.

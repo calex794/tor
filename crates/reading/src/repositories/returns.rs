@@ -31,9 +31,11 @@ pub(super) async fn record(
     place: ReadingPlace,
     collect_global: bool,
     collect_book: bool,
+    collect_flow: bool,
 ) -> Result<(), SyncError> {
     capture::record(tx, actor, book, place, collect_global).await?;
-    books_capture::record(tx, actor, book, place, collect_book).await
+    books_capture::record(tx, actor, book, place, collect_book).await?;
+    super::flow_capture::record_activity(tx, actor, book, place, collect_flow).await
 }
 
 #[derive(Clone)]

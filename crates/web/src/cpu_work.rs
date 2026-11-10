@@ -131,6 +131,42 @@ mod tests {
         assert_eq!(in_flight.available_permits(), 2);
     }
 
+    /// A single-core Tokio executor must still schedule timers while a CPU
+    /// job runs. This deterministic check needs no PostgreSQL or S3 fixture.
+    #[tokio::test(flavor = "current_thread")]
+    async fn single_thread_runtime_runs_heartbeat_during_blocking_author_work() {
+        let active = Arc::new(Semaphore::new(1));
+        let in_flight = Arc::new(Semaphore::new(1));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let job = tokio::spawn(run_with_limits(active, in_flight, move || {
+            let _ = started_tx.send(());
+            release_rx.recv().expect("release CPU task");
+        }));
+        tokio::time::timeout(Duration::from_secs(5), started_rx)
+            .await
+            .expect("CPU task started")
+            .expect("blocking worker signalled");
+
+        // The 20ms timer cannot complete if the job is running directly on
+        // Tokio's only async thread. Release the worker even on a failure.
+        let heartbeat = tokio::time::timeout(
+            Duration::from_millis(250),
+            tokio::time::sleep(Duration::from_millis(20)),
+        )
+        .await
+        .is_ok();
+        assert!(!job.is_finished(), "CPU task must still be executing");
+        release_tx.send(()).expect("release CPU task");
+        job.await
+            .expect("join CPU task")
+            .expect("CPU task succeeded");
+        assert!(
+            heartbeat,
+            "blocking author work starved the Tokio event loop"
+        );
+    }
+
     #[tokio::test]
     async fn cancelled_request_keeps_both_permits_until_work_finishes() {
         let active = Arc::new(Semaphore::new(1));

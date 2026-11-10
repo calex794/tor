@@ -86,10 +86,10 @@ async function completeFreeChapter(page, chapter, version) {
     sql(`UPDATE chapters SET title='Исправленное название главы' WHERE id=${chapter}`);
     assert.equal(scalar(`SELECT count(*) FROM rec_public_books WHERE id IN(${books.join(',')})`),books.length);
     await page.goto(base+'/me/recommendations');
-    const checkbox=page.getByRole('checkbox');
+    const checkbox=page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox');
     assert.equal(await checkbox.isChecked(),false);
     await checkbox.check();
-    await page.getByRole('button',{name:'Сохранить выбор'}).click();
+    await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
     await page.waitForURL('**/me/recommendations');
     assert.equal(sql(`SELECT enabled FROM rec_subjects WHERE user_id=${user}`),'t');
     // Search and unfiltered catalogue are independently attributed to actual C reading.
@@ -185,8 +185,8 @@ async function completeFreeChapter(page, chapter, version) {
     await mobilePage.goto(base+'/catalog?sort=newest');
     assert.equal(await mobilePage.locator('a[data-organic-ticket]').count(),0,'no opt-in must not issue organic tickets');
     await mobilePage.goto(base+'/me/recommendations');
-    await mobilePage.getByRole('checkbox').check();
-    await mobilePage.getByRole('button',{name:'Сохранить выбор'}).click();
+    await mobilePage.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').check();
+    await mobilePage.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
     await mobilePage.waitForURL('**/me/recommendations');
     await mobilePage.goto(base+'/catalog?q=Browser%20recommendation%201');
     const mobileOrganic=mobilePage.locator(`a.book-mini-card__link[href='/books/${books[1]}'][data-organic-ticket]`).first();
@@ -205,11 +205,11 @@ async function completeFreeChapter(page, chapter, version) {
     await page.waitForURL('**/me/recommendations');
     // Re-saving the same enabled consent preserves the actor's current state.
     const subjectBefore=sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${user}`);
-    await page.getByRole('button',{name:'Сохранить выбор'}).click();
+    await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
     await page.waitForURL('**/me/recommendations');
     assert.equal(sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${user}`),subjectBefore);
-    await page.getByRole('checkbox').uncheck();
-    await page.getByRole('button',{name:'Сохранить выбор'}).click();
+    await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').uncheck();
+    await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
     await page.waitForURL('**/me/recommendations');
     assert.equal(sql(`SELECT enabled FROM rec_subjects WHERE user_id=${user}`),'f');
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user}`),0);

@@ -20,6 +20,8 @@ pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
 
 pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
+pub mod notification_email_consent;
+pub use notification_email_consent::PgEmailNotificationConsent;
 pub mod notification_send_time;
 pub use notification_send_time::PgPreferredSendHour;
 
@@ -31,3 +33,5 @@ pub mod chapter_thanks;
 pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};
 pub mod audience;
 pub mod returns;
+
+pub mod flow_capture;

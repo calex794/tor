@@ -98,6 +98,9 @@ impl PgReadingSync {
             .begin()
             .await
             .map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         // Hold a consistent access decision until the position is committed.
         // Concurrent pin removal, Book blocking or session revocation must
         // serialize with this operation rather than authorizing a stale write.
@@ -216,9 +219,14 @@ impl PgReadingSync {
             place,
             self.activity_collection,
             self.book_return_collection,
+            self.flow_collection,
         )
         .await?;
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
         Ok(receipt)
     }
 }

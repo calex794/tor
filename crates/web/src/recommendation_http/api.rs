@@ -185,8 +185,9 @@ pub(super) async fn load(
                 .await
             {
                 Ok(feed) => Ok(feed),
-                Err(FeedbackError::Forbidden) => state.store.feed(None, seed, limit).await,
-                Err(FeedbackError::Limited) => state.store.feed(Some(actor), seed, limit).await,
+                Err(FeedbackError::Forbidden | FeedbackError::Limited) => {
+                    state.store.feed(Some(actor), seed, limit).await
+                }
                 Err(error) => Err(error),
             };
         }

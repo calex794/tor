@@ -8,6 +8,7 @@ pub struct PgReadingProgress {
     pool: PgPool,
     activity_collection: bool,
     book_return_collection: bool,
+    flow_collection: bool,
 }
 
 impl PgReadingProgress {
@@ -16,11 +17,17 @@ impl PgReadingProgress {
             pool,
             activity_collection: false,
             book_return_collection: false,
+            flow_collection: false,
         }
     }
 
     pub fn with_activity_collection(mut self, enabled: bool) -> Self {
         self.activity_collection = enabled;
+        self
+    }
+
+    pub fn with_flow_collection(mut self, enabled: bool) -> Self {
+        self.flow_collection = enabled;
         self
     }
 
@@ -189,6 +196,9 @@ impl PgReadingProgress {
             .begin()
             .await
             .map_err(|_| ProgressError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
         // The manual form must satisfy the same C text/access boundary as the
         // CAS path. HTTP validation alone cannot authorize a trusted day fact.
         let edition = sqlx::query(
@@ -292,13 +302,18 @@ impl PgReadingProgress {
                 place,
                 self.activity_collection,
                 self.book_return_collection,
+                self.flow_collection,
             )
             .await
             .map_err(|_| ProgressError::Unavailable)?;
         }
         // A no-op preserves the old form's harmless delayed-request behavior;
         // it cannot enroll a reader or manufacture another observed day.
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
         tx.commit().await.map_err(|_| ProgressError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
         Ok(())
     }
 }

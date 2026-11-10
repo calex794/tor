@@ -49,6 +49,25 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_s018_email_proof_routes_require_actor_scope_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".confirm_opt_in(actor, &digest)",
+            ".confirm_opt_in(0, &digest)",
+        )
+        self.assert_detected("/me/notification-email/confirm")
+
+    def test_s018_email_proof_request_cannot_skip_csrf(self):
+        # Disable only this handler's Origin call; unrelated routes must not
+        # camouflage missing request authorization.
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn request_email_proof(",
+        )
+        self.assert_detected("/me/notification-email/request")
+
     def test_audience_rejects_removed_administrator_check(self):
         self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
         self.assert_detected("missing independent administrator role guard")
@@ -57,13 +76,98 @@ class RilGovernanceTests(unittest.TestCase):
         path = self.root / INVENTORY
         original = path.read_text(encoding="utf-8")
         for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
-                      "/admin/audience/returns"):
+                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
             with self.subTest(route=route):
                 inventory = json.loads(original)
                 row = next(row for row in inventory["routes"] if row["template"] == route)
                 row["policy"] = "session"
                 path.write_text(json.dumps(inventory), encoding="utf-8")
                 self.assert_detected("FLOW audience must remain administrator-only")
+
+    def test_audience_visits_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_audience_visits_cannot_ignore_authorization_timeout(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_audience_funnel_cannot_skip_live_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_ignore_authorization_failure_or_timeout(self):
+        path = self.root / "crates/web/src/auth/audience_http/funnel.rs"
+        original = path.read_text(encoding="utf-8")
+        for before, after in (
+            ("Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}"),
+            ("Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}"),
+        ):
+            with self.subTest(before=before):
+                self.assertIn(before, original)
+                path.write_text(original.replace(before, after, 1), encoding="utf-8")
+                self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_read_without_shared_deadline(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "timeout_at(deadline, state.funnel.report(days)).await",
+            "state.funnel.report(days).await",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_restart_shared_deadline(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    let report = match timeout_at(deadline, state.funnel.report(days)).await {",
+            "    let deadline = Instant::now() + Duration::from_millis(950);\n"
+            "    let report = match timeout_at(deadline, state.funnel.report(days)).await {",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_conditionally_authorize(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {",
+            "    if headers.contains_key(\"x-require-auth\") {\n"
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {",
+        )
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    }\n    let days = match query",
+            "    }\n    }\n    let days = match query",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_return_unsecured_report(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    secure((", "    public_response((",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_return_unsecured_invalid_query(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "Err(status) => return secure(status)", "Err(status) => return public_response(status)",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_flow_consent_cannot_write_as_another_actor(self):
+        self.mutate(
+            "crates/web/src/recommendation_http/flow_consent.rs",
+            "set_flow_consent(", "unscoped_flow_consent(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
 
     def test_audience_books_cannot_skip_parent_authorization(self):
         self.mutate(

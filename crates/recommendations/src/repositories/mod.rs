@@ -8,4 +8,6 @@ mod completion;
 pub mod postgres;
 pub use postgres::{PgRanking, RankingCommand, RankingCommit, RankingStoreError, VisibleRank};
 pub mod feedback;
+pub mod flow_funnel;
+pub mod visits;
 pub use feedback::PgRecommendations;

@@ -82,7 +82,7 @@ impl FlowRequest {
 
 /// Low-cost heuristic for known automation. Absence of this flag is NOT
 /// proof of a human reader, and must never influence ACL or charging.
-fn likely_bot(headers: &HeaderMap) -> bool {
+pub(crate) fn likely_bot(headers: &HeaderMap) -> bool {
     let Some(ua) = headers
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok())
@@ -106,7 +106,7 @@ fn likely_bot(headers: &HeaderMap) -> bool {
 
 /// Untrusted request-level referrer *hint*, not a known first-touch source.
 /// Internal navigation must not be mislabeled an external referral.
-fn referrer_hint(headers: &HeaderMap) -> AcquisitionChannel {
+pub(crate) fn referrer_hint(headers: &HeaderMap) -> AcquisitionChannel {
     let Some(host) = headers
         .get(header::REFERER)
         .and_then(|value| value.to_str().ok())
