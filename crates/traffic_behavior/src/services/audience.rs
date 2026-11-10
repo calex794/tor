@@ -160,10 +160,10 @@ fn period_from_hours(
                         .checked_add(*views)
                         .ok_or(FlowHourlyError::Unavailable)?,
                 );
-                let opted = hour.opted_in_html_requests[surface]
-                    .ok_or(FlowHourlyError::Unavailable)?;
-                let starts = hour.observed_visit_starts[surface]
-                    .ok_or(FlowHourlyError::Unavailable)?;
+                let opted =
+                    hour.opted_in_html_requests[surface].ok_or(FlowHourlyError::Unavailable)?;
+                let starts =
+                    hour.observed_visit_starts[surface].ok_or(FlowHourlyError::Unavailable)?;
                 saved_opted_in_requests[surface] = Some(
                     saved_opted_in_requests[surface]
                         .unwrap_or(0_i64)
@@ -249,10 +249,22 @@ mod tests {
             report.previous.saved_views,
             [None, None, Some(11), Some(13)]
         );
-        assert_eq!(report.current.saved_opted_in_requests, [Some(0), Some(3), None, None]);
-        assert_eq!(report.current.observed_visit_starts, [Some(0), Some(1), None, None]);
-        assert_eq!(report.previous.saved_opted_in_requests, [None, None, Some(0), Some(5)]);
-        assert_eq!(report.previous.observed_visit_starts, [None, None, Some(0), Some(2)]);
+        assert_eq!(
+            report.current.saved_opted_in_requests,
+            [Some(0), Some(3), None, None]
+        );
+        assert_eq!(
+            report.current.observed_visit_starts,
+            [Some(0), Some(1), None, None]
+        );
+        assert_eq!(
+            report.previous.saved_opted_in_requests,
+            [None, None, Some(0), Some(5)]
+        );
+        assert_eq!(
+            report.previous.observed_visit_starts,
+            [None, None, Some(0), Some(2)]
+        );
         assert_eq!(report.current.recorded_hours, [1, 1, 0, 0]);
         assert_eq!(report.previous.recorded_hours, [0, 0, 1, 1]);
         assert_eq!(report.current.from_epoch, report.previous.until_epoch);
@@ -304,7 +316,14 @@ mod tests {
         invalid_visit[0].views[0] = Some(3);
         invalid_visit[0].opted_in_html_requests[0] = Some(1);
         invalid_visit[0].observed_visit_starts[0] = Some(2);
-        for rows in [negative, duplicate, overflow, invalid_opted, invalid_visit, Vec::new()] {
+        for rows in [
+            negative,
+            duplicate,
+            overflow,
+            invalid_opted,
+            invalid_visit,
+            Vec::new(),
+        ] {
             assert_eq!(
                 report_from_rows(1, anchor(), rows),
                 Err(FlowHourlyError::Unavailable)
