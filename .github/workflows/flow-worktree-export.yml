@@ -26,11 +26,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/flow-export"
           git archive HEAD | gzip > "$RUNNER_TEMP/flow-export/flow-source.tar.gz"
           git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
-          gh api repos/calex794/tor/actions/jobs/130178565934/logs > "$RUNNER_TEMP/flow-job.log"
+          gh api --allow-escape-sequences repos/calex794/tor/actions/jobs/130178565934/logs > "$RUNNER_TEMP/flow-job.log"
           python3 - <<'PY'
           import os,pathlib,re
           root=pathlib.Path(os.environ['RUNNER_TEMP'])
-          lines=(root/'flow-job.log').read_text().splitlines()
+          text=re.sub(r'\x1b\[[0-9;]*[a-zA-Z]','',(root/'flow-job.log').read_text())
+          lines=text.splitlines()
           hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
           indices=set()
           for i in hits[-12:]:
@@ -41,6 +42,7 @@ jobs:
           print(text[:28000])
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: flow-diagnostics-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
