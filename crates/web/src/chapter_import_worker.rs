@@ -83,13 +83,10 @@ impl ChapterImportWorker {
         let approved_fingerprint = claim.approved_fingerprint.clone();
         let book_id = claim.book_id;
         let parsed = tokio::task::spawn_blocking(move || {
-            let text =
-                String::from_utf8(bytes).map_err(|_| "source_encoding_invalid")?;
-            let chapters =
-                parse_text(&filename, &text).map_err(|_| "source_structure_invalid")?;
+            let text = String::from_utf8(bytes).map_err(|_| "source_encoding_invalid")?;
+            let chapters = parse_text(&filename, &text).map_err(|_| "source_structure_invalid")?;
             if chapters.len() != expected_count as usize
-                || fingerprint(book_id, &chapters).as_slice()
-                    != approved_fingerprint.as_slice()
+                || fingerprint(book_id, &chapters).as_slice() != approved_fingerprint.as_slice()
             {
                 return Err("preview_changed");
             }
