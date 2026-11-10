@@ -346,6 +346,10 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         &format!("UPDATE social_book_comment_appeals SET reason='tampered' WHERE id={appeal}"),
         false,
     );
+    pg(
+        &format!("DELETE FROM social_book_comment_appeals WHERE id={appeal}"),
+        false,
+    );
 
     let queue = "/admin/book-comment-appeals";
     assert_eq!(
