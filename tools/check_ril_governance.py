@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_storage_reconciliation"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_storage_reconciliation"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -652,6 +652,46 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
+    if policy == "admin_storage_reconciliation":
+        allowed = (
+            entry["source"] == "crates/web/src/auth/admin_storage_reconciliation.rs"
+            and admin_key in {
+                ("GET", "/admin/storage/reconciliation", "page"),
+                ("POST", "/admin/storage/reconciliation/run", "run"),
+            }
+        )
+        role = functions.get("admin", "")
+        evidence += "\n" + role
+        common = all(part in role for part in (
+            "session_token(headers)", "session_actor(&digest)",
+            "if !actor.administrator", "StatusCode::UNAUTHORIZED",
+            "StatusCode::FORBIDDEN",
+        ))
+        if not (allowed and common and "if !enabled()" in body
+                and "admin(&state, &headers).await" in body
+                and "configured_bucket()" in body):
+            errors.append(f"{label}: G-09 console lacks live admin/bucket/opt-in proof")
+        if entry["method"] == "GET":
+            guarded = (
+                "PgPrivateInventory::new" in body
+                and "PgRegisteredAudit::new" in body
+                and "csrf_for_page(&headers)" in body
+                and "private_response" in body
+            )
+        else:
+            guarded = all(part in body for part in (
+                "state.cookies.same_origin(&headers)",
+                "state.cookies.valid_csrf(&headers, &input.csrf_token)",
+                "direction(&input.direction)", "scope(&input.scope)",
+                "PgReconciliationCommands::new",
+                ".record(actor, direction.name(), scope",
+                "S3PrivateStore::new", "scan_page(&store, scope)",
+                "begin_next_cycle(&bucket, scope)",
+                "resume_exhausted(&bucket, scope)",
+            ))
+            guarded = guarded and body.index(".record(") < body.index("S3PrivateStore::new")
+        if not guarded:
+            errors.append(f"{label}: G-09 console must preserve bounded read-only audited flow")
     if policy == "admin_outbox_retry":
         # G-07: requeue is authorized by the locked live role in the SAME
         # transaction as event mutation and append-only audit.

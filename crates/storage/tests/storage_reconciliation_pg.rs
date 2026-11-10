@@ -188,17 +188,24 @@ async fn g_09_s3_recon_2501_private_keys_restart_and_no_delete() {
         "inventory never writes the live registry"
     );
     assert!(
-        inventory.begin_next_cycle(BUCKET, PrivateScope::Chapter)
-            .await.unwrap(),
+        inventory
+            .begin_next_cycle(BUCKET, PrivateScope::Chapter)
+            .await
+            .unwrap(),
         "only an explicitly completed scan can be restarted"
     );
     assert!(
-        !inventory.begin_next_cycle(BUCKET, PrivateScope::Chapter)
-            .await.unwrap(),
+        !inventory
+            .begin_next_cycle(BUCKET, PrivateScope::Chapter)
+            .await
+            .unwrap(),
         "an active new cycle cannot be overwritten"
     );
-    let resumed = inventory.progress(BUCKET, PrivateScope::Chapter)
-        .await.unwrap().unwrap();
+    let resumed = inventory
+        .progress(BUCKET, PrivateScope::Chapter)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(resumed.scanned, 0);
     assert!(!resumed.completed);
     let previous: i64 = sqlx::query_scalar(

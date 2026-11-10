@@ -7,9 +7,9 @@ pub mod paid_delivery;
 #[cfg(feature = "pg")]
 pub mod reconciliation;
 #[cfg(feature = "pg")]
-pub mod reconciliation_reverse;
-#[cfg(feature = "pg")]
 pub mod reconciliation_operator;
+#[cfg(feature = "pg")]
+pub mod reconciliation_reverse;
 #[cfg(feature = "pg")]
 pub mod registry;
 #[cfg(feature = "s3")]

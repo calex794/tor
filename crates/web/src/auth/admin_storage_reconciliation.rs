@@ -12,7 +12,10 @@ pub(super) fn router() -> Router<AuthState> {
 #[cfg(feature = "s3-paid")]
 mod enabled {
     use super::*;
-    use crate::{auth_cookies::{deny, private_response}, pages};
+    use crate::{
+        auth_cookies::{deny, private_response},
+        pages,
+    };
     use axum::{
         extract::{rejection::FormRejection, DefaultBodyLimit, Form, State},
         http::{HeaderMap, HeaderValue, StatusCode},
@@ -66,8 +69,8 @@ mod enabled {
     }
 
     fn configured_bucket() -> Result<String, StatusCode> {
-        let bucket = std::env::var("TOR_PAID_S3_BUCKET")
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let bucket =
+            std::env::var("TOR_PAID_S3_BUCKET").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         if !valid_private_bucket(&bucket) {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
@@ -122,7 +125,13 @@ mod enabled {
         Ok(actor.actor.user_id.get())
     }
 
-    fn form(csrf: &str, direction: Direction, scope: PrivateScope, action: &str, label: &str) -> String {
+    fn form(
+        csrf: &str,
+        direction: Direction,
+        scope: PrivateScope,
+        action: &str,
+        label: &str,
+    ) -> String {
         format!(
             r#"<form method="post" action="/admin/storage/reconciliation/run">
               <input type="hidden" name="csrf_token" value="{}">
@@ -184,7 +193,13 @@ mod enabled {
             out.push_str(&form(csrf, dir, scope, "next_cycle", "Начать новый цикл"));
         } else if exhausted {
             if matches!(dir, Direction::PgToS3) {
-                out.push_str(&form(csrf, dir, scope, "resume_exhausted", "Разрешить повтор"));
+                out.push_str(&form(
+                    csrf,
+                    dir,
+                    scope,
+                    "resume_exhausted",
+                    "Разрешить повтор",
+                ));
             }
         } else {
             out.push_str(&form(csrf, dir, scope, "step", "Обработать одну порцию"));
@@ -218,11 +233,18 @@ mod enabled {
                 Err(error) => return deny(code(error)),
             };
             content.push_str(&render_card(
-                &csrf, Direction::S3ToPg, scope, &forward_details(f.as_ref()),
-                f.as_ref().is_some_and(|v| v.completed), false,
+                &csrf,
+                Direction::S3ToPg,
+                scope,
+                &forward_details(f.as_ref()),
+                f.as_ref().is_some_and(|v| v.completed),
+                false,
             ));
             content.push_str(&render_card(
-                &csrf, Direction::PgToS3, scope, &reverse_details(r.as_ref()),
+                &csrf,
+                Direction::PgToS3,
+                scope,
+                &reverse_details(r.as_ref()),
                 r.as_ref().is_some_and(|v| v.completed),
                 r.as_ref().is_some_and(|v| v.exhausted),
             ));
@@ -269,14 +291,14 @@ mod enabled {
         {
             return deny(StatusCode::FORBIDDEN);
         }
-        let (Some(direction), Some(scope)) = (
-            direction(&input.direction), scope(&input.scope),
-        ) else {
+        let (Some(direction), Some(scope)) = (direction(&input.direction), scope(&input.scope))
+        else {
             return deny(StatusCode::BAD_REQUEST);
         };
-        if !matches!(input.action.as_str(), "step" | "next_cycle" | "resume_exhausted")
-            || (input.action == "resume_exhausted"
-                && !matches!(direction, Direction::PgToS3))
+        if !matches!(
+            input.action.as_str(),
+            "step" | "next_cycle" | "resume_exhausted"
+        ) || (input.action == "resume_exhausted" && !matches!(direction, Direction::PgToS3))
         {
             return deny(StatusCode::BAD_REQUEST);
         }
@@ -286,20 +308,38 @@ mod enabled {
         };
         let pool = state.accounts.pool().clone();
         let audit = PgReconciliationCommands::new(pool.clone());
-        if let Err(error) = audit.record(actor, direction.name(), scope, match input.action.as_str() {
-            "step" => "step",
-            "next_cycle" => "next_cycle",
-            _ => "resume_exhausted",
-        }).await {
+        if let Err(error) = audit
+            .record(
+                actor,
+                direction.name(),
+                scope,
+                match input.action.as_str() {
+                    "step" => "step",
+                    "next_cycle" => "next_cycle",
+                    _ => "resume_exhausted",
+                },
+            )
+            .await
+        {
             return deny(code(error));
         }
         let outcome = if input.action == "next_cycle" {
             match direction {
-                Direction::S3ToPg => PgPrivateInventory::new(pool).begin_next_cycle(&bucket, scope).await,
-                Direction::PgToS3 => PgRegisteredAudit::new(pool).begin_next_cycle(&bucket, scope).await,
+                Direction::S3ToPg => {
+                    PgPrivateInventory::new(pool)
+                        .begin_next_cycle(&bucket, scope)
+                        .await
+                }
+                Direction::PgToS3 => {
+                    PgRegisteredAudit::new(pool)
+                        .begin_next_cycle(&bucket, scope)
+                        .await
+                }
             }
         } else if input.action == "resume_exhausted" {
-            PgRegisteredAudit::new(pool).resume_exhausted(&bucket, scope).await
+            PgRegisteredAudit::new(pool)
+                .resume_exhausted(&bucket, scope)
+                .await
         } else {
             // Construct provider ONLY after session, CSRF, scope and audit gates.
             // No request controls a bucket, object key, endpoint or credential.
@@ -310,9 +350,13 @@ mod enabled {
             };
             match direction {
                 Direction::S3ToPg => PgPrivateInventory::new(pool)
-                    .scan_page(&store, scope).await.map(|r| r.is_some()),
+                    .scan_page(&store, scope)
+                    .await
+                    .map(|r| r.is_some()),
                 Direction::PgToS3 => PgRegisteredAudit::new(pool)
-                    .scan_page(&store, scope).await.map(|r| r.is_some()),
+                    .scan_page(&store, scope)
+                    .await
+                    .map(|r| r.is_some()),
             }
         };
         match outcome {
@@ -323,12 +367,10 @@ mod enabled {
     }
 
     pub(super) fn router() -> Router<AuthState> {
-        Router::new()
-            .route(PATH, get(page))
-            .route(
-                "/admin/storage/reconciliation/run",
-                post(run).layer(DefaultBodyLimit::max(4096)),
-            )
+        Router::new().route("/admin/storage/reconciliation", get(page)).route(
+            "/admin/storage/reconciliation/run",
+            post(run).layer(DefaultBodyLimit::max(4096)),
+        )
     }
 
     #[cfg(test)]
@@ -337,15 +379,36 @@ mod enabled {
 
         #[test]
         fn g09_forms_only_have_bounded_actions_and_no_private_keys() {
-            let card = render_card("csrf", Direction::PgToS3, PrivateScope::Chapter, "status", false, false);
+            let card = render_card(
+                "csrf",
+                Direction::PgToS3,
+                PrivateScope::Chapter,
+                "status",
+                false,
+                false,
+            );
             assert!(card.contains("name=\"csrf_token\""));
             assert!(card.contains("name=\"action\" value=\"step\""));
             assert!(!card.contains("delete"));
             assert!(!card.contains("object_key"));
-            assert!(render_card("csrf", Direction::PgToS3, PrivateScope::ChapterAsset, "status", false, true)
-                .contains("value=\"resume_exhausted\""));
-            assert!(!render_card("csrf", Direction::S3ToPg, PrivateScope::Chapter, "status", false, true)
-                .contains("resume_exhausted"));
+            assert!(render_card(
+                "csrf",
+                Direction::PgToS3,
+                PrivateScope::ChapterAsset,
+                "status",
+                false,
+                true
+            )
+            .contains("value=\"resume_exhausted\""));
+            assert!(!render_card(
+                "csrf",
+                Direction::S3ToPg,
+                PrivateScope::Chapter,
+                "status",
+                false,
+                true
+            )
+            .contains("resume_exhausted"));
         }
 
         #[test]
@@ -360,4 +423,6 @@ mod enabled {
 }
 
 #[cfg(feature = "s3-paid")]
-pub(super) use enabled::router;
+pub(super) fn router() -> Router<AuthState> {
+    enabled::router()
+}
