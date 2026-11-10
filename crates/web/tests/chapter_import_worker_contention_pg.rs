@@ -24,7 +24,6 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_commerce::repositories::creator_finance::PgCreatorFinance;
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
     services::{
@@ -32,6 +31,7 @@ use tor_books::{
         chapter_file_import::{fingerprint, parse_text},
     },
 };
+use tor_commerce::repositories::creator_finance::PgCreatorFinance;
 use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
 use tor_ingest::{
     domain::cover::CoverError,
@@ -464,9 +464,10 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
             .expect("recommendation worker did not hang")
             .expect("recommendation worker joined");
     let mut finance_elapsed = Vec::new();
-    while let Some(joined) = tokio::time::timeout(Duration::from_secs(25), finance_tasks.join_next())
-        .await
-        .expect("finance reader did not hang")
+    while let Some(joined) =
+        tokio::time::timeout(Duration::from_secs(25), finance_tasks.join_next())
+            .await
+            .expect("finance reader did not hang")
     {
         let (totals, elapsed) = joined.expect("finance reader joined");
         assert_eq!(totals.wallet_balance_minor, 1000);
@@ -496,7 +497,10 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     assert_eq!(successes + rejected, PREVIEWS);
     assert!(successes > 0, "at least one preview must be served");
     assert_eq!(worker_status, ChapterImportWorkerResult::Completed);
-    assert!(recommendation_advanced, "recommendation generation must advance");
+    assert!(
+        recommendation_advanced,
+        "recommendation generation must advance"
+    );
     assert!(
         finance_p95 < Duration::from_secs(2),
         "finance balance reads saturated the shared PgPool"
