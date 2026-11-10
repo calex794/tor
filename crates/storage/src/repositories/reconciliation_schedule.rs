@@ -71,7 +71,7 @@ impl PgG09Schedule {
                FROM g09_registered_object_scans
               WHERE bucket=$1 AND scope=$2"
         } else {
-            "SELECT completed,false AS exhausted,
+            "SELECT completed,exhausted,
                     CASE WHEN completed THEN
                       coalesce(checkpoint_at <= clock_timestamp()-interval '24 hours',false)
                     ELSE
