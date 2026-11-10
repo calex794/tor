@@ -106,6 +106,44 @@ impl PgEmailNotificationConsent {
         Ok(revoked.is_some())
     }
 
+    /// Verified content opt-in independent of cadence. Used only for the
+    /// actor's private settings; send-time policy still checks cadence.
+    pub async fn opted_in(&self, actor: i64) -> Result<bool, PreferenceError> {
+        if actor <= 0 {
+            return Err(PreferenceError::Invalid);
+        }
+        sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM reader_notification_email_proofs p
+                JOIN users u ON u.id=p.user_id
+                WHERE p.user_id=$1 AND u.account_state='active'
+                  AND p.verified_at IS NOT NULL AND p.opted_in_at IS NOT NULL
+                  AND p.revoked_at IS NULL
+                  AND p.email_sha256=sha256(convert_to(u.email_normalized,'UTF8'))
+            )",
+        )
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)
+    }
+
+    /// Trusted authenticated handler only. Never include this address in
+    /// HTML, JSON responses, logs or client-supplied lookup parameters.
+    pub async fn mailbox_for_proof(&self, actor: i64) -> Result<Option<String>, PreferenceError> {
+        if actor <= 0 {
+            return Err(PreferenceError::Invalid);
+        }
+        sqlx::query_scalar(
+            "SELECT email_normalized FROM users
+             WHERE id=$1 AND account_state='active'",
+        )
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(unavailable)
+    }
+
     /// This is an eligibility gate for future send-intent creation, NOT a
     /// send authorization. The future sender must repeat live chapter ACL,
     /// address and channel verification immediately before external handoff.

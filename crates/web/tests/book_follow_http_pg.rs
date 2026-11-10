@@ -805,6 +805,9 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     pool.close().await;
 }
 
+#[path = "book_follow_http_pg/s018_email_proof_http_pg.rs"]
+mod s018_email_proof;
+
 #[path = "book_follow_http_pg/s014_profile_follow.rs"]
 mod s014_profile_follow;
 

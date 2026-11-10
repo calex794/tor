@@ -94,6 +94,7 @@ mod moderation_books;
 mod moderation_confirm;
 mod moderation_covers;
 mod notification_settings;
+mod notification_proof_delivery;
 mod notifications;
 mod paid_completion;
 mod password_change;
@@ -181,6 +182,7 @@ fn router_inner(
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
+    let notification_proof_delivery = notification_proof_delivery::ProofDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
@@ -223,6 +225,7 @@ fn router_inner(
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
+        notification_proof_delivery,
         notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
         checkout,
