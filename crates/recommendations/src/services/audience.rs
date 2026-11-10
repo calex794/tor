@@ -2,6 +2,9 @@
 //! or C's chapter counters; an opening/start ratio is not a funnel conversion.
 use std::{error::Error, fmt};
 
+pub mod books;
+pub mod groups;
+
 pub const DISCOVERY_PERIOD_DAYS: [i32; 4] = [1, 7, 30, 90];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 376)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 374)  # Includes FLOW administrator audience.
+        self.assertEqual(report["route_bindings"], 378)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 376)  # Includes FLOW administrator group report.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -77,13 +77,15 @@ class RilExposureTests(unittest.TestCase):
     def test_audience_exception_cannot_extend_or_downgrade(self):
         path = self.root / "docs/contracts/ril-route-guards-v1.json"
         original = path.read_text(encoding="utf-8")
-        for field, value in (("template", "/admin/audience/export"), ("policy", "session")):
-            data = json.loads(original)
-            row = next(row for row in data["routes"] if row["template"] == "/admin/audience")
-            row[field] = value
-            path.write_text(json.dumps(data), encoding="utf-8")
-            self.assertTrue(any("internal/admin route is not denied" in x
-                                for x in check_repository(self.root)))
+        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups"):
+            for field, value in (("template", route + "/export"), ("policy", "session")):
+                with self.subTest(route=route, field=field):
+                    data = json.loads(original)
+                    row = next(row for row in data["routes"] if row["template"] == route)
+                    row[field] = value
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    self.assertTrue(any("internal/admin route is not denied" in x
+                                        for x in check_repository(self.root)))
 
     def test_change_in_handler_or_security_changes_fingerprint(self):
         before = fingerprint(self.root)["sha256"]
