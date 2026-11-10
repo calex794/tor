@@ -3,9 +3,10 @@
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use tor_reading::{
-    repositories::{audience::PgAudience, PgReadingSync},
+    repositories::{audience::PgAudience, PgPreferredSendHour, PgReadingSync},
     services::{
         audience::{AudienceCounts, AudiencePeriod, AudienceReport},
+        notification_send_time::HourConfidence,
         progress::ReadingPlace,
     },
 };
@@ -199,6 +200,21 @@ async fn flow_reading_periods_count_accounts_once_without_truncating_or_rebuildi
     events(&f, f.users[2], (124, 124), 45 * 24, true).await;
     events(&f, f.users[2], (125, 125), 120 * 24, false).await;
 
+    // A private smart-hour estimate consumes only verified C facts; it must
+    // reject a forged authority, stale first-read and another user's activity.
+    let hour_repo = PgPreferredSendHour::new(f.pool.clone());
+    let preferred = hour_repo.estimate(f.users[0]).await.unwrap();
+    assert_eq!(preferred.confidence, HourConfidence::High);
+    assert_eq!(preferred.observed_starts, 122);
+    assert_eq!(
+        hour_repo.estimate(f.users[1]).await.unwrap().confidence,
+        HourConfidence::None
+    );
+    assert_eq!(
+        hour_repo.estimate(0).await,
+        Err(tor_reading::repositories::PreferenceError::Invalid)
+    );
+
     // Re-delivery cannot duplicate the canonical row or create another account.
     events(&f, f.users[0], (1, 120), 36, true).await;
     // A fabricated source on a C-shaped fixture must not become trusted evidence.
@@ -212,6 +228,15 @@ async fn flow_reading_periods_count_accounts_once_without_truncating_or_rebuildi
     .execute(&f.pool)
     .await
     .unwrap();
+    assert_eq!(
+        hour_repo
+            .estimate(f.users[0])
+            .await
+            .unwrap()
+            .observed_starts,
+        122,
+        "forged source event cannot influence preferred reading hour"
+    );
     let expected = [
         (counts(1, 1, 1, 1, 1), counts(120, 120, 1, 1, 1)),
         (counts(121, 122, 2, 1, 2), counts(1, 0, 1, 1, 0)),
