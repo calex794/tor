@@ -146,7 +146,14 @@ async fn page(
     };
     secure((
         status,
-        render::page(days, reading.as_ref(), sources.as_ref(), hours.as_ref()),
+        render::page(
+            days,
+            reading.as_ref(),
+            sources.as_ref(),
+            hours.as_ref(),
+            crate::ril::flow_capture_counters(),
+            crate::ril::pump_health_snapshot(),
+        ),
     ))
 }
 
