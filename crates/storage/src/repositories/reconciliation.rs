@@ -2,7 +2,7 @@
 //! This module only writes its own metadata/checkpoint tables. It never changes
 //! storage_objects, chapter_versions, entitlements, or any S3 object.
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::time::{Duration, SystemTime};
 
 use crate::{
@@ -54,7 +54,7 @@ impl PgPrivateInventory {
         if !valid_private_bucket(bucket) {
             return Err(InventoryError::Invalid);
         }
-        let row: Option<(i64, i64, i64, i64, i64, i64, i64, i64, bool, bool)> = sqlx::query_as(
+        let row = sqlx::query(
             "SELECT scanned,registered,recently_pending,unregistered_candidates,
                     size_mismatch,unknown,unknown_attempts,retries,exhausted,completed
                FROM g09_private_inventory_scans
@@ -65,18 +65,29 @@ impl PgPrivateInventory {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| InventoryError::Unavailable)?;
-        Ok(row.map(|value| InventoryProgress {
-            scanned: value.0,
-            registered: value.1,
-            recently_pending: value.2,
-            unregistered_candidates: value.3,
-            size_mismatch: value.4,
-            unknown: value.5,
-            unknown_attempts: value.6,
-            retries: value.7,
-            exhausted: value.8,
-            completed: value.9,
-        }))
+        row.map(|value| -> Result<InventoryProgress, InventoryError> {
+            let count = |name: &str| {
+                value.try_get::<i64, _>(name)
+                    .map_err(|_| InventoryError::Unavailable)
+            };
+            let flag = |name: &str| {
+                value.try_get::<bool, _>(name)
+                    .map_err(|_| InventoryError::Unavailable)
+            };
+            Ok(InventoryProgress {
+                scanned: count("scanned")?,
+                registered: count("registered")?,
+                recently_pending: count("recently_pending")?,
+                unregistered_candidates: count("unregistered_candidates")?,
+                size_mismatch: count("size_mismatch")?,
+                unknown: count("unknown")?,
+                unknown_attempts: count("unknown_attempts")?,
+                retries: count("retries")?,
+                exhausted: flag("exhausted")?,
+                completed: flag("completed")?,
+            })
+        })
+        .transpose()
     }
 
     /// At most one 1000-key S3 LIST page per invocation. Each page is committed
