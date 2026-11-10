@@ -488,3 +488,5 @@ async fn g_09_reverse_registered_2501_resume_reference_and_unknown_fail_closed()
     assert_eq!(still_registered, 2501);
     pool.close().await;
 }
+#[path = "storage_reconciliation_pg/g09_body_probe.rs"]
+mod g09_body_probe;
