@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_payout_post", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_payout_post", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -405,6 +405,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
         and admin_key in payout_admin_ops
     )
+    reviewed_payout_post = (
+        policy == "admin_payout_post"
+        and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
+        and admin_key == (
+            "POST", "/admin/finance/payouts/{id}/post", "posting::submit"
+        )
+    )
     s049_report_ops = {
         ("GET", "/admin/recommendation-reports", "admin_reports::queue"): "pending",
         ("POST", "/admin/recommendation-reports/{share_id}/decision", "admin_reports::decide"): "decide",
@@ -546,7 +553,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
-            audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
+            audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout or reviewed_payout_post
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
@@ -838,6 +845,64 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ) and "UPDATE reader_wallet_accounts" not in quote_repo
         if not guarded:
             errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
+    if policy == "admin_payout_post":
+        # A financial mutation is not covered by the administrator queue policy.
+        # Review the exact form handler and both underlying transactional guards.
+        http = _production((ROOT / "crates/web/src/auth/admin_creator_payouts/posting.rs")
+                           .read_text(encoding="utf-8"))
+        post_repo = _production((ROOT / "crates/commerce/src/repositories/creator_payout_posting.rs")
+                                .read_text(encoding="utf-8"))
+        proof_repo = _production((ROOT / "crates/accounts/src/repositories/step_up.rs")
+                                 .read_text(encoding="utf-8"))
+        required_http = (
+            'if !enabled()',
+            'TOR_S039_PAYOUT_POST_HTTP_ENABLED',
+            'session_user(&state, &headers)',
+            'state.cookies.same_origin(&headers)',
+            'state.cookies.valid_csrf(&headers, &form.csrf_token)',
+            'permit_auth_attempt(&attempt_key, 6, 600)',
+            'verify_password_for_step_up(&password, &password_hash)',
+            'payout_step_up_payload_digest(actor, request_id, amount_minor, reason)',
+            '.issue_administrator_payout_step_up(',
+            'PgCreatorPayoutPosting::new',
+            '.approve_once(',
+        )
+        required_proof = (
+            "r.role='administrator' AND r.is_active",
+            "u.account_state='active'",
+            'FOR SHARE OF r,u',
+            'FOR UPDATE OF s',
+            'verified_password.matches_hash(&stored_hash)',
+            'step_up_used_at=NULL',
+        )
+        required_posting = (
+            "r.role='administrator' AND r.is_active",
+            "u.account_state='active'",
+            'FOR SHARE OF r,u',
+            'revoked_at IS NULL',
+            'FOR UPDATE',
+            'FOR NO KEY UPDATE',
+            'step_up_used_at IS NULL',
+            "SET state='posted'",
+            'creator_payout_debit',
+            'INSERT INTO finance_creator_payout_postings',
+            'tx.commit()',
+            'tx.rollback()',
+        )
+        payout_call = re.search(
+            r"\.approve_once\s*\(\s*actor,\s*&session_digest,\s*&proof_token,\s*request_id,\s*amount_minor,\s*reason,?\s*\)",
+            http,
+        )
+        guarded = bool(
+            reviewed_payout_post
+            and 'post(posting::submit).layer(DefaultBodyLimit::max(4096))' in source
+            and all(marker in http for marker in required_http)
+            and all(marker in proof_repo for marker in required_proof)
+            and all(marker in post_repo for marker in required_posting)
+            and payout_call
+        )
+        if not guarded:
+            errors.append(f"{label}: S039 post requires live admin, CSRF, password step-up, and an atomic audited debit")
     if policy == "admin_refund":
         operation = refund_view_handlers.get(admin_key) if audited_refund else None
         guarded = ("session_user(&state, &headers)" in evidence
