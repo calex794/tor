@@ -36,11 +36,12 @@ async fn feed(h: &Harness, actor: &Actor) -> Value {
 }
 
 fn contains_book(feed: &Value, book: i64) -> bool {
+    let book_id = book.to_string();
     feed["items"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["book_id"] == book.to_string())
+        .any(|item| item["book_id"].as_str() == Some(book_id.as_str()))
 }
 
 #[tokio::test]
@@ -51,11 +52,12 @@ async fn explicit_choice_without_subject_has_real_replay_cas_and_actor_isolation
     let auth = (ORIGIN, actor.csrf.as_str());
     h.assert_no_analytics_subject(actor);
     let offered = feed(&h, actor).await;
+    let book_id = h.book.to_string();
     let card = offered["items"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["book_id"] == h.book.to_string())
+        .find(|item| item["book_id"].as_str() == Some(book_id.as_str()))
         .unwrap();
     assert_eq!(card["feedback_revision"], 0);
     assert!(card["ticket"].is_null());
@@ -115,11 +117,10 @@ async fn explicit_choice_without_subject_has_real_replay_cas_and_actor_isolation
         "expected_revision": 1,
         "user_id": h.other.id,
     });
-    assert_eq!(
-        h.feedback(actor, &forged, &generate_session_token(), auth)
-            .await
-            .status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+    private(
+        &h.feedback(actor, &forged, &generate_session_token(), auth)
+            .await,
+        StatusCode::UNPROCESSABLE_ENTITY,
     );
     assert_eq!(h.preference(&h.other)["hidden"], true);
 
