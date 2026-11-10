@@ -126,9 +126,11 @@ mod tests {
         .0;
         assert!(with_hour.contains("18:00 UTC"));
         assert!(with_hour.contains("не расписание активной отправки"));
-        let disabled = delivery_preferences_page(DeliveryMode::Disabled, "csrf", None, false, false).0;
+        let disabled =
+            delivery_preferences_page(DeliveryMode::Disabled, "csrf", None, false, false).0;
         assert!(disabled.contains("value=\"disabled\" checked"));
-        let opt_in = delivery_preferences_page(DeliveryMode::Immediate, "csrf", None, true, false).0;
+        let opt_in =
+            delivery_preferences_page(DeliveryMode::Immediate, "csrf", None, true, false).0;
         assert!(opt_in.contains("Отозвать согласие"));
         let proof = delivery_preferences_page(DeliveryMode::Disabled, "csrf", None, false, true).0;
         assert!(proof.contains("/me/notification-email/confirm"));
