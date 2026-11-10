@@ -4,13 +4,13 @@ use std::process::Command;
 pub fn url() -> String {
     let url = std::env::var("LEGACY_ANALYTICS_DATABASE_URL")
         .expect("explicit legacy analytics database required");
-    assert!(
-        url.starts_with("postgresql://tor_app:")
-            && url.ends_with("@127.0.0.1:5432/tor_ci_legacy_analytics")
-            && !url.contains('?')
-            && !url.contains('#'),
-        "legacy report tests require isolated loopback tor_ci_legacy_analytics"
-    );
+    let parsed = reqwest::Url::parse(&url).expect("isolated fixture database URL");
+    assert_eq!(parsed.scheme(), "postgresql");
+    assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+    assert_eq!(parsed.port(), Some(5432));
+    assert_eq!(parsed.username(), "tor_app");
+    assert_eq!(parsed.path(), "/tor_ci_legacy_analytics");
+    assert!(parsed.query().is_none() && parsed.fragment().is_none());
     let output = Command::new("psql")
         .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", &url, "--command"])
         .arg(

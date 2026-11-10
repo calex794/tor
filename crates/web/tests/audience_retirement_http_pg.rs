@@ -24,12 +24,13 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn pg(url: &str, statement: &str) -> String {
-    assert!(
-        url.starts_with("postgresql://tor_app:")
-            && url.ends_with("@127.0.0.1:5432/tor_ci_collection_retirement_upgrade")
-            && !url.contains('?')
-            && !url.contains('#')
-    );
+    let parsed = reqwest::Url::parse(url).expect("isolated fixture database URL");
+    assert_eq!(parsed.scheme(), "postgresql");
+    assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+    assert_eq!(parsed.port(), Some(5432));
+    assert_eq!(parsed.username(), "tor_app");
+    assert_eq!(parsed.path(), "/tor_ci_collection_retirement_upgrade");
+    assert!(parsed.query().is_none() && parsed.fragment().is_none());
     let output = Command::new("psql")
         .env(
             "PGOPTIONS",

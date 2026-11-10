@@ -47,18 +47,20 @@ pub async fn sorted_locks_and_parent_deletes(app: &PgPool, f: &Fixture) -> TestR
         .await?;
     let pool = app.clone();
     let subject = f.subject.clone();
-    let deleter =
-        tokio::spawn(async move {
-            let mut tx = pool.begin().await?;
-            sqlx::raw_sql(
-            "SET LOCAL application_name='ci_retirement_sorted'; SET LOCAL statement_timeout='5s'",
-        ).execute(&mut *tx).await?;
-            sqlx::query("DELETE FROM public.flow_visits WHERE subject_id=$1::uuid")
-                .bind(subject)
-                .execute(&mut *tx)
-                .await?;
-            tx.rollback().await
-        });
+    let deleter = tokio::spawn(async move {
+        let mut tx = pool.begin().await?;
+        sqlx::query("SET LOCAL application_name='ci_retirement_sorted'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SET LOCAL statement_timeout='5s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM public.flow_visits WHERE subject_id=$1::uuid")
+            .bind(subject)
+            .execute(&mut *tx)
+            .await?;
+        tx.rollback().await
+    });
     wait_for_lock(app, "ci_retirement_sorted").await?;
     let mut upper = app.begin().await?;
     sqlx::query("SELECT 1 FROM flow_visit_daily WHERE landing_surface=2 FOR UPDATE NOWAIT")
