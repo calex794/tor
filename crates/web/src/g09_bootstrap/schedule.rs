@@ -84,7 +84,10 @@ async fn tick_one(
     }
     // A checkpoint check alone is racy across processes. Atomically reserve
     // one G-owned slot per direction/scope BEFORE opening the S3 scan lease.
-    if !schedule.reserve_slot(bucket, scope, reverse_direction).await? {
+    if !schedule
+        .reserve_slot(bucket, scope, reverse_direction)
+        .await?
+    {
         return Ok(());
     }
     match action {
