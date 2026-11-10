@@ -277,6 +277,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
+            pending_security_retention = Some(PgAccounts::from_pool(pool.clone()));
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_rec_worker = Some(
                     tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
@@ -340,7 +341,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
                     );
                 }
-                pending_security_retention = Some(accounts.clone());
                 pending_reading_returns = Some(PgReadingReturns::new(pool.clone()));
                 if overdue_observer_enabled {
                     accounts
@@ -583,7 +583,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
-    // The authenticated server starts this worker once, after binding HTTP.
+    // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
     let account_retention =
         pending_security_retention.map(tor_web::start_account_security_retention);
     let serve_result = axum::serve(

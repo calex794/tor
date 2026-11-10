@@ -15,7 +15,7 @@ use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
 
-mod flow;
+pub(crate) mod flow;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,

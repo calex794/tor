@@ -469,6 +469,18 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
+    def test_flow_visits_reaches_real_pg_and_browser_in_required_ci(self):
+        for workflow in ("tor-integration.yml", "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
+            text = (WORKFLOWS / workflow).read_text()
+            for command in (
+                "cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1",
+                "cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1",
+            ):
+                self.assertIn(command, text, workflow)
+        browser = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        self.assertIn("TOR_FLOW_VISITS_ENABLED=1", browser)
+        self.assertIn("node tools/flow_visits_pg_browser.cjs", browser)
+
     def test_rec13_acceptance_tests_committed_source_without_rewriting(self):
         self.assertEqual(ACCEPTANCE_WORKFLOWS, {"rec-feedback-acceptance.yml"})
         text = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()

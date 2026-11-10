@@ -41,7 +41,7 @@ impl PgRecommendations {
             .bind(actor)
             .execute(&mut *tx)
             .await?;
-        let state = sqlx::query("SELECT subject_id::text,revision,enabled FROM rec_subjects WHERE user_id=$1 FOR UPDATE")
+        let state = sqlx::query("SELECT subject_id::text,revision,enabled,flow_epoch::text FROM rec_subjects WHERE user_id=$1 FOR UPDATE")
             .bind(actor).fetch_one(&mut *tx).await?;
         if let Some(receipt) = sqlx::query("SELECT payload_hash,result_revision,command_type FROM rec_preference_commands WHERE user_id=$1 AND command_key=$2")
             .bind(actor).bind(key.as_slice()).fetch_optional(&mut *tx).await? {
@@ -71,6 +71,15 @@ impl PgRecommendations {
             });
         }
         let subject: String = state.try_get("subject_id")?;
+        // FLOW has a separate explicit scope. A true REC transition erases
+        // that scope atomically before replacing its FK subject/consent epoch.
+        if let Some(epoch) = state.try_get::<Option<String>, _>("flow_epoch")? {
+            sqlx::query("SELECT flow_erase_scope($1::uuid,$2::uuid)")
+                .bind(&subject)
+                .bind(epoch)
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query("INSERT INTO rec_dirty_buckets(bucket_date,book_id) SELECT DISTINCT cohort_day,book_id FROM rec_assignments WHERE subject_id=$1::uuid ON CONFLICT DO NOTHING")
             .bind(&subject).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM rec_assignments WHERE subject_id=$1::uuid")
@@ -113,7 +122,7 @@ impl PgRecommendations {
             .bind(&subject)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,feedback_epoch=feedback_epoch+CASE WHEN revision=0 THEN 0 ELSE 1 END,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,changed_at=now() WHERE user_id=$1")
+        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,feedback_epoch=feedback_epoch+CASE WHEN revision=0 THEN 0 ELSE 1 END,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,flow_epoch=NULL,flow_enabled_at=NULL,changed_at=now() WHERE user_id=$1")
             .bind(actor).bind(enabled).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM rec_preference_commands WHERE user_id=$1")
             .bind(actor)

@@ -120,6 +120,8 @@ jobs:
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
         run: bash tools/rec13_browser_acceptance.sh
       # The full-workspace Rust/Clippy and architecture baselines are already

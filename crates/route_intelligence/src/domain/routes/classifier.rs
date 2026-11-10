@@ -394,6 +394,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/notification-email/confirm"), "POST") => Some(379),
         (Some("/me/notification-email/request"), "POST") => Some(380),
         (Some("/me/notification-email/revoke"), "POST") => Some(381),
+        (Some("/me/recommendations/flow-consent"), "POST") => Some(382),
+        (Some("/admin/audience/visits"), "GET") => Some(383),
         _ => None,
     };
     index
