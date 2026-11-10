@@ -163,7 +163,7 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
                 match body_audit.progress(bucket, scope).await {
                     Ok(Some(p)) => (
                         format!(
-                            "GET объектов: {}/{}; SHA совпал: {}; подтверждённые 404: {};
+                            "Просмотрено записей: {}/{}; SHA совпал: {}; подтверждённые 404: {};
                              искажение байтов: {}; расхождение метаданных: {};
                              пропущено (pending/deleting/более 4 МиБ): {};
                              неопределённые попытки: {}; повторы: {}",
