@@ -526,7 +526,9 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
             "POST",
             &format!("/admin/book-reports/{mod_report}/decision"),
             &format!("{second}; {second_queue_cookie}"),
-            &format!("decision=hide_comment&note=Administrator+review&csrf_token={second_queue_csrf}")
+            &format!(
+                "decision=hide_comment&note=Administrator+review&csrf_token={second_queue_csrf}"
+            )
         )
         .await
         .status(),
