@@ -255,12 +255,14 @@ pub(super) async fn preview(
     match preview {
         Ok(Ok(data)) => private_response(Json(data), &[]),
         Ok(Err(error)) => import_error(error),
-        Err(crate::cpu_work::CpuWorkError::Busy) => {
-            fail(StatusCode::TOO_MANY_REQUESTS, "Обработка файлов занята. Повторите запрос.")
-        }
-        Err(crate::cpu_work::CpuWorkError::Unavailable) => {
-            fail(StatusCode::SERVICE_UNAVAILABLE, "Обработка файлов недоступна.")
-        }
+        Err(crate::cpu_work::CpuWorkError::Busy) => fail(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Обработка файлов занята. Повторите запрос.",
+        ),
+        Err(crate::cpu_work::CpuWorkError::Unavailable) => fail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Обработка файлов недоступна.",
+        ),
     }
 }
 
@@ -317,10 +319,16 @@ pub(super) async fn confirm(
         Ok(Ok(parsed)) => parsed,
         Ok(Err(error)) => return import_error(error),
         Err(crate::cpu_work::CpuWorkError::Busy) => {
-            return fail(StatusCode::TOO_MANY_REQUESTS, "Обработка файлов занята. Повторите запрос.");
+            return fail(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Обработка файлов занята. Повторите запрос.",
+            );
         }
         Err(crate::cpu_work::CpuWorkError::Unavailable) => {
-            return fail(StatusCode::SERVICE_UNAVAILABLE, "Обработка файлов недоступна.");
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Обработка файлов недоступна.",
+            );
         }
     };
     if expected_fingerprint.as_deref() != Some(actual.as_str()) {
