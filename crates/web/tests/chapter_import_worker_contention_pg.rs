@@ -100,14 +100,21 @@ async fn call(
     }
     let response = app
         .clone()
-        .oneshot(request.body(payload.map_or_else(Body::empty, |body| Body::from(body.to_string()))).unwrap())
+        .oneshot(
+            request
+                .body(payload.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+                .unwrap(),
+        )
         .await
         .expect("Axum response");
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1024 * 1024)
         .await
         .expect("bounded response");
-    (status, String::from_utf8(bytes.to_vec()).expect("UTF-8 response"))
+    (
+        status,
+        String::from_utf8(bytes.to_vec()).expect("UTF-8 response"),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -288,13 +295,29 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     assert_eq!(successes + rejected, PREVIEWS);
     assert!(successes > 0, "at least one preview must be served");
     assert_eq!(worker_status, ChapterImportWorkerResult::Completed);
-    assert!(health_p95 < Duration::from_millis(250), "worker starved Tokio");
-    assert!(ready_p95 < Duration::from_secs(2), "worker blocked shared PgPool");
-    assert_eq!(author.list_owned_chapters(owner, book_id).await.unwrap().len(), 400);
+    assert!(
+        health_p95 < Duration::from_millis(250),
+        "worker starved Tokio"
+    );
+    assert!(
+        ready_p95 < Duration::from_secs(2),
+        "worker blocked shared PgPool"
+    );
+    assert_eq!(
+        author
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .len(),
+        400
+    );
     assert!(store.0.lock().await.is_empty(), "private source cleaned up");
     let status_path = format!("/me/books/{book_id}/chapters/import-jobs/{job_id}");
     let (status, body) = call(&queue_app, &status_path, &cookies, None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["status"], "succeeded");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["status"],
+        "succeeded"
+    );
     pool.close().await;
 }
