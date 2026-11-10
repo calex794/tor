@@ -600,7 +600,9 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .unwrap();
     let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
     assert_eq!(
-        send(&app, "GET", admin_path, &mod_cookies, "").await.status(),
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -671,7 +673,9 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     assert!(!history_html.contains("BookComplaintFixture"));
     assert!(!history_html.contains("Reported comment body"));
     assert_eq!(
-        send(&app, "GET", admin_path, &mod_cookies, "").await.status(),
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
