@@ -611,6 +611,9 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
             break;
         }
     }
-    assert!(generation_drained, "REC cleanup must complete within 200 pages");
+    assert!(
+        generation_drained,
+        "REC cleanup must complete within 200 pages"
+    );
     pool.close().await;
 }
