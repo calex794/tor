@@ -326,6 +326,9 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         private(&response, StatusCode::OK);
         let html = body(response).await;
         report_matches(&html, &report);
+        assert!(html.contains("data-testid=\"audience-data-quality\""));
+        assert!(html.contains("Недостоверность измерений"));
+        assert!(html.contains("другие процессы и потери до запуска неизвестны"));
         assert!(
             !html.contains("999999"),
             "private-page fixture must be excluded"

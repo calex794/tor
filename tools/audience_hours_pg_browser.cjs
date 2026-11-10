@@ -114,6 +114,9 @@ async function checkReport(page, days) {
     }
   }
   assert.equal(bounds.previous[1], bounds.current[0]);
+  const quality = await page.getByTestId('audience-data-quality').innerText();
+  assert.match(quality, /Недостоверность измерений/);
+  assert.match(quality, /процесс/);
   const table = page.getByTestId('audience-hours-table');
   const hours = await table.locator('tr[data-hour]').evaluateAll(rows => rows.map(row => Number(row.dataset.hour)));
   assert.equal(hours.length, days*24);
