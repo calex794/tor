@@ -299,11 +299,8 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     );
     assert_eq!(
         send(&app, "GET", admin_path, &moderator, "").await.status(),
-        StatusCode::OK
+        StatusCode::FORBIDDEN
     );
-    // A site moderator may open the queue, but cannot see Book-only reports.
-    let early_moderator_queue = html(send(&app, "GET", admin_path, &moderator, "").await).await;
-    assert!(!early_moderator_queue.contains(&format!("Жалоба #{report}")));
     let q = send(&app, "GET", admin_path, &admin, "").await;
     assert_eq!(q.status(), StatusCode::OK);
     assert_eq!(q.headers()[header::CACHE_CONTROL], "no-store");
@@ -517,40 +514,28 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .parse()
     .unwrap();
     assert_ne!(next_report, comment_report);
-    // The site moderator sees the comment complaint but no pending Book complaint.
-    let mod_queue = send(&app, "GET", admin_path, &moderator, "").await;
-    assert_eq!(mod_queue.status(), StatusCode::OK);
-    assert_eq!(mod_queue.headers()[header::CACHE_CONTROL], "no-store");
-    let mod_csrf_cookie = cookie(&mod_queue, "tor-dev-csrf=");
-    let mod_html = html(mod_queue).await;
-    assert!(mod_html.contains(&format!("Жалоба #{next_report}")));
-    assert!(!mod_html.contains("Reported comment body"));
-    let mod_csrf = field(&mod_html, "csrf_token");
-    let mod_cookies = format!("{moderator}; {mod_csrf_cookie}");
+    // A moderator may handle Book registration, never content complaints.
+    assert_eq!(
+        send(&app, "GET", admin_path, &moderator, "").await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let mod_cookies = format!("{moderator}; {q_cookie}");
     let queue_html = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
     assert!(queue_html.contains("value=\"hide_comment\""));
     assert!(!queue_html.contains("Reported comment body"));
     let manual_hide = format!(
-        "decision=hide_comment&note=Confirmed+%3Cscript%3Ealert%281%29%3C%2Fscript%3E&csrf_token={mod_csrf}"
+        "decision=hide_comment&note=Confirmed+%3Cscript%3Ealert%281%29%3C%2Fscript%3E&csrf_token={q_csrf}"
     );
     let manual_path = format!("/admin/book-reports/{next_report}/decision");
-    // A live site-moderator role is required at POST, not only GET.
-    pg(&format!(
-        "UPDATE account_roles SET is_active=false
-         WHERE user_id={moderator_id} AND role='moderator'"
-    ));
+    // An active moderator still cannot hide a comment by forged POST.
     assert_eq!(
         send(&app, "POST", &manual_path, &mod_cookies, &manual_hide)
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
-    pg(&format!(
-        "UPDATE account_roles SET is_active=true
-         WHERE user_id={moderator_id} AND role='moderator'"
-    ));
     assert_eq!(
-        send(&app, "POST", &manual_path, &mod_cookies, &manual_hide)
+        send(&app, "POST", &manual_path, &admin_cookies, &manual_hide)
             .await
             .status(),
         StatusCode::SEE_OTHER
@@ -573,14 +558,14 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
             "SELECT reviewer_user_id FROM social_book_content_review_events
              WHERE report_id={next_report}"
         )),
-        moderator_id.to_string()
+        admin_id.to_string()
     );
     pg_rejected(&format!(
         "UPDATE social_book_content_review_events SET moderation_action='none'
          WHERE report_id={next_report}"
     ));
     assert_eq!(
-        send(&app, "POST", &manual_path, &mod_cookies, &manual_hide)
+        send(&app, "POST", &manual_path, &admin_cookies, &manual_hide)
             .await
             .status(),
         StatusCode::CONFLICT
@@ -614,15 +599,17 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .parse()
     .unwrap();
     let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
-    let book_only_mod_queue = html(send(&app, "GET", admin_path, &mod_cookies, "").await).await;
-    assert!(!book_only_mod_queue.contains(&format!("Жалоба #{book_only_report}")));
+    assert_eq!(
+        send(&app, "GET", admin_path, &mod_cookies, "").await.status(),
+        StatusCode::FORBIDDEN
+    );
     assert_eq!(
         send(
             &app,
             "POST",
             &book_only_action,
             &mod_cookies,
-            &format!("decision=reviewed&note=No+book+rights&csrf_token={mod_csrf}")
+            &format!("decision=reviewed&note=No+book+rights&csrf_token={q_csrf}")
         )
         .await
         .status(),
@@ -634,7 +621,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
             "POST",
             &book_only_action,
             &mod_cookies,
-            &format!("decision=dismissed&note=No+book+rights&csrf_token={mod_csrf}")
+            &format!("decision=dismissed&note=No+book+rights&csrf_token={q_csrf}")
         )
         .await
         .status(),
@@ -667,7 +654,7 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         "invalid sanction must leave the complaint unresolved"
     );
     // Immutable review history is public to neither readers nor guests.
-    // Site moderators can see past comment decisions, never Book-only reports.
+    // Moderators cannot inspect complaint history of either target type.
     let history_response = send(&app, "GET", admin_path, &admin_cookies, "").await;
     assert_eq!(history_response.status(), StatusCode::OK);
     assert_eq!(
@@ -683,9 +670,10 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     assert!(!history_html.contains("<script>alert(1)</script>"));
     assert!(!history_html.contains("BookComplaintFixture"));
     assert!(!history_html.contains("Reported comment body"));
-    let moderator_history = html(send(&app, "GET", admin_path, &mod_cookies, "").await).await;
-    assert!(moderator_history.contains(&format!("Решение по жалобе #{next_report}")));
-    assert!(!moderator_history.contains(&format!("Решение по жалобе #{report}")));
+    assert_eq!(
+        send(&app, "GET", admin_path, &mod_cookies, "").await.status(),
+        StatusCode::FORBIDDEN
+    );
     assert_eq!(
         send(&app, "GET", admin_path, &reader, "").await.status(),
         StatusCode::FORBIDDEN

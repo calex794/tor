@@ -1,4 +1,4 @@
-//! S049: authenticated Book complaints, with scoped site-moderator review of comments.
+//! S049: authenticated Book complaints, administrator-only review.
 //! Reports are moderation evidence only, not automatic holds or read grants.
 #![forbid(unsafe_code)]
 use super::book_shares::BookShareError;
@@ -37,28 +37,25 @@ fn valid_command_key(command: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Site moderation is a real, active account role, not Book membership.
-/// A dual-role actor is treated as an administrator; the chosen role row
-/// is locked until the review transaction commits.
-async fn site_reviewer(
+/// Only the global administrator reviews content reports; moderators handle
+/// Book registration rather than content/comments. Lock live role until commit.
+async fn administrator(
     tx: &mut Transaction<'_, Postgres>,
     digest: &[u8; 32],
-) -> Result<(i64, bool), BookShareError> {
-    let actor: Option<(i64, String)> = sqlx::query_as(
-        "SELECT u.id,r.role FROM sessions s
+) -> Result<i64, BookShareError> {
+    let actor: Option<i64> = sqlx::query_scalar(
+        "SELECT u.id FROM sessions s
          JOIN users u ON u.id=s.user_id
          JOIN account_roles r ON r.user_id=u.id
          WHERE s.token_hash=$1 AND s.revoked_at IS NULL
            AND s.expires_at>now() AND u.account_state='active'
-           AND r.role IN ('moderator','administrator') AND r.is_active
-         ORDER BY CASE WHEN r.role='administrator' THEN 0 ELSE 1 END
-         LIMIT 1 FOR SHARE OF s,u,r",
+           AND r.role='administrator' AND r.is_active
+         FOR SHARE OF s,u,r",
     )
     .bind(digest.as_slice())
     .fetch_optional(&mut **tx)
     .await?;
-    let (id, role) = actor.ok_or(BookShareError::Forbidden)?;
-    Ok((id, role == "administrator"))
+    actor.ok_or(BookShareError::Forbidden)
 }
 
 impl PgBookContentReports {
@@ -295,15 +292,13 @@ impl PgBookContentReports {
             return Err(BookShareError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        let (_, is_admin) = site_reviewer(&mut tx, session_digest).await?;
+        administrator(&mut tx, session_digest).await?;
         let rows: Vec<(i64, i64, Option<i64>, i64, String, String)> = sqlx::query_as(
             "SELECT id,book_id,comment_id,reporter_user_id,reason,details
              FROM social_book_content_reports WHERE state='pending'
-               AND ($2::boolean OR comment_id IS NOT NULL)
              ORDER BY reported_at,id LIMIT $1",
         )
         .bind(i64::from(limit))
-        .bind(is_admin)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -341,7 +336,7 @@ impl PgBookContentReports {
             return Err(BookShareError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        let (reviewer, is_admin) = site_reviewer(&mut tx, session_digest).await?;
+        let reviewer = administrator(&mut tx, session_digest).await?;
         let report: Option<(String, i64, Option<i64>)> = sqlx::query_as(
             "SELECT state,book_id,comment_id FROM social_book_content_reports
              WHERE id=$1 FOR UPDATE",
@@ -350,18 +345,13 @@ impl PgBookContentReports {
         .fetch_optional(&mut *tx)
         .await?;
         let (state, book_id, comment_id) = report.ok_or(BookShareError::NotFound)?;
-        // Site moderators may only review comments. Book-level reports
-        // remain administrator-only even with a forged direct POST.
-        if !is_admin && comment_id.is_none() {
-            return Err(BookShareError::Forbidden);
-        }
         if state != "pending" {
             return Err(BookShareError::Conflict);
         }
         let hide_comment = decision == "hide_comment";
         if hide_comment {
             let comment_id = comment_id.ok_or(BookShareError::Invalid)?;
-            // Explicit site-moderator/administrator action, never automatic on report.
+            // Explicit administrator action, never automatic on report.
             // Lock the exact visible public-Book comment to prevent stale sanctions.
             let found: Option<i64> = sqlx::query_scalar(
                 "SELECT id FROM discussion_comments WHERE id=$1 AND book_id=$2

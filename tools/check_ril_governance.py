@@ -735,14 +735,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                            .read_text(encoding="utf-8"))
         operation = s049_book_admin.get(admin_key) if audited_s049_book_admin else None
         required_repo = (
-            "r.role IN ('moderator','administrator') AND r.is_active",
+            "r.role='administrator' AND r.is_active",
             "s.revoked_at IS NULL",
             "s.expires_at>now()",
             "u.account_state='active'",
             "FOR SHARE OF s,u,r",
-            "site_reviewer(&mut tx, session_digest).await?",
-            "AND ($2::boolean OR comment_id IS NOT NULL)",
-            "if !is_admin && comment_id.is_none()",
+            "administrator(&mut tx, session_digest).await?",
         )
         guarded = bool(
             operation
@@ -761,7 +759,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "UPDATE social_book_content_reports SET state=$2",
             ))
         if not guarded:
-            errors.append(f"{label}: S049 site moderator Book-comment review lacks scope, live role, audit or CSRF")
+            errors.append(f"{label}: S049 administrator-only complaint review lacks live role, audit or CSRF")
     if policy == "admin_share_reports":
         repo = _production((ROOT / "crates/social/src/repositories/book_share_reports.rs")
                            .read_text(encoding="utf-8"))
