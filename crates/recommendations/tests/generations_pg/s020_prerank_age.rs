@@ -1,10 +1,10 @@
-//! S020/#486: never truncate a generation to inaccessible tier candidates
-//! before applying the current viewer's age and account policy.
+//! S020/#486: current discovery rights precede the catalogue result limit.
+//! A retained legacy generation cannot displace a visible basic new release.
 use super::*;
 
 #[tokio::test]
 #[ignore = "requires disposable isolated PostgreSQL /tor_ci"]
-async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates() {
+async fn s020_age_filter_precedes_catalog_limit_despite_retained_generation() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated PostgreSQL");
     assert!(url.ends_with("/tor_ci"), "never touch production");
     let pool = PgPool::connect(&url).await.unwrap();
@@ -43,8 +43,8 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
     .await
     .unwrap();
 
-    // 510 unique, visible-but-21+-restricted Books outrank one public Book.
-    // The old LIMIT 500 returned ONLY restricted edges for a guest reader.
+    // 510 newer, visible-but-21+-restricted books precede one basic book.
+    // Apply live visibility before LIMIT even when a legacy generation exists.
     let inserted = sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility,visibility_status,access_level)
          SELECT $1||'restricted:'||n::text,'ru',
@@ -56,6 +56,13 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
     .await
     .unwrap();
     assert_eq!(inserted.rows_affected(), 510);
+    let restricted: Vec<String> = sqlx::query_scalar(
+        "SELECT id::text FROM books WHERE source_identity LIKE $1 AND access_level='pro_adult'",
+    )
+    .bind(format!("{prefix}%"))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
 
     let store = PgRecommendations::new(pool.clone());
     let old_policy = store.runtime_status().await.unwrap();
@@ -98,32 +105,32 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
         .unwrap();
 
     let guest = store.feed(None, Some(seed), 20).await.unwrap();
-    assert_eq!(
-        guest.generation_id.as_deref(),
-        Some(generation.as_str()),
-        "anonymous visible basic edge must survive top-500 truncation"
-    );
+    assert!(guest.generation_id.is_none());
     assert!(
         guest
             .items
             .iter()
             .any(|item| item.book_id == basic.to_string()),
-        "final fallback is not evidence that the bounded candidate was ranked"
+        "inaccessible newer books must not consume the catalogue limit"
     );
     assert!(
         guest
             .items
             .iter()
-            .all(|item| item.book_id == basic.to_string()),
-        "anonymous feed must not return restricted Book metadata"
+            .all(|item| !restricted.contains(&item.book_id)),
+        "anonymous feed must not return restricted book metadata"
     );
 
     let unverified = store.feed(Some(actor), Some(seed), 20).await.unwrap();
-    assert_eq!(unverified.generation_id, Some(generation.clone()));
+    assert!(unverified.generation_id.is_none());
     assert!(unverified
         .items
         .iter()
         .any(|item| item.book_id == basic.to_string()));
+    assert!(unverified
+        .items
+        .iter()
+        .all(|item| !restricted.contains(&item.book_id)));
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
@@ -133,18 +140,19 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
     .await
     .unwrap();
     let verified = store.feed(Some(actor), Some(seed), 20).await.unwrap();
-    assert_eq!(verified.generation_id, Some(generation.clone()));
+    assert!(verified.generation_id.is_none());
     assert!(verified
         .items
         .iter()
-        .any(|item| item.book_id != basic.to_string()));
+        .any(|item| restricted.contains(&item.book_id)));
+    assert!(verified.items.iter().all(|item| item.source == "catalog"));
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(actor)
         .execute(&pool)
         .await
         .unwrap();
     let revoked = store.feed(Some(actor), Some(seed), 20).await.unwrap();
-    assert_eq!(revoked.generation_id, Some(generation.clone()));
+    assert!(revoked.generation_id.is_none());
     assert!(revoked
         .items
         .iter()
@@ -152,7 +160,7 @@ async fn s020_age_filter_precedes_top_500_and_preserves_visible_basic_candidates
     assert!(revoked
         .items
         .iter()
-        .all(|item| item.book_id == basic.to_string()));
+        .all(|item| !restricted.contains(&item.book_id)));
 
     // Restore the exact shared CI rollout state, then remove only this test's
     // data (no production migrations or external object storage).

@@ -9,6 +9,7 @@ mod events;
 mod maintenance;
 mod reconciliation;
 mod report;
+mod retired;
 
 const CONSUMER: &str = "flow-read-attribution-v1";
 

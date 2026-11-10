@@ -1,7 +1,6 @@
 'use strict';
-// FLOW: real accepted reading reaches the current genre/tag group and its exact books.
-// Time-dependent positive return counts belong to explicit PG/HTTP fixtures;
-// this browser never inserts or backdates a positive analytics fact.
+// FLOW retirement: real reading does not extend enabled legacy group observations.
+// Historical fixtures separately verify grouping, public metadata and exact drill-down.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -19,6 +18,8 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
   throw new Error('Group-return acceptance requires disposable loopback tor_ci');
 }
 fs.mkdirSync(shots, {recursive:true});
+const legacy = require('./audience_retirement_fixtures.cjs')({sql,scalar,base});
+const preview = require('./ci_browser_preview.cjs');
 
 function sql(statement) {
   return execFileSync('psql', ['-X','-A','-t','-q','-v','ON_ERROR_STOP=1',
@@ -32,13 +33,6 @@ function scalar(statement) {
   assert.match(raw, /^\d+$/, 'numeric database evidence');
   return Number(raw);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<150; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve,200));
-  }
-  throw new Error('not observed: '+label);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка возвращений группы');
@@ -48,11 +42,8 @@ async function register(page, email) {
   await page.waitForURL('**/me');
   return scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
 }
-async function consent(page, enabled) {
-  await page.goto(base+'/me/recommendations');
-  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
-  await page.waitForURL('**/me/recommendations');
+async function retiredConsent(page, enabled) {
+  await legacy.retiredConsent(page,enabled);
 }
 async function csrf(page) {
   const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
@@ -76,7 +67,9 @@ function chapter(book, number) {
 }
 async function progress(page, fixture, offset, expected=200) {
   assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(),200);
-  assert.equal(page.url(),base+`/read/${fixture.chapter}`,'progress runs from the actual reader with its live session');
+  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(),200);
+  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady==='1');
+  assert.equal(page.url(),base+`/reader/${fixture.chapter}`,'progress runs from the actual AJAX reader with its live session');
   return page.evaluate(async ({chapter,version,offset,expected,csrf}) => {
     const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
       credentials:'same-origin',cache:'no-store',
@@ -109,6 +102,7 @@ function reportPath(kind,label,days=90) {
   return '/admin/audience/returns?'+params;
 }
 async function snapshot(page,kind,label) {
+  await legacy.labelled(page,'audience-group-returns');
   assert.equal(await page.getByRole('heading',{name:'Возвращения к книгам группы',exact:true}).count(),1);
   assert.equal(await page.getByTestId('audience-group-returns-title').innerText(),
     label===null ? (kind==='genres'?'Без жанра':'Без тега') : label);
@@ -267,7 +261,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
   const emails=['admin','api-reader','manual-reader'].map(role=>`flow-group-returns-${role}-${run}@tor-ci.example`);
   const books=[],users=[],errors=[],titles=[];
   const array=labels=>labels.length?'ARRAY['+labels.map(value=>"'"+value.replaceAll("'","''")+"'").join(',')+']':"'{}'::text[]";
-  let browser;
+  let browser,coverage;
   function createBook(key,genres,tags) {
     const title='Книга группы '+key+' '+run;
     titles.push(title);
@@ -299,9 +293,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
     }
     const [adminPage,readerPage,manualPage]=pages;
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
-    await waitFor(()=>sql(`SELECT EXISTS(SELECT 1 FROM reader_book_return_coverage
-      WHERE ended_at IS NULL AND last_heartbeat_at>now()-interval '30 seconds')`)==='t',
-    'the existing book worker confirms coverage before any reading');
+    coverage=legacy.coverage('book');
     await privateResponse(await readerPage.goto(base+'/admin/audience/returns?kind=bad&label=&days=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-group-returns-current').count(),0);
     await adminPage.goto(base+'/me');
@@ -332,25 +324,42 @@ async function exactBooks(page,kind,label,days,bookIds) {
     await progress(readerPage,first,3);
     assert.equal(observationsFor(users[1]),0);
     assert.deepEqual(await report(adminPage,'genres',genre),before);
-    await consent(readerPage,true);
+    legacy.subject(users[1]);
+    const activeLegacy=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,true);
+    assert.deepEqual(legacy.snapshot(users[1]),activeLegacy);
     await progress(readerPage,second,0);
     await progress(readerPage,first,3,409);
     assert.equal(observationsFor(users[1]),0);
     await progress(readerPage,first,6);
+    assert.equal(observationsFor(users[1]),0);
+    assert.deepEqual(legacy.snapshot(users[1]),activeLegacy);
+    // Each report row below is an explicit historical fixture, not C capture.
+    legacy.book(users[1],first.book);
     const one=await report(adminPage,'genres',genre); pendingDelta(before,one,1);
     await progress(readerPage,first,9); await progress(readerPage,first,9,409);
     await progress(readerPage,later,3);
     assert.deepEqual(await report(adminPage,'genres',genre),one);
+    const oneFrozen=legacy.snapshot(users[1]);
     await progress(readerPage,second,3);
-    assert.equal(observationsFor(users[1]),2,'one reader creates two book observations in the shared group');
+    assert.deepEqual(legacy.snapshot(users[1]),oneFrozen);
+    legacy.book(users[1],second.book);
+    assert.equal(observationsFor(users[1]),2,'two explicit legacy fixtures share the group');
     pendingDelta(before,await report(adminPage,'genres',genre),2);
     pendingDelta(tagBefore,await report(adminPage,'tags',tag),2);
+    const twoFrozen=legacy.snapshot(users[1]);
     await progress(readerPage,different,3);
+    assert.deepEqual(legacy.snapshot(users[1]),twoFrozen);
+    legacy.book(users[1],different.book);
     pendingDelta(overlapBefore,await report(adminPage,'genres',overlap),2);
     pendingDelta(before,await report(adminPage,'genres',genre),2,'a book outside this group cannot enter its sum');
+    const threeFrozen=legacy.snapshot(users[1]);
     await progress(readerPage,missing,3);
+    assert.deepEqual(legacy.snapshot(users[1]),threeFrozen);
+    legacy.book(users[1],missing.book);
     for(const kind of ['genres','tags']) pendingDelta(missingBefore[kind],await report(adminPage,kind,null),1);
-    // Another real device shares the existing book window across chapters.
+    // A second real device must leave every historical observation unchanged.
+    const deviceFrozen=legacy.snapshot(users[1]);
     const deviceContext=await browser.newContext({viewport:{width:1440,height:900}});
     deviceContext.setDefaultTimeout(15000);
     await deviceContext.addCookies(await readerPage.context().cookies());
@@ -362,19 +371,31 @@ async function exactBooks(page,kind,label,days,bookIds) {
     assert.equal(await devicePage.locator(`form[action='/read/${later.chapter}/place'] input[name='version_id']`).first().inputValue(),String(later.version));
     await progress(devicePage,later,6);
     assert.equal(observationsFor(users[1],first.book),1);
+    assert.deepEqual(legacy.snapshot(users[1]),deviceFrozen);
     await deviceContext.close();
     // A second account confirms a real visible manual save in the selected book.
-    await consent(manualPage,true);
+    legacy.subject(users[2]);
+    const manualFrozen=legacy.snapshot(users[2]);
+    await retiredConsent(manualPage,true);
     assert.equal((await manualPage.goto(base+`/read/${manual.chapter}`)).status(),200);
     await manualPage.getByRole('button',{name:'Сохранить после фрагмента 2',exact:true}).click();
     await manualPage.waitForURL(base+`/read/${manual.chapter}#p-2`);
-    assert.equal(observationsFor(users[2],first.book),1);
+    assert.equal(observationsFor(users[2],first.book),0);
+    // The native position form calls PgReadingProgress::save_position. It
+    // persists the cursor without manufacturing a canonical chapter start.
+    assert.equal(scalar(`SELECT count(*) FROM reader_book_positions
+      WHERE user_id=${users[2]} AND book_id=${manual.book}
+        AND chapter_id=${manual.chapter} AND version_id=${manual.version}
+        AND block_index=2 AND char_offset=0`),1);
+    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${users[2]}`),0);
+    assert.deepEqual(legacy.snapshot(users[2]),manualFrozen);
+    legacy.book(users[2],first.book);
     const enrolled=await report(adminPage,'genres',genre); pendingDelta(before,enrolled,3);
     pendingDelta(tagBefore,await report(adminPage,'tags',tag),3);
     pendingDelta(overlapBefore,await report(adminPage,'genres',overlap),3);
     assert.equal(scalar(`SELECT count(*) FROM reader_book_return_subjects WHERE book_id IN(${books.join(',')})
       AND (cohort_day<>(now() AT TIME ZONE 'UTC')::date OR returned_d7 OR returned_d30)`),0,
-    'browser evidence contains only today and no fabricated mature return');
+    'explicit historical fixtures do not assert a mature return');
     assert.equal(scalar(`SELECT count(*) FROM reader_book_return_daily WHERE book_id IN(${books.join(',')})`),0);
     const subjects=sql(`SELECT string_agg(subject_id::text,',') FROM rec_subjects WHERE user_id IN(${users.slice(1).join(',')})`).split(',');
     for(const width of [390,1440]) {
@@ -385,6 +406,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
       assert.match(await adminPage.locator('body').innerText(),/наблюдени/);
       assert.ok(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'report fits viewport');
       await adminPage.screenshot({path:path.join(shots,`audience-group-returns-pending-${width}.png`),fullPage:true});
+      await preview(adminPage,`audience-group-returns-retired-${width}`);
     }
     for(const days of [1,7,30,90]) {
       await select(adminPage,'genres',genre,days); await periods(adminPage,days);
@@ -435,23 +457,18 @@ async function exactBooks(page,kind,label,days,bookIds) {
     sql(`UPDATE books SET admin_hold=false WHERE id=${first.book}`);
     assert.deepEqual(await report(adminPage,'genres',genre),enrolled);
 
-    // Opt-out erases all four still-personal episodes; later consent cannot
-    // resurrect old positions. Only another accepted advance enrolls again.
-    const oldSubject=sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`);
-    await consent(readerPage,false);
-    assert.equal(scalar(`SELECT count(*) FROM reader_book_return_subjects WHERE subject_id='${oldSubject}'::uuid`),0);
+    // Old consent commands cannot rotate, erase or resume the legacy model.
+    // Fresh progress and replay remain real C operations, without enrichment.
+    const frozen=legacy.snapshot(users[1]);
+    await retiredConsent(readerPage,false);
     await progress(readerPage,later,9); await progress(readerPage,second,6);
-    assert.equal(observationsFor(users[1]),0);
-    pendingDelta(before,await report(adminPage,'genres',genre),1);
-    pendingDelta(tagBefore,await report(adminPage,'tags',tag),1);
-    pendingDelta(overlapBefore,await report(adminPage,'genres',overlap),1);
-    for(const kind of ['genres','tags']) assert.deepEqual(await report(adminPage,kind,null),missingBefore[kind]);
-    await consent(readerPage,true);
-    assert.notEqual(sql(`SELECT subject_id FROM rec_subjects WHERE user_id=${users[1]}`),oldSubject);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
+    assert.deepEqual(await report(adminPage,'genres',genre),enrolled);
+    await retiredConsent(readerPage,true);
     await progress(readerPage,later,9,409);
-    assert.equal(observationsFor(users[1]),0);
     await progress(readerPage,later,12); await progress(readerPage,second,9);
     await progress(readerPage,different,6); await progress(readerPage,missing,6);
+    assert.deepEqual(legacy.snapshot(users[1]),frozen);
     assert.equal(observationsFor(users[1]),4);
     assert.deepEqual(await report(adminPage,'genres',genre),enrolled);
     for(const kind of ['genres','tags']) pendingDelta(missingBefore[kind],await report(adminPage,kind,null),1);
@@ -464,7 +481,7 @@ async function exactBooks(page,kind,label,days,bookIds) {
     sql(`UPDATE account_roles SET is_active=true WHERE user_id=${users[0]} AND role='administrator'`);
     assert.deepEqual(await report(adminPage,'genres',genre),enrolled,'restored role works on the same session');
     assert.deepEqual(errors,[]);
-    console.log('FLOW group returns browser PASS: groups -> current group -> exact books -> book returns, real CAS/manual progress, duplicate/overlapping/missing labels, two book observations per account, pending D7/D30, periods, opt-out rotation, metadata/hide, live admin, 390/1440');
+    console.log('FLOW group returns browser PASS: labelled legacy groups -> exact books -> book history, real CAS/manual/device progress without capture, duplicate/overlapping/missing labels, retired consent410/no writes, periods, current metadata/hide, live admin, 390/1440');
   } finally {
     if(browser) await browser.close();
     if(users.length) sql(`DELETE FROM account_roles WHERE user_id IN(${users.join(',')})`);
@@ -478,5 +495,6 @@ async function exactBooks(page,kind,label,days,bookIds) {
         DELETE FROM rec_dirty_buckets WHERE book_id IN(${ids}); DELETE FROM organic_discovery_dirty WHERE book_id IN(${ids}); COMMIT`);
     }
     sql(`DELETE FROM users WHERE email_normalized IN(${emails.map(email=>`'${email}'`).join(',')})`);
+    legacy.removeCoverage(coverage);
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

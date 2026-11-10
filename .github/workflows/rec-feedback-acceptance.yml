@@ -21,6 +21,9 @@ on:
       - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
       - 'tools/recommendation_preferences_pg_browser.cjs'
+      - 'tools/audience_retirement_fixtures.cjs'
+      - 'tools/audience_retired_pg_helpers.cjs'
+      - 'tools/ci_browser_preview.cjs'
   push:
     branches: ['feat/f/rec-feedback-system-20261031']
 permissions:
@@ -128,6 +131,7 @@ jobs:
           cargo test -p tor-recommendations --all-targets
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1

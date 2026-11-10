@@ -6,6 +6,8 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "$TEST_DATABASE_URL" != postgresql://tor_
   echo 'REC13 browser acceptance is restricted to isolated GitHub Actions tor_ci' >&2
   exit 2
 fi
+# Bounded screenshots from the actual CI checkout supplement the full PNG artifacts.
+export TOR_BROWSER_PROOF_IMAGES=1
 root="${RUNNER_TEMP:-/tmp}/rec13-browser"
 mkdir -p "$root/shots" "$root/node"
 exec > >(tee "$root/browser.log") 2>&1

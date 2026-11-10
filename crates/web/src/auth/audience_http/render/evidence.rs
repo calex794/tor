@@ -40,7 +40,7 @@ fn values(metrics: &BookDiscoveryMetrics) -> [(&'static str, &'static str, Optio
 }
 
 pub(super) fn metrics(body: &mut String, metrics: &BookDiscoveryMetrics) {
-    body.push_str("<dl>");
+    body.push_str("<dl data-measurement=\"legacy-consented\">");
     for (key, label, value) in values(metrics) {
         write!(
             body,
@@ -58,7 +58,7 @@ pub(super) fn comparison(
     current: &BookDiscoveryMetrics,
     previous: &BookDiscoveryMetrics,
 ) {
-    write!(body, r#"<details class="book-section-card audience-source-card" data-testid="{prefix}-comparison">
+    write!(body, r#"<details class="book-section-card audience-source-card" data-testid="{prefix}-comparison" data-measurement="legacy-consented">
         <summary>Изменение к предыдущему периоду</summary><dl>"#).expect("String");
     for ((key, label, current), (_, _, previous)) in
         values(current).into_iter().zip(values(previous))
@@ -98,7 +98,7 @@ pub(super) fn period(
     label: &str,
     period: &BookDiscoveryPeriod,
 ) {
-    write!(body, r#"<section class="book-section-card audience-source-card" data-testid="{prefix}-{key}" data-period="{key}">
+    write!(body, r#"<section class="book-section-card audience-source-card" data-testid="{prefix}-{key}" data-period="{key}" data-measurement="legacy-consented">
         <h3>{label}</h3><p>С {} до {} UTC.</p>"#, escape_html(&period.from_day), escape_html(&period.until_day_exclusive)).expect("String");
     if period.includes_partial_today {
         body.push_str("<p>Включает незавершённый сегодняшний день.</p>");
@@ -109,7 +109,9 @@ pub(super) fn period(
 }
 
 pub(super) fn counts(body: &mut String, counts: &BookDiscoveryCounts) {
-    body.push_str("<h4>Состояние книг</h4><dl>");
+    body.push_str(
+        "<h4>Состояние книг в сохранённой выборке</h4><dl data-measurement=\"legacy-consented\">",
+    );
     for (key, label, value) in [
         (
             "no-observations",
@@ -133,26 +135,22 @@ pub(super) fn counts(body: &mut String, counts: &BookDiscoveryCounts) {
 }
 
 pub(super) fn health(body: &mut String, prefix: &str, health: &DiscoveryHealth) {
-    write!(body, r#"<section class="book-section-card" data-testid="{prefix}-health"><h3>Обновление данных</h3>"#).expect("String");
+    write!(body, r#"<section class="book-section-card" data-testid="{prefix}-health"><h3>Обработка исторических данных</h3>"#).expect("String");
     if let Some(last_success) = &health.last_success_utc {
         write!(
             body,
-            "<p>Последнее подтверждение обработки: {}.</p>",
+            "<p>Последнее подтверждение прежнего обработчика: {}.</p>",
             time(last_success)
         )
         .expect("String");
     } else {
-        body.push_str("<p>Обработка ещё не подтверждена. Полнота свежих данных неизвестна.</p>");
-    }
-    if !health.fresh {
         body.push_str(
-            "<p>Нет подтверждения за последние 30 секунд. Показанные итоги могут отставать.</p>",
+            "<p>Подтверждение прежнего обработчика не сохранено. Полнота истории неизвестна.</p>",
         );
     }
+    body.push_str("<p>Эта отметка относится к прежней модели и не подтверждает текущий сбор.</p>");
     if health.rec_dirty || health.organic_dirty {
-        body.push_str(
-            "<p>Есть изменения, ожидающие пересчёта. Итоги могут измениться после обработки.</p>",
-        );
+        body.push_str("<p>Оставшиеся записи ожидают пересчёта исторических итогов.</p>");
     }
     body.push_str("</section>");
 }

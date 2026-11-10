@@ -60,7 +60,9 @@ async fn unavailable_funnel_is_private_503_and_does_not_stop_allowed_html() {
         &format!("INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator')"),
     );
     let lock = AggregateLock::acquire(&h.url);
+    let started = std::time::Instant::now();
     assert_eq!(browser.get(&h.app, "/").await.status(), StatusCode::OK);
+    assert!(started.elapsed() < Duration::from_millis(950));
     let response = browser.get(&h.app, "/admin/audience/funnel").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     private(&response);

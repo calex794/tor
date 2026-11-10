@@ -33,6 +33,7 @@ pub(crate) fn page(
         · <a href="/admin/audience/returns?days={days}">Общие возвращения к чтению</a></p>"#
     )
     .expect("String");
+    super::retirement::notice(&mut body, "возвращения на заданный день и их доля");
     filters(&mut body, book_id, days);
     match report {
         Some(report) => report_body(&mut body, report),
@@ -103,7 +104,7 @@ fn filters(body: &mut String, book_id: i64, days: i32) {
 fn report_body(body: &mut String, report: &BookReadingReturnsReport) {
     write!(
         body,
-        r#"<section data-testid="audience-book-returns" data-healthy="{}">
+        r#"<section data-testid="audience-book-returns" data-healthy="{}" data-measurement="legacy-consented">
         <p>Время расчёта: {}.</p><p>Два соседних периода одинаковой длительности по дню
         начала наблюдения. Дни указаны в UTC; начало включено, конец не включён.
         Текущий период включает сегодняшний день.</p>"#,
@@ -114,7 +115,7 @@ fn report_body(body: &mut String, report: &BookReadingReturnsReport) {
     let Some(start) = report.observation_started_at_utc.as_ref() else {
         body.push_str(
             r#"<p class="book-section-card" data-testid="audience-book-returns-not-started">
-            Измерение возвращений по книгам ещё не началось. Общая история возвращений
+            В прежней выборке нет начала измерения возвращений по книгам. Общая история возвращений
             и сохранённые места чтения не заменяют это измерение. Значения и доли пока
             не рассчитаны.</p></section>"#,
         );
@@ -123,12 +124,12 @@ fn report_body(body: &mut String, report: &BookReadingReturnsReport) {
     write!(body, r#"<p data-testid="audience-book-returns-observation-start">Начало измерения по книгам: {}.</p>"#,
         time(start)).expect("String");
     if let Some(last) = &report.last_observed_at_utc {
-        write!(body, r#"<p data-testid="audience-book-returns-last-observed">Состояние сбора проверено: {}.</p>"#,
+        write!(body, r#"<p data-testid="audience-book-returns-last-observed">Состояние исторической выборки проверено: {}.</p>"#,
             time(last)).expect("String");
     }
     if !report.collection_healthy {
         body.push_str(r#"<p class="book-section-card" role="status" data-testid="audience-book-returns-collection-gap">
-            Сбор сейчас выключен или его непрерывность не подтверждена.
+            Новый сбор прекращён. Непрерывность прежнего измерения не подтверждена.
             Результаты, затронутые разрывом, не считаются нулевыми возвращениями.</p>"#);
     }
     body.push_str(r#"<div class="audience-source-grid">"#);
@@ -136,14 +137,14 @@ fn report_body(body: &mut String, report: &BookReadingReturnsReport) {
         body,
         "audience-book-returns",
         "current",
-        "Текущий период",
+        super::retirement::CURRENT,
         &report.current,
     );
     period(
         body,
         "audience-book-returns",
         "previous",
-        "Предыдущий период",
+        super::retirement::PREVIOUS,
         &report.previous,
     );
     body.push_str("</div>");
@@ -275,6 +276,8 @@ mod tests {
     fn selected_book_is_escaped_and_preserved_without_inventing_unique_readers() {
         let html = page(19, 90, Some(&sample())).0;
         assert!(html.contains("&lt;script&gt; &amp; книга"));
+        assert!(html.contains("data-current-measurement=\"unavailable\">Не измеряется"));
+        assert!(html.contains("data-measurement=\"legacy-consented\""));
         assert!(!html.contains("<script> & книга"));
         assert!(html.contains(r#"name="book_id" value="19""#));
         assert!(html.contains("несколько наблюдений за выбранные 90 дней"));

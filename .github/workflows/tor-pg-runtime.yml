@@ -329,6 +329,7 @@ jobs:
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1

@@ -1,12 +1,13 @@
 'use strict';
-// FLOW: real navigation + consent + C progress, then F's retained source totals.
-// Catalogue fixtures are allowed; no positive analytics fact is inserted here.
+// Retained source totals are historical fixtures, separate from real ordinary C reading.
+// Existing enabled scopes and old process flags must not resume optional capture.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
-const {createHash, randomBytes} = require('node:crypto');
+const {randomBytes} = require('node:crypto');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const preview = require('./ci_browser_preview.cjs');
 
 const db = process.env.APP_URL || '';
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
@@ -32,13 +33,6 @@ function scalar(statement) {
   assert.match(raw, /^\d+$/, 'expected numeric database evidence');
   return Number(raw);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<150; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-  throw new Error('not observed: '+label);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка источников');
@@ -47,12 +41,6 @@ async function register(page, email) {
   await page.getByRole('button', {name:'Создать учётную запись'}).click();
   await page.waitForURL('**/me');
   return scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
-}
-async function consent(page, enabled) {
-  await page.goto(base+'/me/recommendations');
-  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button', {name:'Сохранить выбор',exact:true}).click();
-  await page.waitForURL('**/me/recommendations');
 }
 async function csrf(page) {
   const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
@@ -76,6 +64,8 @@ function chapter(book, number) {
 }
 async function read(page, fixture) {
   assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(), 200);
+  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(), 200);
+  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
   await page.evaluate(async ({chapter,version,csrf}) => {
     const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
       credentials:'same-origin',
@@ -97,60 +87,9 @@ async function read(page, fixture) {
     await save(13, finished, 409);
   }, {...fixture, csrf:await csrf(page)});
 }
-async function navigate(page, fixture, source) {
-  const target = source === 'recommendations' ? '/' : source === 'search'
-    ? '/catalog?q='+encodeURIComponent(fixture.title) : '/catalog?sort=newest';
-  assert.equal((await page.goto(base+target)).status(), 200);
-  let link, ticket;
-  if (source === 'recommendations') {
-    const card = page.locator('[data-rec-card]').filter({
-      has:page.locator(`a[data-rec-link][href='/books/${fixture.book}']`),
-    }).first();
-    await card.scrollIntoViewIfNeeded();
-    ticket = await card.getAttribute('data-rec-ticket');
-    assert.ok(ticket, 'consented recommendation must have an issued ticket');
-    const digest = createHash('sha256').update(ticket).digest('hex');
-    await waitFor(() => scalar(`SELECT count(*) FROM rec_assignments
-      WHERE ticket_digest=decode('${digest}','hex') AND viewed_at IS NOT NULL`) === 1,
-    'actual visible recommendation impression');
-    link = card.locator('a[data-rec-link]');
-  } else {
-    link = page.locator(`a.book-mini-card__link[href='/books/${fixture.book}'][data-organic-ticket]`).first();
-    assert.ok(await link.isVisible(), 'consented '+source+' result must have a ticket');
-    ticket = await link.getAttribute('data-organic-ticket');
-  }
-  await link.click();
-  await page.waitForURL(base+`/books/${fixture.book}`);
-  const digest = createHash('sha256').update(ticket).digest('hex');
-  const table = source === 'recommendations' ? 'rec_assignments' : 'organic_discovery_touches';
-  const predicate = `ticket_digest=decode('${digest}','hex') AND clicked_at IS NOT NULL AND book_opened_at IS NOT NULL`;
-  await waitFor(() => scalar(`SELECT count(*) FROM ${table} WHERE ${predicate}`) === 1,
-    source+' POST and successful canonical book open');
-  // Replay only the ticket already activated by the genuine click above.
-  const status = await page.evaluate(async ({source,ticket,csrf}) => {
-    const response = await fetch(source === 'recommendations'
-      ? '/api/v1/recommendations/activate' : '/api/v1/discovery/activate', {
-      method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({ticket,csrf_token:csrf}),
-    });
-    return response.status;
-  }, {source,ticket,csrf:await csrf(page)});
-  assert.equal(status, source === 'recommendations' ? 200 : 204);
-  assert.equal(scalar(`SELECT count(*) FROM ${table} WHERE ${predicate}`), 1);
-  return ticket;
-}
-async function workerSettled() {
-  await waitFor(() => sql(`SELECT EXISTS(SELECT 1 FROM rec_worker_health
-      WHERE last_success>now()-interval '30 seconds')
-      AND NOT EXISTS(SELECT 1 FROM rec_dirty_buckets)
-      AND NOT EXISTS(SELECT 1 FROM organic_discovery_dirty)
-      AND NOT EXISTS(SELECT 1 FROM rec_verified_read_events_v2 v
-        WHERE v.occurred_at>now()-interval '30 days' AND NOT EXISTS(
-          SELECT 1 FROM event_deliveries d WHERE d.event_id=v.event_id
-            AND d.consumer='recommendation-feedback-v1'))`) === 't',
-  'the actual feedback worker delivers C events and refreshes both daily projections');
-}
+const retired = require('./audience_retired_pg_helpers.cjs')({sql,scalar,base});
+const navigate = retired.navigate;
+
 async function numbers(page, period='current') {
   const section = page.getByTestId('audience-sources-'+period);
   assert.equal(await section.count(), 1);
@@ -199,12 +138,10 @@ async function calendarPeriods(page, days) {
 (async () => {
   const run = Date.now()+'-'+randomBytes(4).toString('hex');
   const emails = ['admin','reader','direct'].map(kind => `flow-sources-${kind}-${run}@tor-ci.example`);
-  const policy = JSON.parse(sql('SELECT row_to_json(p) FROM rec_runtime_policy p WHERE singleton'));
-  const fixtures = [], tickets = [], users = [];
+  const fixtures = [], legacyTokens = [], users = [];
   let browser;
   try {
-    sql('UPDATE rec_runtime_policy SET hold=true WHERE singleton');
-    for (const key of [...sources,'mixed','no-consent']) {
+    for (const key of [...sources,'mixed','after-retirement']) {
       const title = `FLOW-SOURCE-SENTINEL-${run}-${key}`;
       const book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
         VALUES('ci:flow:sources:${run}:${key}','ru','${title}','public','basic') RETURNING id`);
@@ -228,9 +165,13 @@ async function calendarPeriods(page, days) {
     assert.equal(await readerPage.locator('[data-organic-ticket]').count(), 0);
     await privateResponse(await readerPage.goto(base+'/admin/audience'), 403);
     assert.equal(await readerPage.locator('[data-metric]').count(), 0);
-    await consent(readerPage,true);
-    await consent(directPage,true);
-    await workerSettled();
+    retired.oldScopes(users.slice(1));
+    const scope = retired.scopeSnapshot(users);
+    await retired.settings(readerPage);
+    legacyTokens.push(await retired.rejectedLegacyCommands(readerPage));
+    await retired.settings(directPage);
+    legacyTokens.push(await retired.rejectedLegacyCommands(directPage));
+    await retired.settled();
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
     const before = await numbers(adminPage);
     const previous = await numbers(adminPage,'previous');
@@ -238,32 +179,45 @@ async function calendarPeriods(page, days) {
       WHERE book_opens IS NULL AND bucket_date>=(now() AT TIME ZONE 'UTC')::date-6
         AND bucket_date<(now() AT TIME ZONE 'UTC')::date+1)`) === 't';
 
+    retired.history([
+      {book:fixture('catalog').book,source:'catalog',issued:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:fixture('search').book,source:'search',issued:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:fixture('recommendations').book,source:'recommendations',impressions:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:fixture('unattributed').book,source:'unattributed',starts:1,completions:1},
+      {book:fixture('mixed').book,source:'catalog',issued:2,clicks:1,opens:1},
+      {book:fixture('mixed').book,source:'search',issued:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:fixture('mixed').book,source:'recommendations',impressions:2,clicks:1,opens:1},
+    ]);
+    retired.noCapture(users,fixtures.map(item=>item.book));
+    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    const historical = await numbers(adminPage);
+    await retired.marked(adminPage,['audience-sources-current','audience-sources-previous']);
+
     for (const source of ['catalog','search','recommendations']) {
-      tickets.push(await navigate(readerPage,fixture(source),source));
+      await navigate(readerPage,fixture(source),source);
       await read(readerPage,fixture(source));
     }
     assert.equal((await directPage.goto(base+`/books/${fixture('unattributed').book}`)).status(), 200);
     await read(directPage,fixture('unattributed'));
-    // All three successful navigation channels compete for the same C fact.
+    // All three ordinary routes remain usable; none binds the later C fact to a source.
     for (const source of ['catalog','recommendations','search']) {
-      tickets.push(await navigate(readerPage,fixture('mixed'),source));
+      await navigate(readerPage,fixture('mixed'),source);
     }
     await read(readerPage,fixture('mixed'));
     await read(readerPage,second);
-    // Moving away stops unrelated in-flight client observations before read-only checks.
+    // Let actual retention housekeeping run after canonical C commands.
     await readerPage.goto(base+'/me');
     await directPage.goto(base+'/me');
-    await workerSettled();
+    await retired.settled();
+    retired.noCapture(users,fixtures.map(item=>item.book));
     const mixed = fixture('mixed').book;
-    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_first_conversions c
-      JOIN organic_discovery_touches t ON t.id=c.touch_id WHERE c.book_id=${mixed} AND t.source='search'`), 2);
-    assert.equal(scalar(`SELECT count(*) FROM rec_first_conversions WHERE book_id=${mixed}`), 0);
-    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_unattributed_reads WHERE book_id=${mixed}`), 0);
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${users[1]} AND book_id=${mixed}`), 2,
-      'C chapters remain distinct while F counts one first book completion');
+      'both canonical C chapter completions remain distinct');
     assert.equal(scalar(`SELECT COALESCE(sum(book_opens),0) FROM rec_quality_daily
       WHERE book_id IN(${fixtures.map(item => item.book).join(',')})`),2,
-    'the worker must materialize both genuine REC book openings');
+      'retained fixture totals remain unchanged after genuine navigation');
+    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
+    assert.deepEqual(await numbers(adminPage),historical,'new C facts cannot augment old source totals');
     const changes = {
       catalog:{clicks:2,'book-opens':2,starts:1,completions:1},
       search:{clicks:2,'book-opens':2,starts:2,completions:2},
@@ -281,12 +235,14 @@ async function calendarPeriods(page, days) {
       await calendarPeriods(adminPage,7);
       assert.equal(await adminPage.getByTestId('audience-sources-health').count(),1);
       const html = await adminPage.content();
-      for (const forbidden of ['FLOW-SOURCE-SENTINEL','Readable text',event,...emails,...tickets]) {
+      for (const forbidden of ['FLOW-SOURCE-SENTINEL','Readable text',event,...emails,...legacyTokens]) {
         assert.ok(!html.includes(forbidden), 'source report exposed content or identity');
       }
       assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1),
         'source report must fit the viewport');
+      await retired.marked(adminPage,['audience-sources-current','audience-sources-previous']);
       await adminPage.screenshot({path:path.join(shots,`audience-sources-${width}.png`),fullPage:true});
+      await preview(adminPage,`audience-sources-${width}`);
     }
     for (const days of [1,30,90]) {
       await adminPage.locator('select[name="days"]').selectOption(String(days));
@@ -295,36 +251,28 @@ async function calendarPeriods(page, days) {
       await calendarPeriods(adminPage,days);
     }
 
-    await consent(readerPage,false);
-    await read(readerPage,fixture('no-consent'));
+    await retired.settings(readerPage);
+    legacyTokens.push(await retired.rejectedLegacyCommands(readerPage));
+    await read(readerPage,fixture('after-retirement'));
     await readerPage.goto(base+'/catalog?sort=newest');
-    assert.equal(await readerPage.locator('[data-organic-ticket]').count(),0);
-    await readerPage.goto(base+'/me');
-    await workerSettled();
+    assert.equal(await readerPage.locator('[data-organic-ticket],[data-rec-ticket]').count(),0);
+    await retired.settled();
+    retired.noCapture(users,fixtures.map(item=>item.book));
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
-    assertDelta(before,await numbers(adminPage),{unattributed:{starts:1,completions:1}},legacyRecOpens);
+    assert.deepEqual(await numbers(adminPage),historical,'later reading also leaves history unchanged');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${users[1]}`),6,
-      'opting out must preserve C progress, including new reading without collection');
-    await consent(directPage,false);
-    await directPage.goto(base+'/me');
-    await workerSettled();
-    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
-    assertDelta(before,await numbers(adminPage),{},legacyRecOpens);
-    for (const table of ['rec_assignments','organic_discovery_touches','organic_discovery_unattributed_reads']) {
-      assert.equal(scalar(`SELECT count(*) FROM ${table} t JOIN rec_subjects s ON s.subject_id=t.subject_id
-        WHERE s.user_id IN(${users.slice(1).join(',')})`),0,'opt-out must erase '+table);
-    }
+      'ordinary C progress remains usable without optional collection');
+    await retired.settings(directPage);
+    legacyTokens.push(await retired.rejectedLegacyCommands(directPage));
+    assert.equal(retired.scopeSnapshot(users),scope,'retired commands do not toggle old scopes');
+    retired.noCapture(users,fixtures.map(item=>item.book));
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience'),403);
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(errors,[]);
-    console.log('FLOW sources browser PASS: catalog/search/REC/direct, last source once, chapter distinction, worker, opt-out, private 390/1440 report');
+    console.log('FLOW sources browser PASS: labelled source history, genuine ordinary navigation/C reads, no optional raw or deliveries, chapter distinction, live admin, private 390/1440 report');
   } finally {
     if (browser) await browser.close();
-    const uuid = value => value === null ? 'NULL' : `'${value}'::uuid`;
-    sql(`UPDATE rec_runtime_policy SET active_generation=${uuid(policy.active_generation)},
-      previous_generation=${uuid(policy.previous_generation)},revision=${policy.revision},
-      rollout_percent=${policy.rollout_percent},hold=${policy.hold ? 'true' : 'false'} WHERE singleton`);
     if (users.length) sql(`DELETE FROM account_roles WHERE user_id IN(${users.join(',')})`);
     if (fixtures.length) {
       const ids = fixtures.map(item => item.book).join(',');

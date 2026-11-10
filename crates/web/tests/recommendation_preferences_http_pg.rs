@@ -6,6 +6,9 @@ mod fixtures;
 
 use axum::{http::StatusCode, response::Response};
 use fixtures::*;
+#[path = "support/collection_retirement.rs"]
+mod retirement;
+use retirement::{legacy_scope, optional_snapshot};
 use serde_json::{json, Value};
 use tor_accounts::services::security::generate_session_token;
 
@@ -75,7 +78,9 @@ async fn explicit_choice_without_subject_has_real_replay_cas_and_actor_isolation
     let settings = h.get(actor, "/me/recommendations").await;
     private(&settings, StatusCode::OK);
     let html = text(settings).await;
-    assert!(html.contains("Эта настройка работает независимо"));
+    assert!(html.contains("он не включает учёт посещений и чтения"));
+    assert!(!html.contains("action=\"/me/recommendations/consent\""));
+    assert!(!html.contains("data-flow-consent"));
     assert!(html.contains("&lt;script&gt;fixture&lt;/script&gt;"));
     assert!(!html.contains("<script>fixture</script>"));
     assert_eq!(h.preference(actor), state, "GET must not renew the TTL");
@@ -152,43 +157,16 @@ async fn explicit_choice_without_subject_has_real_replay_cas_and_actor_isolation
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn explicit_choice_survives_real_rec_flow_consent_changes_and_command_namespace() {
+async fn explicit_choice_survives_legacy_scope_and_retired_client_commands() {
     let h = Harness::new(true).await;
     let actor = &h.actor;
     let auth = (ORIGIN, actor.csrf.as_str());
-    let consent_key = generate_session_token();
-    private(
-        &h.form(
-            actor,
-            "/me/recommendations/consent",
-            &consent_form(actor, true, 0, &consent_key),
-        )
-        .await,
-        StatusCode::SEE_OTHER,
-    );
-    private(
-        &h.form(
-            actor,
-            "/me/recommendations/flow-consent",
-            &consent_form(actor, true, 1, &generate_session_token()),
-        )
-        .await,
-        StatusCode::SEE_OTHER,
-    );
-    let scope_sql = format!(
-        "SELECT concat_ws('|',subject_id,enabled,flow_epoch,revision)
-         FROM rec_subjects WHERE user_id={}",
-        actor.id
-    );
-    let scope_before = h.sql(&scope_sql);
+    // Explicit old-installation fixture; production has no opt-in operation.
+    legacy_scope(&h.url, actor.id);
+    let scope = optional_snapshot(&h.url, actor.id);
     let hide_key = generate_session_token();
     let hide = choice(h.book, true, 0);
     receipt(h.feedback(actor, &hide, &hide_key, auth).await, 1, true).await;
-    assert_eq!(
-        h.sql(&scope_sql),
-        scope_before,
-        "a preference must not revise or rotate the existing analytics scope"
-    );
     let preference = h.preference(actor);
     let command = h.command(actor, &hide_key);
     let head_sql = format!(
@@ -196,75 +174,42 @@ async fn explicit_choice_survives_real_rec_flow_consent_changes_and_command_name
         actor.id
     );
     let epoch = h.sql(&head_sql);
-    private(
-        &h.form(
-            actor,
-            "/me/recommendations/consent",
-            &consent_form(actor, false, 2, &generate_session_token()),
-        )
-        .await,
-        StatusCode::SEE_OTHER,
-    );
-    assert_eq!(
-        h.sql(&format!(
-            "SELECT enabled::text||'|'||(flow_epoch IS NULL)::text
-             FROM rec_subjects WHERE user_id={}",
-            actor.id
-        )),
-        "false|true"
-    );
-    assert_eq!(h.preference(actor), preference);
-    assert_eq!(h.command(actor, &hide_key), command);
-    assert_eq!(h.sql(&head_sql), epoch);
+    assert_eq!(optional_snapshot(&h.url, actor.id), scope);
+    for endpoint in [
+        "/me/recommendations/consent",
+        "/me/recommendations/flow-consent",
+    ] {
+        for enabled in [false, true] {
+            // Even a previously used preference key is not consumed by a
+            // tombstone; no consent revision, preference or receipt changes.
+            let response = h
+                .form(actor, endpoint, &consent_form(actor, enabled, 7, &hide_key))
+                .await;
+            private(&response, StatusCode::GONE);
+            assert_eq!(json(response).await["error"]["code"], "COLLECTION_RETIRED");
+            assert_eq!(optional_snapshot(&h.url, actor.id), scope);
+            assert_eq!(h.preference(actor), preference);
+            assert_eq!(h.command(actor, &hide_key), command);
+            assert_eq!(h.sql(&head_sql), epoch);
+        }
+    }
     let hidden = h.get(actor, FEEDBACK).await;
     private(&hidden, StatusCode::OK);
     let hidden = json(hidden).await;
     assert_eq!(hidden.as_array().unwrap().len(), 1);
     assert_eq!(hidden[0]["book_id"], h.book.to_string());
     assert_eq!(hidden[0]["revision"], 1);
-    // A consent withdrawal must not fall back to an anonymous feed that ignores
-    // the account's explicit hide choice. Other accounts still see the book.
-    let own_feed = feed(&h, actor).await;
-    assert!(!contains_book(&own_feed, h.book));
-    assert!(own_feed["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["ticket"].is_null()));
+    assert!(!contains_book(&feed(&h, actor).await, h.book));
     assert!(contains_book(&feed(&h, &h.other).await, h.book));
-
-    let reconsent_key = generate_session_token();
-    private(
-        &h.form(
-            actor,
-            "/me/recommendations/consent",
-            &consent_form(actor, true, 3, &reconsent_key),
-        )
-        .await,
-        StatusCode::SEE_OTHER,
-    );
+    h.assert_no_analytics_subject(&h.other);
+    let settings = text(h.get(actor, "/me/recommendations").await).await;
+    assert!(!settings.contains("data-flow-consent"));
+    assert!(!settings.contains("/me/recommendations/consent"));
+    assert!(!settings.contains("data-rec-ticket"));
+    receipt(h.feedback(actor, &hide, &hide_key, auth).await, 1, true).await;
     assert_eq!(h.preference(actor), preference);
     assert_eq!(h.command(actor, &hide_key), command);
-    assert_eq!(h.sql(&head_sql), epoch);
-    let active_scope = h.sql(&scope_sql);
-    conflict(
-        h.form(
-            actor,
-            "/me/recommendations/consent",
-            &consent_form(actor, false, 4, &hide_key),
-        )
-        .await,
-        "IDEMPOTENCY_CONFLICT",
-    )
-    .await;
-    conflict(
-        h.feedback(actor, &choice(h.book, false, 1), &reconsent_key, auth)
-            .await,
-        "IDEMPOTENCY_CONFLICT",
-    )
-    .await;
-    assert_eq!(h.sql(&scope_sql), active_scope);
-    assert_eq!(h.preference(actor), preference);
+    assert_eq!(optional_snapshot(&h.url, actor.id), scope);
     h.cleanup();
 }
 

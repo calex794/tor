@@ -1,5 +1,5 @@
 //! FLOW: exact selected-book dates, private HTTP and current public metadata.
-//! Temporal analytics here are fixtures; Chromium proves collection by real C progress.
+//! Temporal analytics are explicit legacy fixtures; Chromium proves C progress adds no capture.
 #![forbid(unsafe_code)]
 
 use axum::{
@@ -244,7 +244,11 @@ async fn report(app: &Router, cookie: &str, book: i64, days: i32) -> String {
     let path = format!("/admin/audience/returns?book_id={book}&days={days}");
     let response = call(app, &path, cookie).await;
     private(&response, StatusCode::OK);
-    body(response).await
+    let html = body(response).await;
+    assert!(html.contains("data-testid=\"collection-retired\""));
+    assert!(html.contains("data-current-measurement=\"unavailable\">Не измеряется"));
+    assert!(html.contains("data-measurement=\"legacy-consented\""));
+    html
 }
 
 fn date_bounds(url: &str, html: &str, days: i32) {

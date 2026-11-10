@@ -1,12 +1,13 @@
 'use strict';
-// FLOW-05: actual discovery and reading reach genre/tag groups and their books.
-// Catalogue fixtures are allowed; no positive analytics fact is inserted here.
+// Retained genre/tag aggregates and drill-downs are explicitly historical.
+// Real ordinary navigation and C progress must not create new optional observations.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
-const {createHash, randomBytes} = require('node:crypto');
+const {randomBytes} = require('node:crypto');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const preview = require('./ci_browser_preview.cjs');
 
 const db = process.env.APP_URL || '';
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
@@ -31,13 +32,6 @@ function scalar(statement) {
   assert.match(raw, /^\d+$/, 'expected numeric database evidence');
   return Number(raw);
 }
-async function waitFor(check, label) {
-  for (let attempt=0; attempt<150; attempt++) {
-    if (await check()) return;
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-  throw new Error('not observed: '+label);
-}
 async function register(page, email) {
   await page.goto(base+'/register');
   await page.getByLabel('Отображаемое имя').fill('Проверка направлений');
@@ -46,12 +40,6 @@ async function register(page, email) {
   await page.getByRole('button', {name:'Создать учётную запись'}).click();
   await page.waitForURL('**/me');
   return scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
-}
-async function consent(page, enabled) {
-  await page.goto(base+'/me/recommendations');
-  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button', {name:'Сохранить выбор',exact:true}).click();
-  await page.waitForURL('**/me/recommendations');
 }
 async function csrf(page) {
   const value = (await page.context().cookies()).find(cookie => cookie.name === 'tor-dev-csrf')?.value;
@@ -75,6 +63,8 @@ function chapter(book, number) {
 }
 async function read(page, fixture) {
   assert.equal((await page.goto(base+`/read/${fixture.chapter}`)).status(), 200);
+  assert.equal((await page.goto(base+`/reader/${fixture.chapter}`)).status(), 200);
+  await page.waitForFunction(() => document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
   await page.evaluate(async ({chapter,version,csrf}) => {
     const state = await fetch('/api/v1/me/progress/free?chapter_id='+chapter, {
       credentials:'same-origin',
@@ -96,60 +86,8 @@ async function read(page, fixture) {
     await save(13, finished, 409);
   }, {...fixture, csrf:await csrf(page)});
 }
-async function navigate(page, fixture, source) {
-  const target = source === 'recommendations' ? '/' : source === 'search'
-    ? '/catalog?q='+encodeURIComponent(fixture.title) : '/catalog?sort=newest';
-  assert.equal((await page.goto(base+target)).status(), 200);
-  let link, ticket;
-  if (source === 'recommendations') {
-    const card = page.locator('[data-rec-card]').filter({
-      has:page.locator(`a[data-rec-link][href='/books/${fixture.book}']`),
-    }).first();
-    await card.scrollIntoViewIfNeeded();
-    ticket = await card.getAttribute('data-rec-ticket');
-    assert.ok(ticket, 'consented recommendation must have an issued ticket');
-    const digest = createHash('sha256').update(ticket).digest('hex');
-    await waitFor(() => scalar(`SELECT count(*) FROM rec_assignments
-      WHERE ticket_digest=decode('${digest}','hex') AND viewed_at IS NOT NULL`) === 1,
-    'actual visible recommendation impression');
-    link = card.locator('a[data-rec-link]');
-  } else {
-    link = page.locator(`a.book-mini-card__link[href='/books/${fixture.book}'][data-organic-ticket]`).first();
-    assert.ok(await link.isVisible(), 'consented '+source+' result must have a ticket');
-    ticket = await link.getAttribute('data-organic-ticket');
-  }
-  await link.click();
-  await page.waitForURL(base+`/books/${fixture.book}`);
-  const digest = createHash('sha256').update(ticket).digest('hex');
-  const table = source === 'recommendations' ? 'rec_assignments' : 'organic_discovery_touches';
-  const predicate = `ticket_digest=decode('${digest}','hex') AND clicked_at IS NOT NULL AND book_opened_at IS NOT NULL`;
-  await waitFor(() => scalar(`SELECT count(*) FROM ${table} WHERE ${predicate}`) === 1,
-    source+' POST and successful canonical book open');
-  // Replay only the ticket already activated by the genuine click above.
-  const status = await page.evaluate(async ({source,ticket,csrf}) => {
-    const response = await fetch(source === 'recommendations'
-      ? '/api/v1/recommendations/activate' : '/api/v1/discovery/activate', {
-      method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({ticket,csrf_token:csrf}),
-    });
-    return response.status;
-  }, {source,ticket,csrf:await csrf(page)});
-  assert.equal(status, source === 'recommendations' ? 200 : 204);
-  assert.equal(scalar(`SELECT count(*) FROM ${table} WHERE ${predicate}`), 1);
-  return ticket;
-}
-async function workerSettled() {
-  await waitFor(() => sql(`SELECT EXISTS(SELECT 1 FROM rec_worker_health
-      WHERE last_success>now()-interval '30 seconds')
-      AND NOT EXISTS(SELECT 1 FROM rec_dirty_buckets)
-      AND NOT EXISTS(SELECT 1 FROM organic_discovery_dirty)
-      AND NOT EXISTS(SELECT 1 FROM rec_verified_read_events_v2 v
-        WHERE v.occurred_at>now()-interval '30 days' AND NOT EXISTS(
-          SELECT 1 FROM event_deliveries d WHERE d.event_id=v.event_id
-            AND d.consumer='recommendation-feedback-v1'))`) === 't',
-  'the actual feedback worker delivers C events and refreshes both daily projections');
-}
+const retired = require('./audience_retired_pg_helpers.cjs')({sql,scalar,base});
+const navigate = retired.navigate;
 
 async function values(locator) {
   const result = {};
@@ -214,8 +152,7 @@ async function detail(page, kind, label, days) {
   const tagA = '!метка + "'+run+'"', tagB = '!дорога '+run;
   const secret = '!скрытый '+run;
   const emails = ['admin','reader'].map(role => `flow-groups-${role}-${run}@tor-ci.example`);
-  const policy = JSON.parse(sql('SELECT row_to_json(p) FROM rec_runtime_policy p WHERE singleton'));
-  const fixtures = [], users = [], tickets = [], errors = [];
+  const fixtures = [], users = [], legacyTokens = [], errors = [];
   let browser;
   const array = labels => labels.length ? 'ARRAY['+labels.map(value => "'"+value.replaceAll("'","''")+"'").join(',')+']' : "'{}'::text[]";
   function create(key,title,genres,tags) {
@@ -226,7 +163,6 @@ async function detail(page, kind, label, days) {
     return fixture;
   }
   try {
-    sql('UPDATE rec_runtime_policy SET hold=true WHERE singleton');
     const search = create('search','Книга из поиска '+run,[genreA,genreB,genreA],[tagA,tagB,tagA]);
     const recommended = create('recommendations','Книга из рекомендации '+run,[genreA],[tagA]);
     const direct = create('direct','Книга без жанра '+run,[],[tagB]);
@@ -245,13 +181,24 @@ async function detail(page, kind, label, days) {
     sql(`INSERT INTO account_roles(user_id,role) VALUES(${users[0]},'administrator')`);
     await privateResponse(await readerPage.goto(base+'/admin/audience/groups?kind=bad'),403);
     assert.equal(await readerPage.getByTestId('audience-group-row').count(),0);
-    await consent(readerPage,true);
-    tickets.push(await navigate(readerPage,search,'search')); await read(readerPage,search);
-    tickets.push(await navigate(readerPage,recommended,'recommendations')); await read(readerPage,recommended);
+    retired.oldScopes(users.slice(1));
+    const scope = retired.scopeSnapshot(users);
+    await retired.settings(readerPage);
+    legacyTokens.push(await retired.rejectedLegacyCommands(readerPage));
+    retired.history([
+      {book:search.book,source:'search',issued:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:recommended.book,source:'recommendations',impressions:2,clicks:1,opens:1,starts:1,completions:1},
+      {book:direct.book,source:'unattributed',starts:1,completions:1},
+      {book:unread.book,source:'catalog',issued:1},
+    ]);
+    retired.noCapture(users,fixtures.map(item=>item.book));
+    await navigate(readerPage,search,'search'); await read(readerPage,search);
+    await navigate(readerPage,recommended,'recommendations'); await read(readerPage,recommended);
     await readerPage.goto(base+`/books/${direct.book}`); await read(readerPage,direct);
-    tickets.push(await navigate(readerPage,unread,'catalog'));
+    await navigate(readerPage,unread,'catalog');
     await readerPage.goto(base+'/me'); await readerPage.waitForLoadState('networkidle');
-    await workerSettled();
+    await retired.settled();
+    retired.noCapture(users,fixtures.map(item=>item.book));
     const zero = create('zero','Книга без наблюдений '+run,[genreA],[tagA]);
     await adminPage.goto(base+'/me');
     await adminPage.locator('a[href="/admin/audience"]').click();
@@ -259,6 +206,7 @@ async function detail(page, kind, label, days) {
     await adminPage.getByTestId('audience-groups-link').click();
     await adminPage.waitForURL(url => url.pathname === '/admin/audience/groups');
     await select(adminPage,'genres',7); await periods(adminPage,7);
+    await retired.marked(adminPage,['audience-groups-current','audience-groups-previous']);
     const baseline = {};
     for (const [kind,labels] of [['genres',[genreA,genreB,'']],['tags',[tagA,tagB,'']]]) {
       await select(adminPage,kind,7);
@@ -283,9 +231,11 @@ async function detail(page, kind, label, days) {
       for (const [kind,labels] of [['genres',[genreA,genreB,'']],['tags',[tagA,tagB,'']]]) {
         await privateResponse(await adminPage.goto(base+`/admin/audience/groups?kind=${kind}&days=7`));
         const html=await adminPage.content();
-        for (const forbidden of [secret,'HIDDEN-GROUP-SENTINEL','Readable text',...emails,...tickets]) assert.ok(!html.includes(forbidden),'no private metadata or identity');
+        for (const forbidden of [secret,'HIDDEN-GROUP-SENTINEL','Readable text',...emails,...legacyTokens]) assert.ok(!html.includes(forbidden),'no private metadata or identity');
         assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth+1),'groups fit viewport');
+        await retired.marked(adminPage,['audience-groups-current','audience-groups-previous']);
         await adminPage.screenshot({path:path.join(shots,`audience-groups-${kind}-${width}.png`),fullPage:true});
+        await preview(adminPage,`audience-groups-${kind}-${width}`);
         for (const label of labels) {
           const groupsUrl=adminPage.url();
           assert.deepEqual(await values(group(adminPage,label).locator('[data-period="current"]')),baseline[kind][label],'repeat comparison is read-only');
@@ -312,17 +262,17 @@ async function detail(page, kind, label, days) {
     // Untouched book remains visible without any invented measured zero.
     await adminPage.goto(base+'/admin/audience/books?genre='+encodeURIComponent(genreA)+'&days=7');
     assert.ok(Object.values(await values(adminPage.locator(`[data-book-id='${zero.book}'] [data-period='current']`))).every(value=>value===null));
+    await retired.settled();
+    retired.noCapture(users,fixtures.map(item=>item.book));
+    assert.equal(retired.scopeSnapshot(users),scope,'ordinary activity does not mutate old scopes');
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience/groups?kind=genres&days=7'),403);
     assert.equal(await adminPage.getByTestId('audience-group-row').count(),0);
     await privateResponse(await adminPage.goto(base+'/admin/audience/books?without_genre=true&days=7'),403);
     assert.deepEqual(errors,[]);
-    console.log('FLOW groups browser PASS: real search/REC/direct reads, overlapping and missing labels, exact details, periods, current visibility, live admin, 390/1440');
+    console.log('FLOW groups browser PASS: labelled historical fixtures, real ordinary C reads without capture, overlapping and missing labels, exact details, periods, current visibility, live admin, 390/1440');
   } finally {
     if(browser) await browser.close();
-    const uuid=value=>value===null ? 'NULL' : `'${value}'::uuid`;
-    sql(`UPDATE rec_runtime_policy SET active_generation=${uuid(policy.active_generation)},previous_generation=${uuid(policy.previous_generation)},
-      revision=${policy.revision},rollout_percent=${policy.rollout_percent},hold=${policy.hold?'true':'false'} WHERE singleton`);
     if(users.length) sql(`DELETE FROM account_roles WHERE user_id IN(${users.join(',')})`);
     if(fixtures.length) {
       const ids=fixtures.map(item=>item.book).join(',');

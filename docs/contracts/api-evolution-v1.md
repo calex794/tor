@@ -1,5 +1,7 @@
 # TOR HTTP v1 — выполнение OpenAPI, ошибок, сериализации и совместимости (PREF-07)
 
+**REC/FLOW semantic revision 2026-11-11.v2:** [договор перехода](flow-rec-runtime-retirement-v2.md) явно расширяет response enum значением `catalog` и заменяет прежний успех retired collection/control endpoints на private 410 `COLLECTION_RETIRED`. Существующие URL сохраняются; старый сбор не поддерживается ради совместимости. Это согласованное изменение целевой модели, не обещание совместимости для исчерпывающего старого enum. Остальные API не меняются.
+
 **Машинно-читаемое ядро:** [openapi-v1.json](openapi-v1.json) (OpenAPI 3.1.0, 40 HTTP-операций). **Подробные канонические соглашения:** [api-v1.md](../roadmap/api-v1.md), [paid S3](paid-delivery-v1.md), [права](../roadmap/access-authorization-contract.md), [реклама](finance-ad-exact-v1.md), [возвраты](refunds-payouts-v1.md), [файлы](import-storage-v1.md), [сигналы](events-analytics-v1.md). Это CONTRACT документации; Rust реализацию/SQLx-модели требуется создать и доказать, OpenAPI файл **не запускает сервер**.
 
 ## 1. Где живёт код и кто может изменять общий договор

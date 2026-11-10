@@ -21,4 +21,6 @@ mod fixtures;
 mod lifecycle;
 #[path = "flow_funnel_pg/reconciliation.rs"]
 mod reconciliation;
+#[path = "flow_funnel_pg/retired.rs"]
+mod retired;
 use fixtures::*;

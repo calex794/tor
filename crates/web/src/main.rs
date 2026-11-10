@@ -11,8 +11,7 @@ use tor_books::{
     services::PublicBookRepository,
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
-use tor_reading::repositories::{returns::PgReadingReturns, PgReader};
-use tor_web::recommendation_worker::{spawn_reading_returns, validate_reading_returns_runtime};
+use tor_reading::repositories::PgReader;
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -22,7 +21,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
-    let reading_returns_enabled = validate_reading_returns_runtime(demo)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -198,24 +196,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
-    let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
-    let mut pending_reading_returns = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
-    for flag in ["TOR_RECOMMENDATIONS_ENABLED", "TOR_REC_ATTRIBUTION_ENABLED"] {
-        if let Ok(value) = env::var(flag) {
-            if !matches!(value.as_str(), "0" | "1") {
-                return Err(format!("invalid boolean flag {flag}").into());
-            }
+    // The product switch still controls the catalogue recommendation surface.
+    // Retired collection flags cannot enable identity capture or block AUTH=0.
+    if let Ok(value) = env::var("TOR_RECOMMENDATIONS_ENABLED") {
+        if !matches!(value.as_str(), "0" | "1") {
+            return Err("invalid boolean flag TOR_RECOMMENDATIONS_ENABLED".into());
         }
-    }
-    if env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1")
-        && env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1")
-    {
-        return Err("attribution requires recommendations".into());
     }
     let mut pending_social_notifications = None;
     let mut pending_support_cleanup = None;
@@ -279,11 +270,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let pool = catalog.pool();
             pending_security_retention = Some(PgAccounts::from_pool(pool.clone()));
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                pending_rec_worker = Some(
-                    tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
-                );
-            }
-            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_support_cleanup = Some(
                     tor_support::repositories::postgres::PgSupport::new(pool.clone()),
                 );
@@ -341,7 +327,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
                     );
                 }
-                pending_reading_returns = Some(PgReadingReturns::new(pool.clone()));
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -577,9 +562,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
-    let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
-    let _reading_returns =
-        spawn_reading_returns(pending_reading_returns, reading_returns_enabled).await?;
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);

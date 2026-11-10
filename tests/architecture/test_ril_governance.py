@@ -162,12 +162,15 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
 
-    def test_flow_consent_cannot_write_as_another_actor(self):
+    def test_retired_flow_consent_cannot_write_for_any_actor(self):
         self.mutate(
-            "crates/web/src/recommendation_http/flow_consent.rs",
-            "set_flow_consent(", "unscoped_flow_consent(",
+            "crates/web/src/recommendation_http/pages.rs",
+            "    api::retired()\n}",
+            '    let _ = state.store.set_flow_consent(0, true, 0, "test").await;\n'
+            '    api::retired()\n}',
+            start="pub(super) async fn consent(",
         )
-        self.assert_detected("missing actor-bound scoped repository call")
+        self.assert_detected("retired collection route must terminate in private 410 without analytics work")
 
     def test_audience_books_cannot_skip_parent_authorization(self):
         self.mutate(
