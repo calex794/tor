@@ -303,14 +303,23 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         ready_p95 < Duration::from_secs(2),
         "worker blocked shared PgPool"
     );
-    assert_eq!(
-        author
-            .list_owned_chapters(owner, book_id)
+    // The legacy list_owned_chapters API deliberately caps results at 200.
+    // Check every page using the canonical owner-scoped keyset cursor.
+    let mut cursor = None;
+    let mut saved_numbers = Vec::new();
+    loop {
+        let page = author
+            .list_owned_chapters_page(owner, book_id, cursor)
             .await
-            .unwrap()
-            .len(),
-        400
-    );
+            .unwrap();
+        saved_numbers.extend(page.chapters.iter().map(|chapter| chapter.number));
+        assert!(saved_numbers.len() <= 400, "unexpected duplicate pages");
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(saved_numbers, (1..=400).collect::<Vec<i32>>());
     assert!(store.0.lock().await.is_empty(), "private source cleaned up");
     let status_path = format!("/me/books/{book_id}/chapters/import-jobs/{job_id}");
     let (status, body) = call(&queue_app, &status_path, &cookies, None).await;
