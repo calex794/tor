@@ -112,7 +112,11 @@ pub(super) async fn submit(
 
     // Same bounded Argon2 worker and attempt-budget pattern as admin refunds.
     let attempt_key = session_token_digest(&format!("finance:payout:stepup:{actor}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 6, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 6, 600)
+        .await
+    {
         Ok(true) => {}
         Ok(false) => return fail(StatusCode::TOO_MANY_REQUESTS, "Превышен лимит попыток."),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -200,8 +204,8 @@ pub(super) async fn submit(
 #[cfg(test)]
 mod tests {
     use super::posting_error;
-    use tor_commerce::repositories::creator_payout_posting::PayoutPostError;
     use axum::http::StatusCode;
+    use tor_commerce::repositories::creator_payout_posting::PayoutPostError;
 
     #[test]
     fn s039_http_post_errors_never_claim_external_settlement() {

@@ -88,7 +88,12 @@ fn shell(content: &str, cookies: &[String]) -> Response {
     response
 }
 
-fn render_request(row: &PayoutAdminRow, csrf: &str, allow_reject: bool, allow_post: bool) -> String {
+fn render_request(
+    row: &PayoutAdminRow,
+    csrf: &str,
+    allow_reject: bool,
+    allow_post: bool,
+) -> String {
     let label = if row.state == "pending" {
         "Ожидает решения (не перечислена)"
     } else if row.state == "rejected" {

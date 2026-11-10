@@ -32,8 +32,16 @@ fn pg(url: &str, sql: &str) -> String {
             "-c statement_timeout=15000 -c lock_timeout=5000",
         )
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url,
-            "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("psql required for PostgreSQL acceptance");
@@ -180,9 +188,8 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
     let path = format!("/admin/finance/payouts/{id}/post");
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
-    let form = format!(
-        "csrf_token={csrf}&reason=Approve+internally&current_password={ADMIN_PASSWORD}"
-    );
+    let form =
+        format!("csrf_token={csrf}&reason=Approve+internally&current_password={ADMIN_PASSWORD}");
 
     assert_eq!(
         request(&site, "POST", &path, "", ORIGIN, &form)
@@ -213,7 +220,12 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
 
     assert_eq!(
         request(
-            &site, "POST", &path, &admin_cookie, "https://evil.invalid", &form
+            &site,
+            "POST",
+            &path,
+            &admin_cookie,
+            "https://evil.invalid",
+            &form
         )
         .await
         .status(),
@@ -294,9 +306,7 @@ async fn s039_payout_post_http_role_password_csrf_exact_once_and_replay() {
             &path,
             &admin_cookie,
             ORIGIN,
-            &format!(
-                "csrf_token={csrf}&reason=Changed&current_password={ADMIN_PASSWORD}"
-            )
+            &format!("csrf_token={csrf}&reason=Changed&current_password={ADMIN_PASSWORD}")
         )
         .await
         .status(),
