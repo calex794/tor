@@ -17,6 +17,12 @@ pub enum StepUpIssueError {
     Unavailable,
 }
 
+struct StepUpBinding<'a> {
+    request_id: i64,
+    revision: i64,
+    digest: &'a [u8; 32],
+}
+
 impl PgAccounts {
     /// A one-use proof tied to a fresh password, active admin session and
     /// exact request+revision+reason digest. Existing refund callers unchanged.
@@ -34,9 +40,11 @@ impl PgAccounts {
             actor,
             session_digest,
             verified_password,
-            request_id,
-            expected_revision,
-            decision_digest,
+            StepUpBinding {
+                request_id,
+                revision: expected_revision,
+                digest: decision_digest,
+            },
         )
         .await
     }
@@ -57,9 +65,11 @@ impl PgAccounts {
             actor,
             session_digest,
             verified_password,
-            request_id,
-            amount_minor,
-            decision_digest,
+            StepUpBinding {
+                request_id,
+                revision: amount_minor,
+                digest: decision_digest,
+            },
         )
         .await
     }
@@ -73,10 +83,13 @@ impl PgAccounts {
         actor: i64,
         session_digest: &[u8; 32],
         verified_password: &VerifiedPassword,
-        request_id: i64,
-        expected_revision: i64,
-        decision_digest: &[u8; 32],
+        binding: StepUpBinding<'_>,
     ) -> Result<String, StepUpIssueError> {
+        let StepUpBinding {
+            request_id,
+            revision: expected_revision,
+            digest: decision_digest,
+        } = binding;
         if actor <= 0 || request_id <= 0 || expected_revision <= 0 {
             return Err(StepUpIssueError::InvalidIntent);
         }
