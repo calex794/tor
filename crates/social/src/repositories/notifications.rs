@@ -7,10 +7,10 @@ use std::collections::HashMap;
 
 #[path = "notification_daily_digest.rs"]
 mod daily_chapter_digest;
-#[path = "notification_external_candidates.rs"]
-mod external_candidates;
 #[path = "notification_email_intents.rs"]
 mod email_intents;
+#[path = "notification_external_candidates.rs"]
+mod external_candidates;
 pub use external_candidates::ExternalReleasePreview;
 #[path = "notification_read_policy.rs"]
 mod read_policy;

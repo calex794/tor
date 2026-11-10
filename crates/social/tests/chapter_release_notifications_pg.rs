@@ -178,7 +178,12 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .await
     .unwrap();
     // Explicit opt-in and mailbox proof must precede even queue staging.
-    assert_eq!(repo.stage_immediate_email_intents(follower, 8).await.unwrap(), 0);
+    assert_eq!(
+        repo.stage_immediate_email_intents(follower, 8)
+            .await
+            .unwrap(),
+        0
+    );
     sqlx::query(
         "INSERT INTO reader_notification_email_proofs
              (user_id,email_sha256,verified_at,opted_in_at)
@@ -195,8 +200,18 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         repo.stage_immediate_email_intents(follower, 8)
     );
     assert_eq!(first_stage.unwrap() + second_stage.unwrap(), 1);
-    assert_eq!(repo.stage_immediate_email_intents(follower, 8).await.unwrap(), 0);
-    assert_eq!(repo.stage_immediate_email_intents(late_follower, 8).await.unwrap(), 0);
+    assert_eq!(
+        repo.stage_immediate_email_intents(follower, 8)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        repo.stage_immediate_email_intents(late_follower, 8)
+            .await
+            .unwrap(),
+        0
+    );
     let queued: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM reader_email_notification_intents
          WHERE recipient_user_id=$1 AND state='queued' AND delivery_mode='immediate'",
@@ -235,7 +250,9 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .is_empty());
 
     assert_eq!(
-        repo.stage_immediate_email_intents(follower, 8).await.unwrap(),
+        repo.stage_immediate_email_intents(follower, 8)
+            .await
+            .unwrap(),
         0,
         "disabled delivery mode cannot create new send intentions"
     );
@@ -248,7 +265,12 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(repo.stage_immediate_email_intents(follower, 8).await.unwrap(), 0);
+    assert_eq!(
+        repo.stage_immediate_email_intents(follower, 8)
+            .await
+            .unwrap(),
+        0
+    );
 
     let received: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT recipient_user_id,kind,url FROM user_notifications
