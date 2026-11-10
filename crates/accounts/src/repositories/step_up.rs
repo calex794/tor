@@ -30,9 +30,15 @@ impl PgAccounts {
         decision_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
         self.issue_administrator_step_up(
-            REFUND_SCOPE, actor, session_digest, verified_password,
-            request_id, expected_revision, decision_digest,
-        ).await
+            REFUND_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            request_id,
+            expected_revision,
+            decision_digest,
+        )
+        .await
     }
 
     /// No public payout approval route. Bind the proof's revision slot to
@@ -47,9 +53,15 @@ impl PgAccounts {
         decision_digest: &[u8; 32],
     ) -> Result<String, StepUpIssueError> {
         self.issue_administrator_step_up(
-            PAYOUT_SCOPE, actor, session_digest, verified_password,
-            request_id, amount_minor, decision_digest,
-        ).await
+            PAYOUT_SCOPE,
+            actor,
+            session_digest,
+            verified_password,
+            request_id,
+            amount_minor,
+            decision_digest,
+        )
+        .await
     }
 
     /// Authorizes only the specified decision digest. The caller must

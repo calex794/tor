@@ -1,5 +1,5 @@
 //! S039/MONEY-03: trusted INTERNAL wallet payout posting, no bank transfer.
- //! No HTTP exposure until operator security and reconciliation are accepted.
+//! No HTTP exposure until operator security and reconciliation are accepted.
 #![forbid(unsafe_code)]
 
 mod credits;
@@ -82,18 +82,23 @@ impl PgCreatorPayoutPosting {
         reason: &str,
     ) -> Result<PayoutPostReceipt, PayoutPostError> {
         let reason = reason.trim();
-        if actor <= 0 || request_id <= 0
+        if actor <= 0
+            || request_id <= 0
             || !(1..=1_000_000_000_000).contains(&expected_amount_minor)
-            || reason.is_empty() || reason.chars().count() > 500
+            || reason.is_empty()
+            || reason.chars().count() > 500
             || !valid_token(step_up_token)
         {
             return Err(PayoutPostError::Invalid);
         }
-        let payload = payout_step_up_payload_digest(
-            actor, request_id, expected_amount_minor, reason,
-        );
+        let payload =
+            payout_step_up_payload_digest(actor, request_id, expected_amount_minor, reason);
         let proof_hash = Sha256::digest(step_up_token.as_bytes());
-        let mut tx = self.pool.begin().await.map_err(|_| PayoutPostError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PayoutPostError::Unavailable)?;
 
         // Lock current administrator authority until commit (not a stale
         // cached claim). Issuer uses the same role -> session lock order.
@@ -126,13 +131,12 @@ impl PgCreatorPayoutPosting {
             return Err(PayoutPostError::StepUpRequired);
         }
 
-        let recipient: Option<i64> = sqlx::query_scalar(
-            "SELECT user_id FROM finance_creator_payout_requests WHERE id=$1",
-        )
-        .bind(request_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| PayoutPostError::Unavailable)?;
+        let recipient: Option<i64> =
+            sqlx::query_scalar("SELECT user_id FROM finance_creator_payout_requests WHERE id=$1")
+                .bind(request_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| PayoutPostError::Unavailable)?;
         let recipient = recipient.ok_or(PayoutPostError::NotFound)?;
         // Independent authorization: administrators cannot post their own
         // payout. Avoids upgrading a held admin SHARE user lock as well.
@@ -206,10 +210,15 @@ impl PgCreatorPayoutPosting {
             .await
             .map_err(|_| PayoutPostError::Unavailable)?;
             let (entry, _) = posting.ok_or(PayoutPostError::Unavailable)?;
-            tx.commit().await.map_err(|_| PayoutPostError::Unavailable)?;
+            tx.commit()
+                .await
+                .map_err(|_| PayoutPostError::Unavailable)?;
             return Ok(PayoutPostReceipt {
-                request_id, recipient_user_id: recipient, amount_minor: amount,
-                wallet_entry_id: entry, replayed: true,
+                request_id,
+                recipient_user_id: recipient,
+                amount_minor: amount,
+                wallet_entry_id: entry,
+                replayed: true,
             });
         }
         if state != "pending" {
@@ -219,13 +228,13 @@ impl PgCreatorPayoutPosting {
         // Positive advisory capacity is not sufficient: some matured creator
         // earnings may exist only in the projection, not the spendable wallet.
         // Credit bounded verified sources IN THIS SAME TRANSACTION.
-        let actual_balance = credits::materialize_until(
-            &mut tx, recipient, amount, balance,
-        ).await?;
+        let actual_balance =
+            credits::materialize_until(&mut tx, recipient, amount, balance).await?;
         let totals = PgCreatorFinance::totals_in(&mut tx, recipient)
             .await
             .map_err(|_| PayoutPostError::Unavailable)?;
-        let other_reserved = totals.reserved_minor
+        let other_reserved = totals
+            .reserved_minor
             .checked_sub(amount)
             .filter(|value| *value >= 0)
             .ok_or(PayoutPostError::Unavailable)?;
@@ -337,10 +346,15 @@ impl PgCreatorPayoutPosting {
         .execute(&mut *tx)
         .await
         .map_err(|_| PayoutPostError::Unavailable)?;
-        tx.commit().await.map_err(|_| PayoutPostError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| PayoutPostError::Unavailable)?;
         Ok(PayoutPostReceipt {
-            request_id, recipient_user_id: recipient, amount_minor: amount,
-            wallet_entry_id: entry_id, replayed: false,
+            request_id,
+            recipient_user_id: recipient,
+            amount_minor: amount,
+            wallet_entry_id: entry_id,
+            replayed: false,
         })
     }
 }

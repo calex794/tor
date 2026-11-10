@@ -1,5 +1,5 @@
 //! Bring mature, source-backed creator earnings into the unified wallet.
- //! Only called with the owner wallet row held FOR UPDATE by the posting tx.
+//! Only called with the owner wallet row held FOR UPDATE by the posting tx.
 use super::PayoutPostError;
 use sqlx::{Postgres, Transaction};
 
