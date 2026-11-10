@@ -432,9 +432,11 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
 
     let mut successes = 0_usize;
     let mut rejected = 0_usize;
+    let mut http_elapsed = Vec::new();
     tokio::time::timeout(Duration::from_secs(20), async {
         while let Some(joined) = pending.join_next().await {
-            let (status, body, _) = joined.expect("preview task joined");
+            let (status, body, elapsed) = joined.expect("preview task joined");
+            http_elapsed.push(elapsed);
             match status {
                 StatusCode::OK => {
                     let preview: Value = serde_json::from_str(&body).unwrap();
@@ -478,6 +480,9 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     assert_eq!(finance_elapsed.len(), FINANCE_READS);
     finance_elapsed.sort_unstable();
     let finance_p95 = finance_elapsed[finance_elapsed.len() * 95 / 100];
+    assert_eq!(http_elapsed.len(), PREVIEWS);
+    http_elapsed.sort_unstable();
+    let http_p95 = http_elapsed[http_elapsed.len() * 95 / 100];
     let (mut health, mut ready, mut acquire) = probes.await.expect("liveness probe joined");
     health.sort_unstable();
     ready.sort_unstable();
@@ -488,14 +493,18 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     let acquire_max = acquire[acquire.len() - 1];
 
     println!(
-        "TOR_MIXED_REC_FINANCE_G09_S023_CONTENTION previews={} success={} backpressure_429={} finance_reads={} finance_p95_ms={} rec_worker_ms={} import_worker_ms={} cover_worker_ms={} health_p95_ms={} ready_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
-        PREVIEWS, successes, rejected, FINANCE_READS, finance_p95.as_millis(),
+        "TOR_MIXED_REC_FINANCE_G09_S023_CONTENTION previews={} success={} backpressure_429={} http_p95_ms={} finance_reads={} finance_p95_ms={} rec_worker_ms={} import_worker_ms={} cover_worker_ms={} health_p95_ms={} ready_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
+        PREVIEWS, successes, rejected, http_p95.as_millis(), FINANCE_READS, finance_p95.as_millis(),
         recommendation_elapsed.as_millis(), worker_elapsed.as_millis(),
         cover_elapsed.as_millis(), health_p95.as_millis(), ready_p95.as_millis(),
         acquire_p95.as_millis(), acquire_max.as_millis()
     );
     assert_eq!(successes + rejected, PREVIEWS);
     assert!(successes > 0, "at least one preview must be served");
+    assert!(
+        http_p95 < Duration::from_secs(2),
+        "authenticated HTTP preview latency exceeded budget"
+    );
     assert_eq!(worker_status, ChapterImportWorkerResult::Completed);
     assert!(
         recommendation_advanced,
@@ -578,5 +587,12 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         serde_json::from_str::<Value>(&body).unwrap()["status"],
         "succeeded"
     );
+    let wallet_entries: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1")
+            .bind(owner)
+            .fetch_one(&pool)
+            .await
+            .expect("read isolated wallet ledger");
+    assert_eq!(wallet_entries, 0, "finance reads must not post wallet entries");
     pool.close().await;
 }
