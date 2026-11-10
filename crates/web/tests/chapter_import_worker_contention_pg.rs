@@ -593,6 +593,9 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
             .fetch_one(&pool)
             .await
             .expect("read isolated wallet ledger");
-    assert_eq!(wallet_entries, 0, "finance reads must not post wallet entries");
+    assert_eq!(
+        wallet_entries, 0,
+        "finance reads must not post wallet entries"
+    );
     pool.close().await;
 }
