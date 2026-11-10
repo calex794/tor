@@ -4,6 +4,9 @@ on:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
   contents: write
+concurrency:
+  group: flow-observed-source-publication
+  cancel-in-progress: false
 jobs:
   worktree:
     runs-on: ubuntu-24.04
@@ -11,34 +14,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 874ab9c284f1054cfc77620062180d5772ecdda9
-          fetch-depth: 0
-      - name: Reproduce reviewed merge without changing main or PR refs
+          path: payload
+          persist-credentials: false
+      - name: Check complete payload
+        id: payload
+        shell: bash
+        run: |
+          if test -f payload/.qa/flow-observed-3.txt; then echo 'ready=true' >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.payload.outputs.ready == 'true'
+        with:
+          ref: 7b922159c48ea74ff5fcf2f4763c71964e940b69
+          path: tor
+      - name: Apply exact patch only to new feature branch
+        if: steps.payload.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import base64,hashlib,lzma,pathlib
+          data=''.join(pathlib.Path(f'payload/.qa/flow-observed-{i}.txt').read_text().strip() for i in range(4))
+          patch=lzma.decompress(base64.b64decode(data,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='aed76374f3292265efeeae9df8818f93e2c88fdb1364a132bb26fe7aa0475ea7'
+          pathlib.Path('observation.patch').write_bytes(patch)
+          PY
+          cd tor
+          test "$(git rev-parse HEAD)" = 7b922159c48ea74ff5fcf2f4763c71964e940b69
+          git apply --check ../observation.patch
+          git apply --index ../observation.patch
+          test "$(git write-tree)" = ee8a70bf15f224f6cbd46d79703873013743db31
+          git diff --check --cached
           git config user.name 'FLOW QA'
           git config user.email 'flow-qa@users.noreply.github.com'
-          git merge --no-commit --no-ff 311c7f4000c31ab2fad8160eaf40d8c34d0df2be || test "$(git diff --name-only --diff-filter=U)" = 'crates/web/src/auth/audience_http/render.rs'
-          python3 - <<'PY'
-          import pathlib,re
-          p=pathlib.Path('crates/web/src/auth/audience_http/render.rs')
-          s=p.read_text()
-          s,n=re.subn(r'^<<<<<<<[^\n]*\n(.*?)^=======\n(.*?)^>>>>>>>[^\n]*\n',lambda m:m[1]+m[2],s,flags=re.M|re.S)
-          if n not in (0,2): raise SystemExit('Unexpected merge shape')
-          p.write_text(s)
-          PY
-          git add crates/web/src/auth/audience_http/render.rs
-          test "$(git write-tree)" = 524276ec3d4f69fc3ef793ef4ae6a53675fd1735
-          git diff --check --cached
-          git commit -m 'Merge REC runtime retirement into FLOW-06 without restoring collection'
-          test -z "$(git ls-remote --heads origin refs/heads/qa/flow-06-retirement-stage-20261111)"
-          git push origin HEAD:refs/heads/qa/flow-06-retirement-stage-20261111
+          git commit -m 'FLOW-02/04: anonymous observation-hour reports with real PG HTTP and browser acceptance'
+          test -z "$(git ls-remote --heads origin refs/heads/feat/flow-observed-hours-20261111)"
+          git push origin HEAD:refs/heads/feat/flow-observed-hours-20261111
           mkdir -p "$RUNNER_TEMP/flow-export"
           git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
           git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-export/TREE"
       - uses: actions/upload-artifact@v4
+        if: steps.payload.outputs.ready == 'true'
         with:
-          name: flow-reviewed-merge-${{ github.sha }}
+          name: flow-observed-publication-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
           retention-days: 1
