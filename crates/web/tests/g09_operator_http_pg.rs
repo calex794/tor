@@ -132,6 +132,7 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
     );
     let path = "/admin/storage/g09";
     let command = "/admin/storage/g09/pg-to-s3/chapter/next";
+    let body_command = "/admin/storage/g09/get-sha/chapter/run";
     assert_eq!(
         request(&app, "GET", path, None, &csrf, &csrf, ORIGIN).await,
         StatusCode::UNAUTHORIZED
@@ -148,6 +149,36 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
         request(&app, "POST", command, Some(&session), &csrf, &csrf, ORIGIN).await,
         StatusCode::FORBIDDEN
     );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "POST", body_command, None, &csrf, &csrf, ORIGIN).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
     pg(
         &url,
         &format!(
@@ -158,6 +189,45 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
     assert_eq!(
         request(&app, "GET", path, Some(&session), &csrf, &csrf, ORIGIN).await,
         StatusCode::OK
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            "wrong",
+            ORIGIN
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            body_command,
+            Some(&session),
+            &csrf,
+            &csrf,
+            "https://attacker.invalid"
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            "/admin/storage/g09/get-sha/cover/run",
+            Some(&session),
+            &csrf,
+            &csrf,
+            ORIGIN
+        )
+        .await,
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         request(
