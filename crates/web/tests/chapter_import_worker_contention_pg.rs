@@ -597,5 +597,20 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
         wallet_entries, 0,
         "finance reads must not post wallet entries"
     );
+    // Do not leave a partially built REC generation for later shared-CI tests.
+    // Cleanup is outside the contention measurements and cannot publish a graph.
+    let cleanup_recommendations = PgRecommendations::new(pool.clone());
+    let mut generation_drained = false;
+    for _ in 0..200 {
+        if !cleanup_recommendations
+            .advance_generation()
+            .await
+            .expect("drain disposable REC generation")
+        {
+            generation_drained = true;
+            break;
+        }
+    }
+    assert!(generation_drained, "REC cleanup must complete within 200 pages");
     pool.close().await;
 }
