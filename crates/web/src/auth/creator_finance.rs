@@ -483,7 +483,8 @@ mod tests {
             "csrf",
             false,
             FinanceTab::Payouts,
-        ).0;
+        )
+        .0;
         assert!(posted_html.contains("Внутренняя проводка создана"));
         assert!(posted_html.contains("банковский перевод не подтверждён"));
         assert!(!posted_html.contains("выплата выполнена"));
