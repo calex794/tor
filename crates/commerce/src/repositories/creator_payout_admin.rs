@@ -115,6 +115,59 @@ impl PgCreatorPayoutAdmin {
             .collect())
     }
 
+    /// Audited exact request snapshot for a password-confirmed posting.
+    /// A posted request is also readable so an identical retry can return
+    /// the original immutable wallet entry. This does not authorize a debit.
+    pub async fn posting_intent(
+        &self,
+        session_digest: &[u8; 32],
+        request_id: i64,
+    ) -> Result<PayoutAdminRow, PayoutAdminError> {
+        if request_id <= 0 {
+            return Err(PayoutAdminError::Invalid);
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
+        let admin = Self::active_administrator(&mut tx, session_digest).await?;
+        let row: Option<(i64, i64, i64, String, String)> = sqlx::query_as(
+            "SELECT id,user_id,amount_minor,state,
+                    to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI')
+             FROM finance_creator_payout_requests WHERE id=$1",
+        )
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| PayoutAdminError::Unavailable)?;
+        let (id, user_id, amount_minor, state, created_utc) =
+            row.ok_or(PayoutAdminError::NotFound)?;
+        if state != "pending" && state != "posted" {
+            return Err(PayoutAdminError::Conflict);
+        }
+        // Existing append-only administrator read audit; revalidation is
+        // mandatory even when the request was already posted.
+        sqlx::query(
+            "INSERT INTO finance_creator_payout_admin_audit
+             (admin_user_id,action) VALUES($1,'list_requests')",
+        )
+        .bind(admin)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| PayoutAdminError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| PayoutAdminError::Unavailable)?;
+        Ok(PayoutAdminRow {
+            id,
+            user_id,
+            amount_minor,
+            state,
+            created_utc,
+        })
+    }
+
     /// Atomically reject one pending request and release its reservation.
     /// Same administrator and identical reason replay without another audit.
     /// Another decision or changed reason is a conflict. Never touch the

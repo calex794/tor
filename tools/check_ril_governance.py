@@ -399,6 +399,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("GET", "/admin/finance/payouts", "queue"): "list",
         ("POST", "/admin/finance/payouts/{id}/reject", "reject"): "reject_once",
         ("GET", "/admin/finance/payouts/{id}/quote", "quote"): "approval_readiness",
+        ("POST", "/admin/finance/payouts/{id}/post", "posting::submit"): "posting_intent",
     }
     audited_payout = (
         policy == "admin_payout"
@@ -872,6 +873,42 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                     "tx.commit()",
                 )
             ) and "UPDATE reader_wallet_accounts" not in quote_repo
+        if operation == "posting_intent":
+            posting_repo = _production((
+                ROOT / "crates/commerce/src/repositories/creator_payout_posting.rs"
+            ).read_text(encoding="utf-8"))
+            issuer_repo = _production((
+                ROOT / "crates/accounts/src/repositories/step_up.rs"
+            ).read_text(encoding="utf-8"))
+            # S039 HTTP approval must be opt-in, csrf-checked and password-
+            # confirmed; it may only invoke the atomic internal D posting.
+            guarded = guarded and all(marker in evidence for marker in (
+                "!enabled()",
+                "TOR_S039_PAYOUT_POST_HTTP_ENABLED",
+                "state.cookies.same_origin(&headers)",
+                "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+                ".posting_intent(&digest, id)",
+                "intent.amount_minor",
+                "permit_auth_attempt(&attempt_key, 6, 600)",
+                "password_hash_for_user(actor)",
+                "password_jobs",
+                "verify_password_for_step_up",
+                "issue_administrator_payout_step_up(",
+                "payout_step_up_payload_digest(",
+                "PgCreatorPayoutPosting::new",
+                ".approve_once(actor, &digest, &proof, id, intent.amount_minor, reason)",
+            )) and all(marker in posting_repo for marker in (
+                "FOR SHARE OF r,u",
+                "WHERE user_id=$1 AND currency='RUB' FOR UPDATE",
+                "WHERE id=$1 AND user_id=$2 FOR UPDATE",
+                "step_up_used_at",
+                "finance_creator_payout_postings",
+                "tx.commit()",
+            )) and all(marker in issuer_repo for marker in (
+                "finance.payout.post.v1",
+                "verified_password.matches_hash(&stored_hash)",
+                "step_up_proof_hash",
+            ))
         if not guarded:
             errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
     if policy == "admin_refund":
