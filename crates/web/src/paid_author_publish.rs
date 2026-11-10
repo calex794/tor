@@ -18,7 +18,9 @@ use tor_storage::{
     domain::provider::valid_private_bucket,
     repositories::registry::PgStorageRegistry,
     services::{
-        crypto::{fresh_private_object_id, seal_chapter_with_keyring, ContentKeyring, EncryptedChapter},
+        crypto::{
+            fresh_private_object_id, seal_chapter_with_keyring, ContentKeyring, EncryptedChapter,
+        },
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
