@@ -36,6 +36,7 @@ pub mod cover_cdn_lifecycle;
 pub mod cover_cdn_purge;
 pub mod cover_delivery;
 mod cover_http;
+mod cpu_work;
 pub mod cover_private_cleanup;
 pub mod cover_private_source_cleanup;
 mod homepage_updates;
