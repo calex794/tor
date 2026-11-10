@@ -1,4 +1,6 @@
 //! C-owned numerical reading evidence. No visitor profile or attribution is built.
+pub mod intent;
+
 use std::{error::Error, fmt};
 
 pub const AUDIENCE_PERIOD_DAYS: [i32; 4] = [1, 7, 30, 90];

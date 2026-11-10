@@ -6,6 +6,7 @@ pub(super) mod funnel;
 pub(super) mod group_returns;
 pub(super) mod groups;
 mod hours;
+mod intent;
 mod observed;
 mod quality;
 mod retirement;
@@ -82,7 +83,10 @@ fn finish(mut body: String) -> Html<String> {
 
 pub(super) fn page(
     days: i32,
-    reading: Option<&AudienceReport>,
+    reading: (
+        Option<&AudienceReport>,
+        Option<&tor_reading::services::audience::intent::IntentReport>,
+    ),
     discovery: Option<&DiscoveryReport>,
     traffic: Option<&FlowHourlyReport>,
     capture: Option<(u64, u64)>,
@@ -92,10 +96,12 @@ pub(super) fn page(
         Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,
     ),
 ) -> Html<String> {
+    let (reading, intents) = reading;
     let mut body = start(days, observed.0);
     observed::section(&mut body, observed.1);
     hours::section(&mut body, days, traffic);
     quality::section(&mut body, days, traffic, capture, pump);
+    intent::section(&mut body, intents);
     retirement::notice(
         &mut body,
         "источник перехода, связанный с первым чтением книги",
@@ -235,7 +241,16 @@ mod tests {
 
     #[test]
     fn periods_use_report_distinct_counts_without_inventing_retention_or_conversion() {
-        let html = page(7, Some(&sample()), None, None, None, None, ("UTC", None)).0;
+        let html = page(
+            7,
+            (Some(&sample()), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None),
+        )
+        .0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
         assert!(html.contains("<dd>+1</dd>"));
         assert!(html.contains("datetime=\"2026-11-03T12:00:00Z\""));
@@ -251,26 +266,52 @@ mod tests {
     fn absent_events_do_not_turn_into_zero_readers_or_comparison() {
         let mut report = sample();
         report.previous.counts = None;
-        let html = page(7, Some(&report), None, None, None, None, ("UTC", None)).0;
+        let html = page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None),
+        )
+        .0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
         assert!(html.contains("audience-comparison-unavailable"));
         assert!(!html.contains("data-metric=\"readers\">0"));
         report.current.available = false;
+        assert!(!page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None)
+        )
+        .0
+        .contains("data-metric=\"readers\""));
         assert!(
-            !page(7, Some(&report), None, None, None, None, ("UTC", None))
+            page(30, (None, None), None, None, None, None, ("UTC", None))
                 .0
-                .contains("data-metric=\"readers\"")
+                .contains("role=\"alert\"")
         );
-        assert!(page(30, None, None, None, None, None, ("UTC", None))
-            .0
-            .contains("role=\"alert\""));
     }
 
     #[test]
     fn timestamp_text_and_attribute_are_escaped() {
         let mut report = sample();
         report.current.from_utc = "\"><script>bad()</script>".into();
-        let html = page(7, Some(&report), None, None, None, None, ("UTC", None)).0;
+        let html = page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None),
+        )
+        .0;
         assert!(!html.contains("<script>bad()"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;"));
     }
