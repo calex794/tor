@@ -114,14 +114,26 @@ async fn s018_email_content_consent_requires_one_time_current_mailbox_proof() {
     let proof_b = [29_u8; 32];
 
     assert!(!consent.email_eligible(actor).await.unwrap());
-    assert_eq!(consent.issue_proof(0, &proof_a).await, Err(PreferenceError::Invalid));
+    assert_eq!(
+        consent.issue_proof(0, &proof_a).await,
+        Err(PreferenceError::Invalid)
+    );
     assert!(consent.issue_proof(actor, &proof_a).await.unwrap());
-    assert!(!consent.issue_proof(actor, &proof_b).await.unwrap(), "throttle");
+    assert!(
+        !consent.issue_proof(actor, &proof_b).await.unwrap(),
+        "throttle"
+    );
     assert!(!consent.confirm_opt_in(other, &proof_a).await.unwrap());
     assert!(!consent.confirm_opt_in(actor, &proof_b).await.unwrap());
     assert!(consent.confirm_opt_in(actor, &proof_a).await.unwrap());
-    assert!(!consent.confirm_opt_in(actor, &proof_a).await.unwrap(), "single-use");
-    assert!(!consent.email_eligible(actor).await.unwrap(), "missing cadence stays off");
+    assert!(
+        !consent.confirm_opt_in(actor, &proof_a).await.unwrap(),
+        "single-use"
+    );
+    assert!(
+        !consent.email_eligible(actor).await.unwrap(),
+        "missing cadence stays off"
+    );
 
     settings
         .set_delivery_preference(actor, DeliveryMode::Immediate)
@@ -134,7 +146,10 @@ async fn s018_email_content_consent_requires_one_time_current_mailbox_proof() {
         .set_delivery_preference(actor, DeliveryMode::Disabled)
         .await
         .unwrap();
-    assert!(!consent.email_eligible(actor).await.unwrap(), "explicit off wins");
+    assert!(
+        !consent.email_eligible(actor).await.unwrap(),
+        "explicit off wins"
+    );
     settings
         .set_delivery_preference(actor, DeliveryMode::SmartTime)
         .await
