@@ -48,3 +48,4 @@ hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
