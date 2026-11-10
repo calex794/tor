@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 373);
+    assert_eq!(unique.len(), 374);
 }
 
 #[test]
@@ -460,4 +460,13 @@ fn s036_refunds_are_administrator_only_not_buyer_self_service() {
         assert_eq!(route.traffic_surface, TrafficSurface::Admin);
         assert_eq!(route.product_area, ProductArea::Billing);
     }
+}
+
+#[test]
+fn s039_admin_quote_is_private_read_without_an_http_post() {
+    let quote = classify(Some("/admin/finance/payouts/{id}/quote"), "GET");
+    assert!(quote.route_known);
+    assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(quote.cost_class, CostClass::CheapRead);
+    assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
 }

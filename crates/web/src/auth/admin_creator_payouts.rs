@@ -35,9 +35,14 @@ fn rejection_enabled() -> bool {
     std::env::var("TOR_S039_PAYOUT_REJECT_HTTP_ENABLED").as_deref() == Ok("1")
 }
 
+fn quote_enabled() -> bool {
+    std::env::var("TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED").as_deref() == Ok("1")
+}
+
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/admin/finance/payouts", get(queue))
+        .route("/admin/finance/payouts/{id}/quote", get(quote))
         .route(
             "/admin/finance/payouts/{id}/reject",
             post(reject).layer(DefaultBodyLimit::max(4096)),
@@ -152,6 +157,15 @@ async fn queue(
     }
     for row in &rows {
         body.push_str(&render_request(row, &csrf, enabled));
+        if quote_enabled() && row.state == "pending" {
+            write!(
+                body,
+                r#"<p><a href="/admin/finance/payouts/{}/quote">
+                Проверить резерв (без перевода)</a></p>"#,
+                row.id
+            )
+            .expect("bounded quote link");
+        }
     }
     if rows.len() == 30 {
         if let Some(last) = rows.last() {
@@ -165,6 +179,56 @@ async fn queue(
         }
     }
     shell(&body, &cookies)
+}
+
+async fn quote(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    if !quote_enabled() {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    match session_user(&state, &headers).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(code) => return deny(code),
+    };
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = session_token_digest(&token);
+    let q = match PgCreatorPayoutAdmin::new(state.accounts.pool().clone())
+        .approval_readiness(&digest, id)
+        .await
+    {
+        Ok(q) => q,
+        Err(error) => return deny(status(error)),
+    };
+    let verdict = if q.sufficient {
+        "Доступных средств достаточно по текущему снимку"
+    } else {
+        "Текущих доступных средств недостаточно"
+    };
+    let body = format!(
+        r#"<article class="me-now-card">
+        <h2>Проверка заявки №{}</h2>
+        <p>Получатель №{} · сумма: {} коп.</p>
+        <p>Резерв других заявок: {} коп.</p>
+        <p>Доступно без резерва этой заявки: {} коп.</p>
+        <p><strong>{verdict}</strong></p>
+        <p>Предварительный расчёт, не подтверждение, списание или банковский
+        перевод. При финансовом решении сервер обязан повторить проверку
+        и записать все изменения в одной транзакции.</p>
+        </article>
+        <p><a href="/admin/finance/payouts">К очереди заявок</a></p>"#,
+        q.request_id,
+        q.user_id,
+        q.amount_minor,
+        q.other_reserved_minor,
+        q.available_excluding_own_minor,
+    );
+    shell(&body, &[])
 }
 
 async fn reject(

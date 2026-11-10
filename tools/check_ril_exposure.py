@@ -74,6 +74,7 @@ AUDITED_REFUND_ADMIN = {
 AUDITED_PAYOUT_ADMIN = {
     ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
     ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
+    ("GET", "/admin/finance/payouts/{id}/quote", "quote", "admin_payout"),
 }
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),

@@ -385,6 +385,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/admin/jobs/{id}/retry"), "POST") => Some(370),
         (Some("/admin/finance/payouts"), "GET") => Some(371),
         (Some("/admin/finance/payouts/{id}/reject"), "POST") => Some(372),
+        (Some("/admin/finance/payouts/{id}/quote"), "GET") => Some(373),
         _ => None,
     };
     index
