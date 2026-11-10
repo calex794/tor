@@ -2580,6 +2580,13 @@
     },
     {
       "method": "GET",
+      "template": "/admin/audience/books",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "books::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
       "template": "/me/free-comment-appeals",
       "source": "crates/web/src/auth/book_shares.rs",
       "handler": "free_comment_appeals::author_page",

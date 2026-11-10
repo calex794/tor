@@ -1,4 +1,5 @@
 //! Only numerical evidence is rendered; no reader or book identifiers.
+pub(super) mod books;
 mod hours;
 mod sources;
 
@@ -10,11 +11,12 @@ use tor_recommendations::services::audience::DiscoveryReport;
 use tor_traffic_behavior::services::audience::FlowHourlyReport;
 
 fn start(days: i32) -> String {
-    let mut body = String::from(
+    let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
          <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",
