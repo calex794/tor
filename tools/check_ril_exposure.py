@@ -75,6 +75,7 @@ AUDITED_PAYOUT_ADMIN = {
     ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
     ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
     ("GET", "/admin/finance/payouts/{id}/quote", "quote", "admin_payout"),
+    ("POST", "/admin/finance/payouts/{id}/post", "posting::submit", "admin_payout_post"),
 }
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),
@@ -159,7 +160,11 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_PAID_COMMENT_APPEALS)
             allow_audience = (
                 row["source"] == "crates/web/src/auth/audience_http.rs"
-                and key == ("GET", "/admin/audience", "page", "administrator")
+                and key in {
+                    ("GET", "/admin/audience", "page", "administrator"),
+                    ("GET", "/admin/audience/books", "books::page", "administrator"),
+                    ("GET", "/admin/audience/groups", "groups::page", "administrator"),
+                }
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)

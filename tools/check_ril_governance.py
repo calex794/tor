@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_payout_post", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_payout_post", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -261,6 +261,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    audience_books = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/books", "books::page")
+    )
+    audience_groups = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/groups", "groups::page")
+    )
+    audience_child = "books" if audience_books else "groups" if audience_groups else None
+    if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
+        # Only these reviewed child handlers import the parent's live A guard.
+        # Missing delegation cannot be masked by an unrelated helper definition.
+        evidence += "\n" + functions.get("__audience_administrator", "")
     # C-12 private history handlers delegate session, role and CSRF to a
     # narrowly named helper in the same Rust file. Only exact reviewed
     # admin-history bindings can use its evidence.
@@ -389,6 +404,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         policy == "admin_payout"
         and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
         and admin_key in payout_admin_ops
+    )
+    reviewed_payout_post = (
+        policy == "admin_payout_post"
+        and entry["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
+        and admin_key == (
+            "POST", "/admin/finance/payouts/{id}/post", "posting::submit"
+        )
     )
     s049_report_ops = {
         ("GET", "/admin/recommendation-reports", "admin_reports::queue"): "pending",
@@ -523,11 +545,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         evidence += "\n" + functions.get("store", "")
     audited_audience = (
         policy == "administrator"
-        and admin_key == ("GET", "/admin/audience", "page")
+        and admin_key in {
+            ("GET", "/admin/audience", "page"),
+            ("GET", "/admin/audience/books", "books::page"),
+            ("GET", "/admin/audience/groups", "groups::page"),
+        }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
-            audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
+            audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout or reviewed_payout_post
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
             or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
@@ -819,6 +845,65 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ) and "UPDATE reader_wallet_accounts" not in quote_repo
         if not guarded:
             errors.append(f"{label}: S039 missing live admin role, immutable audit or CSRF")
+    if policy == "admin_payout_post":
+        # A financial mutation is not covered by the administrator queue policy.
+        # Review the exact form handler and both underlying transactional guards.
+        http = _production((ROOT / "crates/web/src/auth/admin_creator_payouts/posting.rs")
+                           .read_text(encoding="utf-8"))
+        post_repo = _production((ROOT / "crates/commerce/src/repositories/creator_payout_posting.rs")
+                                .read_text(encoding="utf-8"))
+        proof_repo = _production((ROOT / "crates/accounts/src/repositories/step_up.rs")
+                                 .read_text(encoding="utf-8"))
+        required_http = (
+            'if !enabled()',
+            'TOR_S039_PAYOUT_POST_HTTP_ENABLED',
+            'session_user(&state, &headers)',
+            'state.cookies.same_origin(&headers)',
+            'state.cookies.valid_csrf(&headers, &form.csrf_token)',
+            'permit_auth_attempt(&attempt_key, 6, 600)',
+            'verify_password_for_step_up(&password, &password_hash)',
+            'payout_step_up_payload_digest(actor, request_id, amount_minor, reason)',
+            '.issue_administrator_payout_step_up(',
+            'PgCreatorPayoutPosting::new',
+            '.approve_once(',
+        )
+        required_proof = (
+            "r.role='administrator' AND r.is_active",
+            "u.account_state='active'",
+            'FOR SHARE OF r,u',
+            'FOR UPDATE OF s',
+            'verified_password.matches_hash(&stored_hash)',
+            'step_up_used_at=NULL',
+        )
+        required_posting = (
+            "r.role='administrator' AND r.is_active",
+            "u.account_state='active'",
+            'FOR SHARE OF r,u',
+            'revoked_at IS NULL',
+            'FOR UPDATE',
+            'FOR NO KEY UPDATE',
+            'step_up_used_at IS NULL',
+            "SET state='posted'",
+            'creator_payout_debit',
+            'INSERT INTO finance_creator_payout_postings',
+            'tx.commit()',
+            'tx.rollback()',
+        )
+        payout_call = re.search(
+            r"\.approve_once\s*\(\s*actor,\s*&session_digest,\s*&proof_token,\s*request_id,\s*amount_minor,\s*reason,?\s*\)",
+            http,
+        )
+        guarded = bool(
+            reviewed_payout_post
+            and 'post(posting::submit).layer(DefaultBodyLimit::max(4096))'
+                in _production((ROOT / entry["source"]).read_text(encoding="utf-8"))
+            and all(marker in http for marker in required_http)
+            and all(marker in proof_repo for marker in required_proof)
+            and all(marker in post_repo for marker in required_posting)
+            and payout_call
+        )
+        if not guarded:
+            errors.append(f"{label}: S039 post requires live admin, CSRF, password step-up, and an atomic audited debit")
     if policy == "admin_refund":
         operation = refund_view_handlers.get(admin_key) if audited_refund else None
         guarded = ("session_user(&state, &headers)" in evidence
@@ -1290,7 +1375,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
     audience_admin = (
-        route_key == ("GET", "/admin/audience", "page")
+        route_key in {
+            ("GET", "/admin/audience", "page"),
+            ("GET", "/admin/audience/books", "books::page"),
+            ("GET", "/admin/audience/groups", "groups::page"),
+        }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
     if audience_admin and policy != "administrator":
@@ -1394,13 +1483,22 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
+        audience_read = f".{audience_child}_report(&query)" if audience_child else ".report(days)"
         if audience_admin and not (
             "administrator(&state, &headers)" in body
-            and ".report(days)" in body
+            and audience_read in body
             and "session_token_digest(&token)" in evidence
             and "StatusCode::UNAUTHORIZED" in evidence
         ):
             errors.append(f"{label}: FLOW audience must authorize before its bounded read")
+        if audience_child and not (
+            "match timeout_at(deadline, administrator(&state, &headers)).await" in body
+            and "Ok(Err(status)) => return secure(status)" in body
+            and "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)" in body
+            and audience_read in body
+            and body.index("administrator(&state, &headers)") < body.index(audience_read)
+        ):
+            errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}
@@ -1537,6 +1635,22 @@ def check(root: Path = ROOT) -> list[str]:
                 _strip_comments(identity_file.read_text(encoding="utf-8"))
                 if identity_file.exists() else ""
             )
+        if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
+                and (entry.get("method"), entry.get("template"), entry.get("handler"))
+                    in {
+                        ("GET", "/admin/audience/books", "books::page"),
+                        ("GET", "/admin/audience/groups", "groups::page"),
+                    }):
+            try:
+                child = _strip_comments(_production(path.read_text(encoding="utf-8")))
+                imported = re.search(r"\buse\s+super::\{[^}]*\badministrator\b[^}]*\}", child)
+                parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+                source_cache[path]["__audience_administrator"] = (
+                    parent.get("administrator", "")
+                    if imported and "administrator" not in source_cache[path] else ""
+                )
+            except OSError:
+                source_cache[path]["__audience_administrator"] = ""
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

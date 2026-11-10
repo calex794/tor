@@ -1,5 +1,6 @@
-//! S039/D-09: closed administrator payout queue and rejection-only action.
-//! No approval, wallet debit, or external settlement.
+//! S039/D-09: administrator payout queue and internal posting.
+//! A posted obligation is not a bank settlement.
+mod posting;
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -44,6 +45,10 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/admin/finance/payouts", get(queue))
         .route("/admin/finance/payouts/{id}/quote", get(quote))
         .route(
+            "/admin/finance/payouts/{id}/post",
+            post(posting::submit).layer(DefaultBodyLimit::max(4096)),
+        )
+        .route(
             "/admin/finance/payouts/{id}/reject",
             post(reject).layer(DefaultBodyLimit::max(4096)),
         )
@@ -66,9 +71,9 @@ fn shell(content: &str, cookies: &[String]) -> Response {
             &format!(
                 r#"<section class="section"><div class="container">
                 <h1>Заявки на выплату</h1>
-                <p>Внутренние резервы и проводки. Отклонение ожидающей заявки
-                освобождает резерв и не меняет баланс кошелька. Банковские
-                перечисления через эту страницу не выполняются.</p>
+                <p>Внутренние резервы и проводки. Отклонение освобождает
+                резерв. Внутренняя проводка списывает средства с кошелька.
+                Банковские перечисления здесь не выполняются.</p>
                 {content}<p><a href="/me">Кабинет</a></p>
                 </div></section>"#
             ),
@@ -145,20 +150,24 @@ async fn queue(
         Err(error) => return deny(status(error)),
     };
     let enabled = rejection_enabled();
-    let (csrf, cookies) = if enabled {
+    let post_enabled = posting::enabled();
+    let (csrf, cookies) = if enabled || post_enabled {
         state.cookies.csrf_for_page(&headers)
     } else {
         (String::new(), Vec::new())
     };
     let mut body = String::new();
-    if !enabled {
-        body.push_str("<p>Административное отклонение пока отключено.</p>");
+    if !enabled && !post_enabled {
+        body.push_str("<p>Административные финансовые решения пока отключены.</p>");
     }
     if rows.is_empty() {
         body.push_str("<p>Заявок пока нет.</p>");
     }
     for row in &rows {
         body.push_str(&render_request(row, &csrf, enabled));
+        if post_enabled && row.state == "pending" {
+            body.push_str(&posting::form(row.id, row.amount_minor, &csrf));
+        }
         if quote_enabled() && row.state == "pending" {
             write!(
                 body,

@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 374);
+    assert_eq!(unique.len(), 376);
 }
 
 #[test]
@@ -469,4 +469,37 @@ fn s039_admin_quote_is_private_read_without_an_http_post() {
     assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
     assert_eq!(quote.cost_class, CostClass::CheapRead);
     assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
+}
+
+#[test]
+fn audience_books_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/books"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/books", "POST"),
+        ("/admin/audience/books/export", "GET"),
+        ("/admin/audience/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn audience_groups_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/groups"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/groups", "POST"),
+        ("/admin/audience/groups/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
 }

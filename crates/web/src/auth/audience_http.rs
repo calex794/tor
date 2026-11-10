@@ -1,5 +1,7 @@
 //! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
+mod books;
+mod groups;
 mod render;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -50,6 +52,8 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let traffic = PgFlowAudience::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/books", get(books::page))
+        .route("/admin/audience/groups", get(groups::page))
         .with_state(AudienceState {
             accounts,
             cookies,

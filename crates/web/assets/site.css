@@ -217,6 +217,23 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .audience-source-card dd { margin: 0; max-width: 140px; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
 @media (max-width: 680px) { .audience-source-grid { grid-template-columns: minmax(0, 1fr); } }
 
+/* Current public-book evidence, with paired periods and no page-wide overflow. */
+.audience-books-width { width: min(1020px, 100%); margin-inline: auto; }
+.audience-books-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-block: 24px; }
+.audience-books-filters label { display: block; margin-bottom: 6px; }
+.audience-books-filters input { width: 100%; min-width: 0; padding: 12px; border: 1px solid #d2dcd1; border-radius: 9px; background: #fff; font: inherit; line-height: 1.6; }
+.audience-books-filter-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin: 0; }
+.audience-books-filters .audience-missing-label { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 15px; }
+.audience-books-filters .audience-missing-label input { width: 18px; height: 18px; flex: 0 0 auto; padding: 0; }
+.audience-groups-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.audience-book-row { margin-block: 20px; overflow-wrap: anywhere; }
+.audience-book-row h3 { margin-top: 0; }
+.audience-book-row .audience-source-grid { margin-bottom: 0; }
+.audience-book-state { padding: 8px 12px; background: #eef4ec; border-radius: 8px; }
+.audience-books-pagination { display: flex; flex-wrap: wrap; gap: 16px; margin-block: 24px; }
+.audience-books-help { margin-block: 28px; }
+@media (max-width: 680px) { .audience-books-filters { grid-template-columns: minmax(0, 1fr); } }
+
 /* Hourly page-view evidence stays usable without scripts or inferred zeros. */
 .audience-hour-period { min-width: 0; }
 .audience-hour-period h3 { margin-top: 0; }
