@@ -58,7 +58,7 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 376)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_bindings"], 378)  # All reviewed route + method bindings.
         self.assertEqual(report["route_pairs"], 376)  # Includes FLOW administrator audience.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
@@ -84,6 +84,27 @@ class RilExposureTests(unittest.TestCase):
             path.write_text(json.dumps(data), encoding="utf-8")
             self.assertTrue(any("internal/admin route is not denied" in x
                                 for x in check_repository(self.root)))
+
+    def test_g09_operator_exact_admin_exception_cannot_expand_or_downgrade(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        original = path.read_text(encoding="utf-8")
+        for field, value in (
+            ("template", "/admin/storage/reconciliation/export"),
+            ("policy", "session"),
+            ("source", "crates/web/src/auth.rs"),
+        ):
+            data = json.loads(original)
+            row = next(
+                row for row in data["routes"]
+                if row["template"] == "/admin/storage/reconciliation"
+            )
+            row[field] = value
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertTrue(
+                any("internal/admin route is not denied" in issue
+                    for issue in check_repository(self.root))
+            )
 
     def test_change_in_handler_or_security_changes_fingerprint(self):
         before = fingerprint(self.root)["sha256"]

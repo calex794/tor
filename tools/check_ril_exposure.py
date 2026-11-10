@@ -76,6 +76,10 @@ AUDITED_PAYOUT_ADMIN = {
     ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
     ("GET", "/admin/finance/payouts/{id}/quote", "quote", "admin_payout"),
 }
+AUDITED_G09_OPERATOR = {
+    ("GET", "/admin/storage/reconciliation", "page", "admin_storage_reconciliation"),
+    ("POST", "/admin/storage/reconciliation/run", "run", "admin_storage_reconciliation"),
+}
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),
     ("GET", "/admin/support/{id}", "page", "support_admin"),
@@ -157,6 +161,10 @@ def check_repository(root: Path = ROOT) -> list[str]:
                           and key in AUDITED_S049_FREE_COMMENT_ADMIN)
             allow_paid_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_PAID_COMMENT_APPEALS)
+            allow_g09 = (
+                row["source"] == "crates/web/src/auth/admin_storage_reconciliation/enabled.rs"
+                and key in AUDITED_G09_OPERATOR
+            )
             allow_audience = (
                 row["source"] == "crates/web/src/auth/audience_http.rs"
                 and key == ("GET", "/admin/audience", "page", "administrator")
@@ -165,7 +173,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_audience or allow_free_appeal):
+                    or allow_audience or allow_free_appeal or allow_g09):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
