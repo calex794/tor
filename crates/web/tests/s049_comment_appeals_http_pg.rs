@@ -469,8 +469,9 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     );
     let author_final = body(send(&app, "GET", author_path, &author, "").await).await;
     assert!(author_final.contains("Комментарий восстановлен"));
-    // Moderator-originated hiding is also appealable. The independent reviewer
-    // must be a site administrator, but need not be the second admin from above.
+    // A site moderator must never hide content, even with a forged POST.
+    // A different administrator may hide the same comment after restoration;
+    // its author retains an independent appeal reviewed by the first admin.
     let second_report_post = report_post.replace(&report_key, &"M".repeat(43));
     assert_eq!(
         send(
@@ -493,17 +494,39 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     )
     .parse()
     .unwrap();
-    let mod_queue = send(&app, "GET", "/admin/book-reports", &moderator, "").await;
-    assert_eq!(mod_queue.status(), StatusCode::OK);
-    let mod_queue_cookie = cookie(&mod_queue, "tor-dev-csrf=");
-    let mod_queue_csrf = field(&body(mod_queue).await, "csrf_token");
+    let moderator_queue = send(&app, "GET", "/admin/book-reports", &moderator, "").await;
+    assert_eq!(moderator_queue.status(), StatusCode::FORBIDDEN);
     assert_eq!(
         send(
             &app,
             "POST",
             &format!("/admin/book-reports/{mod_report}/decision"),
-            &format!("{moderator}; {mod_queue_cookie}"),
-            &format!("decision=hide_comment&note=Moderator+review&csrf_token={mod_queue_csrf}")
+            &format!("{moderator}; {moderator_cookie}"),
+            &format!("decision=hide_comment&note=No+content+rights&csrf_token={moderator_csrf}")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        pg(
+            &format!("SELECT visibility FROM discussion_comments WHERE id={comment}"),
+            true
+        ),
+        "visible",
+        "moderator must not hide a comment"
+    );
+    let second_queue = send(&app, "GET", "/admin/book-reports", &second, "").await;
+    assert_eq!(second_queue.status(), StatusCode::OK);
+    let second_queue_cookie = cookie(&second_queue, "tor-dev-csrf=");
+    let second_queue_csrf = field(&body(second_queue).await, "csrf_token");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &format!("/admin/book-reports/{mod_report}/decision"),
+            &format!("{second}; {second_queue_cookie}"),
+            &format!("decision=hide_comment&note=Administrator+review&csrf_token={second_queue_csrf}")
         )
         .await
         .status(),
@@ -516,10 +539,10 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         ),
         "hidden"
     );
-    let mod_hide_event: i64 = pg(
+    let second_hide_event: i64 = pg(
         &format!(
             "SELECT id FROM social_book_content_review_events
-             WHERE report_id={mod_report} AND reviewer_user_id={mod_id}
+             WHERE report_id={mod_report} AND reviewer_user_id={second_id}
                AND moderation_action='hide_book_comment'"
         ),
         true,
@@ -530,17 +553,17 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     assert_eq!(second_appeal_page.status(), StatusCode::OK);
     let second_appeal_cookie = cookie(&second_appeal_page, "tor-dev-csrf=");
     let second_appeal_html = body(second_appeal_page).await;
-    assert!(second_appeal_html.contains(&format!("решение #{mod_hide_event}")));
+    assert!(second_appeal_html.contains(&format!("решение #{second_hide_event}")));
     let second_appeal_csrf = field(&second_appeal_html, "csrf_token");
     let second_appeal_command = field(&second_appeal_html, "command_key");
     assert_eq!(
         send(
             &app,
             "POST",
-            &format!("{author_path}/{mod_hide_event}"),
+            &format!("{author_path}/{second_hide_event}"),
             &format!("{author}; {second_appeal_cookie}"),
             &format!(
-                "reason=Moderator+decision+needs+independent+review&csrf_token={second_appeal_csrf}&command_key={second_appeal_command}"
+                "reason=Administrator+decision+needs+independent+review&csrf_token={second_appeal_csrf}&command_key={second_appeal_command}"
             )
         )
         .await
@@ -550,7 +573,7 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
     let second_appeal: i64 = pg(
         &format!(
             "SELECT id FROM social_book_comment_appeals
-             WHERE hide_event_id={mod_hide_event} AND state='pending'"
+             WHERE hide_event_id={second_hide_event} AND state='pending'"
         ),
         true,
     )
