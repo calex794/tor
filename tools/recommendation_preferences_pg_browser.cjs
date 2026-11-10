@@ -126,9 +126,10 @@ async function evidence(page,width) {
   // The actual JPEG viewport is captured directly by Chromium, not generated.
   // Keep the original full-page PNG in the normal artifact.
   await page.getByRole('heading',{name:'Скрытые книги',exact:true}).scrollIntoViewIfNeeded();
-  let bytes=await page.screenshot({type:'jpeg',quality:55,fullPage:false,animations:'disabled'});
-  if (bytes.length>96*1024) {
-    bytes=await page.screenshot({type:'jpeg',quality:45,fullPage:false,animations:'disabled'});
+  let bytes,quality;
+  for (quality of [55,45,35,25]) {
+    bytes=await page.screenshot({type:'jpeg',quality,fullPage:false,animations:'disabled'});
+    if (bytes.length<=96*1024) break;
   }
   assert.ok(bytes.length<=96*1024,'fixture preview exceeds 96 KiB');
   const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -137,7 +138,7 @@ async function evidence(page,width) {
   const chunks=[];
   for (let offset=0;offset<encoded.length;offset+=8192) chunks.push(encoded.slice(offset,offset+8192));
   console.log('TOR_PREF_IMAGE_META '+JSON.stringify({
-    name,head,mime:'image/jpeg',width,height:900,bytes:bytes.length,
+    name,head,mime:'image/jpeg',width,height:900,quality,bytes:bytes.length,
     sha256:createHash('sha256').update(bytes).digest('hex'),chunks:chunks.length,
   }));
   chunks.forEach((chunk,index)=>console.log(`TOR_PREF_IMAGE_CHUNK ${name} ${index+1}/${chunks.length} ${chunk}`));
