@@ -22,6 +22,8 @@ pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
 pub mod notification_email_consent;
 pub use notification_email_consent::PgEmailNotificationConsent;
+pub mod notification_send_time;
+pub use notification_send_time::PgPreferredSendHour;
 
 pub mod book_stats;
 
