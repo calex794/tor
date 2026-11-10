@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry"}
 ADMIN_MAIL_HANDLERS = {
@@ -530,6 +530,16 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if is_s049_appeal_user or audited_s049_appeal_admin:
         evidence += "\n" + functions.get("session_user", "")
         evidence += "\n" + functions.get("store", "")
+    audited_g09 = (
+        policy == "admin_g09"
+        and entry["source"] == "crates/web/src/g09_operator.rs"
+        and admin_key in {
+            ("GET", "/admin/storage/g09", "page"),
+            ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command"),
+        }
+    )
+    if audited_g09:
+        evidence += "\\n" + functions.get("authorize", "")
     audited_audience = (
         policy == "administrator"
         and admin_key in {
@@ -542,7 +552,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -664,6 +674,32 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ))
         if not guarded:
             errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
+    if policy == "admin_g09":
+        source = _production((ROOT / "crates/web/src/g09_operator.rs").read_text(encoding="utf-8"))
+        review = _production((ROOT / "crates/storage/src/repositories/reconciliation_operator.rs").read_text(encoding="utf-8"))
+        guard = all(token in evidence for token in (
+            "authorize(&state, &headers).await",
+            "session_actor(&session_token_digest(&token))",
+            "actor.administrator",
+            "StatusCode::UNAUTHORIZED",
+            "StatusCode::FORBIDDEN",
+        ))
+        read_only = all(token in source for token in (
+            "PgG09Operator::new", "PgPrivateInventory::new", "PgRegisteredAudit::new",
+            "try_acquire_owned()", "for _ in 0..32",
+        )) and all(token in review for token in (
+            "LIMIT 40", "key_sha256", "valid_private_bucket(bucket)",
+        ))
+        write_guard = (
+            entry["method"] != "POST"
+            or all(token in body for token in (
+                "state.cookies.same_origin(&headers)",
+                "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+                "target(&dir, &kind)",
+            ))
+        )
+        if not (audited_g09 and guard and read_only and write_guard):
+            errors.append(f"{label}: G-09 admin role, CSRF or bounded read-only scan guard missing")
     if policy == "admin_outbox_retry":
         # G-07: requeue is authorized by the locked live role in the SAME
         # transaction as event mutation and append-only audit.
