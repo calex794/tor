@@ -247,7 +247,7 @@ async function calendarPeriods(page, days) {
     for (const days of [1,30,90]) {
       await adminPage.locator('select[name="days"]').selectOption(String(days));
       await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL('**/admin/audience?days='+days);
+      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')===String(days));
       await calendarPeriods(adminPage,days);
     }
 

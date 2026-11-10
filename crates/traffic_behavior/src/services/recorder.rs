@@ -13,12 +13,12 @@ use std::{
         Arc,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 const MAX_QUEUE: usize = 4_096;
 enum Message {
-    Event(BehaviorEvent, Option<FlowPageview>),
+    Event(BehaviorEvent, Option<FlowPageview>, Option<i64>),
     Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
@@ -54,7 +54,7 @@ impl TrafficRecorder {
                 let mut fail_closed = false;
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(mut event, flow) => {
+                        Message::Event(mut event, flow, observed_hour) => {
                             // An in-flight request may arrive after consent has
                             // been revoked. It cannot recreate the old path.
                             while let Some((time, key)) = expirations.front().copied() {
@@ -77,6 +77,7 @@ impl TrafficRecorder {
                                     .subject
                                     .is_some_and(|key| visits.observe(key, event.at_millis));
                                 rollup.record_flow(pageview, event.subject.is_some(), started);
+                                rollup.record_observed_flow(pageview, observed_hour);
                             }
                             if event.subject.is_some() {
                                 let _ = path_sink.try_record(event);
@@ -138,7 +139,12 @@ impl TrafficRecorder {
         if has_flow {
             self.flow_candidates.fetch_add(1, Ordering::Relaxed);
         }
-        match self.sender.try_send(Message::Event(event, flow)) {
+        // Capture at the HTTP producer, not after queueing or PostgreSQL delay.
+        let observed_hour = flow.and_then(|_| crate::domain::observation_hour(SystemTime::now()));
+        match self
+            .sender
+            .try_send(Message::Event(event, flow, observed_hour))
+        {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);

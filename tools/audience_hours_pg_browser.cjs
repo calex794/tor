@@ -7,6 +7,7 @@ const {randomBytes} = require('node:crypto');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const observed = require('./audience_observed_pg_helpers.cjs').helpers(sql,json);
 
 const db = process.env.APP_URL || '';
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
@@ -114,6 +115,9 @@ async function checkReport(page, days) {
     }
   }
   assert.equal(bounds.previous[1], bounds.current[0]);
+  const quality = await page.getByTestId('audience-data-quality').innerText();
+  assert.match(quality, /Недостоверность измерений/);
+  assert.match(quality, /процесс/);
   const table = page.getByTestId('audience-hours-table');
   const hours = await table.locator('tr[data-hour]').evaluateAll(rows => rows.map(row => Number(row.dataset.hour)));
   assert.equal(hours.length, days*24);
@@ -151,7 +155,7 @@ function publicCounts(from) {
   const run = Date.now()+'-'+randomBytes(4).toString('hex');
   const adminEmail = `flow-hours-admin-${run}@tor-ci.example`;
   const readerEmail = `flow-hours-reader-${run}@tor-ci.example`;
-  let browser, administrator, reader, book, history;
+  let browser, administrator, reader, book, history, observedHistory;
   try {
     browser = await chromium.launch({headless:true});
     const adminContext = await browser.newContext({viewport:{width:1440,height:900}});
@@ -174,13 +178,25 @@ function publicCounts(from) {
 
     const anchor = scalar("SELECT extract(epoch FROM date_trunc('hour',now(),'UTC'))::bigint");
     history = installHistory(anchor);
+    observedHistory = observed.history(anchor);
     for (const width of [390,1440]) {
       await adminPage.setViewportSize({width,height:width===390 ? 844 : 900});
       await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
       await checkReport(adminPage,7);
+      await observed.report(adminPage,7);
       const hours = adminPage.getByTestId('audience-hours');
       assert.match(await hours.innerText(), /час.*сохран|сохран.*час/);
       assert.ok(!(await hours.innerText()).includes('999999'), 'private-page category excluded');
+      await adminPage.getByTestId('audience-observed').scrollIntoViewIfNeeded();
+      await adminPage.screenshot({path:path.join(shots,`audience-observed-${width}.png`)});
+      await adminPage.getByTestId('audience-observed-table').locator('xpath=ancestor::details').locator('summary').click();
+      const current=adminPage.locator(`[data-observed-hour="${observedHistory.current}"] td`);
+      assert.equal((await current.nth(1).innerText()).trim(),'5');
+      assert.equal((await current.nth(2).innerText()).trim(),'0');
+      assert.ok(!/^\d+$/.test((await current.nth(3).innerText()).trim()));
+      assert.ok(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      await adminPage.getByTestId('audience-observed-table').scrollIntoViewIfNeeded();
+      await adminPage.screenshot({path:path.join(shots,`audience-observed-table-${width}.png`)});
       await hours.scrollIntoViewIfNeeded();
       await adminPage.screenshot({path:path.join(shots,`audience-hours-${width}.png`)});
       await hours.getByText('Все часы и категории',{exact:true}).click();
@@ -193,7 +209,8 @@ function publicCounts(from) {
     for (const days of [1,30,90]) {
       await adminPage.locator('select[name="days"]').selectOption(String(days));
       await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
-      await adminPage.waitForURL('**/admin/audience?days='+days);
+      await adminPage.waitForURL(url => url.pathname==='/admin/audience' && url.searchParams.get('days')===String(days));
+      await observed.report(adminPage,days);
       if (days===1) await checkReport(adminPage,days);
       else {
         assert.equal(await adminPage.getByTestId('audience-hours-unsupported').count(),1);
@@ -202,6 +219,12 @@ function publicCounts(from) {
       }
     }
 
+    await adminPage.locator('select[name="time_zone"]').selectOption('Europe/Amsterdam');
+    await adminPage.locator('form[action="/admin/audience"]').getByRole('button').click();
+    await adminPage.waitForURL(url=>url.searchParams.get('time_zone')==='Europe/Amsterdam');
+    await observed.report(adminPage,90,'Europe/Amsterdam');
+    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7&time_zone=bad'),400);
+    await privateResponse(await guestPage.goto(base+'/admin/audience?time_zone=bad'),401);
     book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
       VALUES('ci:flow:hours:${run}','ru','FLOW-HOURS-PRIVATE-SENTINEL-${run}','public','basic') RETURNING id`);
     const chapter = scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
@@ -211,12 +234,16 @@ function publicCounts(from) {
     sql(`INSERT INTO chapter_publications(chapter_id,version_id) VALUES(${chapter},${version})`);
     const captureFrom = scalar("SELECT extract(epoch FROM date_trunc('hour',now(),'UTC'))::bigint");
     const before = publicCounts(captureFrom);
+    const observedBefore=observed.counts(captureFrom);
     for (const route of ['/', '/catalog', `/books/${book}`, `/reader/${chapter}`, `/reader/${chapter}`]) {
       assert.equal((await guestPage.goto(base+route)).status(),200);
     }
     const expected = before.map((value,index) => value+[1,1,1,2][index]);
     await waitFor(() => publicCounts(captureFrom).every((value,index) => value>=expected[index]), 'actual HTML requests saved by the existing RIL pump');
     assert.deepEqual(publicCounts(captureFrom),expected,'repeat page opens are views, not new unique people');
+    const observedExpected=observedBefore.map((value,index)=>value+[1,1,1,2][index]);
+    await waitFor(()=>observed.counts(captureFrom).every((value,index)=>value>=observedExpected[index]),'actual anonymous observation-hour capture');
+    assert.deepEqual(observed.counts(captureFrom),observedExpected);
     const batches = scalar('SELECT count(*) FROM ril_flush_batches WHERE finished_at IS NOT NULL');
     assert.equal((await guestPage.request.get(base+'/api/v1/books')).status(),200);
     assert.equal((await guestPage.request.get(base+'/flow-hours-unregistered')).status(),404);
@@ -224,6 +251,7 @@ function publicCounts(from) {
     assert.equal((await botContext.request.get(base+'/')).status(),200);
     await waitFor(() => scalar('SELECT count(*) FROM ril_flush_batches WHERE finished_at IS NOT NULL')>batches, 'negative request batch flushed');
     assert.deepEqual(publicCounts(captureFrom),expected,'API, 404 and bot requests must not become pageviews');
+    assert.deepEqual(observed.counts(captureFrom),observedExpected,'observed-hour projection excludes API/errors/robots');
     await botContext.close();
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
     await checkReport(adminPage,7);
@@ -237,9 +265,10 @@ function publicCounts(from) {
     await adminPage.goto(base+'/me');
     assert.equal(await adminPage.locator('a[href="/admin/audience"]').count(),0);
     assert.deepEqual(errors,[]);
-    console.log('FLOW hourly browser PASS: real HTML/RIL capture, excluded API/404/bot, unfinished hour excluded, 1/7 periods, unknown/zero, 30/90 limits, live admin revocation, 390/1440 px');
+    console.log('FLOW hourly browser PASS: real HTML/RIL capture, excluded API/404/bot, unfinished hour excluded, 1/7 legacy and 1/7/30/90 observation periods, timezones, unknown/zero, retired identity, live admin revocation, 390/1440 px');
   } finally {
     if (browser) await browser.close();
+    if (observedHistory) observedHistory.restore();
     if (history) history.restore();
     if (administrator) sql(`DELETE FROM account_roles WHERE user_id=${administrator}`);
     if (book) sql(`BEGIN;

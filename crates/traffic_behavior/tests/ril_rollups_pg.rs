@@ -365,3 +365,6 @@ async fn ril_06_background_sink_survives_pg_loss_without_failing_http() {
     pump.run_once().await; // best effort: no panic on failed PG
     assert_eq!(recorder.dropped_events(), 0);
 }
+
+#[path = "ril_rollups_pg/observed.rs"]
+mod observed;

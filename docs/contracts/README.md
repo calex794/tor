@@ -21,3 +21,5 @@
 **Внешние границы:** S041 Boosty, S003 OAuth и рекламная активация работают только после реальных подписанных конфигураций и end-to-end теста. Замороженные S053–S056 не реализовывать без нового продуктового решения.
 
 Оригинал продукта: [Notion v0.2](https://app.notion.com/p/40432a84beec81c49bbad75e88ff6989). Истинный статус функций: [Notion](https://app.notion.com/p/970f1eab10e041489e285725a697b513).
+
+- [FLOW observation-hour counts v1](flow-observation-hours-v1.md): anonymous RIL event-hour projection, periods/timezones and evidence boundaries.
