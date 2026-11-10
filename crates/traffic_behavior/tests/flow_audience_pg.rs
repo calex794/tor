@@ -205,9 +205,10 @@ async fn flow_hours_missing_zero_overflow_and_failed_read_remain_distinct() {
            (bucket,surface_code,acquisition_hint,html_requests,
             opted_in_html_requests,observed_opted_in_visit_starts)
          SELECT date_trunc('hour', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
-                  - n * interval '1 hour', s::smallint, a::smallint, v,0,0
-         FROM (VALUES(1,0,0,0::bigint),(1,1,0,11),(1,1,3,13),(168,2,0,17),
-                     (169,3,0,19),(336,3,1,23)) AS seed(n,s,a,v)",
+                  - n * interval '1 hour', s::smallint, a::smallint, v,opted,starts
+         FROM (VALUES(1,0,0,0::bigint,0::bigint,0::bigint),
+                      (1,1,0,11,5,2),(1,1,3,13,7,1),(168,2,0,17,4,1),
+                      (169,3,0,19,3,1),(336,3,1,23,6,2)) AS seed(n,s,a,v,opted,starts)",
         )
         .await;
     let report = repo.report(7).await.unwrap();
@@ -225,8 +226,12 @@ async fn flow_hours_missing_zero_overflow_and_failed_read_remain_distinct() {
         report.current.saved_views,
         [Some(0), Some(24), Some(17), None]
     );
+    assert_eq!(report.current.saved_opted_in_requests, [Some(0), Some(12), Some(4), None]);
+    assert_eq!(report.current.observed_visit_starts, [Some(0), Some(3), Some(1), None]);
     assert_eq!(report.current.recorded_hours, [1, 1, 1, 0]);
     assert_eq!(report.previous.saved_views, [None, None, None, Some(42)]);
+    assert_eq!(report.previous.saved_opted_in_requests, [None, None, None, Some(9)]);
+    assert_eq!(report.previous.observed_visit_starts, [None, None, None, Some(3)]);
     assert_eq!(report.previous.recorded_hours, [0, 0, 0, 2]);
     for days in [i32::MIN, -1, 0, 2, 30, 90, i32::MAX] {
         assert_eq!(repo.report(days).await, Err(FlowHourlyError::Invalid));

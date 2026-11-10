@@ -59,6 +59,18 @@ impl PgFlowAudience {
                     row.try_get("views_2").map_err(unavailable)?,
                     row.try_get("views_3").map_err(unavailable)?,
                 ],
+                opted_in_html_requests: [
+                    row.try_get("opted_0").map_err(unavailable)?,
+                    row.try_get("opted_1").map_err(unavailable)?,
+                    row.try_get("opted_2").map_err(unavailable)?,
+                    row.try_get("opted_3").map_err(unavailable)?,
+                ],
+                observed_visit_starts: [
+                    row.try_get("starts_0").map_err(unavailable)?,
+                    row.try_get("starts_1").map_err(unavailable)?,
+                    row.try_get("starts_2").map_err(unavailable)?,
+                    row.try_get("starts_3").map_err(unavailable)?,
+                ],
             });
         }
         let report = report_from_rows(days, anchor, saved)?;
@@ -85,6 +97,8 @@ WITH anchor AS MATERIALIZED (
     FROM anchor a
 ), saved AS (
     SELECT f.bucket, f.surface_code, SUM(f.html_requests)::bigint AS views,
+           SUM(f.opted_in_html_requests)::bigint AS opted,
+           SUM(f.observed_opted_in_visit_starts)::bigint AS starts,
            bool_and(f.acquisition_hint BETWEEN 0 AND 3
                AND f.html_requests >= 0
                AND f.opted_in_html_requests BETWEEN 0 AND f.html_requests
@@ -112,6 +126,14 @@ SELECT FLOOR(EXTRACT(EPOCH FROM a.at))::bigint AS measured_at_epoch,
        MAX(s.views) FILTER (WHERE s.surface_code=1) AS views_1,
        MAX(s.views) FILTER (WHERE s.surface_code=2) AS views_2,
        MAX(s.views) FILTER (WHERE s.surface_code=3) AS views_3,
+       MAX(s.opted) FILTER (WHERE s.surface_code=0) AS opted_0,
+       MAX(s.opted) FILTER (WHERE s.surface_code=1) AS opted_1,
+       MAX(s.opted) FILTER (WHERE s.surface_code=2) AS opted_2,
+       MAX(s.opted) FILTER (WHERE s.surface_code=3) AS opted_3,
+       MAX(s.starts) FILTER (WHERE s.surface_code=0) AS starts_0,
+       MAX(s.starts) FILTER (WHERE s.surface_code=1) AS starts_1,
+       MAX(s.starts) FILTER (WHERE s.surface_code=2) AS starts_2,
+       MAX(s.starts) FILTER (WHERE s.surface_code=3) AS starts_3,
        v.valid
 FROM anchor a CROSS JOIN hours h CROSS JOIN validity v
 LEFT JOIN saved s ON s.bucket=h.bucket
