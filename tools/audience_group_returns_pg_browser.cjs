@@ -179,10 +179,56 @@ async function periods(page,days) {
 function group(page,label) {
   return page.locator(`[data-testid='audience-group-row'][data-label=${JSON.stringify(label||'')}]`);
 }
+async function nextListPage(page,surface,visited) {
+  const link=page.getByTestId(`audience-${surface}-next`);
+  if(await link.count()===0) return false;
+  assert.equal(await link.count(),1,'one next page link');
+  const current=new URL(page.url()), next=new URL(await link.getAttribute('href'),base);
+  const cursor=surface==='books'?'after_id':'after';
+  const filters=url=>[...url.searchParams].filter(([key])=>key!==cursor)
+    .sort(([left],[right])=>left.localeCompare(right));
+  assert.equal(next.origin,current.origin);
+  assert.equal(next.pathname,'/admin/audience/'+surface);
+  assert.equal(next.pathname,current.pathname);
+  assert.deepEqual(filters(next),filters(current),'pagination preserves every filter and the selected period');
+  assert.ok(next.searchParams.get(cursor),'the next link has an explicit cursor');
+  assert.notEqual(next.searchParams.get(cursor),current.searchParams.get(cursor));
+  if(surface==='books') {
+    assert.match(next.searchParams.get(cursor),/^[1-9]\d*$/);
+    assert.ok(BigInt(next.searchParams.get(cursor))>BigInt(current.searchParams.get(cursor)||'0'),
+      'the book cursor strictly advances');
+  }
+  assert.ok(!visited.has(next.href),'pagination must not loop');
+  visited.add(next.href);
+  await link.click();
+  await page.waitForURL(next.href);
+  return true;
+}
+async function findRow(page,surface,row,description) {
+  const visited=new Set([page.url()]),seenBooks=new Set();
+  for(;;) {
+    if(surface==='books') {
+      const after=BigInt(new URL(page.url()).searchParams.get('after_id')||'0');
+      const ids=await page.getByTestId('audience-book-row').evaluateAll(rows=>rows.map(row=>row.dataset.bookId));
+      for(const id of ids) {
+        assert.ok(BigInt(id)>after,'each book follows the current cursor');
+        assert.ok(!seenBooks.has(id),'books do not repeat while searching successive pages');
+        seenBooks.add(id);
+      }
+    }
+    if(await row.count()!==0) break;
+    assert.ok(await nextListPage(page,surface,visited),description+' must exist in the complete filtered list');
+  }
+  assert.equal(await row.count(),1,description+' is unique on its page');
+  return row;
+}
+async function findBook(page,book) {
+  return findRow(page,'books',page.locator(`[data-testid='audience-book-row'][data-book-id='${book}']`),'selected book');
+}
 async function enterGroup(page,kind,label,days) {
   await privateResponse(await page.goto(base+`/admin/audience/groups?kind=${kind}&days=${days}`));
-  const row=group(page,label), link=row.getByTestId('audience-group-returns-link');
-  assert.equal(await row.count(),1);
+  const row=await findRow(page,'groups',group(page,label),'selected group');
+  const link=row.getByTestId('audience-group-returns-link');
   assert.equal(await link.count(),1);
   const href=new URL(await link.getAttribute('href'),base);
   assert.equal(href.pathname,'/admin/audience/returns');
@@ -202,10 +248,14 @@ async function exactBooks(page,kind,label,days,bookIds) {
   assert.equal(href.searchParams.get(label===null?'without_'+field:field),label===null?'true':label);
   await link.click();
   await page.waitForURL(href.href);
-  const rows=page.getByTestId('audience-book-row');
   if(bookIds!==null) {
-    const actual=await rows.evaluateAll(rows=>rows.map(row=>Number(row.dataset.bookId)).sort((a,b)=>a-b));
-    assert.deepEqual(actual,[...bookIds].sort((a,b)=>a-b),'group return detail uses exactly the same current books');
+    const actual=[],visited=new Set([page.url()]);
+    do {
+      actual.push(...await page.getByTestId('audience-book-row').evaluateAll(rows=>rows.map(row=>Number(row.dataset.bookId))));
+    } while(await nextListPage(page,'books',visited));
+    assert.equal(new Set(actual).size,actual.length,'books do not repeat across pages');
+    assert.deepEqual(actual.sort((a,b)=>a-b),[...bookIds].sort((a,b)=>a-b),'all detail pages use exactly the same current books');
+    if(visited.size>1) await privateResponse(await page.goto(href.href));
   }
 }
 
@@ -218,19 +268,25 @@ async function exactBooks(page,kind,label,days,bookIds) {
   const books=[],users=[],errors=[],titles=[];
   const array=labels=>labels.length?'ARRAY['+labels.map(value=>"'"+value.replaceAll("'","''")+"'").join(',')+']':"'{}'::text[]";
   let browser;
-  function create(key,genres,tags) {
+  function createBook(key,genres,tags) {
     const title='Книга группы '+key+' '+run;
     titles.push(title);
     const book=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres,tags)
       VALUES('ci:flow:group-returns:${run}:${key}','ru','${title}','public','basic',${array(genres)},${array(tags)}) RETURNING id`);
     books.push(book);
-    return chapter(book,1);
+    return book;
+  }
+  function create(key,genres,tags) {
+    return chapter(createBook(key,genres,tags),1);
   }
   try {
     const first=create('first',[genre,overlap,genre],[tag,otherTag,tag]);
     const later=chapter(first.book,2),manual=chapter(first.book,3);
     const second=create('second',[genre],[tag]);
     const different=create('different',[overlap],[otherTag]);
+    // Catalogue-only fixtures make the real next-page path mandatory even in
+    // an otherwise empty database. They contain no chapter or analytics fact.
+    for(let index=0;index<21;index++) createBook('pagination-'+index,[],[]);
     const missing=create('missing',[],[]);
     browser=await chromium.launch({headless:true});
     const pages=[];
@@ -256,7 +312,8 @@ async function exactBooks(page,kind,label,days,bookIds) {
     await adminPage.locator('#groups-days').selectOption('7');
     await adminPage.locator('#audience-groups-filters').getByRole('button',{name:'Показать',exact:true}).click();
     await adminPage.waitForURL(url=>url.searchParams.get('days')==='7');
-    const entry=group(adminPage,genre).getByTestId('audience-group-returns-link');
+    const selectedGroup=await findRow(adminPage,'groups',group(adminPage,genre),'selected group');
+    const entry=selectedGroup.getByTestId('audience-group-returns-link');
     await entry.click();
     await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns'
       && url.searchParams.get('kind')==='genres' && url.searchParams.get('label')===genre && url.searchParams.get('days')==='7');
@@ -337,8 +394,8 @@ async function exactBooks(page,kind,label,days,bookIds) {
     }
     // Real return drill-down: group -> exactly its books -> one selected book.
     await exactBooks(adminPage,'genres',genre,90,[first.book,second.book]);
-    await adminPage.locator(`[data-testid='audience-book-row'][data-book-id='${first.book}']`)
-      .getByTestId('audience-book-returns-link').click();
+    const selectedBook=await findBook(adminPage,first.book);
+    await selectedBook.getByTestId('audience-book-returns-link').click();
     await adminPage.waitForURL(url=>url.pathname==='/admin/audience/returns'
       && url.searchParams.get('book_id')===String(first.book) && url.searchParams.get('days')==='90');
     assert.equal(await metric(adminPage.getByTestId('audience-book-returns-current'),'cohort'),'2');
@@ -350,7 +407,10 @@ async function exactBooks(page,kind,label,days,bookIds) {
       await select(adminPage,kind,null,30); await periods(adminPage,30);
       await snapshot(adminPage,kind,null);
       await exactBooks(adminPage,kind,null,30,null);
-      assert.equal(await adminPage.locator(`[data-book-id='${missing.book}']`).count(),1);
+      assert.equal(await adminPage.locator(`[data-testid='audience-book-row'][data-book-id='${missing.book}']`).count(),0,
+        'the selected unlabelled book is deliberately beyond the first page');
+      await findBook(adminPage,missing.book);
+      assert.ok(new URL(adminPage.url()).searchParams.get('after_id'),'the missing-label drill-down really used pagination');
     }
     const empty=await report(adminPage,'genres','!пусто '+run);
     assert.equal(empty.books,0); assert.equal(empty.current.cohort,0);
