@@ -37,18 +37,24 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
         schedule.reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, false),
         competitor.reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, false),
     );
-    let claimed = [a.unwrap(), b.unwrap()].into_iter().filter(|value| *value).count();
+    let claimed = [a.unwrap(), b.unwrap()]
+        .into_iter()
+        .filter(|value| *value)
+        .count();
     assert_eq!(claimed, 1, "one global LIST slot per 15 minutes");
     assert!(!schedule
         .reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
-        .await.unwrap());
+        .await
+        .unwrap());
     // A separate direction is independently quota-controlled.
     assert!(competitor
         .reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
-        .await.unwrap());
+        .await
+        .unwrap());
     assert!(!schedule
         .reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, true)
-        .await.unwrap());
+        .await
+        .unwrap());
     sqlx::query(
         "UPDATE g09_scheduled_pages
             SET next_allowed_at=clock_timestamp()-interval '1 second'
@@ -56,11 +62,12 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
     )
     .bind(SCHEDULE_BUCKET)
     .execute(&pool)
-    .await.unwrap();
+    .await
+    .unwrap();
     assert!(schedule
         .reserve_slot(SCHEDULE_BUCKET, PrivateScope::Chapter, false)
-        .await.unwrap());
-
+        .await
+        .unwrap());
 
     sqlx::query(
         "INSERT INTO g09_private_inventory_scans
@@ -180,7 +187,10 @@ async fn g09_scheduled_scan_respects_global_checkpoint_cadence_and_exhaustion() 
 
     // G-owned test rows only, never source storage objects.
     sqlx::query("DELETE FROM g09_scheduled_pages WHERE bucket=$1")
-        .bind(SCHEDULE_BUCKET).execute(&pool).await.unwrap();
+        .bind(SCHEDULE_BUCKET)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM g09_registered_object_scans WHERE bucket=$1")
         .bind(SCHEDULE_BUCKET)
         .execute(&pool)
