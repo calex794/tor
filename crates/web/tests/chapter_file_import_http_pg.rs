@@ -339,7 +339,6 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
     pool.close().await;
 }
 
-
 /// P1/Argon: actual authenticated TXT and ZIP preview requests against the
 /// production Axum router. Two held PostgreSQL connections simulate a busy
 /// three-connection pool; they are NOT a substitute for live S3 workers.
@@ -348,7 +347,10 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
 #[ignore = "isolated PostgreSQL 18 /tor_ci; concurrent author imports and simulated pool pressure"]
 async fn h_09_cpu_import_keeps_http_responsive_under_pool_pressure() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable TEST_DATABASE_URL");
-    assert!(url.ends_with("/tor_ci"), "never run against a retained database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never run against a retained database"
+    );
 
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
@@ -505,7 +507,9 @@ async fn h_09_cpu_import_keeps_http_responsive_under_pool_pressure() {
     .await
     .expect("bounded imports must not hang");
 
-    simulated_db_consumers.await.expect("simulated DB consumers");
+    simulated_db_consumers
+        .await
+        .expect("simulated DB consumers");
     let (mut health, mut ready) = probes.await.expect("HTTP liveness probes");
     health.sort_unstable();
     ready.sort_unstable();
@@ -536,7 +540,11 @@ async fn h_09_cpu_import_keeps_http_responsive_under_pool_pressure() {
         "three-connection shared pool became unresponsive"
     );
     assert!(
-        author.list_owned_chapters(owner, book_id).await.unwrap().is_empty(),
+        author
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .is_empty(),
         "previews must not write chapters"
     );
     pool.close().await;
