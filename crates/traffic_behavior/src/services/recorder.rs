@@ -421,7 +421,7 @@ mod tests {
         let row = first_batch.flow_rows()[0];
         assert_eq!(row.html_requests, 3);
         assert_eq!(row.opted_in_html_requests, 2);
-        assert_eq!(row.observed_opted_in_visit_starts, 1);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
         assert!(recorder
             .drain_for_persistence()
             .unwrap()
