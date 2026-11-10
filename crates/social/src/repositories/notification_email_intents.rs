@@ -37,6 +37,10 @@ impl PgNotifications {
                  WHERE n.recipient_user_id=$1
                    AND n.kind='chapter_created'
                    AND n.read_at IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM reader_email_notification_intents staged
+                       WHERE staged.notification_id=n.id
+                   )
                    AND {}
                  ORDER BY n.id DESC LIMIT $2
                )
