@@ -3,7 +3,7 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: read
+  contents: write
 jobs:
   worktree:
     runs-on: ubuntu-24.04
@@ -11,20 +11,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - name: Archive pinned tracked source only
+          ref: 874ab9c284f1054cfc77620062180d5772ecdda9
+          fetch-depth: 0
+      - name: Reproduce reviewed merge without changing main or PR refs
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name 'FLOW QA'
+          git config user.email 'flow-qa@users.noreply.github.com'
+          git merge --no-commit --no-ff 311c7f4000c31ab2fad8160eaf40d8c34d0df2be || test "$(git diff --name-only --diff-filter=U)" = 'crates/web/src/auth/audience_http/render.rs'
+          python3 - <<'PY'
+          import pathlib,re
+          p=pathlib.Path('crates/web/src/auth/audience_http/render.rs')
+          s=p.read_text()
+          s,n=re.subn(r'^<<<<<<<[^\n]*\n(.*?)^=======\n(.*?)^>>>>>>>[^\n]*\n',lambda m:m[1]+m[2],s,flags=re.M|re.S)
+          if n not in (0,2): raise SystemExit('Unexpected merge shape')
+          p.write_text(s)
+          PY
+          git add crates/web/src/auth/audience_http/render.rs
+          test "$(git write-tree)" = 524276ec3d4f69fc3ef793ef4ae6a53675fd1735
+          git diff --check --cached
+          git commit -m 'Merge REC runtime retirement into FLOW-06 without restoring collection'
+          test -z "$(git ls-remote --heads origin refs/heads/qa/flow-06-retirement-stage-20261111)"
+          git push origin HEAD:refs/heads/qa/flow-06-retirement-stage-20261111
           mkdir -p "$RUNNER_TEMP/flow-export"
-          for sha in 028f94d9651deca4a69d9d385531dba9e3a62bbc 311c7f4000c31ab2fad8160eaf40d8c34d0df2be; do
-            git fetch --no-tags --depth=1 origin "$sha"
-            git archive --format=tar.gz "$sha" > "$RUNNER_TEMP/flow-export/$sha.tar.gz"
-          done
-          cd "$RUNNER_TEMP/flow-export"
-          sha256sum *.tar.gz > SHA256SUMS
+          git rev-parse HEAD > "$RUNNER_TEMP/flow-export/COMMIT"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-export/TREE"
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-merge-source-${{ github.sha }}
+          name: flow-reviewed-merge-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
           retention-days: 1
