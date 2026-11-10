@@ -10,11 +10,20 @@ use sqlx::{postgres::PgRow, PgPool, Row};
 #[derive(Clone)]
 pub struct PgReadingSync {
     pool: PgPool,
+    activity_collection: bool,
 }
 
 impl PgReadingSync {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            activity_collection: false,
+        }
+    }
+
+    pub fn with_activity_collection(mut self, enabled: bool) -> Self {
+        self.activity_collection = enabled;
+        self
     }
 
     /// Existing free cursor (possibly on a different chapter/version of the book).
@@ -236,6 +245,7 @@ impl PgReadingSync {
             .await
             .map_err(|_| SyncError::Unavailable)?;
         }
+        super::returns::record(&mut tx, actor, book_id, place, self.activity_collection).await?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok(receipt)
     }
@@ -472,6 +482,10 @@ impl PgReadingSync {
             .execute(&mut *tx)
             .await
             .map_err(|_| SyncError::Unavailable)?;
+        }
+        if storage_object.is_none() {
+            super::returns::record(&mut tx, actor, book_id, place, self.activity_collection)
+                .await?;
         }
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok(receipt)

@@ -271,7 +271,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/groups", "groups::page")
     )
-    audience_child = "books" if audience_books else "groups" if audience_groups else None
+    audience_returns = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/returns", "returns::page")
+    )
+    audience_child = (
+        "books" if audience_books else "groups" if audience_groups
+        else "returns" if audience_returns else None
+    )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
         # Missing delegation cannot be masked by an unrelated helper definition.
@@ -542,6 +550,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
+            ("GET", "/admin/audience/returns", "returns::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1313,6 +1322,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
+            ("GET", "/admin/audience/returns", "returns::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1417,7 +1427,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
-        audience_read = f".{audience_child}_report(&query)" if audience_child else ".report(days)"
+        audience_read = (
+            ".returns_report(days)" if audience_returns
+            else f".{audience_child}_report(&query)" if audience_child else ".report(days)"
+        )
         if audience_admin and not (
             "administrator(&state, &headers)" in body
             and audience_read in body
@@ -1574,6 +1587,7 @@ def check(root: Path = ROOT) -> list[str]:
                     in {
                         ("GET", "/admin/audience/books", "books::page"),
                         ("GET", "/admin/audience/groups", "groups::page"),
+                        ("GET", "/admin/audience/returns", "returns::page"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))

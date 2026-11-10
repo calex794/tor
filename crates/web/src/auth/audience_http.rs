@@ -3,6 +3,7 @@
 mod books;
 mod groups;
 mod render;
+mod returns;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 use axum::{
@@ -16,7 +17,10 @@ use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_reading::{repositories::audience::PgAudience, services::audience::AudienceError};
+use tor_reading::{
+    repositories::{audience::PgAudience, returns::PgReadingReturns},
+    services::audience::AudienceError,
+};
 use tor_recommendations::{
     repositories::audience::PgDiscoveryAudience, services::audience::DiscoveryError,
 };
@@ -29,6 +33,7 @@ struct AudienceState {
     store: PgAudience,
     discovery: PgDiscoveryAudience,
     traffic: PgFlowAudience,
+    returns: PgReadingReturns,
 }
 
 #[derive(Default, Deserialize)]
@@ -50,16 +55,19 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let store = PgAudience::new(accounts.pool().clone());
     let discovery = PgDiscoveryAudience::new(accounts.pool().clone());
     let traffic = PgFlowAudience::new(accounts.pool().clone());
+    let returns = PgReadingReturns::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/books", get(books::page))
         .route("/admin/audience/groups", get(groups::page))
+        .route("/admin/audience/returns", get(returns::page))
         .with_state(AudienceState {
             accounts,
             cookies,
             store,
             discovery,
             traffic,
+            returns,
         })
 }
 

@@ -3,6 +3,7 @@ pub(super) mod books;
 mod evidence;
 pub(super) mod groups;
 mod hours;
+pub(super) mod returns;
 mod sources;
 
 use crate::pages::{escape_html, layout};
@@ -20,6 +21,7 @@ fn start(days: i32) -> String {
          Только общие числа, без истории отдельных читателей.</p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">Возвращаются ли к чтению</a></p>\
          <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
          <label for=\"audience-days\">Длительность периода</label>\
          <select id=\"audience-days\" name=\"days\">",

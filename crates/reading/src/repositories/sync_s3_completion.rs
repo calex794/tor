@@ -272,6 +272,14 @@ impl PgReadingSync {
             .map_err(|_| SyncError::Unavailable)?;
             (event_id, false)
         };
+        crate::repositories::returns::record(
+            &mut tx,
+            actor,
+            book_id,
+            place,
+            self.activity_collection,
+        )
+        .await?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok((event_id, is_new))
     }
