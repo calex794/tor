@@ -455,7 +455,10 @@ async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_byte
     client
         .put_object()
         .bucket(bucket)
-        .key(format!("private/chapter-versions/{}.enc", forged_id.as_str()))
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            forged_id.as_str()
+        ))
         .content_type("application/octet-stream")
         .metadata("sha256", hex::encode(forged_ref.sha256_ciphertext))
         .body(ByteStream::from_static(stored_body))
