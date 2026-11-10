@@ -41,6 +41,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if paid_author_enabled && !paid_grants_enabled {
         return Err("Paid author publication requires enabled paid grants".into());
     }
+    // Separate opt-in: never start G-09 scans implicitly.
+    let g09_operator_enabled = match env::var("TOR_G09_OPERATOR_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_G09_OPERATOR_ENABLED must be 0 or 1".into()),
+    };
+    if g09_operator_enabled
+        && (demo || env::var_os("DATABASE_URL").is_none()
+            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1"))
+    {
+        return Err("G-09 requires authenticated PostgreSQL".into());
+    }
+    #[cfg(not(feature = "s3-paid"))]
+    if g09_operator_enabled {
+        return Err("G-09 requires --features s3-paid".into());
+    }
     #[cfg(not(feature = "s3-paid"))]
     if paid_author_enabled {
         return Err("Paid author publication requires a build with --features s3-paid".into());
@@ -197,6 +214,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
+    let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
@@ -333,6 +351,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                #[cfg(feature = "s3-paid")]
+                if g09_operator_enabled {
+                    let bucket = env::var("TOR_PAID_S3_BUCKET")?;
+                    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                    let store = tor_storage::repositories::s3::S3PrivateStore::new(
+                        aws_sdk_s3::Client::new(&config), bucket,
+                    ).map_err(|_| "Invalid G-09 S3 bucket")?;
+                    pending_g09_routes = Some(tor_web::g09_operator::router(
+                        accounts.clone(), store, secure, origin.clone(),
+                    ));
+                }
                 pending_security_retention = Some(accounts.clone());
                 if overdue_observer_enabled {
                     accounts
@@ -495,6 +524,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             return Err("Set DATABASE_URL for PostgreSQL, or TOR_DEMO_MODE=1 for demo".into());
         }
         Err(error) => return Err(error.into()),
+    };
+    let app = if let Some(routes) = pending_g09_routes {
+        app.merge(tor_web::instrument_additional_routes(routes))
+    } else {
+        app
     };
     let app = if let Some(routes) = pending_chapter_import_routes {
         // The base router already has RIL instrumentation. Instrument this
