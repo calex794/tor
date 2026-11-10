@@ -34,10 +34,7 @@ use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
-    services::{
-        cover_jobs::CoverObjectStore,
-        image_pipeline::RECIPE_VERSION,
-    },
+    services::{cover_jobs::CoverObjectStore, image_pipeline::RECIPE_VERSION},
 };
 use tor_reading::repositories::PgReader;
 use tor_web::{
@@ -372,13 +369,10 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
                 // All 3 shared connections are available to G-09, S023,
                 // authenticated HTTP and this probe; no separate test pool.
                 let start = Instant::now();
-                let connection = tokio::time::timeout(
-                    Duration::from_secs(3),
-                    probe_pool.acquire(),
-                )
-                .await
-                .expect("shared PostgreSQL pool acquire timeout")
-                .expect("shared PostgreSQL connection available");
+                let connection = tokio::time::timeout(Duration::from_secs(3), probe_pool.acquire())
+                    .await
+                    .expect("shared PostgreSQL pool acquire timeout")
+                    .expect("shared PostgreSQL connection available");
                 acquire.push(start.elapsed());
                 drop(connection);
             }
@@ -451,11 +445,19 @@ async fn s023_real_worker_and_author_previews_share_bounded_pool() {
     assert_eq!(cover_snapshot.errors, 0);
     assert_eq!(cover_snapshot.timeouts, 0);
     assert_eq!(
-        cover_jobs.job_status(cover_job_id).await.unwrap().as_deref(),
+        cover_jobs
+            .job_status(cover_job_id)
+            .await
+            .unwrap()
+            .as_deref(),
         Some("done")
     );
     let cover_variants = cover_jobs.existing_variants(cover_job_id).await.unwrap();
-    assert_eq!(cover_variants.len(), 2, "WebP main/card variants must exist");
+    assert_eq!(
+        cover_variants.len(),
+        2,
+        "WebP main/card variants must exist"
+    );
     for variant in &cover_variants {
         assert!(
             cover_store
