@@ -162,7 +162,11 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
 
     // S013/S018: future external delivery preflight is reference-only.
     // Choosing cadence does not provide channel consent or dispatch anything.
-    assert!(repo.external_release_previews(follower, 50).await.unwrap().is_empty());
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
     assert!(repo.external_release_previews(0, 50).await.is_err());
     assert!(repo.external_release_previews(follower, 51).await.is_err());
     sqlx::query(
@@ -175,11 +179,18 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .unwrap();
     let previews = repo.external_release_previews(follower, 50).await.unwrap();
     assert_eq!(previews.len(), 1);
-    assert_eq!(previews[0].message, "В вашей библиотеке появились обновления.");
+    assert_eq!(
+        previews[0].message,
+        "В вашей библиотеке появились обновления."
+    );
     assert_eq!(previews[0].url, "/notifications?tab=releases");
     assert!(!format!("{previews:?}").contains(body));
     assert!(!format!("{previews:?}").contains(&format!("Chapter fanout {nonce}")));
-    assert!(repo.external_release_previews(late_follower, 50).await.unwrap().is_empty());
+    assert!(repo
+        .external_release_previews(late_follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
     sqlx::query(
         "UPDATE reader_notification_delivery_preferences
          SET delivery_mode='disabled' WHERE user_id=$1",
@@ -188,7 +199,11 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(repo.external_release_previews(follower, 50).await.unwrap().is_empty());
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
 
     let received: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT recipient_user_id,kind,url FROM user_notifications
