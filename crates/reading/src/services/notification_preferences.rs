@@ -5,6 +5,7 @@
 pub enum DeliveryMode {
     Disabled,
     Immediate,
+    SmartTime,
     DailyDigest,
 }
 
@@ -13,6 +14,7 @@ impl DeliveryMode {
         match value {
             "disabled" => Some(Self::Disabled),
             "immediate" => Some(Self::Immediate),
+            "smart_time" => Some(Self::SmartTime),
             "daily_digest" => Some(Self::DailyDigest),
             _ => None,
         }
@@ -22,6 +24,7 @@ impl DeliveryMode {
         match self {
             Self::Disabled => "disabled",
             Self::Immediate => "immediate",
+            Self::SmartTime => "smart_time",
             Self::DailyDigest => "daily_digest",
         }
     }
