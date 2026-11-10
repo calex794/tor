@@ -17,7 +17,12 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn fixture_sql(url: &str, statement: &str) -> String {
-    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let target = reqwest::Url::parse(url).expect("fixture database URL");
+    assert!(matches!(target.scheme(), "postgres" | "postgresql"));
+    assert_eq!(target.host_str(), Some("127.0.0.1"));
+    assert_eq!(target.port(), Some(5432));
+    assert_eq!(target.path(), "/tor_ci");
+    assert!(target.query().is_none() && target.fragment().is_none());
     let output = std::process::Command::new("psql")
         .args([
             "-X",
@@ -71,18 +76,16 @@ async fn retired_consent_and_legacy_flags_never_identify_navigation() {
         Ok("1")
     );
     let catalog = PgCatalog::connect(&url).await.unwrap();
-    let current_schema: bool = sqlx::query_scalar(
+    let current_schema = fixture_sql(
+        &url,
         "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
                        WHERE version=202611168903 AND success)
             AND EXISTS(SELECT 1 FROM pg_trigger
                        WHERE tgrelid='ril_behavior_consents'::regclass
                          AND tgname='retired_collection_write_fence' AND tgenabled<>'D')",
-    )
-    .fetch_one(catalog.pool())
-    .await
-    .unwrap();
-    assert!(
-        current_schema,
+    );
+    assert_eq!(
+        current_schema, "t",
         "current-schema RIL proof requires retirement 192"
     );
     let reader = PgReader::new(catalog.pool().clone());
