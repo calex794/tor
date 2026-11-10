@@ -93,6 +93,7 @@ async fn g09_http_guest_member_csrf_origin_and_revoked_admin_are_denied() {
     // This fixture sends no requests to S3. A dummy client is sufficient to
     // prove the auth boundary without creating an object or needing credentials.
     let config = aws_sdk_s3::Config::builder()
+        .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
         .region(aws_sdk_s3::config::Region::new("us-east-1"))
         .endpoint_url("http://127.0.0.1:9000")
         .force_path_style(true)
