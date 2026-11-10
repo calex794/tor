@@ -14,8 +14,10 @@ mod admin;
 mod api;
 mod author;
 mod decorate;
+mod flow_consent;
 mod organic;
 mod pages;
+pub(crate) mod visits;
 
 #[derive(Clone)]
 pub(crate) struct Runtime {
@@ -60,6 +62,10 @@ pub(crate) fn routes(state: Runtime) -> Router {
         )
         .route("/me/recommendations", get(pages::page))
         .route("/me/recommendations/consent", post(pages::consent))
+        .route(
+            "/me/recommendations/flow-consent",
+            post(flow_consent::submit),
+        )
         .route("/me/recommendations/feedback", post(pages::feedback))
         .route("/api/v1/admin/recommendations/quality", get(admin::quality))
         .route(

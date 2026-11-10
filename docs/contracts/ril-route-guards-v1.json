@@ -907,6 +907,27 @@
     },
     {
       "method": "POST",
+      "template": "/me/notification-email/confirm",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "notification_settings::confirm_email_proof",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/notification-email/request",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "notification_settings::request_email_proof",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/notification-email/revoke",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "notification_settings::revoke_email_consent",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/me/notification-settings",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "notification_settings::save",
@@ -2668,6 +2689,20 @@
       "source": "crates/web/src/g09_operator.rs",
       "handler": "command",
       "policy": "admin_g09"
+    },
+    {
+      "method": "POST",
+      "template": "/me/recommendations/flow-consent",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "flow_consent::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/visits",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "visits::page",
+      "policy": "administrator"
     }
   ]
 }

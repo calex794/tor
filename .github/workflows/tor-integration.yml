@@ -390,6 +390,8 @@ jobs:
           cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
@@ -397,7 +399,7 @@ jobs:
           cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1 --show-output
           ci_pg_phase_done "reading_library"
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
@@ -480,7 +482,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flow-audience-pg-browser
-          path: ${{ runner.temp }}/rec13-browser/shots/audience*.png
+          path: |
+            ${{ runner.temp }}/rec13-browser/shots/audience*.png
+            ${{ runner.temp }}/rec13-browser/shots/flow-visits*.png
           if-no-files-found: warn
           retention-days: 14
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)

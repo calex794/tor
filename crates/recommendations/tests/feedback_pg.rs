@@ -898,3 +898,6 @@ mod s020_organic_age;
 
 #[path = "feedback_pg/s020_age_feedback.rs"]
 mod s020_age_feedback;
+
+#[path = "feedback_pg/flow_consent.rs"]
+mod flow_consent;

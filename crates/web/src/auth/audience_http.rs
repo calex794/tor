@@ -4,6 +4,7 @@ mod books;
 mod groups;
 mod render;
 mod returns;
+mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 use axum::{
@@ -34,6 +35,7 @@ struct AudienceState {
     discovery: PgDiscoveryAudience,
     traffic: PgFlowAudience,
     returns: PgReadingReturns,
+    visits: tor_recommendations::repositories::visits::PgFlowVisits,
 }
 
 #[derive(Default, Deserialize)]
@@ -56,11 +58,14 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     let discovery = PgDiscoveryAudience::new(accounts.pool().clone());
     let traffic = PgFlowAudience::new(accounts.pool().clone());
     let returns = PgReadingReturns::new(accounts.pool().clone());
+    let visits =
+        tor_recommendations::repositories::visits::PgFlowVisits::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/books", get(books::page))
         .route("/admin/audience/groups", get(groups::page))
         .route("/admin/audience/returns", get(returns::page))
+        .route("/admin/audience/visits", get(visits::page))
         .with_state(AudienceState {
             accounts,
             cookies,
@@ -68,6 +73,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             discovery,
             traffic,
             returns,
+            visits,
         })
 }
 

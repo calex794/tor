@@ -50,8 +50,8 @@ async function register(page, email) {
 }
 async function consent(page, enabled) {
   await page.goto(base+'/me/recommendations');
-  await page.getByRole('checkbox').setChecked(enabled);
-  await page.getByRole('button',{name:'Сохранить выбор'}).click();
+  await page.locator("form[action='/me/recommendations/consent']").getByRole('checkbox').setChecked(enabled);
+  await page.getByRole('button',{name:'Сохранить выбор',exact:true}).click();
   await page.waitForURL('**/me/recommendations');
 }
 async function csrf(page) {
