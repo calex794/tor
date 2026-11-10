@@ -132,12 +132,13 @@ impl PgCreatorPayoutPosting {
                 return Err(PayoutPostError::StepUpRequired);
             }
 
-            let recipient: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM finance_creator_payout_requests WHERE id=$1")
-                    .bind(request_id)
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(|_| PayoutPostError::Unavailable)?;
+            let recipient: Option<i64> = sqlx::query_scalar(
+                "SELECT user_id FROM finance_creator_payout_requests WHERE id=$1",
+            )
+            .bind(request_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|_| PayoutPostError::Unavailable)?;
             let recipient = recipient.ok_or(PayoutPostError::NotFound)?;
             // Independent authorization: administrators cannot post their own
             // payout. Avoids upgrading a held admin SHARE user lock as well.
@@ -351,7 +352,8 @@ impl PgCreatorPayoutPosting {
                 wallet_entry_id: entry_id,
                 replayed: false,
             })
-        }.await;
+        }
+        .await;
         // A rejected or failed posting must release all retained role, session
         // and wallet locks before the caller can revoke authority or retry.
         match outcome {
