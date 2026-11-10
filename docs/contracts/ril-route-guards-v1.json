@@ -2647,6 +2647,20 @@
       "source": "crates/web/src/auth/admin_creator_payouts.rs",
       "handler": "quote",
       "policy": "admin_payout"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/storage/g09",
+      "source": "crates/web/src/g09_operator.rs",
+      "handler": "page",
+      "policy": "admin_g09"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/storage/g09/{direction}/{scope}/{action}",
+      "source": "crates/web/src/g09_operator.rs",
+      "handler": "command",
+      "policy": "admin_g09"
     }
   ]
 }

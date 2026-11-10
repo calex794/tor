@@ -205,6 +205,31 @@ impl PgPrivateInventory {
         self.progress(bucket, scope).await
     }
 
+    /// Begin another explicit read-only cycle, retaining previous findings.
+    pub async fn begin_next_cycle(
+        &self,
+        bucket: &str,
+        scope: PrivateScope,
+    ) -> Result<bool, InventoryError> {
+        if !valid_private_bucket(bucket) {
+            return Err(InventoryError::Invalid);
+        }
+        let changed = sqlx::query(
+            "UPDATE g09_private_inventory_scans
+                SET cycle=cycle+1,continuation=NULL,scanned=0,registered=0,
+                    recently_pending=0,unregistered_candidates=0,
+                    size_mismatch=0,unknown=0,checkpoint_at=NULL,completed=FALSE
+              WHERE bucket=$1 AND scope=$2 AND completed
+                AND (leased_until IS NULL OR leased_until<=clock_timestamp())",
+        )
+        .bind(bucket)
+        .bind(scope.kind())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| InventoryError::Unavailable)?;
+        Ok(changed.rows_affected() == 1)
+    }
+
     async fn release(&self, bucket: &str, scope: PrivateScope, epoch: i64) {
         let _ = sqlx::query(
             "UPDATE g09_private_inventory_scans SET leased_until=NULL
