@@ -37,7 +37,7 @@ impl PgG09Schedule {
     /// Fail startup for an explicitly enabled scheduler if its diagnostic
     /// migrations are absent; never try to migrate production automatically.
     pub async fn probe(&self) -> Result<(), InventoryError> {
-        sqlx::query("SELECT 1 FROM g09_private_inventory_scans LIMIT 0")
+        sqlx::query("SELECT exhausted,unknown_attempts,retries FROM g09_private_inventory_scans LIMIT 0")
             .execute(&self.pool)
             .await
             .map_err(|_| InventoryError::Unavailable)?;
