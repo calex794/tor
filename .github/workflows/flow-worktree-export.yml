@@ -12,33 +12,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Archive tracked source only
+      - name: Archive pinned tracked source only
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/flow-export"
-          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/flow-export/tor-source.tar.gz"
-          git rev-parse HEAD > "$RUNNER_TEMP/flow-export/SOURCE_SHA"
-          sha256sum "$RUNNER_TEMP/flow-export/tor-source.tar.gz" > "$RUNNER_TEMP/flow-export/source.sha256"
+          for sha in 028f94d9651deca4a69d9d385531dba9e3a62bbc 311c7f4000c31ab2fad8160eaf40d8c34d0df2be; do
+            git fetch --no-tags --depth=1 origin "$sha"
+            git archive --format=tar.gz "$sha" > "$RUNNER_TEMP/flow-export/$sha.tar.gz"
+          done
+          cd "$RUNNER_TEMP/flow-export"
+          sha256sum *.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-pinned-source-${{ github.sha }}
+          name: flow-merge-source-${{ github.sha }}
           path: ${{ runner.temp }}/flow-export/
-          retention-days: 1
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Archive public compiler tools only
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$(rustc --print sysroot)"
-          mkdir -p "$RUNNER_TEMP/flow-rust-tools"
-          tar -C "$root" -czf "$RUNNER_TEMP/flow-rust-tools/rust-tools.tar.gz" bin lib
-          rustc --version > "$RUNNER_TEMP/flow-rust-tools/VERSION"
-          sha256sum "$RUNNER_TEMP/flow-rust-tools/rust-tools.tar.gz" > "$RUNNER_TEMP/flow-rust-tools/tools.sha256"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flow-rust-tools-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-rust-tools/
           retention-days: 1
