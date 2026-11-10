@@ -245,7 +245,6 @@ async fn enqueue(
         );
     }
 
-
     // Replay lookup comes before S3 so a completed retry does not recreate an
     // already-cleaned source object. A reused key with changed content is 409.
     let existing = match state
