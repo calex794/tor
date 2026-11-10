@@ -131,6 +131,7 @@ fn render(
         let state = match row.state.as_str() {
             "pending" => "Ожидает решения — деньги не перечислены",
             "rejected" => "Отклонена — резерв освобождён",
+            "posted" => "Внутренняя проводка создана — банковский перевод не подтверждён",
             _ => "Статус не подтверждён",
         };
         write!(
@@ -358,8 +359,8 @@ async fn submit(
 #[cfg(test)]
 mod tests {
     use super::{
-        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorRefundLine,
-        FinanceTab,
+        render, rub_to_minor, CreatorEarningLine, CreatorFinanceTotals, CreatorPayoutRequest,
+        CreatorRefundLine, FinanceTab,
     };
 
     #[test]
@@ -468,5 +469,24 @@ mod tests {
         assert!(!html.contains("name=\"intent_key\""));
         assert!(html.contains("0.00 RUB"));
         assert!(!html.contains("выплата выполнена"));
+        let posted = CreatorPayoutRequest {
+            id: 77,
+            amount_minor: 200,
+            state: "posted".into(),
+            created_utc: "2026-11-10 00:00".into(),
+        };
+        let posted_html = render(
+            &totals,
+            &[],
+            &[],
+            &[posted],
+            "csrf",
+            false,
+            FinanceTab::Payouts,
+        )
+        .0;
+        assert!(posted_html.contains("Внутренняя проводка создана"));
+        assert!(posted_html.contains("банковский перевод не подтверждён"));
+        assert!(!posted_html.contains("выплата выполнена"));
     }
 }

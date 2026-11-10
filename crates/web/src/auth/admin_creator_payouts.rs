@@ -66,9 +66,9 @@ fn shell(content: &str, cookies: &[String]) -> Response {
             &format!(
                 r#"<section class="section"><div class="container">
                 <h1>Заявки на выплату</h1>
-                <p>Только внутреннее резервирование. Отклонение освобождает
-                резерв и не меняет баланс кошелька. Подтверждения и внешние
-                перечисления здесь не предусмотрены.</p>
+                <p>Внутренние резервы и проводки. Отклонение ожидающей заявки
+                освобождает резерв и не меняет баланс кошелька. Банковские
+                перечисления через эту страницу не выполняются.</p>
                 {content}<p><a href="/me">Кабинет</a></p>
                 </div></section>"#
             ),
@@ -88,6 +88,8 @@ fn render_request(row: &PayoutAdminRow, csrf: &str, allow_reject: bool) -> Strin
         "Ожидает решения (не перечислена)"
     } else if row.state == "rejected" {
         "Отклонена; резерв освобождён"
+    } else if row.state == "posted" {
+        "Внутренняя проводка создана; банковский перевод не подтверждён"
     } else {
         "Неизвестное состояние"
     };
@@ -285,6 +287,11 @@ mod tests {
         assert!(!html.contains("Подтвердить выплату"));
         row.state = "rejected".into();
         assert!(!render_request(&row, "csrf", true).contains("<form"));
+        row.state = "posted".into();
+        let posted = render_request(&row, "csrf", true);
+        assert!(posted.contains("Внутренняя проводка создана"));
+        assert!(posted.contains("банковский перевод не подтверждён"));
+        assert!(!posted.contains("<form"));
         row.state = "pending".into();
         assert!(!render_request(&row, "csrf", false).contains("<form"));
         row.created_utc = "<script>bad</script>".into();
