@@ -491,7 +491,10 @@ fn audience_books_is_an_exact_read_only_administrator_route() {
 #[test]
 fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
     let read = classify(Some("/admin/storage/g09"), "GET");
-    let action = classify(Some("/admin/storage/g09/{direction}/{scope}/{action}"), "POST");
+    let action = classify(
+        Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+        "POST",
+    );
     assert!(read.route_known && action.route_known);
     assert_eq!(read.traffic_surface, TrafficSurface::Admin);
     assert_eq!(action.traffic_surface, TrafficSurface::Admin);
@@ -500,5 +503,11 @@ fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
     assert_eq!(read.cost_class, CostClass::CheapRead);
     assert_eq!(action.cost_class, CostClass::Write);
     assert!(!classify(Some("/admin/storage/g09"), "POST").route_known);
-    assert!(!classify(Some("/admin/storage/g09/{direction}/{scope}/{action}"), "GET").route_known);
+    assert!(
+        !classify(
+            Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+            "GET"
+        )
+        .route_known
+    );
 }
