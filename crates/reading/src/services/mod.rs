@@ -98,4 +98,5 @@ pub mod paid_delivery;
 
 pub mod audience;
 pub mod notification_preferences;
+pub mod notification_send_time;
 pub mod returns;

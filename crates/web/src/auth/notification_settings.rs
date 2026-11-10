@@ -7,7 +7,7 @@ use axum::{
     response::{Redirect, Response},
 };
 use serde::Deserialize;
-use tor_reading::repositories::{DeliveryMode, PreferenceError};
+use tor_reading::repositories::{DeliveryMode, PgPreferredSendHour, PreferenceError};
 
 #[derive(Deserialize)]
 pub(super) struct DeliveryForm {
@@ -30,8 +30,20 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Err(PreferenceError::Invalid) => return deny(StatusCode::BAD_REQUEST),
         Err(PreferenceError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let smart_hour = if mode == DeliveryMode::SmartTime {
+        match PgPreferredSendHour::new(state.accounts.pool().clone())
+            .estimate(actor)
+            .await
+        {
+            Ok(hour) => Some(hour),
+            Err(PreferenceError::Invalid) => return deny(StatusCode::BAD_REQUEST),
+            Err(PreferenceError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::delivery_preferences_page(mode, &csrf), &cookies)
+    private_response(pages::delivery_preferences_page(mode, &csrf, smart_hour), &cookies)
 }
 
 pub(super) async fn save(
