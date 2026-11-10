@@ -229,7 +229,11 @@ async fn flow_reading_periods_count_accounts_once_without_truncating_or_rebuildi
     .await
     .unwrap();
     assert_eq!(
-        hour_repo.estimate(f.users[0]).await.unwrap().observed_starts,
+        hour_repo
+            .estimate(f.users[0])
+            .await
+            .unwrap()
+            .observed_starts,
         122,
         "forged source event cannot influence preferred reading hour"
     );
