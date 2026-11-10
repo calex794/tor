@@ -390,6 +390,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/audience/groups"), "GET") => Some(375),
         (Some("/admin/storage/g09"), "GET") => Some(376),
         (Some("/admin/storage/g09/{direction}/{scope}/{action}"), "POST") => Some(377),
+        (Some("/admin/finance/payouts/{id}/post"), "POST") => Some(378),
         _ => None,
     };
     index
