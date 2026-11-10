@@ -68,6 +68,7 @@ CREATE TABLE finance_creator_payout_postings (
         REFERENCES finance_creator_payout_requests(id) ON DELETE RESTRICT,
     recipient_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     admin_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT s039_independent_operator CHECK (recipient_user_id<>admin_user_id),
     amount_minor BIGINT NOT NULL CHECK (amount_minor>0),
     currency CHAR(3) NOT NULL DEFAULT 'RUB' CHECK (currency='RUB'),
     wallet_entry_id BIGINT NOT NULL UNIQUE
