@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 378);
+    assert_eq!(unique.len(), 379);
 }
 
 #[test]
@@ -499,6 +499,23 @@ fn audience_groups_is_an_exact_read_only_administrator_route() {
     for (template, method) in [
         ("/admin/audience/groups", "POST"),
         ("/admin/audience/groups/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn audience_returns_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/returns"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/returns", "POST"),
+        ("/admin/audience/returns/export", "GET"),
+        ("/admin/audience/returns/{user_id}", "GET"),
     ] {
         assert!(!classify(Some(template), method).route_known);
     }

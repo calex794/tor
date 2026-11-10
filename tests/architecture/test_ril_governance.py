@@ -55,7 +55,8 @@ class RilGovernanceTests(unittest.TestCase):
     def test_audience_cannot_downgrade_to_a_normal_session(self):
         path = self.root / INVENTORY
         original = path.read_text(encoding="utf-8")
-        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups"):
+        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
+                      "/admin/audience/returns"):
             with self.subTest(route=route):
                 inventory = json.loads(original)
                 row = next(row for row in inventory["routes"] if row["template"] == route)
@@ -105,6 +106,36 @@ class RilGovernanceTests(unittest.TestCase):
         findings = check(self.root)
         self.assertTrue(any(
             "/admin/audience/groups" in finding
+            and "missing independent administrator role guard" in finding
+            for finding in findings
+        ), findings)
+
+    def test_audience_returns_cannot_skip_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_cannot_ignore_authorization_timeout(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_checks_the_live_parent_role_guard(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        findings = check(self.root)
+        self.assertTrue(any(
+            "/admin/audience/returns" in finding
             and "missing independent administrator role guard" in finding
             for finding in findings
         ), findings)

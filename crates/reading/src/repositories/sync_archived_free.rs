@@ -209,6 +209,14 @@ impl PgReadingSync {
         .ok_or(SyncError::Conflict)?;
 
         let receipt = parse_receipt(row)?;
+        crate::repositories::returns::record(
+            &mut tx,
+            actor,
+            book_id,
+            place,
+            self.activity_collection,
+        )
+        .await?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
         Ok(receipt)
     }
