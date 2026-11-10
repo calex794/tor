@@ -654,7 +654,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: S049 paid-comment review lacks locked administrator role, CSRF or immutable audit")
     if policy == "admin_storage_reconciliation":
         allowed = (
-            entry["source"] == "crates/web/src/auth/admin_storage_reconciliation.rs"
+            entry["source"] == "crates/web/src/auth/admin_storage_reconciliation/enabled.rs"
             and admin_key in {
                 ("GET", "/admin/storage/reconciliation", "page"),
                 ("POST", "/admin/storage/reconciliation/run", "run"),
