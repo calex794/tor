@@ -1,8 +1,7 @@
+use super::super::evidence::encode;
 use crate::pages::escape_html;
 use std::fmt::Write;
-use tor_recommendations::services::audience::books::{
-    BookDiscoveryMetrics, BookDiscoveryObservation, BookDiscoveryQuery, BookDiscoveryReport,
-};
+use tor_recommendations::services::audience::books::{BookDiscoveryQuery, BookDiscoveryReport};
 
 pub(super) fn filters(
     body: &mut String,
@@ -25,17 +24,21 @@ pub(super) fn filters(
         .expect("String");
     }
     body.push_str("</select></div>");
-    for (key, label, value, options) in [
+    for (key, label, missing_label, value, missing, options) in [
         (
             "genre",
             "Жанр",
+            "Только без жанра",
             query.genre.as_deref(),
+            query.without_genre,
             report.map(|r| r.genres.as_slice()),
         ),
         (
             "tag",
             "Тег",
+            "Только без тега",
             query.tag.as_deref(),
+            query.without_tag,
             report.map(|r| r.tags.as_slice()),
         ),
     ] {
@@ -45,10 +48,14 @@ pub(super) fn filters(
         for option in options.unwrap_or(&[]) {
             write!(body, r#"<option value="{}"></option>"#, escape_html(option)).expect("String");
         }
-        body.push_str("</datalist></div>");
+        let checked = if missing { " checked" } else { "" };
+        write!(body, r#"</datalist><label class="audience-missing-label" for="books-without-{key}">
+            <input type="checkbox" id="books-without-{key}" name="without_{key}" value="true"{checked}>
+            <span>{missing_label}</span></label></div>"#).expect("String");
     }
     write!(body, r#"<p class="audience-books-filter-actions"><button class="button" type="submit">Показать</button>
         <a href="/admin/audience/books?days={}">Сбросить фильтры</a></p></form>"#, query.days).expect("String");
+    body.push_str("<p>Для выбора «Только без жанра» или «Только без тега» оставьте соответствующее поле пустым.</p>");
     if report.is_some_and(|r| r.filter_options_truncated) {
         body.push_str("<p>В подсказках показаны первые 100 значений. Нужный жанр или тег можно ввести целиком.</p>");
     }
@@ -61,89 +68,16 @@ pub(super) fn url(query: &BookDiscoveryQuery, after_id: Option<i64>) -> String {
             write!(url, "&{key}={}", encode(value)).expect("String");
         }
     }
+    for (key, missing) in [
+        ("without_genre", query.without_genre),
+        ("without_tag", query.without_tag),
+    ] {
+        if missing {
+            write!(url, "&{key}=true").expect("String");
+        }
+    }
     if let Some(id) = after_id {
         write!(url, "&after_id={id}").expect("String");
     }
     url
-}
-
-fn encode(value: &str) -> String {
-    let mut result = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            result.push(char::from(byte));
-        } else {
-            write!(result, "%{byte:02X}").expect("String");
-        }
-    }
-    result
-}
-
-fn values(metrics: &BookDiscoveryMetrics) -> [(&'static str, &'static str, Option<i64>); 5] {
-    [
-        (
-            "issued",
-            "Выдано ссылок из каталога и поиска",
-            metrics.issued,
-        ),
-        (
-            "impressions",
-            "Наблюдаемые показы рекомендаций",
-            metrics.impressions,
-        ),
-        ("clicks", "Учтённые переходы", metrics.clicks),
-        ("book-opens", "Открытия книги", metrics.book_opens),
-        ("starts", "Первые чтения книги", metrics.starts),
-    ]
-}
-
-pub(super) fn metrics(body: &mut String, metrics: &BookDiscoveryMetrics) {
-    body.push_str("<dl>");
-    for (key, label, value) in values(metrics) {
-        write!(
-            body,
-            r#"<dt>{label}</dt><dd data-metric="{key}">{}</dd>"#,
-            value.map_or_else(|| "Нет данных".to_string(), |v| v.to_string())
-        )
-        .expect("String");
-    }
-    body.push_str("</dl>");
-}
-
-pub(super) fn comparison(
-    body: &mut String,
-    current: &BookDiscoveryMetrics,
-    previous: &BookDiscoveryMetrics,
-) {
-    body.push_str(r#"<details class="book-section-card audience-source-card" data-testid="audience-books-comparison">
-        <summary>Изменение к предыдущему периоду</summary><dl>"#);
-    for ((key, label, current), (_, _, previous)) in
-        values(current).into_iter().zip(values(previous))
-    {
-        let value = match (current, previous) {
-            (Some(current), Some(previous)) => {
-                format!("{:+}", i128::from(current) - i128::from(previous))
-            }
-            _ => "Нет сравнения".to_string(),
-        };
-        write!(
-            body,
-            r#"<dt>{label}</dt><dd data-change="{key}">{value}</dd>"#
-        )
-        .expect("String");
-    }
-    body.push_str("</dl><p>Разница только между сохранёнными измерениями. Неполные данные не заменяются нулями.</p></details>");
-}
-
-pub(super) fn observation(value: BookDiscoveryObservation) -> (&'static str, &'static str) {
-    match value {
-        BookDiscoveryObservation::NoObservations => {
-            ("no-observations", "Нет сохранённых наблюдений")
-        }
-        BookDiscoveryObservation::ObservedWithoutStarts => (
-            "observed-without-starts",
-            "Есть наблюдения, первых чтений нет",
-        ),
-        BookDiscoveryObservation::WithStarts => ("with-starts", "Есть первые чтения"),
-    }
 }

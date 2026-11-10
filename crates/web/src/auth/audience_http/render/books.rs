@@ -1,13 +1,12 @@
 //! Public book metadata and anonymous aggregates; no reader histories.
 mod fields;
 
-use super::time;
+use super::{evidence, time};
 use crate::pages::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_recommendations::services::audience::{
-    books::{BookDiscoveryPeriod, BookDiscoveryQuery, BookDiscoveryReport, BookDiscoveryRow},
-    DiscoveryHealth,
+use tor_recommendations::services::audience::books::{
+    BookDiscoveryQuery, BookDiscoveryReport, BookDiscoveryRow,
 };
 
 pub(crate) fn page(
@@ -22,7 +21,8 @@ pub(crate) fn page(
     );
     write!(
         body,
-        r#"<p><a href="/admin/audience?days={}">Вернуться в «Аудиторию»</a></p>"#,
+        r#"<p><a href="/admin/audience?days={0}">Вернуться в «Аудиторию»</a>
+        · <a href="/admin/audience/groups?days={0}&amp;kind=genres">Сравнить жанры и теги</a></p>"#,
         query.days
     )
     .expect("String");
@@ -81,12 +81,29 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
         "<p>Два соседних периода одинаковой длительности, календарные дни UTC.
         Начало включено, конец не включён. Сегодняшний день ещё не завершён.</p>",
     );
-    health(body, &report.health);
+    evidence::health(body, "audience-books", &report.health);
     body.push_str(r#"<div class="audience-source-grid">"#);
-    period(body, "current", "Текущий период", &report.current);
-    period(body, "previous", "Предыдущий период", &report.previous);
+    evidence::period(
+        body,
+        "audience-books",
+        "current",
+        "Текущий период",
+        &report.current,
+    );
+    evidence::period(
+        body,
+        "audience-books",
+        "previous",
+        "Предыдущий период",
+        &report.previous,
+    );
     body.push_str("</div>");
-    fields::comparison(body, &report.current.totals, &report.previous.totals);
+    evidence::comparison(
+        body,
+        "audience-books",
+        &report.current.totals,
+        &report.previous.totals,
+    );
     body.push_str("<h2>Книги</h2><p>По 20 книг на странице, в постоянном порядке.</p>");
     if report.rows.is_empty() {
         let message = if report.matched_books == 0 {
@@ -121,40 +138,6 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
     body.push_str("</nav></section>");
 }
 
-fn period(body: &mut String, key: &str, label: &str, period: &BookDiscoveryPeriod) {
-    write!(body, r#"<section class="book-section-card audience-source-card" data-testid="audience-books-{key}" data-period="{key}">
-        <h3>{label}</h3><p>С {} до {} UTC.</p>"#, escape_html(&period.from_day), escape_html(&period.until_day_exclusive)).expect("String");
-    if period.includes_partial_today {
-        body.push_str("<p>Включает незавершённый сегодняшний день.</p>");
-    }
-    fields::metrics(body, &period.totals);
-    body.push_str("<h4>Состояние книг</h4><dl>");
-    for (key, label, value) in [
-        (
-            "no-observations",
-            "Нет сохранённых наблюдений",
-            period.counts.no_observations,
-        ),
-        (
-            "observed-without-starts",
-            "Есть наблюдения, первых чтений нет",
-            period.counts.observed_without_starts,
-        ),
-        (
-            "with-starts",
-            "Есть первые чтения",
-            period.counts.with_starts,
-        ),
-    ] {
-        write!(
-            body,
-            r#"<dt>{label}</dt><dd data-state="{key}">{value}</dd>"#
-        )
-        .expect("String");
-    }
-    body.push_str("</dl></section>");
-}
-
 fn book_row(body: &mut String, book: &BookDiscoveryRow) {
     write!(body, r#"<article class="book-section-card audience-book-row" data-testid="audience-book-row" data-book-id="{}">
         <h3><a href="/books/{}">{}</a></h3>"#, book.book_id, book.book_id, escape_html(&book.title)).expect("String");
@@ -175,40 +158,15 @@ fn book_row(body: &mut String, book: &BookDiscoveryRow) {
         ("current", "Текущий период", &book.current),
         ("previous", "Предыдущий период", &book.previous),
     ] {
-        let (state, label) = fields::observation(metrics.observation());
+        let (state, label) = evidence::observation(metrics.observation());
         write!(
             body,
             r#"<section class="audience-source-card" data-period="{key}" data-state="{state}">
             <h4>{title}</h4><p class="audience-book-state">{label}</p>"#
         )
         .expect("String");
-        fields::metrics(body, metrics);
+        evidence::metrics(body, metrics);
         body.push_str("</section>");
     }
     body.push_str("</div></article>");
-}
-
-fn health(body: &mut String, health: &DiscoveryHealth) {
-    body.push_str(r#"<section class="book-section-card" data-testid="audience-books-health"><h3>Обновление данных</h3>"#);
-    if let Some(last_success) = &health.last_success_utc {
-        write!(
-            body,
-            "<p>Последнее подтверждение обработки: {}.</p>",
-            time(last_success)
-        )
-        .expect("String");
-    } else {
-        body.push_str("<p>Обработка ещё не подтверждена. Полнота свежих данных неизвестна.</p>");
-    }
-    if !health.fresh {
-        body.push_str(
-            "<p>Нет подтверждения за последние 30 секунд. Показанные итоги могут отставать.</p>",
-        );
-    }
-    if health.rec_dirty || health.organic_dirty {
-        body.push_str(
-            "<p>Есть изменения, ожидающие пересчёта. Итоги могут измениться после обработки.</p>",
-        );
-    }
-    body.push_str("</section>");
 }

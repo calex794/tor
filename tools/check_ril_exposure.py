@@ -168,6 +168,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
                 and key in {
                     ("GET", "/admin/audience", "page", "administrator"),
                     ("GET", "/admin/audience/books", "books::page", "administrator"),
+                    ("GET", "/admin/audience/groups", "groups::page", "administrator"),
                 }
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"

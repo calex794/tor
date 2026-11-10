@@ -135,6 +135,10 @@ pub(super) async fn check(
         ),
         "1",
     );
+    pg_rejected(
+        url,
+        &format!("DELETE FROM social_free_comment_appeals WHERE id={appeal_id}"),
+    );
     let pending = request(app, "GET", admin_path, &reviewer_cookie, ORIGIN, "").await;
     assert_eq!(pending.status(), StatusCode::OK);
     let pending_html = String::from_utf8(

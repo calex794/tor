@@ -152,6 +152,13 @@ pub(super) async fn check(
         ),
         1
     );
+    // Keep the negative SQL test on the established disposable-PG fixture:
+    // tor-web intentionally does not depend on sqlx directly.
+    rejected_pg(
+        url,
+        &format!("DELETE FROM social_paid_comment_appeals WHERE id={appeal_id}"),
+    );
+
     eprintln!("S049_PAID_APPEAL persisted author submission");
     let pending = read_page(app, admin_path, Some(&reviewer_cookie)).await;
     assert_eq!(pending.status(), StatusCode::OK);

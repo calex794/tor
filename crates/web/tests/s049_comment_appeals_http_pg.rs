@@ -347,6 +347,11 @@ async fn s049_comment_hide_appeal_requires_independent_admin_and_immutable_audit
         false,
     );
 
+    pg(
+        &format!("DELETE FROM social_book_comment_appeals WHERE id={appeal}"),
+        false,
+    );
+
     let queue = "/admin/book-comment-appeals";
     assert_eq!(
         send(&app, "GET", queue, "", "").await.status(),

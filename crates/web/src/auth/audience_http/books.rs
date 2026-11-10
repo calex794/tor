@@ -16,12 +16,21 @@ pub(super) struct BooksQuery {
     days: Option<i32>,
     genre: Option<String>,
     tag: Option<String>,
+    without_genre: Option<bool>,
+    without_tag: Option<bool>,
     after_id: Option<i64>,
 }
 
 impl BooksQuery {
     fn validated(self) -> Result<BookDiscoveryQuery, DiscoveryError> {
-        BookDiscoveryQuery::new(self.days.unwrap_or(7), self.genre, self.tag, self.after_id)
+        BookDiscoveryQuery::with_missing(
+            self.days.unwrap_or(7),
+            self.genre,
+            self.tag,
+            self.without_genre.unwrap_or(false),
+            self.without_tag.unwrap_or(false),
+            self.after_id,
+        )
     }
 }
 

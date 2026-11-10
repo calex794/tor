@@ -3,6 +3,7 @@
 use std::{error::Error, fmt};
 
 pub mod books;
+pub mod groups;
 
 pub const DISCOVERY_PERIOD_DAYS: [i32; 4] = [1, 7, 30, 90];
 

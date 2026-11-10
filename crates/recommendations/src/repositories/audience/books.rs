@@ -9,7 +9,7 @@ use crate::services::audience::{
 };
 use sqlx::{postgres::PgRow, Row};
 
-mod sql;
+pub(super) mod sql;
 
 impl PgDiscoveryAudience {
     /// Read-only administration report. Authorization belongs to the caller.
@@ -18,10 +18,12 @@ impl PgDiscoveryAudience {
         &self,
         query: &BookDiscoveryQuery,
     ) -> Result<BookDiscoveryReport, DiscoveryError> {
-        let query = BookDiscoveryQuery::new(
+        let query = BookDiscoveryQuery::with_missing(
             query.days,
             query.genre.clone(),
             query.tag.clone(),
+            query.without_genre,
+            query.without_tag,
             query.after_id,
         )?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -33,10 +35,12 @@ impl PgDiscoveryAudience {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let rows = sqlx::query(sql::REPORT)
+        let rows = sqlx::query(&sql::report())
             .bind(query.days)
             .bind(query.genre.as_deref())
             .bind(query.tag.as_deref())
+            .bind(query.without_genre)
+            .bind(query.without_tag)
             .bind(query.after_id)
             .bind((BOOK_DISCOVERY_PAGE_SIZE + 1) as i64)
             .bind((BOOK_DISCOVERY_FILTER_OPTIONS + 1) as i64)
@@ -109,7 +113,7 @@ fn decode(days: i32, rows: &[PgRow]) -> Result<BookDiscoveryReport, DiscoveryErr
     })
 }
 
-fn period(row: &PgRow, ordinal: i32) -> Result<BookDiscoveryPeriod, DiscoveryError> {
+pub(super) fn period(row: &PgRow, ordinal: i32) -> Result<BookDiscoveryPeriod, DiscoveryError> {
     if !row.try_get::<bool, _>("is_total").map_err(unavailable)?
         || row.try_get::<i32, _>("ordinal").map_err(unavailable)? != ordinal
     {
@@ -120,17 +124,21 @@ fn period(row: &PgRow, ordinal: i32) -> Result<BookDiscoveryPeriod, DiscoveryErr
         until_day_exclusive: row.try_get("until_day").map_err(unavailable)?,
         includes_partial_today: row.try_get("partial_today").map_err(unavailable)?,
         totals: metrics(row)?,
-        counts: BookDiscoveryCounts {
-            no_observations: row.try_get("no_observations").map_err(unavailable)?,
-            observed_without_starts: row
-                .try_get("observed_without_starts")
-                .map_err(unavailable)?,
-            with_starts: row.try_get("with_starts").map_err(unavailable)?,
-        },
+        counts: counts(row)?,
     })
 }
 
-fn metrics(row: &PgRow) -> Result<BookDiscoveryMetrics, DiscoveryError> {
+pub(super) fn counts(row: &PgRow) -> Result<BookDiscoveryCounts, DiscoveryError> {
+    Ok(BookDiscoveryCounts {
+        no_observations: row.try_get("no_observations").map_err(unavailable)?,
+        observed_without_starts: row
+            .try_get("observed_without_starts")
+            .map_err(unavailable)?,
+        with_starts: row.try_get("with_starts").map_err(unavailable)?,
+    })
+}
+
+pub(super) fn metrics(row: &PgRow) -> Result<BookDiscoveryMetrics, DiscoveryError> {
     Ok(BookDiscoveryMetrics {
         issued: row.try_get("issued").map_err(unavailable)?,
         impressions: row.try_get("impressions").map_err(unavailable)?,

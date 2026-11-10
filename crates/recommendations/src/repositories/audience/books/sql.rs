@@ -1,6 +1,6 @@
 // Every retained bucket contributes before the book cursor is applied. Current
 // public eligibility is deliberately different from the unnamed source report.
-pub(super) const REPORT: &str = r#"
+pub(in crate::repositories::audience) const BOOKS: &str = r#"
 WITH anchor AS (
     SELECT transaction_timestamp() AS at,
            (transaction_timestamp() AT TIME ZONE 'UTC')::date+1 AS until_day
@@ -14,6 +14,8 @@ WITH anchor AS (
     SELECT * FROM available
     WHERE ($2::text IS NULL OR $2=ANY(genres))
       AND ($3::text IS NULL OR $3=ANY(tags))
+      AND (NOT $4::boolean OR cardinality(genres)=0)
+      AND (NOT $5::boolean OR cardinality(tags)=0)
 ), facts AS (
     SELECT q.book_id,
            CASE WHEN q.bucket_date>=a.until_day-$1::int THEN 0 ELSE 1 END AS ordinal,
@@ -58,9 +60,13 @@ WITH anchor AS (
            count(*) FILTER (WHERE b.observed AND COALESCE(b.starts,0)=0) AS observed_without_starts,
            count(*) FILTER (WHERE b.starts>0) AS with_starts
     FROM periods p LEFT JOIN per_book b ON b.ordinal=p.ordinal GROUP BY p.ordinal
-), selected AS (
-    SELECT id FROM eligible WHERE $4::bigint IS NULL OR id>$4
-    ORDER BY id LIMIT $5
+)
+"#;
+
+const DETAIL: &str = r#",
+selected AS (
+    SELECT id FROM eligible WHERE $6::bigint IS NULL OR id>$6
+    ORDER BY id LIMIT $7
 ), result AS (
     SELECT t.ordinal,true AS is_total,NULL::bigint AS book_id,NULL::text AS title,
            NULL::text[] AS genres,NULL::text[] AS tags,
@@ -87,12 +93,16 @@ SELECT r.*,
        h.rec_dirty,h.organic_dirty,
        CASE WHEN r.is_total AND r.ordinal=0 THEN ARRAY(
            SELECT DISTINCT label COLLATE "C" FROM available b CROSS JOIN unnest(b.genres) label
-           ORDER BY 1 LIMIT $6
+           ORDER BY 1 LIMIT $8
        ) ELSE ARRAY[]::text[] END AS genre_options,
        CASE WHEN r.is_total AND r.ordinal=0 THEN ARRAY(
            SELECT DISTINCT label COLLATE "C" FROM available b CROSS JOIN unnest(b.tags) label
-           ORDER BY 1 LIMIT $6
+           ORDER BY 1 LIMIT $8
        ) ELSE ARRAY[]::text[] END AS tag_options
 FROM result r JOIN periods p ON p.ordinal=r.ordinal CROSS JOIN anchor a CROSS JOIN health h
 ORDER BY r.is_total DESC,r.book_id,r.ordinal
 "#;
+
+pub(super) fn report() -> String {
+    format!("{BOOKS}{DETAIL}")
+}
