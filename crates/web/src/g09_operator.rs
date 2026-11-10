@@ -4,7 +4,7 @@ use crate::{
     pages,
 };
 use axum::{
-    extract::{Form, Path, State},
+    extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::Response,
     routing::{get, post},
@@ -74,7 +74,7 @@ pub fn router(accounts: PgAccounts, store: S3PrivateStore, secure: bool, origin:
         .route("/admin/storage/g09", get(page))
         .route(
             "/admin/storage/g09/{direction}/{scope}/{action}",
-            post(command),
+            post(command).layer(DefaultBodyLimit::max(1024)),
         )
         .with_state(state)
 }
