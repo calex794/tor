@@ -52,6 +52,8 @@ mod admin_reader_router;
 pub mod cover_worker;
 mod observability;
 mod operator_overview;
+#[cfg(feature = "s3-paid")]
+pub mod g09_operator;
 mod operator_traces;
 mod pages;
 #[cfg(feature = "s3-paid")]
