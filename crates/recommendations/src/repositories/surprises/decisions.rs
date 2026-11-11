@@ -149,6 +149,29 @@ impl PgSurprises {
         if !allowed {
             return Ok(false);
         }
+        // Do not show an empty gift. Only an approved currently discoverable
+        // item can justify consuming the 24-hour icon allowance.
+        let available: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM surprise_content c
+                LEFT JOIN books b ON b.id=c.book_id
+                LEFT JOIN book_recommendation_audiences a ON a.book_id=c.book_id
+                WHERE c.state='approved' AND c.starts_at<=now()
+                  AND (c.ends_at IS NULL OR c.ends_at>now())
+                  AND (c.book_id IS NULL OR (
+                      b.visibility='public' AND b.visibility_status='active'
+                      AND b.lifecycle_status<>'pending_deletion'
+                      AND NOT b.admin_hold AND NOT b.is_deleted
+                      AND b.access_level='basic'
+                      AND COALESCE(a.audience,'general')='general'
+                  ))
+            )",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !available {
+            return Ok(false);
+        }
         let changed = sqlx::query(
             "UPDATE surprise_daily_decisions SET state='claimed',claimed_at=now()
              WHERE user_id=$1 AND utc_day=$2 AND state='planned'
