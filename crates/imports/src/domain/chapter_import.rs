@@ -13,6 +13,9 @@ pub struct ChapterImportClaim {
     pub expected_chapter_count: i32,
     pub attempts: i32,
     pub epoch: i64,
+    /// Original server-issued HTTP trace; legacy jobs deliberately have none.
+    /// Reclaims and idempotent replays never change the causal origin.
+    pub origin_trace_id: Option<u128>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

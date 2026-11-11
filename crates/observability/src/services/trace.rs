@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+pub mod background;
 pub const MAX_TRACES: usize = 128;
 pub const MAX_SQL_SPANS: usize = 8;
 
@@ -59,6 +60,13 @@ impl TraceBuffer {
         if !trace.should_keep() {
             return false;
         }
+        self.record_correlated(trace);
+        true
+    }
+
+    /// Keep a complete root that durably enqueued correlated work. This does not
+    /// expand capacity, preserve raw input, or block on persistent storage.
+    pub fn record_correlated(&self, trace: RequestTrace) {
         let mut recent = self
             .recent
             .lock()
@@ -68,7 +76,6 @@ impl TraceBuffer {
             self.evicted.fetch_add(1, Ordering::Relaxed);
         }
         recent.push_back(trace);
-        true
     }
 
     /// Operator-only in-process diagnostics; no public HTTP route.
@@ -145,5 +152,16 @@ mod tests {
         value.sqlx = None;
         assert!(buffer.record(value));
         assert!(buffer.snapshot()[0].sqlx.is_none());
+    }
+
+    #[test]
+    fn correlated_roots_are_retained_without_unbounded_growth() {
+        let buffer = TraceBuffer::default();
+        for id in 1..=200 {
+            buffer.record_correlated(trace(id, StatusGroup::Success, 100));
+        }
+        assert_eq!(buffer.snapshot().len(), MAX_TRACES);
+        assert_eq!(buffer.evicted(), 72);
+        assert_eq!(buffer.snapshot().last().unwrap().trace_id, 200);
     }
 }

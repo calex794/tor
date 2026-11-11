@@ -1,5 +1,5 @@
-//! Non-blocking HTTP-side publisher to the isolated SQLite writer process.
-//! No user request waits for disk, IPC, retries, or a slow/unavailable daemon.
+//! Non-blocking publisher to the isolated SQLite writer process.
+//! No user request or business worker waits for disk, IPC, retries or the daemon.
 use super::{trace::RequestTrace, wire};
 use std::{
     io::{Read, Write},
@@ -92,6 +92,24 @@ impl TracePublisher {
             return false;
         };
         match tx.try_send(frame) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
+    /// Shares the same bounded queue and loss counters as HTTP roots.
+    pub fn try_publish_background(&self, trace: &super::trace::background::BackgroundTrace) -> bool {
+        let Some(tx) = &self.queue else {
+            return false;
+        };
+        let Some(frame) = trace.encode() else {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        };
+        match tx.try_send(frame.to_vec()) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.counts.dropped.fetch_add(1, Ordering::Relaxed);

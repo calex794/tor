@@ -5,11 +5,24 @@ use sqlx::{PgPool, Row};
 #[derive(Clone)]
 pub struct PgImportJobs {
     pool: PgPool,
+    origin_trace_id: Option<u128>,
 }
 
 impl PgImportJobs {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            origin_trace_id: None,
+        }
+    }
+
+    /// Only a server-generated request context may be supplied by the caller.
+    /// The origin is inserted atomically with a new job, never on replay.
+    pub fn with_origin_trace_id(&self, origin: Option<u128>) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            origin_trace_id: origin.filter(|id| *id != 0),
+        }
     }
 
     pub async fn probe(&self) -> Result<(), ImportJobsError> {
@@ -105,8 +118,9 @@ impl PgImportJobs {
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO chapter_import_jobs
              (book_id,actor_user_id,command_key,source_key,source_filename,
-              source_sha256,source_bytes,approved_fingerprint,expected_chapter_count)
-             SELECT b.id,$2,$3,$4,$5,$6,$7,$8,$9
+              source_sha256,source_bytes,approved_fingerprint,expected_chapter_count,
+              origin_trace_id)
+             SELECT b.id,$2,$3,$4,$5,$6,$7,$8,$9,$10
                FROM books b WHERE b.id=$1 AND b.owner_user_id=$2
                AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
              ON CONFLICT (actor_user_id,command_key) DO NOTHING
@@ -121,6 +135,7 @@ impl PgImportJobs {
         .bind(size)
         .bind(fingerprint.as_slice())
         .bind(count)
+        .bind(self.origin_trace_id.map(|id| id.to_be_bytes().to_vec()))
         .fetch_optional(&self.pool)
         .await
         .map_err(|error| match error {
@@ -170,7 +185,8 @@ impl PgImportJobs {
              FROM candidate WHERE j.id=candidate.id
              RETURNING j.id,j.book_id,j.actor_user_id,j.command_key,j.source_key,
                j.source_filename,j.source_sha256,j.source_bytes,
-               j.approved_fingerprint,j.expected_chapter_count,j.attempts,j.lease_epoch",
+               j.approved_fingerprint,j.expected_chapter_count,j.attempts,j.lease_epoch,
+               j.origin_trace_id",
         )
         .fetch_optional(&self.pool)
         .await
@@ -213,6 +229,7 @@ impl PgImportJobs {
                 epoch: row
                     .try_get("lease_epoch")
                     .map_err(|_| ImportJobsError::Unavailable)?,
+                origin_trace_id: decode_origin(&row)?,
             })
         })
         .transpose()
@@ -320,6 +337,22 @@ impl PgImportJobs {
         .map_err(|_| ImportJobsError::Unavailable)?;
         Ok(result.rows_affected() == 1)
     }
+}
+
+fn decode_origin(row: &sqlx::postgres::PgRow) -> Result<Option<u128>, ImportJobsError> {
+    let value: Option<Vec<u8>> = row
+        .try_get("origin_trace_id")
+        .map_err(|_| ImportJobsError::Unavailable)?;
+    value
+        .map(|bytes| {
+            let fixed: [u8; 16] = bytes.try_into().map_err(|_| ImportJobsError::Unavailable)?;
+            let id = u128::from_be_bytes(fixed);
+            if id == 0 {
+                return Err(ImportJobsError::Unavailable);
+            }
+            Ok(id)
+        })
+        .transpose()
 }
 
 fn decode_status(row: &sqlx::postgres::PgRow) -> Result<ChapterImportStatus, ImportJobsError> {
