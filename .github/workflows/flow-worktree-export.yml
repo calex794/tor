@@ -3,8 +3,7 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: read
-  actions: read
+  contents: write
 concurrency:
   group: flow-completion-source-publication
   cancel-in-progress: false
@@ -13,50 +12,51 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Collect bounded failed job diagnostics
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: tor
+          ref: 0f85903e2f2af1172c85c979cc70bf04e225c544
+          fetch-depth: 0
+      - name: Apply exact verified tests and documentation patch
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json,os,pathlib,re,urllib.request,urllib.error
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-diag';root.mkdir()
-          api='https://api.github.com/repos/calex794/tor/'
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self,*a,**kw):return None
-          opener=urllib.request.build_opener(NoRedirect)
-          def get(path):
-              req=urllib.request.Request(api+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              try:
-                  with opener.open(req,timeout=60) as r:return r.read()
-              except urllib.error.HTTPError as e:
-                  if e.code not in (301,302,303,307,308):raise
-                  with urllib.request.urlopen(e.headers['Location'],timeout=60) as r:return r.read()
-          runs={42928788281,42930074210}
-          for sha in ['281a177899a345604d71fddab2767f96e37fa2a2','1f25de1a5d84ff8f120a157861ef98402d400d30']:
-              result=json.loads(get(f'actions/runs?head_sha={sha}&per_page=100'))
-              runs.update(r['id'] for r in result['workflow_runs'])
-          evidence=[]
-          for run in sorted(runs):
-              r=json.loads(get(f'actions/runs/{run}'))
-              jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
-              evidence.append({'run':run,'sha':r['head_sha'],'name':r['name'],'status':r['status'],'conclusion':r['conclusion'],'url':r['html_url'],'jobs':[{'id':j['id'],'name':j['name'],'status':j['status'],'conclusion':j['conclusion']} for j in jobs]})
-              for j in jobs:
-                  if j['conclusion'] not in ('failure','timed_out'):continue
-                  text=get(f'actions/jobs/{j["id"]}/logs').decode('utf-8-sig')
-                  lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in text.splitlines()]
-                  hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
-                  keep=set()
-                  for i in hits[-12:]:keep.update(range(max(0,i-10),min(len(lines),i+35)))
-                  if not keep:keep.update(range(max(0,len(lines)-80),len(lines)))
-                  (root/f'failure-{run}-{j["id"]}.txt').write_text('\n'.join(f'{i+1}: {lines[i]}' for i in sorted(keep)))
-          (root/'status.json').write_text(json.dumps(evidence,indent=2))
-          print(json.dumps([{k:v for k,v in r.items() if k!='jobs'} for r in evidence],indent=2))
+          import base64,hashlib,lzma,pathlib
+          data=pathlib.Path('payload/.qa/flow810-final-evidence-63d55512.txt').read_text().strip()
+          patch=lzma.decompress(base64.b64decode(data,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='63d55512c66a59ffe84ffc59374f7fff1362f9f947d5dd3f8cc49cb7669d53d3'
+          pathlib.Path('fixture.patch').write_bytes(patch)
           PY
+          cd tor
+          test "$(git rev-parse HEAD)" = 0f85903e2f2af1172c85c979cc70bf04e225c544
+          test "$(git ls-remote --heads origin refs/heads/qa/flow810-final-evidence-20261111 | cut -f1)" = 0f85903e2f2af1172c85c979cc70bf04e225c544
+          git apply --check ../fixture.patch
+          git apply --index ../fixture.patch
+          python3 - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert len(paths)==12
+          assert all(p.startswith(('crates/recommendations/tests/','crates/web/tests/','tools/','docs/contracts/')) for p in paths)
+          assert not any(p.startswith(('.github/','.qa/','migrations/')) for p in paths)
+          PY
+          test "$(git write-tree)" = bc3c84268d76b5e4a99c0149031602bcc8ef762b
+          git diff --cached --check
+          git config user.name 'FLOW QA'
+          git config user.email 'flow-qa@users.noreply.github.com'
+          git commit -m 'FLOW #810: align current schema proof and erased identity evidence after #808'
+          git push origin HEAD:refs/heads/qa/flow810-final-evidence-20261111
+          mkdir -p "$RUNNER_TEMP/flow-publication"
+          git rev-parse HEAD > "$RUNNER_TEMP/flow-publication/COMMIT"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-publication/TREE"
+          git branch exported-final HEAD
+          git bundle create "$RUNNER_TEMP/flow-publication/final.bundle" exported-final
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: flow-bounded-diagnostics-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-diag/
+          name: flow810-final-publication-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-publication/
           retention-days: 2
