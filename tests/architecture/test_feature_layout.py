@@ -69,22 +69,22 @@ class FeatureLayoutTests(unittest.TestCase):
 
     def test_web_sqlx_is_allowed_only_for_tests(self):
         self.scaffold()
-        manifest = '[package]\\nname = "tor-web"\\nversion = "0.1.0"\\nedition = "2021"\\n'
-        self.put("crates/web/Cargo.toml", manifest + '[dev-dependencies]\\nsqlx = "0.8"\\n')
+        manifest = '[package]\nname = "tor-web"\nversion = "0.1.0"\nedition = "2021"\n'
+        self.put("crates/web/Cargo.toml", manifest + '[dev-dependencies]\nsqlx = "0.8"\n')
         self.assertEqual(check(self.root), [])
         self.put(
             "crates/web/Cargo.toml",
-            manifest + '[dependencies]\\nsqlx = "0.8"\\n[dev-dependencies]\\nsqlx = "0.8"\\n',
+            manifest + '[dependencies]\nsqlx = "0.8"\n[dev-dependencies]\nsqlx = "0.8"\n',
         )
         self.assertTrue(any("crates/web must not depend on sqlx" in error for error in check(self.root)))
         self.put(
             "crates/web/Cargo.toml",
-            manifest + '[dependencies]\\naliased = { package = "sqlx", version = "0.8" }\\n',
+            manifest + '[dependencies]\naliased = { package = "sqlx", version = "0.8" }\n',
         )
         self.assertTrue(any("crates/web must not depend on sqlx" in error for error in check(self.root)))
         self.put(
             "crates/web/Cargo.toml",
-            manifest + '[build-dependencies]\\nsqlx = "0.8"\\n',
+            manifest + '[build-dependencies]\nsqlx = "0.8"\n',
         )
         self.assertTrue(any("crates/web must not depend on sqlx" in error for error in check(self.root)))
 
