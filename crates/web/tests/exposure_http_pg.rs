@@ -642,7 +642,10 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
     );
     let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
     while !f.runtime.queue_snapshot().ready {
-        assert!(tokio::time::Instant::now() < deadline, "collector did not re-acknowledge its healthy source");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "collector did not re-acknowledge its healthy source"
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
