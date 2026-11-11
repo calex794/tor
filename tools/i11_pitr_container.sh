@@ -119,16 +119,21 @@ started=$(python3 -c 'import time; print(time.monotonic())')
 pg_ctl -D "$source_dir" -m immediate -w -t 30 stop >/dev/null
 rm -rf -- "$source_dir"
 [[ ! -e "$source_dir" ]]
+# Use identical destination/set/target for negative and positive controls.
+# pgBackRest may wrap cipher failures as BackupSetInvalidError; a generic
+# failure is NOT evidence unless the otherwise-identical correct-key run works.
+restore_target() {
+  pgbackrest --config="$1" --stanza=tor --pg1-path="$restore_dir" \
+    --set="$label" --type=name --target=tor_i11_target --target-action=promote restore
+}
 sed "s/^repo1-cipher-pass=.*/repo1-cipher-pass=deliberately-wrong-test-key/" "$conf" >"$work/wrong.conf"
-if pgbackrest --config="$work/wrong.conf" --stanza=tor --pg1-path="$work/wrong-key" \
-    --set="$label" --type=name --target=tor_i11_target --target-action=promote \
-    restore >"$work/log/wrong-key.log" 2>&1; then
+if restore_target "$work/wrong.conf" >"$work/log/wrong-key.log" 2>&1; then
   echo 'FAIL: wrong encryption key accepted' >&2
   exit 1
 fi
-grep -Eq 'CryptoError|cipher|decrypt' "$work/log/wrong-key.log"
-backrest --pg1-path="$restore_dir" --set="$label" --type=name \
-  --target=tor_i11_target --target-action=promote restore >"$work/log/restore.log" 2>&1
+[[ ! -e "$restore_dir/global/pg_control" ]]
+rm -rf -- "$restore_dir"
+restore_target "$conf" >"$work/log/restore.log" 2>&1
 pg_ctl -D "$restore_dir" -l "$work/log/restored.log" -w -t 30 \
   -o "-c listen_addresses='' -c port=55433 -c unix_socket_directories=$work/restore-socket -c archive_mode=off -c hot_standby=off" start >/dev/null
 restored_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/restore-socket" -p 55433 -U postgres -d postgres "$@"; }
