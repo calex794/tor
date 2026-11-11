@@ -464,7 +464,7 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
         allowed: AtomicBool::new(true),
         expected: card,
     });
-    let (runtime, worker) =
+    let (runtime, mut worker) =
         Runtime::new(accounts.clone(), ORIGIN.into(), false, Some(guard.clone()));
     worker.prepare().await.unwrap();
     let issuer = runtime.issuer();
@@ -537,16 +537,20 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
     );
     handle.abort();
     let _ = handle.await;
-    // Without a consumer (or during DB outage) issuing cards is bounded memory only.
-    let (paused, _worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+    // Before registration there is no proof; after prepare, a parked consumer
+    // admits only the finite queue while its monotonic/database lease is live.
+    let (paused, mut parked) = Runtime::new(accounts, ORIGIN.into(), false, None);
     let issuer = paused.issuer();
+    assert!(issuer.issue(f.card()).is_none());
+    assert_eq!(paused.queue_snapshot().queued, 0);
+    parked.prepare().await.unwrap();
     let start = std::time::Instant::now();
     for _ in 0..1024 {
         assert!(issuer.issue(f.card()).is_some());
     }
     assert!(issuer.issue(f.card()).is_none());
     assert!(start.elapsed() < Duration::from_secs(1));
-    assert_eq!(paused.queue_snapshot().dropped, 1);
+    assert_eq!(paused.queue_snapshot().dropped, 2);
     f.cleanup().await;
 }
 
