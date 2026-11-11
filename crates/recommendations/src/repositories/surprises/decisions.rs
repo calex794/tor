@@ -1,7 +1,9 @@
 //! One server-owned chance per UTC day; every state-changing operation locks
 //! the live A user and the F preference head in a fixed order.
 use super::{PgSurprises, PlanState, SurpriseError};
-use crate::services::surprise_schedule::{decide, experiment_arm, Decision, ExperimentArm, SurpriseSchedule};
+use crate::services::surprise_schedule::{
+    decide, experiment_arm, Decision, ExperimentArm, SurpriseSchedule,
+};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
