@@ -31,6 +31,11 @@ async fn same_window_page_badges_require_health_sample_and_all_chapter_evidence(
     let before = f.fingerprint();
     let html = f.get(&route, &f.cookie, StatusCode::OK).await;
     assert_eq!(metric(&html, "books"), "53");
+    assert!(
+        html.contains("data-testid=\"exposure-health-unknown\""),
+        "the previous window is intentionally incomplete"
+    );
+    assert!(!html.contains("data-testid=\"exposure-health-complete\""));
     assert_eq!(ids(&html, "exposure-row"), f.books[..50]);
     assert_eq!(
         state(&html, f.books[1]),

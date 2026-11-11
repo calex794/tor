@@ -92,7 +92,7 @@ class Fixture {
     // Synthetic history covers both possible settled boundaries during this run.
     // Source queries still choose the actual DB boundary; there is no error retry.
     assert.equal(this.epoch, null);
-    const from = (this.anchor - 2 * 86400) * 1000;
+    const from = (this.anchor - 86400) * 1000;
     const through = (this.anchor + 3600 + 902) * 1000;
     this.epoch = scalar('INSERT INTO flow_observation_epochs(started_ms,confirmed_ms,lease_until_ms,retired,ended_ms)' +
       ' VALUES(' + [from, through, through, 'true', through].join(',') + ') RETURNING epoch', owner);

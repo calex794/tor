@@ -78,6 +78,7 @@ async function snapshot(page, name, target) {
 }
 (async () => {
   let browser, f;
+  const evidence = {javaScriptEnabled: false, viewports: [390, 1440], exposureSource: 'private synthetic F history', readingSource: 'actual C HTTP commands'};
   try {
     f = new Fixture();
     f.seed();
@@ -113,7 +114,8 @@ async function snapshot(page, name, target) {
     await privateResponse(await page.goto(all));
     assert.deepEqual(await ids(page, 'canonical-row'), f.books.slice(0, 20));
     assert.equal(await metric(page.getByTestId('canonical-totals'), 'current'), '2');
-    assert.equal(await metric(bookRow(page, f.books[0], 'canonical-row'), 'current'), '0',
+    evidence.oldPairCurrent = Number(await metric(bookRow(page, f.books[0], 'canonical-row'), 'current'));
+    assert.equal(evidence.oldPairCurrent, 0,
       'a later chapter must not become a second canonical first account/book pair');
     await page.getByTestId('canonical-next').click();
     await page.waitForURL(url => url.searchParams.get('after_id') === String(f.books[19]));
@@ -130,6 +132,12 @@ async function snapshot(page, name, target) {
     assert.equal(await page.getByTestId('canonical-next').count(), 0);
     assert.equal(await page.getByTestId('canonical-rank-small-current').count(), 20);
     assert.equal(await page.locator('img[src="x"]').count(), 0);
+    evidence.ranking = {
+      books: Number(await metric(page.getByTestId('canonical-rank-totals'), 'books')),
+      currentPairs: Number(await metric(page.getByTestId('canonical-rank-totals'), 'current')),
+      rows: await page.getByTestId('canonical-rank-row').count(),
+      firstBooks: (await ids(page, 'canonical-rank-row')).slice(0, 2),
+    };
     for (const width of [390, 1440]) {
       await page.setViewportSize({width, height: width === 390 ? 844 : 900});
       await privateResponse(await page.goto(ranked));
@@ -156,6 +164,8 @@ async function snapshot(page, name, target) {
     assert.equal(await readingState(page, f.books[1]), 'unknown', 'no durable health means unknown');
     f.certify();
     await privateResponse(await page.reload());
+    assert.equal(await page.getByTestId('exposure-health-unknown').count(), 1, 'previous window intentionally incomplete');
+    assert.equal(await page.getByTestId('exposure-health-complete').count(), 0);
     assert.equal(await readingState(page, f.books[1]), 'observed-without-verified-reading');
     assert.equal(await readingState(page, f.books[0]), 'reading-recorded');
     assert.equal(await metric(bookRow(page, f.books[0]), 'chapter-starts'), '1');
@@ -163,6 +173,15 @@ async function snapshot(page, name, target) {
     assert.equal(await readingState(page, f.books[3]), 'unknown', 'DOM19 cannot certify an observed base');
     assert.equal(await metric(page.getByTestId('exposure-totals'), 'books'), '53');
     assert.deepEqual(await ids(page, 'exposure-row'), f.books.slice(0, 50));
+    evidence.currentReading = {
+      starts: Number(await metric(bookRow(page, f.books[0]), 'chapter-starts')),
+      chapterCompletions: Number(await metric(bookRow(page, f.books[0]), 'chapter-completions')),
+      oldReaderState: await readingState(page, f.books[0]),
+      retainedZeroState: await readingState(page, f.books[1]),
+      smallBaseState: await readingState(page, f.books[3]),
+      currentConfirmedHours: Number(await page.locator('[data-health-period="current"] [data-metric="confirmed-hours"]').innerText()),
+      previousConfirmedHours: Number(await page.locator('[data-health-period="previous"] [data-metric="confirmed-hours"]').innerText()),
+    };
     const html = await page.content();
     for (const secret of [...events, f.emails[1], 'Audience text']) assert.ok(!html.includes(secret));
     assert.equal(await page.locator('[data-flow-proof]').count(), 0, 'read-only history never turns collection on');
@@ -170,7 +189,7 @@ async function snapshot(page, name, target) {
       await page.setViewportSize({width, height: width === 390 ? 844 : 900});
       await privateResponse(await page.goto(closed));
       await snapshot(page, 'catalog-reading-badge-' + width + '.png', bookRow(page, f.books[1]));
-      await snapshot(page, 'catalog-reading-existing-' + width + '.png', bookRow(page, f.books[0]));
+      await snapshot(page, 'catalog-reading-health-' + width + '.png', page.getByTestId('exposure-health'));
     }
     await page.getByTestId('exposure-next').click();
     await page.waitForURL(url => url.searchParams.get('after') === String(f.books[49]));
@@ -184,6 +203,7 @@ async function snapshot(page, name, target) {
     assert.equal(await metric(page.getByTestId('exposure-totals'), 'books'), '53',
       'page diagnostics do not redefine complete F totals');
     assert.equal(f.fingerprint(), before, 'reading reports must not mutate source C/F facts');
+    evidence.sourceFactsUnchangedByReports = true;
 
     // An owned canonical row without its matching C receipt is unknown, not zero.
     const missingReceipt = sql('SELECT source_event_id FROM reader_chapter_completions WHERE chapter_id=' + newer.chapter);
@@ -192,6 +212,7 @@ async function snapshot(page, name, target) {
       "DELETE FROM outbox_events WHERE id='" + missingReceipt + "';COMMIT", owner);
     await privateResponse(await page.goto(closed));
     assert.equal(await readingState(page, f.books[0]), 'unknown');
+    evidence.missingReceiptState = await readingState(page, f.books[0]);
     assert.equal(await metric(bookRow(page, f.books[0]), 'chapter-completions'), 'неизвестно');
     assert.equal(await readingState(page, f.books[1]), 'observed-without-verified-reading');
     sql('INSERT INTO flow_observation_health_hourly(epoch,bucket_ms,lost) VALUES(' +
@@ -216,6 +237,7 @@ async function snapshot(page, name, target) {
     await privateResponse(await page.goto(closed), 401);
     f.assertBoundary();
     assert.deepEqual(errors, []);
+    console.log('CATALOG_INTEREST_BODY_RECEIPT ' + JSON.stringify(evidence));
     console.log('CATALOG_INTEREST_BROWSER_PASS real C writes/replay; old-reader new-chapter included; full top20; ID keysets; native no-JS filters; independent closed-window badges; missing C receipt/unknown/DOM19/loss; read-only/live ACL; 390/1440');
   } finally {
     if (browser) await browser.close();

@@ -265,7 +265,7 @@ impl Fixture {
         );
     }
     pub fn certify(&self) -> i64 {
-        let from = (self.anchor - 2 * 86400) * 1000;
+        let from = (self.anchor - 86400) * 1000;
         // Synthetic SELECT-only coverage includes exactly the next possible settled
         // boundary. Production queries still choose their real database boundary.
         let through = (self.anchor + 3600 + 902) * 1000;

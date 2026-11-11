@@ -96,7 +96,7 @@ fn collector_health(out: &mut String, days: i32, health: Option<&ExposureHealth>
             if health.current.complete(days) && health.previous.complete(days) {
                 out.push_str(r#"<p data-testid="exposure-health-complete">Работа зарегистрированных сборщиков подтверждена в обоих окнах.</p>"#);
             } else {
-                out.push_str(r#"<p data-testid="exposure-health-unknown">Полнота наблюдения не подтверждена. Пропуски или ошибки не позволяют объявить отсутствие проблемы.</p>"#);
+                out.push_str(r#"<p data-testid="exposure-health-unknown">Полнота двух окон для сравнения не подтверждена. Статус каждого окна указан отдельно.</p>"#);
             }
         }
     }
