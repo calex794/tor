@@ -41,11 +41,11 @@ impl PgRecommendations {
             ),
             favored AS (
               SELECT book.genres,book.tags
-              FROM user_book_rank rank
-              JOIN rec_actor_books visible ON visible.id=rank.book_id
+              FROM user_book_rank r
+              JOIN rec_actor_books visible ON visible.id=r.book_id
               JOIN books book ON book.id=visible.id
-              WHERE rank.user_id=$1
-              ORDER BY rank.tier ASC,book.id ASC LIMIT 5
+              WHERE r.user_id=$1
+              ORDER BY r.tier ASC,book.id ASC LIMIT 5
             ),
             interests AS (
               SELECT
@@ -57,29 +57,29 @@ impl PgRecommendations {
                          ARRAY[]::text[]) AS tags
             ),
             author_pool AS (
-              SELECT public.id,public.title,0::integer AS kind,
+              SELECT visible.id,visible.title,0::integer AS kind,
                      (CASE WHEN candidate.genres && o.genres THEN 400 ELSE 0 END
                       +CASE WHEN candidate.tags && o.tags THEN 300 ELSE 0 END
                       +CASE WHEN candidate.target_language=o.target_language THEN 100 ELSE 0 END)::bigint AS relevance,
                      (CASE WHEN candidate.genres && prefs.genres THEN 120 ELSE 0 END
                       +CASE WHEN candidate.tags && prefs.tags THEN 80 ELSE 0 END)::bigint AS preference_boost
-              FROM rec_actor_books public
-              JOIN books candidate ON candidate.id=public.id
+              FROM rec_actor_books visible
+              JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE public.id<>o.id AND candidate.owner_user_id=o.owner_user_id
-              ORDER BY public.created_at DESC,public.id DESC LIMIT 100
+              WHERE visible.id<>o.id AND candidate.owner_user_id=o.owner_user_id
+              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
             ),
             teammate_pool AS (
-              SELECT public.id,public.title,1::integer AS kind,
+              SELECT visible.id,visible.title,1::integer AS kind,
                      (CASE WHEN candidate.genres && o.genres THEN 400 ELSE 0 END
                       +CASE WHEN candidate.tags && o.tags THEN 300 ELSE 0 END
                       +CASE WHEN candidate.target_language=o.target_language THEN 100 ELSE 0 END)::bigint AS relevance,
                      (CASE WHEN candidate.genres && prefs.genres THEN 120 ELSE 0 END
                       +CASE WHEN candidate.tags && prefs.tags THEN 80 ELSE 0 END)::bigint AS preference_boost
-              FROM rec_actor_books public
-              JOIN books candidate ON candidate.id=public.id
+              FROM rec_actor_books visible
+              JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE public.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
+              WHERE visible.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -91,19 +91,19 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY public.created_at DESC,public.id DESC LIMIT 100
+              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
             ),
             site_pool AS (
-              SELECT public.id,public.title,2::integer AS kind,
+              SELECT visible.id,visible.title,2::integer AS kind,
                      (CASE WHEN candidate.genres && o.genres THEN 400 ELSE 0 END
                       +CASE WHEN candidate.tags && o.tags THEN 300 ELSE 0 END
                       +CASE WHEN candidate.target_language=o.target_language THEN 100 ELSE 0 END)::bigint AS relevance,
                      (CASE WHEN candidate.genres && prefs.genres THEN 120 ELSE 0 END
                       +CASE WHEN candidate.tags && prefs.tags THEN 80 ELSE 0 END)::bigint AS preference_boost
-              FROM rec_actor_books public
-              JOIN books candidate ON candidate.id=public.id
+              FROM rec_actor_books visible
+              JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE public.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
+              WHERE visible.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND NOT EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -115,7 +115,7 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY public.created_at DESC,public.id DESC LIMIT 100
+              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
             )
             SELECT candidate.id,candidate.title,candidate.kind,candidate.relevance,candidate.preference_boost,
                    (COALESCE(p.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision
