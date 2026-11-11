@@ -404,10 +404,14 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/surprises/disable"), "POST") => Some(389),
         (Some("/assets/surprise.js"), "GET") => Some(390),
         (Some("/assets/surprise.css"), "GET") => Some(391),
-        (Some("/api/v1/admin/recommendations/contextual"), "GET") => Some(392),
-        (Some("/api/v1/admin/recommendations/contextual"), "POST") => Some(393),
-        (Some("/me/recommendations/contextual"), "GET") => Some(394),
-        (Some("/me/recommendations/contextual"), "POST") => Some(395),
+        (Some("/admin/surprises"), "GET") => Some(392),
+        (Some("/admin/surprises/policy"), "POST") => Some(393),
+        (Some("/admin/surprises/create"), "POST") => Some(394),
+        (Some("/admin/surprises/{id}/state"), "POST") => Some(395),
+        (Some("/api/v1/admin/recommendations/contextual"), "GET") => Some(396),
+        (Some("/api/v1/admin/recommendations/contextual"), "POST") => Some(397),
+        (Some("/me/recommendations/contextual"), "GET") => Some(398),
+        (Some("/me/recommendations/contextual"), "POST") => Some(399),
         _ => None,
     };
     index

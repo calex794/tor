@@ -1,6 +1,6 @@
 //! Real PostgreSQL acceptance on disposable tor_ci only. No production writes.
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tor_recommendations::repositories::surprises::{PgSurprises, PlanState};
+use tor_recommendations::repositories::surprises::{PgSurprises, PlanState, SurpriseError};
 
 struct Fixture {
     app: PgPool,
@@ -30,6 +30,7 @@ impl Fixture {
             "surprise_content",
             "surprise_user_preferences",
             "surprise_daily_decisions",
+            "surprise_admin_events",
         ] {
             sqlx::query(&format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
@@ -103,6 +104,13 @@ impl Fixture {
     }
 
     async fn finish(self) {
+        // Account role grants are intentionally not deleted by an A user cascade.
+        // Clean up the isolated synthetic administrator before the synthetic user.
+        sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
+            .bind(self.actor)
+            .execute(&self.app)
+            .await
+            .unwrap();
         sqlx::query("DELETE FROM users WHERE id=$1")
             .bind(self.actor)
             .execute(&self.app)
@@ -127,6 +135,13 @@ async fn surprise_plan_is_default_off_replay_safe_and_capped_between_tabs() {
         .unwrap();
     assert_eq!(count, 0, "feature OFF cannot write decision history");
     f.enable().await;
+    sqlx::query(
+        "INSERT INTO surprise_content(kind,title,body,state)
+         VALUES('joke','Сюрприз','Редакционная шутка','approved')",
+    )
+    .execute(&f.app)
+    .await
+    .unwrap();
     let plan = f.store.plan(f.actor, &key).await.unwrap();
     let PlanState::Planned {
         utc_day,
@@ -160,20 +175,6 @@ async fn surprise_plan_is_default_off_replay_safe_and_capped_between_tabs() {
 async fn surprise_open_rechecks_public_basic_book_and_disable() {
     let f = Fixture::new("visibility").await;
     f.enable().await;
-    let key = [0xaf; 32];
-    let plan = f.store.plan(f.actor, &key).await.unwrap();
-    let PlanState::Planned { utc_day, .. } = plan else {
-        panic!("selected plan required");
-    };
-    sqlx::query(
-        "UPDATE surprise_daily_decisions SET created_at=now()-interval '30 minutes'
-         WHERE user_id=$1",
-    )
-    .bind(f.actor)
-    .execute(&f.app)
-    .await
-    .unwrap();
-    assert!(f.store.claim(f.actor, utc_day, 1200).await.unwrap());
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES($1,'ru','Surprise public book','public','basic') RETURNING id",
@@ -190,6 +191,20 @@ async fn surprise_open_rechecks_public_basic_book_and_disable() {
     .execute(&f.app)
     .await
     .unwrap();
+    let key = [0xaf; 32];
+    let plan = f.store.plan(f.actor, &key).await.unwrap();
+    let PlanState::Planned { utc_day, .. } = plan else {
+        panic!("selected plan required");
+    };
+    sqlx::query(
+        "UPDATE surprise_daily_decisions SET created_at=now()-interval '30 minutes'
+         WHERE user_id=$1",
+    )
+    .bind(f.actor)
+    .execute(&f.app)
+    .await
+    .unwrap();
+    assert!(f.store.claim(f.actor, utc_day, 1200).await.unwrap());
     let item = f.store.open(f.actor, utc_day).await.unwrap().unwrap();
     assert_eq!(item.book_id, Some(book));
     assert!(item.editorial);
@@ -210,5 +225,86 @@ async fn surprise_open_rechecks_public_basic_book_and_disable() {
         .execute(&f.app)
         .await
         .unwrap();
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated disposable tor_ci PostgreSQL"]
+async fn surprise_admin_requires_live_role_and_audits_bounded_editorial_changes() {
+    use tor_recommendations::repositories::surprises::admin::NewSurprise;
+
+    let f = Fixture::new("admin").await;
+    let digest = [0xb7_u8; 32];
+    sqlx::query(
+        "INSERT INTO sessions(token_hash,user_id,expires_at)
+         VALUES($1,$2,now()+interval '1 hour')",
+    )
+    .bind(digest.as_slice())
+    .bind(f.actor)
+    .execute(&f.app)
+    .await
+    .unwrap();
+
+    let input = NewSurprise {
+        kind: "joke",
+        title: "Редакционная находка",
+        body: "Короткая шутка без спойлеров.",
+        book_id: None,
+        editorial: false,
+    };
+    assert!(matches!(
+        f.store.admin_create(&digest, &input).await,
+        Err(SurpriseError::Forbidden)
+    ));
+    assert!(matches!(
+        f.store.admin_policy(&digest, true, 350).await,
+        Err(SurpriseError::Forbidden)
+    ));
+
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'administrator',true)",
+    )
+    .bind(f.actor)
+    .execute(&f.app)
+    .await
+    .unwrap();
+
+    let id = f.store.admin_create(&digest, &input).await.unwrap();
+    assert!(id > 0);
+    assert!(f.store.admin_state(&digest, id, "approved").await.unwrap());
+    assert!(!f.store.admin_state(&digest, id, "approved").await.unwrap());
+    f.store.admin_policy(&digest, true, 350).await.unwrap();
+    let (enabled, chance, items) = f.store.admin_overview(&digest).await.unwrap();
+    assert!(enabled);
+    assert_eq!(chance, 350);
+    assert!(items
+        .iter()
+        .any(|row| row.id == id && row.state == "approved"));
+
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM surprise_admin_events WHERE actor_user_id=$1")
+            .bind(f.actor)
+            .fetch_one(&f.app)
+            .await
+            .unwrap();
+    assert_eq!(events, 3, "one creation, approval and policy change");
+
+    sqlx::query(
+        "UPDATE account_roles SET is_active=false
+         WHERE user_id=$1 AND role='administrator'",
+    )
+    .bind(f.actor)
+    .execute(&f.app)
+    .await
+    .unwrap();
+    assert!(matches!(
+        f.store.admin_state(&digest, id, "paused").await,
+        Err(SurpriseError::Forbidden)
+    ));
+    assert!(matches!(
+        f.store.admin_overview(&digest).await,
+        Err(SurpriseError::Forbidden)
+    ));
     f.finish().await;
 }
