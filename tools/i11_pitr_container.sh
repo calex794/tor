@@ -45,8 +45,28 @@ cleanup() {
   rm -rf -- "$work"
   exit "$status"
 }
+report_failure() {
+  echo "I11_PITR_FAILED line=$1" >&2
+  # Publish only a bounded redacted pgBackRest error, never PG logs/config/keys.
+  python3 - "$work" "$key" <<'PY' >&2
+from pathlib import Path
+import re, sys
+root, key = sys.argv[1:]
+for name in ('wrong-key', 'restore', 'bad-restore'):
+    path = Path(root) / 'log' / (name + '.log')
+    if not path.is_file():
+        continue
+    for line in path.read_text(errors='replace').splitlines():
+        match = re.search(r'ERROR:\s*\[([0-9]{3})\]:?\s*(.*)', line)
+        if match:
+            text = match[2].replace(key, '[redacted]').replace(root, '[temp]')
+            text = re.sub(r'[^\x20-\x7e]', '?', text)[:360]
+            print(f'I11_PITR_DIAGNOSTIC {name} {match[1]} {text}')
+            break
+PY
+}
 trap cleanup EXIT
-trap 'echo "I11_PITR_FAILED line=$LINENO" >&2' ERR
+trap 'report_failure "$LINENO"' ERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 initdb -D "$source_dir" -U postgres --auth=trust >"$work/log/initdb.log"

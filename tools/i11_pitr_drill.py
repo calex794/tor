@@ -140,9 +140,15 @@ def main() -> int:
         return 0
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         if isinstance(error, subprocess.CalledProcessError):
-            marker = re.search(r'^I11_PITR_FAILED line=([0-9]{1,4})$', error.stderr or '', re.M)
+            stderr = error.stderr or ''
+            marker = re.search(r'^I11_PITR_FAILED line=([0-9]{1,4})$', stderr, re.M)
             if marker:
                 print('I11_PITR_FAILED line=' + marker.group(1), file=sys.stderr)
+            diagnostics = re.findall(
+                r'^I11_PITR_DIAGNOSTIC (?:wrong-key|restore|bad-restore) [0-9]{3} [\x20-\x7e]{0,360}$',
+                stderr, re.M)
+            for diagnostic in diagnostics[:3]:
+                print(diagnostic, file=sys.stderr)
         print('FAIL: isolated I-11 PITR drill; no release or SLO approval', file=sys.stderr)
         return 1
     finally:
