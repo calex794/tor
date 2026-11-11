@@ -125,6 +125,7 @@ impl Worker {
         self.run_inner(Some(stop)).await;
     }
     async fn run_inner(mut self, mut stop: Option<oneshot::Receiver<oneshot::Sender<bool>>>) {
+        let mut receiver_closed = false;
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -139,8 +140,9 @@ impl Worker {
                         break;
                     }
                     stop=None; // A dropped sender is not a shutdown witness.
+                    if receiver_closed { break; }
                 }
-                _=tick.tick()=>{
+                _=tick.tick(),if !receiver_closed=>{
                     if self.prepare().await.is_err() {
                         self.counters.failed.fetch_add(1,Ordering::Release);
                     }
@@ -151,8 +153,15 @@ impl Worker {
                         self.counters.failed.fetch_add(1,Ordering::Release);
                     }
                 }
-                first=self.receiver.recv(),if self.gate.epoch().is_some()=>{
-                    let Some(first)=first else { break; };
+                first=self.receiver.recv(),if !receiver_closed && self.gate.epoch().is_some()=>{
+                    let Some(first)=first else {
+                        // Axum may drop the last Router/issuer before HTTP's
+                        // owner sends its terminal witness. EOF is not that witness.
+                        receiver_closed=true;
+                        self.gate.disable();
+                        if stop.is_none() { break; }
+                        continue;
+                    };
                     let mut batch=vec![first];
                     while batch.len()<64 {
                         match self.receiver.try_recv() { Ok(next)=>batch.push(next),Err(_)=>break }
