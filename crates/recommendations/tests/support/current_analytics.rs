@@ -16,7 +16,9 @@ pub async fn assert_schema(pool: &PgPool) {
     let (database, count, last, successful, barrier): (String, i64, i64, bool, bool) =
         sqlx::query_as(
             "SELECT current_database()::text,count(*),max(version),bool_and(success),
-               to_regclass('public.rec_analytics_invalidations') IS NOT NULL
+               EXISTS(SELECT 1 FROM public._sqlx_migrations
+                 WHERE version=202611168903 AND success)
+               AND to_regclass('public.rec_analytics_invalidations') IS NOT NULL
                AND to_regprocedure('public.rec_retire_analytics_batch(integer)') IS NOT NULL
                AND EXISTS(SELECT 1 FROM pg_trigger
                  WHERE tgrelid='public.rec_subjects'::regclass
@@ -27,7 +29,12 @@ pub async fn assert_schema(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(database, "tor_ci");
-    assert_eq!((count, last, successful), (193, 202611168903, true));
+    // These tests require the certified retirement baseline, not an exact
+    // global migration count: independent additive F/G migrations follow it.
+    assert!(
+        count >= 193 && last >= 202611168903 && successful,
+        "current schema must retain the installed retirement baseline"
+    );
     assert!(
         barrier,
         "ordinary business must work behind the installed retirement fence"
