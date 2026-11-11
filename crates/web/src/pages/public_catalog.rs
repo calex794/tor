@@ -2,13 +2,16 @@
 use super::{escape_html, layout, layout_with_support_widget};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
-use tor_search::domain::seo_urls::BookUrl;
 use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
+mod cards;
 mod catalog_active_filters;
 mod catalog_pagination;
 mod catalog_taxonomy_selects;
 mod home_spotlight;
+use cards::book_cards;
+use tor_contracts::exposure::{ExposureSurface, ObservationIssuer};
+type Observer<'a> = Option<(&'a dyn ObservationIssuer, ExposureSurface)>;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -19,71 +22,13 @@ pub struct PublicBookCard {
     pub genres: Vec<String>,
 }
 
-/// NEwBOO BookCard layout, with real PostgreSQL-backed author and genre metadata.
-fn book_cards(
-    books: &[PublicBookCard],
-    shelf: bool,
-    shelf_label: &str,
-    covers: &HashSet<u64>,
-) -> String {
-    if books.is_empty() {
-        return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
-    }
-    let mut html = if shelf {
-        format!(
-            "<div class=\"home-shelf__track\" aria-label=\"{}\">",
-            escape_html(shelf_label)
-        )
-    } else {
-        String::from("<div class=\"catalog-grid\">")
-    };
-    for book in books {
-        let Some(url) = BookUrl::from_id(book.id) else {
-            continue;
-        };
-        let href = url.path();
-        let title = escape_html(&book.title);
-        let mut details = String::new();
-        // Match the original NEwBOO BookCard: public author if present, not
-        // invented likes/comments or an extra language/genre metadata block.
-        if let Some(author) = book
-            .author_name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            write!(
-                details,
-                "<div class=\"book-mini-card__meta\">{}</div>",
-                escape_html(author),
-            )
-            .expect("format String");
-        }
-        let variant = if shelf {
-            "book-mini-card--shelf"
-        } else {
-            "book-mini-card--compact"
-        };
-        let cover = if covers.contains(&book.id) {
-            format!(
-                r#"<img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async" draggable="false">"#,
-                book.id
-            )
-        } else {
-            "<span>Нет обложки</span>".to_owned()
-        };
-        write!(
-            html,
-            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"{href}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
-        )
-        .expect("format String");
-    }
-    html.push_str("</div>");
-    html
-}
-
 /// Group the already authorized latest-book rows without extra SQL queries.
 /// These are shelves of recent books, never a popularity/rating recommendation.
-fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+fn recent_genre_shelves(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    observer: Observer<'_>,
+) -> String {
     let mut genres = Vec::<&str>::new();
     for book in books {
         for genre in &book.genres {
@@ -124,7 +69,7 @@ fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> Stri
     {}
   </div>
 </section>"#,
-            book_cards(&matches, true, &label, covers)
+            book_cards(&matches, true, &label, covers, observer)
         )
         .expect("write genre shelf");
     }
@@ -137,14 +82,16 @@ fn home_body(
     covers: &HashSet<u64>,
     updates: &[PublicBookCard],
     rising: &[PublicBookCard],
+    issuer: Option<&dyn ObservationIssuer>,
 ) -> Html<String> {
+    let observer = issuer.map(|issuer| (issuer, ExposureSurface::Home));
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
         <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
     </div>"#;
     let hero = if latest && !books.is_empty() {
-        home_spotlight::render(books, covers)
+        home_spotlight::render_observed(books, covers, issuer)
     } else {
         fallback.to_owned()
     };
@@ -160,17 +107,20 @@ fn home_body(
         )
         .replace(
             "<!--PUBLIC_BOOKS-->",
-            &book_cards(books, latest, "Недавно добавленные книги", covers),
+            &book_cards(books, latest, "Недавно добавленные книги", covers, observer),
         )
         .replace(
             "<!--RECENT_RELEASES-->",
-            &recent_release_section(updates, covers),
+            &recent_release_section(updates, covers, observer),
         )
-        .replace("<!--RISING_READERS-->", &rising_section(rising, covers))
+        .replace(
+            "<!--RISING_READERS-->",
+            &rising_section(rising, covers, observer),
+        )
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
-                recent_genre_shelves(books, covers)
+                recent_genre_shelves(books, covers, observer)
             } else {
                 String::new()
             },
@@ -182,60 +132,81 @@ fn home_body(
     )
 }
 
-fn recent_release_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+fn recent_release_section(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    observer: Observer<'_>,
+) -> String {
     if books.is_empty() {
         return String::new();
     }
     format!(
         "<section class=\"section home-release-section\" aria-labelledby=\"home-releases\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-releases\" class=\"ui-section-header__title\">Обновились</h2></header></div>{}</div></section>",
-        book_cards(books, true, "Недавно вышли новые главы", covers)
+        book_cards(books, true, "Недавно вышли новые главы", covers, observer)
     )
 }
 
-fn rising_section(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+fn rising_section(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    observer: Observer<'_>,
+) -> String {
     if books.is_empty() {
         return String::new();
     }
     format!(
         "<section class=\"section home-rising-section\" aria-labelledby=\"home-rising\"><div class=\"container\"><div class=\"home-section-header-row\"><header class=\"ui-section-header\"><h2 id=\"home-rising\" class=\"ui-section-header__title\">Набирают читателей</h2></header></div>{}</div></section>",
-        book_cards(books, true, "Книги с ростом числа читателей", covers)
+        book_cards(books, true, "Книги с ростом числа читателей", covers, observer)
     )
 }
 
+pub fn home_observed(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    updates: &[PublicBookCard],
+    rising: &[PublicBookCard],
+    issuer: Option<&dyn ObservationIssuer>,
+) -> Html<String> {
+    home_body(books, true, covers, updates, rising, issuer)
+}
+
+#[cfg(test)]
 pub fn home_recent_with_growth(
     books: &[PublicBookCard],
     covers: &HashSet<u64>,
     updates: &[PublicBookCard],
     rising: &[PublicBookCard],
 ) -> Html<String> {
-    home_body(books, true, covers, updates, rising)
+    home_body(books, true, covers, updates, rising, None)
 }
 
 /// Explicitly released books only; independent of the existing added-book shelf.
+#[cfg(test)]
 pub fn home_recent_with_updates(
     books: &[PublicBookCard],
     covers: &HashSet<u64>,
     updates: &[PublicBookCard],
 ) -> Html<String> {
-    home_body(books, true, covers, updates, &[])
+    home_body(books, true, covers, updates, &[], None)
 }
 
 /// Demo mode cannot claim recent insertion order; only the PG projection can.
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, false, &HashSet::new(), &[], &[])
+    home_body(books, false, &HashSet::new(), &[], &[], None)
 }
 
 /// F-04 read model supplies descending creation identity, never a false daily top
 /// or a claim about publication time, rating or personal recommendations.
+#[cfg(test)]
 pub fn home_recent_with_covers(books: &[PublicBookCard], covers: &HashSet<u64>) -> Html<String> {
-    home_body(books, true, covers, &[], &[])
+    home_body(books, true, covers, &[], &[], None)
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../../templates/catalog.html")
         .replace(
             "<!--PUBLIC_BOOKS-->",
-            &book_cards(books, false, "", &HashSet::new()),
+            &book_cards(books, false, "", &HashSet::new(), None),
         )
         .replace("<!--SEARCH_FORM-->", "")
         .replace("<!--ACTIVE_FILTERS-->", "");
@@ -273,11 +244,26 @@ pub struct CatalogPageQuery<'a> {
     pub options: Option<&'a CatalogTaxonomyView>,
 }
 
+#[cfg(test)]
 pub fn catalog_search_with_covers(
     books: &[PublicBookCard],
     request: CatalogPageQuery<'_>,
     covers: &HashSet<u64>,
 ) -> Html<String> {
+    catalog_search_observed(books, request, covers, None)
+}
+pub fn catalog_search_observed(
+    books: &[PublicBookCard],
+    request: CatalogPageQuery<'_>,
+    covers: &HashSet<u64>,
+    issuer: Option<&dyn ObservationIssuer>,
+) -> Html<String> {
+    let surface = if request.query.trim().is_empty() {
+        ExposureSurface::Catalog
+    } else {
+        ExposureSurface::Search
+    };
+    let observer = issuer.map(|issuer| (issuer, surface));
     let active_filters = catalog_active_filters::render(&request);
     let pagination = catalog_pagination::render(&request);
     let CatalogPageQuery {
@@ -339,7 +325,7 @@ pub fn catalog_search_with_covers(
             {
                 "<div class=\"ui-empty-state\"><h3>Книги не найдены</h3><p>Попробуйте изменить условия поиска.</p></div>".to_owned()
             } else {
-                book_cards(books, false, "", covers)
+                book_cards(books, false, "", covers, observer)
             },
         )
         .replace("<!--SEARCH_FORM-->", &controls)
@@ -354,7 +340,7 @@ pub fn catalog_search_with_covers(
 
 #[cfg(test)]
 pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true, &HashSet::new(), &[], &[])
+    home_body(books, true, &HashSet::new(), &[], &[], None)
 }
 
 #[cfg(test)]
@@ -440,7 +426,7 @@ mod home_tests {
                 book
             })
             .collect::<Vec<_>>();
-        let shelves = recent_genre_shelves(&books, &HashSet::new());
+        let shelves = recent_genre_shelves(&books, &HashSet::new(), None);
         assert_eq!(
             shelves
                 .matches("class=\"book-mini-card book-mini-card--shelf\"")

@@ -2829,6 +2829,27 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "seo::refresh",
       "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/flow/observations",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "ingest::event",
+      "policy": "observation"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/flow-observations.js",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "client::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/exposure",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "report::page",
+      "policy": "administrator"
     }
   ]
 }

@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+POLICIES = {"observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 ADMIN_MAIL_HANDLERS = {
@@ -565,6 +565,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
     admin_key = (entry["method"], entry["template"], entry["handler"])
+    flow_source = entry["source"] == "crates/web/src/flow_exposure/mod.rs"
+    observation_route = flow_source and admin_key == (
+        "POST", "/api/v1/flow/observations", "ingest::event")
+    exposure_admin_route = flow_source and admin_key == (
+        "GET", "/admin/audience/exposure", "report::page")
+    audited_exposure = exposure_admin_route and policy == "administrator"
+    if observation_route and policy != "observation":
+        errors.append(f"{label}: anonymous observation policy downgraded")
+    if policy == "observation":
+        required = ("state.cookies.same_origin(&headers)", '"x-tor-observation"',
+                    'Some("1")', "event.validate()?", "state.store.describe(&event.proof)",
+                    "if !guard", ".allowed(&context.card)", "ExposureError::Forbidden",
+                    ".active_session_user(&session_token_digest(&token))",
+                    "state.store.record(&event, &context, actor)", "Duration::from_millis(950)",
+                    "private_response(status, &[])")
+        if not observation_route or not all(marker in body for marker in required):
+            errors.append(f"{label}: missing bounded same-origin server-proof observation guard")
+    if exposure_admin_route:
+        required = ("Duration::from_millis(950)", "session_token_digest(&token)",
+                    "session_actor(", "!actor.administrator", "StatusCode::FORBIDDEN",
+                    "match timeout_at(deadline, auth).await", "Ok(Err(status)) => return secure(status)",
+                    "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)",
+                    "timeout_at(deadline, guard.campaign_book(campaign))",
+                    "state.store.report_campaign_book(&filter, book)", "state.store.report(&filter)",
+                    "timeout_at(deadline, query)")
+        if not audited_exposure or not all(marker in body for marker in required):
+            errors.append(f"{label}: exposure report must remain a bounded live administrator read")
     audited_admin = (policy == "admin_mail"
                      and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
@@ -779,7 +806,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1537,7 +1564,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if not scoped:
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
-        if policy in {"deny", "public"}:
+        if policy in {"deny", "public", "observation"}:
             pass
         elif not (
             re.search(r"\bsame_origin\s*\(", evidence)
@@ -1679,9 +1706,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "administrator":
         rec_binding = (route_key in rec_admin
                        and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
-        if not (rec_binding or audience_admin):
+        if not (rec_binding or audience_admin or audited_exposure):
             errors.append(f"{label}: administrator exception is not allowed here")
-        role_guard = "!actor.administrator" if audience_admin else "!verified.administrator"
+        role_guard = "!actor.administrator" if audience_admin or audited_exposure else "!verified.administrator"
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")

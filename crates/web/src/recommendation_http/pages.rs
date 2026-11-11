@@ -55,6 +55,16 @@ fn choice_form(book: &str, revision: i64, hidden: bool, csrf: &str) -> String {
     format!("<form method=\"post\" action=\"/me/recommendations/feedback\"><input type=\"hidden\" name=\"book_id\" value=\"{book}\"><input type=\"hidden\" name=\"choice\" value=\"{choice}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{revision}\"><input type=\"hidden\" name=\"command_key\" value=\"{key}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--small\" type=\"submit\">{label}</button></form>",book=html::escape_html(book),key=generate_session_token(),csrf=html::escape_html(csrf))
 }
 pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
+    panel_observed(feed, csrf, None)
+}
+pub(super) fn panel_observed(
+    feed: &Feed,
+    csrf: &str,
+    observer: Option<(
+        &dyn tor_contracts::exposure::ObservationIssuer,
+        tor_contracts::exposure::ExposureSurface,
+    )>,
+) -> String {
     if feed.items.is_empty() {
         return String::new();
     }
@@ -72,7 +82,19 @@ pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
             "trending" => "Набирает интерес",
             _ => "Из доступного каталога",
         };
-        let _=write!(out,"<article class=\"book-card\" data-rec-card><div class=\"book-card__body\"><h3 class=\"book-card__title\"><a data-rec-link href=\"/books/{id}\">{title}</a></h3><p>{explanation}</p>",title=html::escape_html(&item.title));
+        let observation = observer
+            .map(|(issuer, surface)| {
+                crate::flow_exposure::attributes(
+                    Some(issuer),
+                    tor_contracts::exposure::CardObservation {
+                        book_id: id,
+                        surface,
+                        editorial: None,
+                    },
+                )
+            })
+            .unwrap_or_default();
+        let _=write!(out,"<article class=\"book-card\" data-rec-card{observation}><div class=\"book-card__body\"><h3 class=\"book-card__title\"><a data-rec-link data-flow-link href=\"/books/{id}\">{title}</a></h3><p>{explanation}</p>",title=html::escape_html(&item.title));
         if let Some(revision) = item.feedback_revision {
             out.push_str(&choice_form(&item.book_id, revision, true, csrf));
         }

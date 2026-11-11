@@ -1,5 +1,6 @@
 //! Contextual SSR cards and native preference forms. This adapter performs no
-//! assignment, impression, click, book-open or individual audience write.
+//! assignment, book-open or individual audience write. Anonymous observation
+//! proofs are issued through a separate bounded queue when attached by main.
 use super::{api, pages, ReaderContext, Runtime};
 use axum::{
     body::{to_bytes, Body, HttpBody},
@@ -46,6 +47,14 @@ fn page_csrf(state: &Runtime, request: &HeaderMap, response: &HeaderMap) -> (Str
 }
 
 pub(super) async fn append(State(state): State<Runtime>, request: Request, next: Next) -> Response {
+    let issuer = request
+        .extensions()
+        .get::<std::sync::Arc<dyn tor_contracts::exposure::ObservationIssuer>>()
+        .cloned();
+    let searching = request.uri().query().is_some_and(|q| {
+        q.split('&')
+            .any(|pair| pair.starts_with("q=") && pair.len() > 2)
+    });
     let path = request.uri().path().to_owned();
     let headers = request.headers().clone();
     let response = next.run(request).await;
@@ -118,7 +127,24 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     } else {
         (String::new(), Vec::new())
     };
-    let panel = pages::panel(&feed, &csrf);
+    use tor_contracts::exposure::ExposureSurface as Observed;
+    let observed = if path.starts_with("/read/paid/") {
+        None
+    } else {
+        match surface {
+            Surface::Home => Some(Observed::Home),
+            Surface::Catalog => Some(if searching {
+                Observed::Search
+            } else {
+                Observed::Catalog
+            }),
+            Surface::BookDetail => Some(Observed::BookDetail),
+            Surface::ReaderEnd => Some(Observed::ReaderEnd),
+            Surface::Library => None,
+        }
+    };
+    let observer = issuer.as_deref().zip(observed);
+    let panel = pages::panel_observed(&feed, &csrf, observer);
     let mut html = original.to_owned();
     html.insert_str(at, &panel);
     for cookie in cookies {

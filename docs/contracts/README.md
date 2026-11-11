@@ -31,3 +31,5 @@
 - [REC contextual metadata/manual model v1](rec-contextual-model-v1.md): FLOW/REC P2b2 versioned builds and explicit activation; no individual collection.
 
 - [FLOW-07 external search snapshots](flow-search-analytics-v1.md): fixed-provider imports, durable leases, independent totals, coverage and admin reports; provider activation remains explicit.
+
+- [FLOW-05 anonymous card observations](flow-anonymous-observations-v1.md): trusted per-card proofs, browser viewability, explicit coverage and low observed exposure; no reader identity or billable impressions.

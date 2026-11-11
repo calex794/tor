@@ -1,7 +1,7 @@
 //! Recommendation metadata visibility under verified session-derived actor identity.
 //! Bind $1 as an Option<i64> on every query; anonymous traffic stays basic-only.
 //! This CTE is read-side only. It does not grant reading or purchased rights.
-pub(super) const ACTOR_DISCOVERY_CTE: &str = r#"
+pub(crate) const ACTOR_DISCOVERY_CTE: &str = r#"
 WITH rec_actor_books AS (
     SELECT b.id, b.title, b.created_at
     FROM books b

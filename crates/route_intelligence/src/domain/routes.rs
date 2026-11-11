@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 402] = [
+static ROUTES: [RouteRegistration; 405] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -412,6 +412,9 @@ static ROUTES: [RouteRegistration; 402] = [
     RouteRegistration::new("/me/recommendations/contextual", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
     RouteRegistration::new("/admin/audience/seo", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 400
     RouteRegistration::new("/admin/audience/seo/refresh", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 401
+    RouteRegistration::new("/api/v1/flow/observations", "POST", "/api/v1/", Exact, Api, ProductArea::Recommendations, Write), // 402
+    RouteRegistration::new("/assets/flow-observations.js", "GET", "/assets/", Exact, Static, System, Free), // 403
+    RouteRegistration::new("/admin/audience/exposure", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 404
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

@@ -27,7 +27,10 @@ fn card(book: SearchBook) -> pages::PublicBookCard {
     }
 }
 
-pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode> {
+pub(super) async fn homepage(
+    state: AppState,
+    issuer: Option<std::sync::Arc<dyn tor_contracts::exposure::ObservationIssuer>>,
+) -> Result<Html<String>, StatusCode> {
     let Some(catalog) = state.postgres.as_ref() else {
         return Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?));
     };
@@ -76,7 +79,15 @@ pub(super) async fn homepage(state: AppState) -> Result<Html<String>, StatusCode
         }
     }
     let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cover_candidates).await?;
-    cover_http::homepage_with_cdn(&state, &latest, &releases, &rising, &covers).await
+    cover_http::homepage_with_cdn(
+        &state,
+        &latest,
+        &releases,
+        &rising,
+        &covers,
+        issuer.as_deref(),
+    )
+    .await
 }
 
 #[cfg(test)]
