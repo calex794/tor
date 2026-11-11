@@ -62,6 +62,14 @@ pub(crate) fn routes(state: Runtime) -> Router {
         .route("/me/recommendations/consent", post(pages::consent))
         .route("/me/recommendations/flow-consent", post(pages::consent))
         .route("/me/recommendations/feedback", post(pages::feedback))
+        .route(
+            "/api/v1/admin/recommendations/contextual",
+            get(admin::contextual::status).post(admin::contextual::control),
+        )
+        .route(
+            "/me/recommendations/contextual",
+            get(admin::contextual::page).post(admin::contextual::form),
+        )
         .route("/api/v1/admin/recommendations/quality", get(admin::quality))
         .route(
             "/api/v1/admin/recommendations/control",

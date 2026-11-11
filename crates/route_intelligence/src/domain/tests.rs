@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 386);
+    assert_eq!(unique.len(), 390);
 }
 
 #[test]
@@ -558,4 +558,22 @@ fn canonical_reading_admin_route_has_no_public_or_write_alias() {
     ] {
         assert!(!classify(Some(path), method).route_known);
     }
+}
+
+#[test]
+fn contextual_model_controls_are_exact_admin_routes_not_reader_events() {
+    for path in [
+        "/api/v1/admin/recommendations/contextual",
+        "/me/recommendations/contextual",
+    ] {
+        for (method, cost) in [("GET", CostClass::CheapRead), ("POST", CostClass::Write)] {
+            let route = classify(Some(path), method);
+            assert!(route.route_known);
+            assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+            assert_eq!(route.cost_class, cost);
+            assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+        }
+        assert!(!classify(Some(path), "DELETE").route_known);
+    }
+    assert!(!classify(Some("/api/v1/recommendations/contextual"), "POST").route_known);
 }

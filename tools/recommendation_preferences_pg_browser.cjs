@@ -224,7 +224,7 @@ async function evidence(page,width) {
     assert.deepEqual(command(user,hideKey),savedCommand);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, current193 barrier and retired clients preserve exact preference TTL/revision/receipt, no-JS restore, 390/1440');
+    console.log('REC preferences browser PASS: fresh actor without analytics subject, real hide/restore, no tracking requests or new storage, current194 barrier and retired clients preserve exact preference TTL/revision/receipt, no-JS restore, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) sql(`DELETE FROM rec_subjects WHERE user_id IN (${users.join(',')})`);

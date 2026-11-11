@@ -174,15 +174,26 @@ SQL не стирает HMAC, path/window или очередь из чужой 
 и не доказательство остановленной RAM. Production deploy требует прежнего
 отдельного разрешения и точного проверенного SHA.
 
-## P2b2 и последующие FLOW
+## P2b2: versioned contextual model
 
-Новая metadata/manual модель, build/activate/rollback guard и очистка старых
-generation pointers — отдельный следующий пакет. P2b1 сохраняет P2a catalog
-fallback; старые поколения production serving не читает.
+The separately versioned [metadata/manual model](rec-contextual-model-v1.md)
+adds explicit build/activate/hold/cancel/rollback without restoring retired
+collection. Existing legacy generations remain labelled and cannot become active
+or previous. The accepted P2a/P2b1 boundaries above continue to apply to legacy
+collectors, callbacks and consumers. Only the new metadata/manual builder is an
+exception to the historical no-rebuild wiring; it never reads the old graph sources.
 
-Новые anonymous aggregates не строятся переименованием персональных rows.
-Без отдельной доказанной модели не обещаются источник визита до чтения,
-unique visitors, физические сессии, индивидуальные воронки или возвраты.
+A concrete authorized page context may use `metadata_manual_v1`; global, held,
+unavailable or empty contextual results still use the live catalogue fallback.
+Explicit P1 settings remain independent. Canonical C evidence and minimal anonymous
+HTML aggregates are not renamed personal rows. This does not restore unique
+visitors, visit-to-reading linkage, individual funnels or returns.
+
+Migration ordering after #808 is explicit: baseline 190, primitives 191,
+anonymous observation 192, retirement 193, contextual version guard 194.
+Historical 192 has observation but no retirement fence. The actual installed
+retirement proof remains 190->193, followed by the separate 193->194 model cutover;
+the production-startup fixture runs the resulting current194 binary and schema.
 
 ## Приёмка и владельцы
 

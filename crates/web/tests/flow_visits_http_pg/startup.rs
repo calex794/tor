@@ -120,7 +120,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             &url,
             "SELECT concat_ws('|',count(*),max(version),bool_and(success)) FROM _sqlx_migrations"
         ),
-        "193|202611168903|t"
+        "194|202611198437|t"
     );
     let legacy = retirement::Probe::load(&url);
     let canonical = legacy.canonical(&url);

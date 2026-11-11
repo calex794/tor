@@ -18,6 +18,7 @@ pub async fn assert_schema(pool: &PgPool) {
             "SELECT current_database()::text,count(*),max(version),bool_and(success),
                to_regclass('public.rec_analytics_invalidations') IS NOT NULL
                AND to_regprocedure('public.rec_retire_analytics_batch(integer)') IS NOT NULL
+               AND to_regprocedure('public.rec_contextual_policy_guard()') IS NOT NULL
                AND EXISTS(SELECT 1 FROM pg_trigger
                  WHERE tgrelid='public.rec_subjects'::regclass
                    AND tgname='retired_collection_write_fence')
@@ -27,7 +28,7 @@ pub async fn assert_schema(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(database, "tor_ci");
-    assert_eq!((count, last, successful), (193, 202611168903, true));
+    assert_eq!((count, last, successful), (194, 202611198437, true));
     assert!(
         barrier,
         "ordinary business must work behind the installed retirement fence"

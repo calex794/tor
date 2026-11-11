@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 386] = [
+static ROUTES: [RouteRegistration; 390] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -396,6 +396,10 @@ static ROUTES: [RouteRegistration; 386] = [
     RouteRegistration::new("/admin/audience/visits", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 383
     RouteRegistration::new("/admin/audience/funnel", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 384
     RouteRegistration::new("/admin/audience/reading", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 385
+    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "GET", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 386
+    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "POST", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 387
+    RouteRegistration::new("/me/recommendations/contextual", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 388
+    RouteRegistration::new("/me/recommendations/contextual", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 389
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

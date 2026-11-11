@@ -210,7 +210,7 @@ async function assertReport(page, days) {
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('FLOW visits browser PASS: current193 barrier, no analytics identity or visits, native navigation across browsers, retired consent410, all periods/ACL/privacy, 390/1440');
+    console.log('FLOW visits browser PASS: current194 barrier, no analytics identity or visits, native navigation across browsers, retired consent410, all periods/ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) {

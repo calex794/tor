@@ -6,6 +6,8 @@ mod fixtures;
 
 use axum::{http::StatusCode, response::Response};
 use fixtures::*;
+#[path = "recommendation_preferences_http_pg/contextual.rs"]
+mod contextual;
 #[path = "support/collection_retirement.rs"]
 mod retirement;
 use retirement::{assert_current_schema, optional_snapshot};

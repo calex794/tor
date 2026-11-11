@@ -398,6 +398,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/audience/visits"), "GET") => Some(383),
         (Some("/admin/audience/funnel"), "GET") => Some(384),
         (Some("/admin/audience/reading"), "GET") => Some(385),
+        (Some("/api/v1/admin/recommendations/contextual"), "GET") => Some(386),
+        (Some("/api/v1/admin/recommendations/contextual"), "POST") => Some(387),
+        (Some("/me/recommendations/contextual"), "GET") => Some(388),
+        (Some("/me/recommendations/contextual"), "POST") => Some(389),
         _ => None,
     };
     index
