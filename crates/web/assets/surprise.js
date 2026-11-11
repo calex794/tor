@@ -22,7 +22,16 @@
   function safeContext() {
     if (document.visibilityState !== "visible" || !document.hasFocus()) return false;
     if (window.getSelection && String(window.getSelection()).length > 0) return false;
-    if (document.querySelector('dialog[open], [role="dialog"]:not([hidden]), .support-widget__panel:not([hidden])')) return false;
+    // Closed reader TOC/settings dialogs remain in the DOM with role=dialog.
+    // A hidden descendant (or one inside a closed details) is not an overlay.
+    const overlays = document.querySelectorAll('dialog[open], [role="dialog"], .support-widget__panel');
+    for (const panel of overlays) {
+      if (panel.closest('[hidden], [inert], details:not([open])')) continue;
+      if (panel.matches('dialog:not([open])')) continue;
+      const style = getComputedStyle(panel);
+      if (style.visibility === 'visible' && style.display !== 'none' &&
+          panel.getClientRects().length > 0) return false;
+    }
     const focus = document.activeElement;
     if (focus && focus.matches("input,textarea,select,[contenteditable=true]")) return false;
     return true;
