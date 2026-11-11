@@ -1,0 +1,93 @@
+name: WIP FLOW book period index validation
+on:
+  push:
+    branches: [wip/flow-catalog-indexes-20261111]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: flow-catalog-indexes-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  indexes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      FLOW_BOOK_INDEX_MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_flow_index_fresh
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: flow-book-indexes
+      - name: Ensure PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            bash tools/ci_prepare_ubuntu_mirror.sh
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Guard source boundaries and shell syntax
+        run: |
+          python3 tools/check_migration_sources.py
+          python3 tools/check_feature_layout.py
+          python3 tools/check_roadmap.py
+          python3 tools/check_contracts.py
+          bash -n tests/postgres/verify-migrations.sh
+          bash -n tests/postgres/verify-migration-modes.sh
+      - name: Format candidates for review; final step rejects any dirty source
+        run: |
+          cargo fmt --all
+          git diff -- '*.rs'
+          python3 - <<'PY'
+          import base64, pathlib, subprocess
+          paths = subprocess.check_output(["git", "diff", "--name-only", "--", "*.rs"], text=True).splitlines()
+          for path in paths:
+              data = pathlib.Path(path).read_bytes()
+              print("FLOW_INDEX_FORMAT_BEGIN " + path)
+              print(base64.b64encode(data).decode())
+              print("FLOW_INDEX_FORMAT_END " + path)
+          PY
+      - name: Create isolated roles and four fresh databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci_flow_index_fresh OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_invalid OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_unrecorded OWNER tor_migrator;
+          SQL
+      - name: Real psql fresh and upgrade, transaction boundaries and failure propagation
+        run: |
+          bash tests/postgres/verify-migrations.sh
+          bash tests/postgres/verify-migration-modes.sh
+      - name: Migration crate units and ignored-target compilation
+        run: cargo test -p tor-migrations --all-targets
+      - name: Real SQLx fresh, upgrade, cancelled and unrecorded build recovery
+        run: cargo test -p tor-migrations --test flow_book_indexes_pg -- --ignored --test-threads=1 --nocapture
+      - name: Migration crate Clippy
+        run: cargo clippy -p tor-migrations --all-targets -- -D warnings
+      - name: Published source must already be formatted
+        run: git diff --exit-code
