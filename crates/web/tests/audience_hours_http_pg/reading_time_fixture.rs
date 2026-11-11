@@ -199,7 +199,7 @@ impl Fixture {
              SELECT source_event_id,'{event}',1,'chapter',chapter_id,
              'clock:'||source_event_id::text,
              jsonb_build_object('user_id',user_id,'book_id',book_id,'chapter_id',chapter_id,'version_id',first_version_id,'authority','{authority}'),
-             ARRAY[]::text[] FROM {table} WHERE chapter_id={chapter}"
+             ARRAY['reading-time-fixture-only']::text[] FROM {table} WHERE chapter_id={chapter}"
         ));
     }
     pub fn fingerprint(&self) -> String {
