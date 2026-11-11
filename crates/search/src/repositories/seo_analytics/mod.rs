@@ -103,7 +103,7 @@ impl SeoAnalyticsStore for PgSeoAnalytics {
         let row=sqlx::query("WITH candidate AS (
             SELECT j.id FROM flow_seo_jobs j JOIN flow_seo_sources s ON s.id=j.source_id
             WHERE s.id=$1 AND s.enabled AND s.provider=$2 AND s.property=$3 AND s.origin=$4
-              AND j.next_attempt_at<=now() AND j.day BETWEEN (now() AT TIME ZONE 'UTC')::date-13 AND (now() AT TIME ZONE 'UTC')::date-1
+              AND j.next_attempt_at<=now() AND j.day BETWEEN (now() AT TIME ZONE 'UTC')::date-(CASE WHEN s.provider='google' THEN 182 ELSE 13 END) AND (now() AT TIME ZONE 'UTC')::date-1
               AND (j.state IN ('pending','error') OR (j.state='running' AND j.lease_until<now()))
             ORDER BY j.day DESC LIMIT 1 FOR UPDATE OF j SKIP LOCKED)
           UPDATE flow_seo_jobs j SET state='running',epoch=epoch+1,attempts=least(attempts+1,1000000),

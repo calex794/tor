@@ -105,6 +105,7 @@ jobs:
             tor-recommendations:exposure_health_pg:crates/recommendations \
             tor-recommendations:flow_genres_pg:crates/recommendations \
             tor-traffic_behavior:ril_rollups_pg:crates/traffic_behavior \
+            tor-search:seo_pg:crates/search \
             tor-search:public_pages_pg:crates/search \
             tor-reading:audience_closed_pg:crates/reading \
             tor-web:audience_http_pg:crates/web \
