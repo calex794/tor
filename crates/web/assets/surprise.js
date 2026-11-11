@@ -28,9 +28,12 @@
     return true;
   }
   function pickLocation() {
-    const rect = main.getBoundingClientRect();
-    const gapL = rect.left;
-    const gapR = innerWidth - rect.right;
+    // The outer <main> spans the viewport on desktop; measure its actual
+    // centered content container so the safe gutters are not missed.
+    const contentRoot = main.querySelector(".container") || main;
+    const rect = contentRoot.getBoundingClientRect();
+    const gapL = Math.max(0, rect.left);
+    const gapR = Math.max(0, innerWidth - rect.right);
     const gutters = [];
     if (gapL >= 72) gutters.push("left");
     if (gapR >= 72) gutters.push("right");
