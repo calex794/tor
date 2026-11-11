@@ -3,6 +3,7 @@
 //! This crate never takes an IP, URI, cookie, account ID, or free-form route label.
 
 mod flow;
+pub mod html_health;
 mod observed_flow;
 pub use observed_flow::{observation_hour, ObservedFlowCount};
 mod paths;

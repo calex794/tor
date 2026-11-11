@@ -34,6 +34,10 @@ impl PgRilRollups {
         Self { pool }
     }
 
+    pub(crate) fn html_health(&self) -> super::PgHtmlHealth {
+        super::PgHtmlHealth::new(self.pool.clone())
+    }
+
     /// Only active and dead RIL flush batches; completed history is excluded.
     /// No IDs or row payload are returned to the operator dashboard.
     pub async fn queue_counts(&self) -> Result<RilQueueCounts, sqlx::Error> {

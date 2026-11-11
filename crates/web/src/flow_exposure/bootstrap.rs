@@ -1,4 +1,4 @@
-use super::Runtime;
+use super::{ObservationCollector, Runtime};
 use axum::{http::Uri, Router};
 use tokio::task::JoinHandle;
 use tor_accounts::repositories::PgAccounts;
@@ -6,15 +6,17 @@ use tor_accounts::repositories::PgAccounts;
 /// Public AUTH=0 installations without an origin remain uninstrumented. The
 /// authenticated production branch already validates this same origin in main.
 pub async fn start(app: Router, accounts: Option<PgAccounts>) -> (Router, Option<JoinHandle<()>>) {
+    let (app, collector) = start_managed(app, accounts).await;
+    (app, collector.map(|c| c.join))
+}
+
+pub async fn start_managed(
+    app: Router,
+    accounts: Option<PgAccounts>,
+) -> (Router, Option<ObservationCollector>) {
     let Some(accounts) = accounts else {
         return (app, None);
     };
-    if !tor_recommendations::repositories::exposure::PgExposure::new(accounts.pool().clone())
-        .available()
-        .await
-    {
-        return (app, None);
-    }
     let Ok(origin) = std::env::var("TOR_PUBLIC_ORIGIN") else {
         return (app, None);
     };
@@ -31,6 +33,15 @@ pub async fn start(app: Router, accounts: Option<PgAccounts>) -> (Router, Option
     }
     let secure = origin.starts_with("https://");
     let guard = crate::editorial_http::observation_guard(&accounts);
-    let (runtime, worker) = Runtime::new(accounts, origin, secure, Some(guard));
-    (runtime.attach(app), Some(tokio::spawn(worker.run())))
+    let (runtime, mut worker) = Runtime::new(accounts, origin, secure, Some(guard));
+    let enabled = !std::env::var("TOR_FLOW_OBSERVATIONS_ENABLED")
+        .is_ok_and(|v| matches!(v.as_str(), "0" | "false" | "off"));
+    if !enabled || !worker.store.available().await || !worker.health.available().await {
+        return (runtime.attach_routes(app), None);
+    }
+    if worker.prepare().await.is_err() {
+        return (runtime.attach_routes(app), None);
+    }
+    let collector = worker.spawn_managed();
+    (runtime.attach(app), Some(collector))
 }

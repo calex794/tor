@@ -6,7 +6,7 @@ use axum::{
     response::Response,
     Json,
 };
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 use tor_accounts::services::security::session_token_digest;
 use tor_recommendations::domain::exposure::{ExposureError, ObservationEvent};
 
@@ -29,6 +29,7 @@ pub(super) async fn event(
     };
     let work = async {
         event.validate()?;
+        let epoch = state.gate.epoch().ok_or(ExposureError::Unavailable)?;
         let context = state.store.describe(&event.proof).await?;
         if context.card.editorial.is_some() {
             let Some(guard) = state.guard.as_ref() else {
@@ -53,7 +54,10 @@ pub(super) async fn event(
             ),
             None => None,
         };
-        state.store.record(&event, &context, actor).await
+        state
+            .store
+            .record_in_epoch(&event, &context, actor, epoch)
+            .await
     };
     let status = match tokio::time::timeout(Duration::from_millis(950), work).await {
         Ok(Ok(_)) => StatusCode::NO_CONTENT,
@@ -64,5 +68,9 @@ pub(super) async fn event(
         Ok(Err(ExposureError::Forbidden)) => StatusCode::FORBIDDEN,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
+    if status == StatusCode::SERVICE_UNAVAILABLE {
+        state.gate.disable();
+        state.counters.failed.fetch_add(1, Ordering::Release);
+    }
     private_response(status, &[])
 }

@@ -368,3 +368,6 @@ async fn ril_06_background_sink_survives_pg_loss_without_failing_http() {
 
 #[path = "ril_rollups_pg/observed.rs"]
 mod observed;
+
+#[path = "ril_rollups_pg/health.rs"]
+mod health;

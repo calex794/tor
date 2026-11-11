@@ -1,3 +1,4 @@
+use super::report::ReportWindow;
 use super::QueueSnapshot;
 use crate::pages::{escape_html as e, layout};
 use axum::response::Html;
@@ -6,22 +7,32 @@ use tor_contracts::exposure::ExposureSurface;
 use tor_recommendations::domain::exposure::{
     Counts, ExposureFilter, ExposureReport, ObservationClass,
 };
+use tor_recommendations::domain::exposure_health::ExposureHealth;
 
 pub(super) fn page(
     q: &ExposureFilter,
+    window: ReportWindow,
     report: Option<&ExposureReport>,
+    health: Option<&ExposureHealth>,
     queue: QueueSnapshot,
 ) -> Html<String> {
     let mut body = String::from(
         r#"<section class="section"><div class="container audience-books-width"><p class="eyebrow">Администратору сайта</p><h1>Наблюдаемые показы книг</h1><p><a href="/admin/audience">Аудитория</a></p><p>Показ: не менее 60% карточки непрерывно видимо одну секунду при открытой активной вкладке. Браузер сообщает это по одноразовому подтверждению карточки. Это не уникальные люди и не оплачиваемые рекламные показы.</p>"#,
     );
-    filters(&mut body, q);
+    body.push_str(&crate::flow_navigation::links(q.days));
+    filters(&mut body, q, window);
     match report {
         None=>body.push_str(r#"<p role="alert" data-testid="exposure-unavailable">Данные временно недоступны. Нули не подставляются.</p>"#),
         Some(report)=>{
             write!(body,r#"<section class="book-section-card" data-testid="exposure-totals"><h2>Все подходящие книги: <span data-metric="books">{}</span></h2><p>Итоги до пагинации. Сейчас мало подтверждённых показов у {} книг; недостаточно наблюдений у {}. Класс в фильтре меняет список, а не общий итог.</p>"#,report.books,report.low_observed_books,report.unknown_books).expect("String");
             metrics(&mut body,report.current);body.push_str("<h3>Предыдущий период</h3>");metrics(&mut body,report.previous);
-            write!(body,"<p>UTC; {days} календарных дней, включая текущий неполный день, и предыдущие {days} дней. Карточка относится к часу выдачи подтверждения; сигнал может прийти позднее. Снимок Unix UTC: {at}.</p></section>",days=q.days,at=report.checked_at_epoch).expect("String");
+            match window {
+                ReportWindow::Calendar => write!(body,"<p>UTC; {days} календарных дней, включая текущий неполный день, и предыдущие {days} дней. Карточка относится к часу выдачи подтверждения; сигнал может прийти позднее. Снимок Unix UTC: {at}.</p>",days=q.days,at=report.checked_at_epoch).expect("String"),
+                ReportWindow::Closed => write!(body,"<p data-testid=\"exposure-closed-window\">Два соседних окна по {} полных UTC-часов. Последний учитываемый час завершился не менее 15 минут назад. Это даёт время получить подтверждение браузера; текущий неполный час исключён. Правая граница Unix UTC: {}.</p>",q.days * 24, report.until_epoch).expect("String"),
+            }
+            body.push_str("</section>");
+            if window == ReportWindow::Closed { collector_health(&mut body, q.days, health); }
+            genres(&mut body, q, window, report);
             if report.rows.is_empty(){body.push_str(r#"<p data-testid="exposure-empty">Нет книг для этой страницы и фильтров.</p>"#)}
             for book in &report.rows {
                 write!(body,r#"<article class="book-section-card audience-book-row" data-testid="exposure-row" data-book-id="{}"><h2><a href="/books/{}">{}</a></h2><p data-testid="exposure-class">{}</p>"#,book.id,book.id,e(&book.title),class_label(book.counts.classification())).expect("String");
@@ -29,12 +40,12 @@ pub(super) fn page(
                 write!(body,"<p>Предыдущий период: подтверждённых показов — {}. Сравнение описательное; причинный эффект продвижения не установлен.</p></article>",known(book.previous.known_views())).expect("String");
             }
             body.push_str(r#"<nav class="audience-books-pagination" aria-label="Страницы книг">"#);
-            if q.after>0 {write!(body,r#"<a class="button button--quiet" href="{}">В начало</a>"#,e(&url(q,0))).expect("String");}
-            if let Some(after)=report.next {write!(body,r#"<a class="button" data-testid="exposure-next" href="{}">Следующие 50</a>"#,e(&url(q,after))).expect("String");}
+            if q.after>0 {write!(body,r#"<a class="button button--quiet" href="{}">В начало</a>"#,e(&url(q,window,0))).expect("String");}
+            if let Some(after)=report.next {write!(body,r#"<a class="button" data-testid="exposure-next" href="{}">Следующие 50</a>"#,e(&url(q,window,after))).expect("String");}
             body.push_str("</nav><section class=\"book-section-card\"><h2>Жанры и теги</h2><p>До 100 групп в алфавитном порядке; любую точную метку можно выбрать в форме. Каждая книга учитывается один раз внутри группы. Группы пересекаются: складывать их итоги нельзя.</p>");
             for group in &report.groups {
                 let mut selected=q.clone();selected.group=Some((group.kind.clone(),group.label.clone()));selected.after=0;
-                write!(body,r#"<p><a href="{}">{}: {}</a> — книг {}, зарегистрированных карточек {}, подтверждённых показов {}.</p>"#,e(&url(&selected,0)),if group.kind=="genre"{"Жанр"}else{"Тег"},e(if group.label.is_empty(){"Без метки"}else{&group.label}),group.books,group.counts.opportunities,known(group.counts.known_views())).expect("String");
+                write!(body,r#"<p><a href="{}">{}: {}</a> — книг {}, зарегистрированных карточек {}, подтверждённых показов {}.</p>"#,e(&url(&selected,window,0)),if group.kind=="genre"{"Жанр"}else{"Тег"},e(if group.label.is_empty(){"Без метки"}else{&group.label}),group.books,group.counts.opportunities,known(group.counts.known_views())).expect("String");
             }
             body.push_str("</section>");
         }
@@ -46,6 +57,45 @@ pub(super) fn page(
         "Показы карточек и границы наблюдения",
         &body,
     )
+}
+fn genres(out: &mut String, q: &ExposureFilter, window: ReportWindow, report: &ExposureReport) {
+    let genres = &report.genres;
+    write!(out,r#"<section class="book-section-card" data-testid="exposure-genres"><h2>Полная сводка жанров</h2><p>Жанров в выбранной области: <span data-metric="genres">{}</span>. Мало подтверждённых показов: <span data-metric="low-genres">{}</span>. Недостаточно наблюдений: <span data-metric="unknown-genres">{}</span>.</p><p>Учтены все непустые жанры до ограничения списка групп и страниц книг. Классификация основана на суммах внутри жанра. Жанры пересекаются; их суммы нельзя складывать. При неизвестных жанрах ноль известных проблем не означает, что вся область проверена.</p>"#,genres.genres,genres.low_observed,genres.unknown).expect("String");
+    if !genres.low_labels.is_empty() {
+        out.push_str("<h3>Жанры для проверки размещения</h3><ul>");
+        for label in &genres.low_labels {
+            let mut selected = q.clone();
+            selected.group = Some(("genre".into(), label.clone()));
+            selected.class = None;
+            write!(
+                out,
+                r#"<li><a href="{}">{}</a></li>"#,
+                e(&url(&selected, window, 0)),
+                e(label)
+            )
+            .expect("String");
+        }
+        out.push_str("</ul><p>До 20 названий по алфавиту; общий итог включает все жанры.</p>");
+    }
+    out.push_str("</section>");
+}
+fn collector_health(out: &mut String, days: i32, health: Option<&ExposureHealth>) {
+    out.push_str(r#"<section class="book-section-card" data-testid="exposure-health"><h2>Полнота наблюдения за закрытые часы</h2>"#);
+    match health {
+        None => out.push_str("<p>Состояние сборщиков неизвестно. Отсутствие сведений не заменяется нулём ошибок.</p>"),
+        Some(health) => {
+            for (label, key, period) in [("Выбранный период", "current", health.current),
+                ("Предыдущий период", "previous", health.previous)] {
+                write!(out,r#"<p data-health-period="{key}">{label}: подтверждено часов <span data-metric="confirmed-hours">{}</span> из {}; часов с потерями очереди — {}, с ошибками — {}.</p>"#,period.confirmed_hours,days * 24,period.loss_hours,period.error_hours).expect("String");
+            }
+            if health.current.complete(days) && health.previous.complete(days) {
+                out.push_str(r#"<p data-testid="exposure-health-complete">Работа зарегистрированных сборщиков подтверждена в обоих окнах.</p>"#);
+            } else {
+                out.push_str(r#"<p data-testid="exposure-health-unknown">Полнота наблюдения не подтверждена. Пропуски или ошибки не позволяют объявить отсутствие проблемы.</p>"#);
+            }
+        }
+    }
+    out.push_str("<p>Состояние сохранено в базе и учитывает перезапуски, завершение сигналов браузера и ошибки. Оно относится к зарегистрированным сборщикам всего сайта, независимо от фильтра книг. Это не доказательство охвата всего трафика, людей без JavaScript или браузеров, не отправивших сигнал.</p></section>");
 }
 fn class_label(c: ObservationClass) -> &'static str {
     match c {
@@ -113,8 +163,22 @@ fn select(out: &mut String, key: &str, label: &str, chosen: &str, values: &[(&st
     }
     out.push_str("</select></div>");
 }
-fn filters(out: &mut String, q: &ExposureFilter) {
+fn filters(out: &mut String, q: &ExposureFilter, window: ReportWindow) {
     out.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/admin/audience/exposure">"#);
+    select(
+        out,
+        "window",
+        "Граница периода",
+        if window == ReportWindow::Closed {
+            "closed"
+        } else {
+            "calendar"
+        },
+        &[
+            ("calendar", "Календарные дни"),
+            ("closed", "Закрытые UTC-часы"),
+        ],
+    );
     select(
         out,
         "days",
@@ -180,8 +244,11 @@ fn encode(value: &str) -> String {
     }
     out
 }
-fn url(q: &ExposureFilter, after: i64) -> String {
+fn url(q: &ExposureFilter, window: ReportWindow, after: i64) -> String {
     let mut url = format!("/admin/audience/exposure?days={}", q.days);
+    if window == ReportWindow::Closed {
+        url.push_str("&window=closed");
+    }
     if let Some(surface) = q.surface {
         write!(url, "&surface={}", surface.as_str()).expect("String");
     }

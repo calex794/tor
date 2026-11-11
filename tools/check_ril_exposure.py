@@ -186,6 +186,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("GET", "/admin/audience/visits", "visits::page", "administrator"),
                     ("GET", "/admin/audience/funnel", "funnel::page", "administrator"),
                     ("GET", "/admin/audience/reading", "canonical::page", "administrator"),
+                    ("GET", "/admin/audience/signals", "signals::page", "administrator"),
+                    ("GET", "/admin/audience/pages", "public_pages::page", "administrator"),
                     ("GET", "/admin/audience/seo", "seo::page", "administrator"),
                     ("POST", "/admin/audience/seo/refresh", "seo::refresh", "administrator"),
                 }

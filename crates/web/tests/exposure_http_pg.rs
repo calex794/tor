@@ -62,7 +62,10 @@ impl Fixture {
         let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
         assert!(
             url.starts_with("postgresql://tor_app:")
-                && url.contains("@127.0.0.1:5432/")
+                && url.contains(&format!(
+                    "@127.0.0.1:{}/",
+                    std::env::var("FLOW_TEST_PG_PORT").unwrap_or_else(|_| "5432".into())
+                ))
                 && url.ends_with("/tor_ci")
         );
         let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -91,7 +94,8 @@ impl Fixture {
             false,
             ORIGIN.into(),
         );
-        let (runtime, worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+        let (runtime, mut worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+        worker.prepare().await.unwrap();
         let issuer = runtime.issuer();
         let app = runtime.clone().attach(app);
         let worker = tokio::spawn(worker.run());
@@ -460,8 +464,9 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
         allowed: AtomicBool::new(true),
         expected: card,
     });
-    let (runtime, worker) =
+    let (runtime, mut worker) =
         Runtime::new(accounts.clone(), ORIGIN.into(), false, Some(guard.clone()));
+    worker.prepare().await.unwrap();
     let issuer = runtime.issuer();
     let app = runtime.attach(Router::new());
     let handle = tokio::spawn(worker.run());
@@ -532,16 +537,20 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
     );
     handle.abort();
     let _ = handle.await;
-    // Without a consumer (or during DB outage) issuing cards is bounded memory only.
-    let (paused, _worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+    // Before registration there is no proof; after prepare, a parked consumer
+    // admits only the finite queue while its monotonic/database lease is live.
+    let (paused, mut parked) = Runtime::new(accounts, ORIGIN.into(), false, None);
     let issuer = paused.issuer();
+    assert!(issuer.issue(f.card()).is_none());
+    assert_eq!(paused.queue_snapshot().queued, 0);
+    parked.prepare().await.unwrap();
     let start = std::time::Instant::now();
     for _ in 0..1024 {
         assert!(issuer.issue(f.card()).is_some());
     }
     assert!(issuer.issue(f.card()).is_none());
     assert!(start.elapsed() < Duration::from_secs(1));
-    assert_eq!(paused.queue_snapshot().dropped, 1);
+    assert_eq!(paused.queue_snapshot().dropped, 2);
     f.cleanup().await;
 }
 
@@ -623,7 +632,22 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
         "0"
     );
     println!("authority lock: three 503 responses in {} ms, zero blocked authority SQL, shared pool reusable before unlock", elapsed.as_millis());
+    assert!(!f.runtime.queue_snapshot().ready);
     drop(held);
+    // Reader recovery is immediate; optional observation issuance waits for the
+    // next bounded durable-health acknowledgement before reopening its gate.
+    assert_eq!(
+        f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+    while !f.runtime.queue_snapshot().ready {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "collector did not re-acknowledge its healthy source"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(
         f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
         StatusCode::OK
@@ -634,3 +658,6 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
     );
     f.cleanup().await;
 }
+
+#[path = "exposure_http_pg/health.rs"]
+mod health;

@@ -5,6 +5,8 @@ use std::str::FromStr;
 use tor_contracts::exposure::{
     CardObservation, EditorialPlacement, ExposureSurface, PromotionSlot,
 };
+mod health;
+pub use health::PgExposureHealth;
 mod readiness;
 mod report;
 mod write;

@@ -85,6 +85,9 @@ start_server() {
     ci_rec_step_done "http_ready_$fixture_name"
   fi
 }
+# No other fixture server is running while the actual process lifecycle is proved.
+APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tools/flow_lifecycle_pg.cjs
+ci_rec_step_done "flow_process_lifecycle"
 # Current business behavior is always exercised behind the installed SQL barrier.
 start_server "$TEST_DATABASE_URL" current
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
@@ -115,11 +118,18 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
   node tools/exposure_pg_browser.cjs
 ci_rec_step_done "anonymous_exposure_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
+  node tools/exposure_report_pg_browser.cjs
+ci_rec_step_done "exposure_report_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" TOR_EDITORIAL_EXPECT_OBSERVATIONS=1 \
   TOR_EDITORIAL_BASE=http://127.0.0.1:3108 TOR_EDITORIAL_SHOTS="$root/shots" \
   node tools/editorial_pg_browser.cjs
 ci_rec_step_done "editorial_promotion_browser_acceptance"
 stop_server
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_SIGNALS_SHOTS="$root/shots" bash tools/flow_signals_browser_acceptance.sh
+ci_rec_step_done "flow_signals_browser_acceptance"
 # Isolated surprise UI: enabled only for a disposable tor_ci Chromium receipt.
 start_server "$TEST_DATABASE_URL" surprises 1
 NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \

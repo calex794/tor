@@ -4,9 +4,11 @@ mod books;
 mod canonical;
 mod funnel;
 mod groups;
+mod public_pages;
 mod render;
 mod returns;
 mod seo;
+mod signals;
 mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -41,6 +43,7 @@ struct AudienceState {
     visits: tor_recommendations::repositories::visits::PgFlowVisits,
     funnel: tor_recommendations::repositories::flow_funnel::PgFlowFunnel,
     capture: tor_reading::repositories::flow_capture::PgFlowCapture,
+    public_pages: tor_search::repositories::public_pages::PgPublicPages,
 }
 
 #[derive(Default, Deserialize)]
@@ -70,8 +73,12 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
     let capture =
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
+    let public_pages =
+        tor_search::repositories::public_pages::PgPublicPages::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/signals", get(signals::page))
+        .route("/admin/audience/pages", get(public_pages::page))
         .route("/admin/audience/seo", get(seo::page))
         .route(
             "/admin/audience/seo/refresh",
@@ -93,6 +100,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             visits,
             funnel,
             capture,
+            public_pages,
         })
 }
 
@@ -152,7 +160,7 @@ async fn page(
         timeout_at(deadline, state.store.report(days)),
         timeout_at(deadline, state.store.intent_report(days)),
         timeout_at(deadline, state.discovery.report(days)),
-        timeout_at(deadline, state.traffic.observed_report(days, zone)),
+        timeout_at(deadline, state.traffic.observed_health_report(days, zone)),
         async {
             if hours_supported {
                 timeout_at(deadline, state.traffic.report(days)).await.ok()
@@ -192,7 +200,11 @@ async fn page(
             hours.as_ref(),
             crate::ril::flow_capture_counters(),
             crate::ril::pump_health_snapshot(),
-            (zone, observed.as_ref()),
+            (
+                zone,
+                observed.as_ref().map(|value| &value.0),
+                observed.as_ref().and_then(|value| value.1.as_ref()),
+            ),
         ),
     ))
 }

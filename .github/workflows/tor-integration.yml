@@ -204,6 +204,15 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Native HTML quality on the fresh schema
+        env:
+          TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
+          TOR_HTML_HEALTH_LOG: ${{ runner.temp }}/rec13-browser/server-html-health.log
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
       - name: E-08 baseline-to-Draft installed SQLx ledger upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'
@@ -428,6 +437,13 @@ jobs:
           cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
           cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
@@ -546,7 +562,7 @@ jobs:
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
         run: |
           set -euo pipefail
-          cargo build -p tor-web
+          test -x ./target/debug/tor-web
           TOR_PAID_CHECKOUT_ENABLED=0 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-disabled.log" 2>&1 &
           disabled_pid=$!
           enabled_pid=""
@@ -575,7 +591,7 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          # The D-04 step already built this exact debug binary in this job.
+          # Fresh-schema HTML acceptance already built this exact debug binary.
           test -x ./target/debug/tor-web
           bash tools/tor_pg_restart_smoke.sh
       - name: I-11 PostgreSQL 18 backup and clean restore drill
@@ -611,7 +627,7 @@ jobs:
           GITHUB_ACTIONS: 'true'
           TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
         run: |
-          # Use the existing D-04 binary; build a second only for manual two-SHA tests.
+          # Reuse this job's accepted binary; build a second only for manual two-SHA tests.
           test -x ./target/debug/tor-web
           python3 tools/s061_cutover_pg_smoke.py
       - name: Preserve S061 real cutover evidence

@@ -16,7 +16,12 @@ impl Fixture {
         for (url, user) in [(&owner_url, "tor_migrator"), (&app_url, "tor_app")] {
             let o = PgConnectOptions::from_str(url).unwrap();
             assert_eq!(o.get_host(), "127.0.0.1");
-            assert_eq!(o.get_port(), 5432);
+            let port = std::env::var("FLOW_TEST_PG_PORT")
+                .unwrap_or_else(|_| "5432".into())
+                .parse::<u16>()
+                .expect("explicit disposable PostgreSQL port");
+            assert!(port > 0);
+            assert_eq!(o.get_port(), port);
             assert_eq!(o.get_database(), Some("tor_ci"));
             assert_eq!(o.get_username(), user);
         }

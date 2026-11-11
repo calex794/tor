@@ -14,7 +14,7 @@ s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 [dependencies]
 tor-ads = { path = "../ads" }
 axum = { workspace = true, features = ["multipart"] }
-tokio = { workspace = true, features = ["time", "io-util"] }
+tokio = { workspace = true, features = ["time", "io-util", "signal"] }
 tor-books = { path = "../books" }
 tor-social = { path = "../social" }
 tor-support = { path = "../support" }
@@ -36,6 +36,7 @@ tor-route_intelligence = { path = "../route_intelligence" }
 tor-traffic_behavior = { path = "../traffic_behavior" }
 tor-observability = { path = "../observability" }
 serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde.workspace = true
 tracing = "0.1"

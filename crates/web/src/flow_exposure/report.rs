@@ -11,6 +11,12 @@ use tokio::time::{timeout_at, Instant};
 use tor_accounts::services::security::session_token_digest;
 use tor_recommendations::domain::exposure::{ExposureError, ExposureFilter, ObservationClass};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReportWindow {
+    Calendar,
+    Closed,
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Selection {
@@ -22,9 +28,15 @@ pub(super) struct Selection {
     class: Option<String>,
     group: Option<String>,
     label: Option<String>,
+    window: Option<String>,
 }
 impl Selection {
-    fn filter(self) -> Result<ExposureFilter, ExposureError> {
+    fn filter(self) -> Result<(ExposureFilter, ReportWindow), ExposureError> {
+        let window = match self.window.as_deref().unwrap_or("") {
+            "" | "calendar" => ReportWindow::Calendar,
+            "closed" => ReportWindow::Closed,
+            _ => return Err(ExposureError::Invalid),
+        };
         let surface = self
             .surface
             .filter(|s| !s.is_empty())
@@ -71,7 +83,7 @@ impl Selection {
             editorial,
         };
         filter.validate()?;
-        Ok(filter)
+        Ok((filter, window))
     }
 }
 fn secure(value: impl IntoResponse) -> Response {
@@ -109,7 +121,7 @@ pub(super) async fn page(
         Ok(Err(status)) => return secure(status),
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let filter = match query
+    let (filter, window) = match query
         .map_err(|_| ExposureError::Invalid)
         .and_then(|Query(q)| q.filter())
     {
@@ -120,7 +132,7 @@ pub(super) async fn page(
         let Some(guard) = state.guard.as_ref() else {
             return secure((
                 StatusCode::SERVICE_UNAVAILABLE,
-                super::render::page(&filter, None, state.queue_snapshot()),
+                super::render::page(&filter, window, None, None, state.queue_snapshot()),
             ));
         };
         match timeout_at(deadline, guard.campaign_book(campaign)).await {
@@ -129,7 +141,7 @@ pub(super) async fn page(
             _ => {
                 return secure((
                     StatusCode::SERVICE_UNAVAILABLE,
-                    super::render::page(&filter, None, state.queue_snapshot()),
+                    super::render::page(&filter, window, None, None, state.queue_snapshot()),
                 ))
             }
         }
@@ -137,9 +149,27 @@ pub(super) async fn page(
         None
     };
     let query = async {
-        match campaign_book {
-            Some(book) => state.store.report_campaign_book(&filter, book).await,
-            None => state.store.report(&filter).await,
+        match (window, campaign_book) {
+            (ReportWindow::Closed, Some(book)) => state
+                .store
+                .report_campaign_book_closed_with_health(&filter, book)
+                .await
+                .map(|(report, health)| (report, Some(health))),
+            (ReportWindow::Closed, None) => state
+                .store
+                .report_closed_with_health(&filter)
+                .await
+                .map(|(report, health)| (report, Some(health))),
+            (ReportWindow::Calendar, Some(book)) => state
+                .store
+                .report_campaign_book(&filter, book)
+                .await
+                .map(|report| (report, None)),
+            (ReportWindow::Calendar, None) => state
+                .store
+                .report(&filter)
+                .await
+                .map(|report| (report, None)),
         }
     };
     let report = timeout_at(deadline, query).await.ok().and_then(Result::ok);
@@ -149,7 +179,13 @@ pub(super) async fn page(
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         },
-        super::render::page(&filter, report.as_ref(), state.queue_snapshot()),
+        super::render::page(
+            &filter,
+            window,
+            report.as_ref().map(|r| &r.0),
+            report.as_ref().and_then(|r| r.1.as_ref()),
+            state.queue_snapshot(),
+        ),
     ))
 }
 
@@ -169,6 +205,8 @@ mod tests {
             "reader=1",
             "days=7&days=1",
             "source=organic&campaign=1",
+            "window=arbitrary",
+            "window=closed&window=calendar",
         ] {
             let uri = format!("/admin/audience/exposure?{raw}").parse().unwrap();
             assert!(
@@ -178,6 +216,27 @@ mod tests {
                     .is_err(),
                 "{raw}"
             );
+        }
+    }
+    #[test]
+    fn calendar_default_and_explicit_closed_preserve_filters() {
+        for (raw, expected) in [
+            ("days=7", ReportWindow::Calendar),
+            ("days=7&window=calendar", ReportWindow::Calendar),
+            (
+                "days=7&window=closed&source=editorial&campaign=9",
+                ReportWindow::Closed,
+            ),
+        ] {
+            let uri = format!("/admin/audience/exposure?{raw}").parse().unwrap();
+            let Query(selection) = Query::<Selection>::try_from_uri(&uri).unwrap();
+            let (filter, window) = selection.filter().unwrap();
+            assert_eq!(window, expected);
+            assert_eq!(filter.days, 7);
+            if window == ReportWindow::Closed {
+                assert_eq!(filter.campaign, Some(9));
+                assert_eq!(filter.editorial, Some(true));
+            }
         }
     }
 }
