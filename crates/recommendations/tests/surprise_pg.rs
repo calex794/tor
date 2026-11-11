@@ -48,6 +48,12 @@ impl Fixture {
         .execute(&owner)
         .await
         .unwrap();
+        sqlx::query(&format!(
+            "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app"
+        ))
+        .execute(&owner)
+        .await
+        .unwrap();
         let path = schema.clone();
         let app = PgPoolOptions::new()
             .max_connections(5)
