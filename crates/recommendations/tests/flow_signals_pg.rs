@@ -205,28 +205,56 @@ async fn changed_active_quality_reason_and_disabled_source_never_emit_recovery()
     let f = fixture().await;
     let store = PgFlowSignals::new(f.pool.clone());
     let mut values = observations(None, "quality-source");
-    for value in &mut values { value.evidence = Evidence::missing(false); }
-    let quality = values.iter_mut().find(|v| v.rule == Rule::HtmlQuality).unwrap();
-    quality.evidence = Evidence { available: true, source_failed: true,
-        current_units: 24, previous_units: 24, expected_units: 24,
-        ..Evidence::missing(true) };
+    for value in &mut values {
+        value.evidence = Evidence::missing(false);
+    }
+    let quality = values
+        .iter_mut()
+        .find(|v| v.rule == Rule::HtmlQuality)
+        .unwrap();
+    quality.evidence = Evidence {
+        available: true,
+        source_failed: true,
+        current_units: 24,
+        previous_units: 24,
+        expected_units: 24,
+        ..Evidence::missing(true)
+    };
     save(&store, &values).await;
     {
-        let quality = values.iter_mut().find(|v| v.rule == Rule::HtmlQuality).unwrap();
+        let quality = values
+            .iter_mut()
+            .find(|v| v.rule == Rule::HtmlQuality)
+            .unwrap();
         quality.evidence.source_failed = false;
         quality.evidence.current_units = 23;
     }
     save(&store, &values).await;
     let report = store.report(1, None).await.unwrap();
     assert_eq!(report.events.len(), 1);
-    let quality = report.states.iter().find(|s| s.rule == Rule::HtmlQuality).unwrap();
-    assert_eq!(quality.result, Evaluation::new(Status::Active, Reason::PartialCoverage));
+    let quality = report
+        .states
+        .iter()
+        .find(|s| s.rule == Rule::HtmlQuality)
+        .unwrap();
+    assert_eq!(
+        quality.result,
+        Evaluation::new(Status::Active, Reason::PartialCoverage)
+    );
     assert_eq!(quality.episode.reason, Some(Reason::SourceFailure));
-    values.iter_mut().find(|v| v.rule == Rule::HtmlQuality).unwrap().evidence.enabled = false;
+    values
+        .iter_mut()
+        .find(|v| v.rule == Rule::HtmlQuality)
+        .unwrap()
+        .evidence
+        .enabled = false;
     save(&store, &values).await;
     assert_eq!(store.report(1, None).await.unwrap().events.len(), 1);
     {
-        let quality = values.iter_mut().find(|v| v.rule == Rule::HtmlQuality).unwrap();
+        let quality = values
+            .iter_mut()
+            .find(|v| v.rule == Rule::HtmlQuality)
+            .unwrap();
         quality.evidence.enabled = true;
         quality.evidence.current_units = 24;
     }

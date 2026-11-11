@@ -1919,7 +1919,14 @@ def check(root: Path = ROOT) -> list[str]:
             )
             for helper_file, names in helpers:
                 try:
-                    helper_functions = _functions((root / helper_file).read_text(encoding="utf-8"))
+                    helper_source = (root / helper_file).read_text(encoding="utf-8")
+                    # _functions intentionally recognizes free handlers at column
+                    # zero. Normalize only these reviewed impl-method declarations.
+                    helper_source = re.sub(
+                        r"(?m)^    (?=(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+)",
+                        "", helper_source,
+                    )
+                    helper_functions = _functions(helper_source)
                 except OSError:
                     helper_functions = {}
                 for name in names:

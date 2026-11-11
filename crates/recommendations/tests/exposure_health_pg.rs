@@ -94,11 +94,22 @@ async fn unresolved_expired_worker_cannot_be_masked_by_a_healthy_worker_or_prune
     let complete = store.report(1, until).await.unwrap();
     assert!(complete.current.complete(1) && complete.previous.complete(1));
     sqlx::query("UPDATE flow_observation_epochs SET confirmed_ms=$2 WHERE epoch=$1")
-        .bind(healthy).bind(until * 1000 + 901_999).execute(&f.pool).await.unwrap();
+        .bind(healthy)
+        .bind(until * 1000 + 901_999)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     let unsettled = store.report(1, until).await.unwrap();
-    assert_eq!(unsettled.current.confirmed_hours, 23, "the 902-second tail is mandatory through its last millisecond");
+    assert_eq!(
+        unsettled.current.confirmed_hours, 23,
+        "the 902-second tail is mandatory through its last millisecond"
+    );
     sqlx::query("UPDATE flow_observation_epochs SET confirmed_ms=$2 WHERE epoch=$1")
-        .bind(healthy).bind(until * 1000 + 902_000).execute(&f.pool).await.unwrap();
+        .bind(healthy)
+        .bind(until * 1000 + 902_000)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     let missing = interval(
         &f,
         (until - 140_000) * 1000,

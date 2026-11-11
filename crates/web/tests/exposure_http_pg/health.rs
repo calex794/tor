@@ -6,7 +6,9 @@ async fn accounts(f: &Fixture) -> PgAccounts {
     PgAccounts::from_pool(catalog.pool().clone())
 }
 fn latest(f: &Fixture) -> i64 {
-    sql(&f.url, "SELECT max(epoch) FROM flow_observation_epochs").parse().unwrap()
+    sql(&f.url, "SELECT max(epoch) FROM flow_observation_epochs")
+        .parse()
+        .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -28,7 +30,13 @@ async fn managed_stop_drains_queued_cards_before_retiring_the_epoch() {
     assert!(!probe.snapshot().ready);
     assert_eq!(probe.snapshot().queued, 64);
     assert_eq!(probe.snapshot().persisted, 64);
-    assert_eq!(sql(&f.url, &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")), "t");
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "t"
+    );
     f.cleanup().await;
 }
 
@@ -45,8 +53,14 @@ async fn forced_abort_disables_issuance_and_keeps_the_epoch_unresolved() {
     collector.abort();
     assert!(!probe.snapshot().ready);
     assert!(runtime.issuer().issue(f.card()).is_none());
-    assert_eq!(sql(&f.url, &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")), "f",
-        "abort is not evidence of drained HTTP ingress");
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "f",
+        "abort is not evidence of drained HTTP ingress"
+    );
     f.cleanup().await;
 }
 
@@ -60,13 +74,31 @@ async fn expired_database_epoch_returns_503_and_persists_the_known_failure_on_ha
     parked.prepare().await.unwrap();
     let epoch = latest(&f);
     let app = runtime.clone().attach(Router::new());
-    sql(&f.url, &format!("UPDATE flow_observation_epochs SET lease_until_ms=confirmed_ms WHERE epoch={epoch}"));
-    private(&send(&app, "POST", API, "", ORIGIN, &payload(&proof, "rendered").to_string()).await,
-        StatusCode::SERVICE_UNAVAILABLE);
+    sql(
+        &f.url,
+        &format!(
+            "UPDATE flow_observation_epochs SET lease_until_ms=confirmed_ms WHERE epoch={epoch}"
+        ),
+    );
+    private(
+        &send(
+            &app,
+            "POST",
+            API,
+            "",
+            ORIGIN,
+            &payload(&proof, "rendered").to_string(),
+        )
+        .await,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
     assert!(!runtime.queue_snapshot().ready);
     assert_eq!(runtime.queue_snapshot().failed, 1);
     assert!(runtime.issuer().issue(f.card()).is_none());
-    assert_eq!(parked.prepare().await, Err(tor_recommendations::domain::exposure::ExposureError::Expired));
+    assert_eq!(
+        parked.prepare().await,
+        Err(tor_recommendations::domain::exposure::ExposureError::Expired)
+    );
     parked.prepare().await.unwrap();
     let next = latest(&f);
     assert_ne!(next, epoch);
@@ -83,12 +115,31 @@ async fn unavailable_collector_keeps_admin_history_and_rejects_callbacks() {
     let f = Fixture::new().await;
     let proof = f.proof().await;
     let accounts = accounts(&f).await;
-    sql(&f.url, &format!("INSERT INTO account_roles(user_id,role) VALUES({},'administrator')", f.actor));
+    sql(
+        &f.url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role) VALUES({},'administrator')",
+            f.actor
+        ),
+    );
     let (runtime, parked) = Runtime::new(accounts, ORIGIN.into(), false, None);
     let app = runtime.attach_routes(Router::new());
-    private(&send(&app, "POST", API, "", ORIGIN, &payload(&proof, "rendered").to_string()).await,
-        StatusCode::SERVICE_UNAVAILABLE);
-    private(&send(&app, "GET", REPORT, &f.cookie, "", "").await, StatusCode::OK);
+    private(
+        &send(
+            &app,
+            "POST",
+            API,
+            "",
+            ORIGIN,
+            &payload(&proof, "rendered").to_string(),
+        )
+        .await,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
+    private(
+        &send(&app, "GET", REPORT, &f.cookie, "", "").await,
+        StatusCode::OK,
+    );
     drop(parked);
     f.cleanup().await;
 }
