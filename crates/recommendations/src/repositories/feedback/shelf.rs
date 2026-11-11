@@ -67,7 +67,7 @@ impl PgRecommendations {
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
               WHERE visible.id<>o.id AND candidate.owner_user_id=o.owner_user_id
-              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
             ),
             teammate_pool AS (
               SELECT visible.id,visible.title,1::integer AS kind,
@@ -91,7 +91,7 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
             ),
             site_pool AS (
               SELECT visible.id,visible.title,2::integer AS kind,
@@ -115,7 +115,7 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY visible.created_at DESC,visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
             )
             SELECT candidate.id,candidate.title,candidate.kind,candidate.relevance,candidate.preference_boost,
                    (COALESCE(p.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision
@@ -164,9 +164,12 @@ impl PgRecommendations {
                 preference_boost: row.try_get("preference_boost")?,
             });
         }
-        // Chapter is an existing server-verified source, never an anonymous
-        // identifier or a persistent tracking key.
-        let cards = select_shelf(source_book, pools, 5, chapter as u64);
+        // Each request rotates the bounded 5-card allocation independently;
+        // the chapter is a public context, not an actor or tracking key.
+        // A fixed rotation per chapter would skew quotas when a popular
+        // first chapter is opened many times.
+        let rotation = (chapter as u64) ^ rand::random::<u64>();
+        let cards = select_shelf(source_book, pools, 5, rotation);
         let items = cards
             .into_iter()
             .filter_map(|card| {
