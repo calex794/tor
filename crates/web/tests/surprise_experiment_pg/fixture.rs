@@ -242,14 +242,13 @@ async fn delivery_gate_stops_a_run_and_rejects_a_stale_assignment() {
     let mut f = Fixture::new().await;
     let user = f.user().await;
     f.start().await;
-    let wrong_run: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM surprise_enroll($1,'standard',21000,$2)",
-    )
-    .bind(user)
-    .bind(f.run + 1)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let wrong_run: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM surprise_enroll($1,'standard',21000,$2)")
+            .bind(user)
+            .bind(f.run + 1)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(wrong_run, 0);
     f.surprises
         .maintain_experiment_with_delivery(false)

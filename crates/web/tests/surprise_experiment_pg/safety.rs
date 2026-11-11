@@ -29,7 +29,10 @@ async fn heartbeat_does_not_block_reading_and_sealing_fences_disable_capture() {
     .fetch_one(&f.pool)
     .await
     .unwrap();
-    assert!(healthy, "ordinary heartbeat cannot invalidate a valid trial");
+    assert!(
+        healthy,
+        "ordinary heartbeat cannot invalidate a valid trial"
+    );
     heartbeat.rollback().await.unwrap();
 
     // An exclusive close fence blocks optional capture, but must not prevent
@@ -42,13 +45,12 @@ async fn heartbeat_does_not_block_reading_and_sealing_fences_disable_capture() {
         .unwrap();
     f.surprises.disable(user).await.unwrap();
     closing.rollback().await.unwrap();
-    let disabled: bool = sqlx::query_scalar(
-        "SELECT disabled FROM surprise_user_preferences WHERE user_id=$1",
-    )
-    .bind(user)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let disabled: bool =
+        sqlx::query_scalar("SELECT disabled FROM surprise_user_preferences WHERE user_id=$1")
+            .bind(user)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert!(disabled);
     f.surprises.maintain_experiment().await.unwrap();
     let report = f
@@ -83,13 +85,12 @@ async fn aggregate_contention_does_not_prevent_fail_closed_retention() {
     .unwrap();
     assert!(f.surprises.maintain_experiment().await.is_err());
     f.surprises.recover_expired_experiment().await.unwrap();
-    let state: (String, String) = sqlx::query_as(
-        "SELECT state,decision FROM surprise_experiment_runs WHERE id=$1",
-    )
-    .bind(f.run)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let state: (String, String) =
+        sqlx::query_as("SELECT state,decision FROM surprise_experiment_runs WHERE id=$1")
+            .bind(f.run)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(state, ("stopped".into(), "monitor_gap".into()));
     let receipts: i64 =
         sqlx::query_scalar("SELECT count(*) FROM surprise_experiment_participants WHERE run_id=$1")
@@ -97,7 +98,10 @@ async fn aggregate_contention_does_not_prevent_fail_closed_retention() {
             .fetch_one(&f.pool)
             .await
             .unwrap();
-    assert_eq!(receipts, 0, "a broken report cannot retain expired identities");
+    assert_eq!(
+        receipts, 0,
+        "a broken report cannot retain expired identities"
+    );
     let flags: (bool, bool) = sqlx::query_as(
         "SELECT enabled,experiment_enabled FROM surprise_runtime_policy WHERE singleton",
     )
@@ -184,7 +188,10 @@ async fn paid_pinned_v1_is_measured_but_revoked_and_foreign_purchases_are_not() 
         .save_purchased(buyer, purchases[0], book.chapter, book.version, last, 1)
         .await
         .unwrap();
-    assert!(f.bits(buyer).await.0, "pinned V1 completion is canonical reading");
+    assert!(
+        f.bits(buyer).await.0,
+        "pinned V1 completion is canonical reading"
+    );
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
          VALUES($1,$2,'refund')",
