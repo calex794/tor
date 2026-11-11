@@ -92,7 +92,9 @@ async function save(page) {
       headers:{origin:base}, form:{csrf_token:csrf,enabled:'on',experiment_enabled:'on',
         probability_per_mille:'1000',experiment_arm:'control'},
     });
-    assert.equal(injected.status(),400,'a browser cannot supply an assignment');
+    // Axum rejects invalid POST form bodies with 422 before the handler runs.
+    assert.equal(injected.status(),422,'a browser cannot supply an assignment');
+    assert.equal(sql(`SELECT state FROM surprise_experiment_runs WHERE id=${run}`),'running');
     await policy.locator('[name=experiment_enabled]').uncheck();
     await save(page);
     assert.equal(sql('SELECT enabled::text FROM surprise_runtime_policy WHERE singleton'),'false');

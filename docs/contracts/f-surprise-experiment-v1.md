@@ -16,9 +16,11 @@ participant. Each participant is observed for exactly 192 hours. No efficacy
 result is declared until the fixed enrollment and follow-up horizon has ended.
 The independently randomized groups are control (20%, no gifts), gentle (40%,
 half the configured appearance chance), and standard (40%, configured chance).
-Assignment is persisted before the daily appearance draw. Reloads, devices,
-clicks, non-selection, later disablement, and key rotation cannot reassign an
-already enrolled account. A daily receipt from another run cannot be reused.
+The run ID has its own HMAC assignment domain. Assignment is persisted before
+the daily appearance draw. Reloads, devices, clicks, non-selection, later
+disablement, and key rotation cannot reassign an already enrolled account.
+A daily receipt from another run cannot be reused; a concurrent run change
+rejects an assignment calculated for the old run.
 
 The target population is eligible signed-in accounts requesting a plan while
 the mechanism and experiment are enabled. Existing opt-outs are not enrolled.
@@ -43,7 +45,8 @@ Completion requires the existing C entitlement/edition/monotone-CAS validation
 and matching durable `ChapterCompletedV1` outbox authority. A gift open, URL
 click, page render, forged event, or positive cursor alone cannot create this
 outcome. The same bridge accepts free and purchased canonical completions; it
-never grants access or copies paid chapter text.
+never grants access or copies paid chapter text. Paid acceptance uses an actual
+pinned V1 after publication of V2 and rejects foreign and revoked purchases.
 
 Guardrails are binary per enrolled account:
 
@@ -92,17 +95,25 @@ Automatic stopping also covers capture failure, invalid counters, assignment
 mismatch, expired horizon, missing heartbeat over two minutes, and disabled
 server delivery. Capture faults immediately fence new experimental delivery,
 independently of the next worker tick. The worker runs about once per minute,
-even when collection is OFF. It freezes totals after obtaining the exclusive
-run fence. A failed optional capture has a 25ms lock budget, increments a
-nontransactional fault counter and invalidates the run rather than breaking
-an otherwise valid C reading write or silently counting an unmeasured zero.
+even when collection is OFF. A failed optional capture has a 25ms lock budget,
+increments a nontransactional fault counter and invalidates the run rather than
+breaking an otherwise valid C write or silently counting an unmeasured zero.
+
+Captures hold a KEY SHARE run fence, compatible with ordinary non-key heartbeat
+updates. Every transition out of running upgrades to FOR UPDATE in a database
+trigger, before freezing totals. This includes disabling gifts, so a concurrent
+opt-out cannot silently disappear from final counts. The locking semantics are
+defined by https://www.postgresql.org/docs/18/explicit-locking.html .
+If a broken/oversized aggregate prevents normal maintenance, independent bounded
+recovery seals the stale run as invalid and purges expired receipts without
+re-running the failed aggregate. Its last measured snapshot is not a result.
 
 ## Lifecycle and administration
 
 Only a live administrator with valid session, Origin and CSRF may change the
 policy. The audit records the actual guarded state returned by PostgreSQL.
-The report is private/no-store and exposes no participant identities. A report
-failure must not remove the administrator's ability to turn gifts off.
+The report is private/no-store and exposes no participant identities. A failure
+of the new reading report does not remove the administrative policy controls.
 
 Run receipts and old daily decisions are purged after 720 hours / 30 UTC days
 in batches of at most 1000 each, with SKIP LOCKED. Closed-run aggregate totals
@@ -116,9 +127,10 @@ silently resume a contaminated experiment.
 * Pure service: `cargo test -p tor-recommendations surprise_experiment`.
 * Current migrated disposable database only:
   `cargo test -p tor-web --test surprise_experiment_pg -- --ignored --test-threads=1`.
-  The test calls the real C CAS, verifies proof authority, control/non-opener
-  inclusion, D1/D7, disablement, deletion, lock-contention failure, cleanup,
-  insufficient sample and automatic guardrail stop.
+  Five scenarios call the real free/paid C CAS and exercise proof authority,
+  control/non-opener inclusion, D1/D7, disablement, deletion, lock-contention
+  failure, heartbeat compatibility, independent cleanup, insufficient sample,
+  server-gate shutdown and automatic guardrail stop.
 * Chromium: `tools/surprise_experiment_pg_browser.cjs` through
   `tools/rec13_browser_acceptance.sh`, covering live admin HTTP, desktop/mobile,
   suppression, forged form field rejection, all-gifts OFF and role revocation.
