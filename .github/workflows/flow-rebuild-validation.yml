@@ -60,6 +60,13 @@ jobs:
               print("FLOW_FMT_END")
           print("FLOW_FMT_FILES " + str(len(changed)))
           PY
+      - name: Route classification and negative authorization guards
+        run: |
+          python3 tools/check_ril_routes.py
+          python3 tools/check_ril_governance.py
+          python3 tools/check_ril_exposure.py
+          python3 -m unittest discover -s tests/architecture -p test_flow_signal_guards.py
+          python3 -m unittest discover -s tests/architecture -p test_flow_observation_guards.py
       - name: Unit tests for source owners and web composition
         run: |
           cargo test -p tor-recommendations -p tor-traffic_behavior \

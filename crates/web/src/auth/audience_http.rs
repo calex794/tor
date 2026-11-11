@@ -43,6 +43,7 @@ struct AudienceState {
     visits: tor_recommendations::repositories::visits::PgFlowVisits,
     funnel: tor_recommendations::repositories::flow_funnel::PgFlowFunnel,
     capture: tor_reading::repositories::flow_capture::PgFlowCapture,
+    public_pages: tor_search::repositories::public_pages::PgPublicPages,
 }
 
 #[derive(Default, Deserialize)]
@@ -72,6 +73,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
     let capture =
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
+    let public_pages = tor_search::repositories::public_pages::PgPublicPages::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/signals", get(signals::page))
@@ -97,6 +99,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             visits,
             funnel,
             capture,
+            public_pages,
         })
 }
 

@@ -78,6 +78,9 @@ pub(super) fn page(days: i32, report: Option<&SignalReport>) -> Html<String> {
                 reason(event.state.result.reason)
             )
             .expect("String");
+            if event.kind == EventKind::Recovered && event.state.rule == Rule::PublicPageLoss {
+                body.push_str("<p>Восстановление ранее проверенных URL не утверждается.</p>");
+            }
             evidence(&mut body, &event.state);
             body.push_str("</article>");
         }
