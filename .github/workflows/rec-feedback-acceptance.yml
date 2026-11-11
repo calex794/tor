@@ -131,6 +131,20 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Chromium for native fresh-schema HTML quality
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps --only-shell chromium
+      - name: Native HTML quality on the fresh schema
+        env:
+          TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
+          TOR_HTML_HEALTH_LOG: ${{ runner.temp }}/rec13-browser/server-html-health.log
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
       - name: REC explicit preferences installed upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_rec_preferences_upgrade OWNER tor_migrator'
@@ -182,6 +196,7 @@ jobs:
           cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
@@ -194,7 +209,7 @@ jobs:
           cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
-        run: bash tools/rec13_browser_acceptance.sh
+        run: TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
       # The full-workspace Rust/Clippy and architecture baselines are already
       # mandatory in integration/demo and Repository rules; do not rebuild them
       # a second time merely to collect the REC-13 browser evidence.

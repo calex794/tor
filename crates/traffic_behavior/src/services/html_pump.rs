@@ -39,11 +39,11 @@ impl HtmlPump {
     pub(super) fn waiting(&self) -> bool {
         self.point.is_some() && self.drained
     }
-    pub(super) fn has_point(&self) -> bool {
-        self.point.is_some()
+    pub(super) fn point(&self) -> Option<HtmlCheckpoint> {
+        self.point
     }
-    pub(super) fn drained(&mut self, batch: Option<String>) {
-        if self.point.is_some() {
+    pub(super) fn drained(&mut self, point: Option<HtmlCheckpoint>, batch: Option<String>) {
+        if matches_checkpoint(self.point, point) {
             self.drained = true;
             self.batch = batch;
         }
@@ -222,6 +222,12 @@ impl HtmlPump {
             .map_err(|_| HtmlHealthError::Unavailable)?
     }
 }
+// A delayed reply still owns a useful batch, but cannot acknowledge a newer
+// epoch, generation, or cut that was registered after its FIFO barrier.
+fn matches_checkpoint(current: Option<HtmlCheckpoint>, received: Option<HtmlCheckpoint>) -> bool {
+    received.is_some() && current == received
+}
+
 fn cap(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
@@ -241,6 +247,34 @@ fn gap_lower_ms(sample_ms: i64, elapsed_after_reply: Duration) -> i64 {
 #[cfg(test)]
 mod gap_tests {
     use super::*;
+
+    #[test]
+    fn a_late_barrier_must_match_the_entire_checkpoint() {
+        let current = HtmlCheckpoint {
+            epoch: 10,
+            generation: 4,
+            cut_ms: 50_000,
+        };
+        assert!(!matches_checkpoint(Some(current), None));
+        assert!(!matches_checkpoint(None, Some(current)));
+        for old in [
+            HtmlCheckpoint {
+                epoch: 9,
+                ..current
+            },
+            HtmlCheckpoint {
+                generation: 3,
+                ..current
+            },
+            HtmlCheckpoint {
+                cut_ms: 49_999,
+                ..current
+            },
+        ] {
+            assert!(!matches_checkpoint(Some(current), Some(old)));
+        }
+        assert!(matches_checkpoint(Some(current), Some(current)));
+    }
 
     #[test]
     fn startup_lower_bound_includes_the_reply_delay_and_hour_boundary() {

@@ -100,6 +100,14 @@ async function privateResponse(response, expected = 200) {
       await page.setViewportSize({width, height: 900});
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await page.screenshot({path: path.join(shots, 'exposure-closed-genres-' + width + '.png'), fullPage: true, animations: 'disabled'});
+      const previewName = 'exposure-closed-review-' + width + '.png';
+      const preview = await page.screenshot({path: path.join(shots, previewName), fullPage: false, animations: 'disabled'});
+      if (process.env.TOR_BROWSER_PROOF_IMAGES === '1') {
+        console.log('FLOW_VISUAL_BEGIN ' + JSON.stringify({path: previewName, mime: 'image/png', bytes: preview.length, width, height: 900}));
+        const encoded = preview.toString('base64');
+        for (let offset = 0; offset < encoded.length; offset += 3000) console.log('FLOW_VISUAL_DATA ' + encoded.slice(offset, offset + 3000));
+        console.log('FLOW_VISUAL_END');
+      }
     }
     sql('UPDATE books SET admin_hold=true WHERE id=' + lowBook);
     await privateResponse(await page.reload());

@@ -23,7 +23,7 @@ pub enum HtmlHealthError {
     Expired,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HtmlCheckpoint {
     pub epoch: i64,
     pub generation: i64,

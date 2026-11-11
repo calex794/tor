@@ -117,6 +117,15 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Native HTML quality on the fresh schema
+        env:
+          TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
+          TOR_HTML_HEALTH_LOG: ${{ runner.temp }}/rec13-browser/server-html-health.log
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
       - name: E-08 baseline-to-Draft installed SQLx ledger upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'

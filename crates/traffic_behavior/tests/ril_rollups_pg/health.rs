@@ -40,3 +40,6 @@ mod epochs;
 mod lifecycle;
 #[path = "health/retention.rs"]
 mod retention;
+
+#[path = "health/cancellation.rs"]
+mod cancellation;

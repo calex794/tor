@@ -85,6 +85,9 @@ start_server() {
     ci_rec_step_done "http_ready_$fixture_name"
   fi
 }
+# No other fixture server is running while the actual process lifecycle is proved.
+APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tools/flow_lifecycle_pg.cjs
+ci_rec_step_done "flow_process_lifecycle"
 # Current business behavior is always exercised behind the installed SQL barrier.
 start_server "$TEST_DATABASE_URL" current
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \

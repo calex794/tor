@@ -102,6 +102,22 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install full Chromium prerequisites
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --prefix /tmp/flow-root-browser playwright@1.56.1
+          /tmp/flow-root-browser/node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Native HTML quality on the fresh schema
+        env:
+          NODE_PATH: /tmp/flow-root-browser/node_modules
+          TOR_AUDIENCE_SHOTS: /tmp/flow-html-health-shots
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
       - name: Focused PostgreSQL and HTTP cases present in this development slice
         shell: bash
         run: |
@@ -111,6 +127,7 @@ jobs:
             tor-recommendations:exposure_health_pg:crates/recommendations \
             tor-recommendations:flow_genres_pg:crates/recommendations \
             tor-traffic_behavior:ril_rollups_pg:crates/traffic_behavior \
+            tor-search:seo_pg:crates/search \
             tor-search:public_pages_pg:crates/search \
             tor-reading:audience_closed_pg:crates/reading \
             tor-web:audience_http_pg:crates/web \
@@ -126,14 +143,6 @@ jobs:
         run: |
           cargo clippy -p tor-recommendations -p tor-traffic_behavior \
             -p tor-search -p tor-reading -p tor-web --all-targets -- -D warnings
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install full Chromium prerequisites
-        run: |
-          bash tools/ci_prepare_ubuntu_mirror.sh
-          npm install --prefix /tmp/flow-root-browser playwright@1.56.1
-          /tmp/flow-root-browser/node_modules/.bin/playwright install --with-deps --only-shell chromium
       - name: Actual native signals and public-page browser forms
         env:
           NODE_PATH: /tmp/flow-root-browser/node_modules
@@ -141,12 +150,18 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/flow_signals_browser_acceptance.sh
+      - name: Actual process shutdown and collector drain
+        run: |
+          APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$RUNNER_TEMP/flow-lifecycle" node tools/flow_lifecycle_pg.cjs
       - name: Preserve actual FLOW browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flow-final-signals-browser
-          path: /tmp/flow-signals-shots
+          path: |
+            /tmp/flow-signals-shots
+            /tmp/flow-html-health-shots
+            ${{ runner.temp }}/flow-lifecycle
           if-no-files-found: ignore
           retention-days: 7
       - name: Require the checked-in source to match formatting
