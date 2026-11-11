@@ -159,6 +159,7 @@ jobs:
           exec > >(tee "$RUNNER_TEMP/rec13-browser/acceptance.log") 2>&1
           cargo test -p tor-recommendations --all-targets
           cargo test -p tor-recommendations --test surprise_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test surprise_http_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test recommendation_preferences_legacy_pg -- --ignored --test-threads=1
