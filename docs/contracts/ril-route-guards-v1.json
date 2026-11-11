@@ -2878,6 +2878,13 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "public_pages::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/me/recommendations/shelf-preview",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::shelf::page",
+      "policy": "administrator"
     }
   ]
 }
