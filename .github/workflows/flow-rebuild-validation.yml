@@ -33,6 +33,8 @@ jobs:
       PGPASSWORD: tor-ci-postgres
       TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
       MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +97,23 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Installed190 upgrade to this schema with checksum preservation and replay
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          REVOKE ALL ON DATABASE tor_ci_collection_retirement_upgrade FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci_collection_retirement_upgrade TO tor_app;
+          SQL
+          cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1
+          psql -X -v ON_ERROR_STOP=1 "$COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL" <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS(SELECT 1 FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='ril_flow_health_epochs'
+                AND column_name='registration_key') THEN
+              RAISE EXCEPTION 'Installed upgrade did not install keyed HTML registration';
+            END IF;
+          END $$;
+          SQL
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -127,6 +146,7 @@ jobs:
       - name: Focused PostgreSQL and HTTP cases present in this development slice
         shell: bash
         run: |
+          flow_failed=0
           for flow_case in \
             tor-recommendations:flow_signals_pg:crates/recommendations \
             tor-recommendations:exposure_pg:crates/recommendations \
@@ -140,11 +160,14 @@ jobs:
             IFS=: read -r flow_pkg flow_test flow_dir <<< "$flow_case"
             if test -f "$flow_dir/tests/$flow_test.rs"; then
               printf 'FLOW_TARGET package=%s test=%s\n' "$flow_pkg" "$flow_test"
-              cargo test -p "$flow_pkg" --test "$flow_test" -- --ignored --test-threads=1
+              if ! cargo test -p "$flow_pkg" --test "$flow_test" -- --ignored --test-threads=1; then
+                flow_failed=1
+              fi
             else
               printf 'FLOW_PENDING_SOURCE package=%s test=%s\n' "$flow_pkg" "$flow_test"
             fi
           done
+          exit "$flow_failed"
       - name: Strict owner and web Clippy
         run: |
           cargo clippy -p tor-recommendations -p tor-traffic_behavior \
