@@ -1,5 +1,7 @@
 //! C-owned numerical reading evidence. No visitor profile or attribution is built.
 pub mod canonical;
+pub mod closed;
+pub use closed::{ClosedReadingCounts, ClosedReadingReport};
 pub mod intent;
 
 use std::{error::Error, fmt};
