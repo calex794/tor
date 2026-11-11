@@ -41,6 +41,7 @@ pub mod cover_private_source_cleanup;
 mod cpu_work;
 mod editorial_http;
 pub mod flow_exposure;
+mod flow_navigation;
 mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
