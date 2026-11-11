@@ -578,10 +578,35 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                     'Some("1")', "event.validate()?", "state.store.describe(&event.proof)",
                     "if !guard", ".allowed(&context.card)", "ExposureError::Forbidden",
                     ".active_session_user(&session_token_digest(&token))",
-                    "state.store.record(&event, &context, actor)", "Duration::from_millis(950)",
+                    "state.gate.epoch().ok_or(ExposureError::Unavailable)?",
+                    ".record_in_epoch(&event, &context, actor, epoch)", "Duration::from_millis(950)",
+                    "state.gate.disable()", "state.counters.failed.fetch_add(1, Ordering::Release)",
                     "private_response(status, &[])")
         if not observation_route or not all(marker in body for marker in required):
             errors.append(f"{label}: missing bounded same-origin server-proof observation guard")
+        repo = _functions((ROOT / "crates/recommendations/src/repositories/exposure/write.rs")
+                          .read_text(encoding="utf-8"))
+        fence = repo.get("epoch_fence", "")
+        protected = (
+            "self.register_inner(proofs, Some(epoch)).await" in repo.get("register_in_epoch", "")
+            and "self.record_inner(event, context, actor, Some(epoch)).await" in repo.get("record_in_epoch", "")
+            and all(all(token in repo.get(operation, "") for token in (
+                "epoch_fence(&mut tx, epoch, true).await?",
+                "epoch_fence(&mut tx, epoch, false).await?",
+            )) for operation in ("register_inner", "record_inner"))
+            and all(token in fence for token in (
+                "NOT retired", "lease_until_ms>floor(", "confirmed_ms>=",
+                "FOR SHARE", "fetch_optional", "ExposureError::Unavailable",
+            ))
+        )
+        worker = _functions((ROOT / "crates/web/src/flow_exposure/worker.rs")
+                            .read_text(encoding="utf-8")).get("store_batch", "")
+        protected = protected and all(token in worker for token in (
+            "self.gate.epoch()", "self.store.register_in_epoch(batch, epoch)",
+            "Duration::from_millis(950)", ".settled", ".fetch_add(batch.len() as u64, Ordering::Release)",
+        ))
+        if not protected:
+            errors.append(f"{label}: observation writes must retain the live database epoch fence")
     if exposure_admin_route:
         required = ("Duration::from_millis(950)", "session_token_digest(&token)",
                     "session_actor(", "!actor.administrator", "StatusCode::FORBIDDEN",

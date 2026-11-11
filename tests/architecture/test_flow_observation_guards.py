@@ -34,13 +34,44 @@ class ObservationGuardTests(unittest.TestCase):
             "if !guard",
             ".allowed(&context.card)",
             ".active_session_user(&session_token_digest(&token))",
-            "state.store.record(&event, &context, actor)",
+            "state.gate.epoch().ok_or(ExposureError::Unavailable)?",
+            ".record_in_epoch(&event, &context, actor, epoch)",
+            "state.gate.disable()",
+            "state.counters.failed.fetch_add(1, Ordering::Release)",
             "Duration::from_millis(950)",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, original)
                 path.write_text(original.replace(marker, "UNGUARDED", 1))
                 self.assertTrue(any("server-proof observation guard" in item for item in check(self.root)))
+
+    def test_sql_epoch_fence_cannot_be_optional_or_removed(self):
+        path = self.root / "crates/recommendations/src/repositories/exposure/write.rs"
+        original = path.read_text()
+        for marker in (
+            "self.register_inner(proofs, Some(epoch)).await",
+            "self.record_inner(event, context, actor, Some(epoch)).await",
+            "epoch_fence(&mut tx, epoch, true).await?",
+            "epoch_fence(&mut tx, epoch, false).await?",
+            "FOR SHARE",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, original)
+                path.write_text(original.replace(marker, "UNFENCED", 1))
+                self.assertTrue(any("live database epoch fence" in item for item in check(self.root)))
+
+    def test_received_queue_item_requires_a_fresh_gate_and_settlement(self):
+        path = self.root / "crates/web/src/flow_exposure/worker.rs"
+        original = path.read_text()
+        # Mutate only store_batch; prepare/advance also legitimately use the gate.
+        start = original.index("async fn store_batch(")
+        prefix, body = original[:start], original[start:]
+        for marker in ("self.gate.epoch()", "self.store.register_in_epoch(batch, epoch)",
+                       ".fetch_add(batch.len() as u64, Ordering::Release)"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, body)
+                path.write_text(prefix + body.replace(marker, "UNFENCED", 1))
+                self.assertTrue(any("live database epoch fence" in item for item in check(self.root)))
 
     def test_admin_role_failure_and_timeout_cannot_be_ignored(self):
         path = self.root / "crates/web/src/flow_exposure/report.rs"

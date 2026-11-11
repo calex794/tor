@@ -60,6 +60,8 @@ jobs:
               print("FLOW_FMT_END")
           print("FLOW_FMT_FILES " + str(len(changed)))
           PY
+      - name: Observation route and database fence mutation guards
+        run: python3 -m unittest discover -s tests/architecture -p test_flow_observation_guards.py
       - name: Unit tests for source owners and web composition
         run: |
           cargo test -p tor-recommendations -p tor-traffic_behavior \
