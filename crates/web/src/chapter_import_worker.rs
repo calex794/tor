@@ -66,7 +66,7 @@ impl ChapterImportWorker {
         let expected_hash: [u8; 32] = match claim.source_sha256.as_slice().try_into() {
             Ok(value) => value,
             Err(_) => {
-                return self.terminal_failure(&claim, "invalid_source_hash").await;
+                return self.terminal_failure(claim, "invalid_source_hash").await;
             }
         };
         let bytes = match self
@@ -82,10 +82,10 @@ impl ChapterImportWorker {
             Ok(bytes) => bytes,
             Err(ChapterImportStoreError::Unavailable) => {
                 return self
-                    .retryable_failure(&claim, "source_store_unavailable")
+                    .retryable_failure(claim, "source_store_unavailable")
                     .await;
             }
-            Err(_) => return self.terminal_failure(&claim, "source_object_invalid").await,
+            Err(_) => return self.terminal_failure(claim, "source_object_invalid").await,
         };
         // One worker consumes one claimed batch at a time. Keep UTF-8
         // conversion, structural parsing and SHA-256 fingerprinting off
@@ -110,10 +110,10 @@ impl ChapterImportWorker {
         .await;
         let chapters = match parsed {
             Ok(Ok(chapters)) => chapters,
-            Ok(Err(code)) => return self.terminal_failure(&claim, code).await,
+            Ok(Err(code)) => return self.terminal_failure(claim, code).await,
             Err(_) => {
                 return self
-                    .retryable_failure(&claim, "source_parse_unavailable")
+                    .retryable_failure(claim, "source_parse_unavailable")
                     .await;
             }
         };
@@ -132,15 +132,15 @@ impl ChapterImportWorker {
                 Ok(ChapterImportWorkerResult::Completed)
             }
             Err(AuthorError::Unavailable) => {
-                self.retryable_failure(&claim, "database_unavailable").await
+                self.retryable_failure(claim, "database_unavailable").await
             }
             Err(AuthorError::Conflict) => {
                 // A current epoch with a chapter-number conflict becomes failed.
                 // A cancelled, expired or reclaimed epoch cannot update or delete
                 // the source object belonging to the winning worker.
-                self.terminal_failure(&claim, "import_conflict").await
+                self.terminal_failure(claim, "import_conflict").await
             }
-            Err(_) => self.terminal_failure(&claim, "book_not_importable").await,
+            Err(_) => self.terminal_failure(claim, "book_not_importable").await,
         }
     }
 
