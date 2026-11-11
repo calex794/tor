@@ -433,10 +433,14 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         ["control", "gentle", "standard"].contains(&arm.as_str()),
         "{arm}"
     );
-    assert_eq!(
-        response["state"],
-        if arm == "control" { "none" } else { "planned" }
-    );
+    if arm == "control" {
+        assert_eq!(response["state"], "none");
+    } else if arm == "standard" {
+        assert_eq!(response["state"], "planned");
+    } else {
+        // Gentle arm has only half the configured selection chance.
+        assert!(response["state"] == "none" || response["state"] == "planned");
+    }
     let repeat = http(
         &app,
         "GET",
