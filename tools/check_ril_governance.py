@@ -584,8 +584,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                     "private_response(status, &[])")
         if not observation_route or not all(marker in body for marker in required):
             errors.append(f"{label}: missing bounded same-origin server-proof observation guard")
-        repo = _functions((ROOT / "crates/recommendations/src/repositories/exposure/write.rs")
-                          .read_text(encoding="utf-8"))
+        repo = {name: functions.get("__flow_" + name, "") for name in (
+            "register_in_epoch", "record_in_epoch", "register_inner", "record_inner", "epoch_fence",
+        )}
         fence = repo.get("epoch_fence", "")
         protected = (
             "self.register_inner(proofs, Some(epoch)).await" in repo.get("register_in_epoch", "")
@@ -599,8 +600,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "FOR SHARE", "fetch_optional", "ExposureError::Unavailable",
             ))
         )
-        worker = _functions((ROOT / "crates/web/src/flow_exposure/worker.rs")
-                            .read_text(encoding="utf-8")).get("store_batch", "")
+        worker = functions.get("__flow_store_batch", "")
         protected = protected and all(token in worker for token in (
             "self.gate.epoch()", "self.store.register_in_epoch(batch, epoch)",
             "Duration::from_millis(950)", ".settled", ".fetch_add(batch.len() as u64, Ordering::Release)",
@@ -1909,6 +1909,21 @@ def check(root: Path = ROOT) -> list[str]:
                 ).get("charge", "")
             except OSError:
                 source_cache[path]["__layer_charge"] = ""
+        if entry.get("policy") == "observation":
+            # Read reviewed owner evidence from this invocation's root, including
+            # mutation fixtures. Never substitute the module-global checkout.
+            helpers = (
+                ("crates/recommendations/src/repositories/exposure/write.rs",
+                 ("register_in_epoch", "record_in_epoch", "register_inner", "record_inner", "epoch_fence")),
+                ("crates/web/src/flow_exposure/worker.rs", ("store_batch",)),
+            )
+            for helper_file, names in helpers:
+                try:
+                    helper_functions = _functions((root / helper_file).read_text(encoding="utf-8"))
+                except OSError:
+                    helper_functions = {}
+                for name in names:
+                    source_cache[path]["__flow_" + name] = helper_functions.get(name, "")
         if entry.get("policy") == "support_requester":
             identity_file = root / "crates/web/src/auth/support_identity.rs"
             source_cache[path]["__support_identity"] = (
