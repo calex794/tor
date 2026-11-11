@@ -427,6 +427,41 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .await
         .unwrap());
     store.delete(&source_key).await.unwrap();
+
+    // A fresh traced job follows the real worker path, not just a direct claim.
+    // The first job's failed epoch cannot publish or delete this new source.
+    let worker_command = generate_session_token();
+    let worker_key = format!("staging/chapters/{owner}/{book_id}/{worker_command}");
+    store
+        .put_verified(&worker_key, causal_text.as_bytes(), &causal_hash)
+        .await
+        .unwrap();
+    let (worker_job, created) = jobs
+        .enqueue_verified_traced(
+            owner,
+            book_id,
+            &worker_command,
+            &worker_key,
+            "trace.md",
+            &causal_hash,
+            causal_text.len() as i64,
+            &causal_fingerprint,
+            1,
+            Some(PARENT),
+        )
+        .await
+        .unwrap();
+    assert!(created);
+    assert_eq!(
+        worker.run_one().await.unwrap(),
+        ChapterImportWorkerResult::Completed
+    );
+    let finished = jobs
+        .status_for_owner(owner, book_id, worker_job)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(finished.status, "succeeded");
     assert!(store.0.lock().await.is_empty());
     assert_eq!(
         authoring
@@ -434,7 +469,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        1
+        2
     );
 
     // Publishing a book must close the queued import route before any S3 PUT,
@@ -472,7 +507,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        1,
+        2,
         "rejected published-book import must not add chapters"
     );
     pool.close().await;
