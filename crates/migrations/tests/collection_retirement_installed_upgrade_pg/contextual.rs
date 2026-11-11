@@ -1,4 +1,4 @@
-//! Real 193 -> 194 cutover: legacy rows remain labelled and cannot be reactivated.
+//! Real pre-contextual -> current cutover: legacy rows remain labelled and cannot be reactivated.
 use super::{
     fixtures::{run, TestResult},
     harness,
@@ -38,10 +38,14 @@ pub async fn upgrade(owner: &PgPool, app: &PgPool) -> TestResult {
         sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(owner)
             .await?;
-    assert_eq!(after.len(), 194);
-    assert_eq!(&after[..193], before.as_slice());
-    assert_eq!(after[193].0, 202611198437);
-    assert!(after[193].2);
+    harness::assert_current_ledger(owner).await?;
+    for old_row in &before {
+        assert!(
+            after.contains(old_row),
+            "accepted baseline checksum changed"
+        );
+    }
+    assert!(after.iter().any(|row| row.0 == 202611198437 && row.2));
     let policy:(bool,bool,bool,i16,i64)=sqlx::query_as("SELECT active_generation IS NULL,previous_generation IS NULL,hold,rollout_percent,revision FROM rec_runtime_policy WHERE singleton").fetch_one(app).await?;
     assert_eq!(policy, (true, true, true, 0, rev + 1));
     let state: (String, String) =

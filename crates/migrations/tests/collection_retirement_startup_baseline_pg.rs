@@ -51,14 +51,7 @@ async fn prepare_real_installed_retirement_state_for_production_startup() -> Tes
     );
     tor_migrations::repositories::MIGRATOR.run(&owner).await?;
     tor_migrations::repositories::MIGRATOR.run(&owner).await?;
-    assert_eq!(
-        count(
-            &owner,
-            "SELECT count(*) FROM _sqlx_migrations WHERE success"
-        )
-        .await?,
-        194
-    );
+    harness::assert_current_ledger(&owner).await?;
     assert_eq!(fixture.canonical(&owner).await?, canonical);
     assert_eq!(fixture.preferences(&owner).await?, preferences);
     assert_eq!(count(&owner, "SELECT count(*) FROM rec_subjects").await?, 2);
