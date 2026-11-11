@@ -99,11 +99,14 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         .and_then(|id| book_id(id).ok());
     let is_shelf = surface == Surface::ReaderEnd && free_chapter.is_some() && seed.is_some();
     let feed_result = if is_shelf {
-        state.store.reader_end_shelf(
-            identity.as_ref().map(|(id, _)| *id),
-            seed.expect("checked above"),
-            free_chapter.expect("checked above"),
-        ).await
+        state
+            .store
+            .reader_end_shelf(
+                identity.as_ref().map(|(id, _)| *id),
+                seed.expect("checked above"),
+                free_chapter.expect("checked above"),
+            )
+            .await
     } else {
         api::load(&state, identity, surface, seed, 10).await
     };
