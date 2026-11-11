@@ -173,8 +173,16 @@ mod tests {
             probability_per_mille: DEFAULT_PROBABILITY_PER_MILLE,
         };
         let count = (0..10_000)
-            .filter(|period| matches!(decide(&KEY, &SESSION, *period, cfg), Ok(Decision::Planned(_))))
+            .filter(|period| {
+                matches!(
+                    decide(&KEY, &SESSION, *period, cfg),
+                    Ok(Decision::Planned(_))
+                )
+            })
             .count();
-        assert!((3200..3800).contains(&count), "unexpected pilot frequency: {count}");
+        assert!(
+            (3200..3800).contains(&count),
+            "unexpected pilot frequency: {count}"
+        );
     }
 }
