@@ -104,6 +104,13 @@ impl Fixture {
     }
 
     async fn finish(self) {
+        // Account role grants are intentionally not deleted by an A user cascade.
+        // Clean up the isolated synthetic administrator before the synthetic user.
+        sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
+            .bind(self.actor)
+            .execute(&self.app)
+            .await
+            .unwrap();
         sqlx::query("DELETE FROM users WHERE id=$1")
             .bind(self.actor)
             .execute(&self.app)
