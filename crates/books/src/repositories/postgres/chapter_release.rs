@@ -1,6 +1,6 @@
 //! B-06: unpublished new chapters inside an already public book.
 //! No reader-visible pointer is created until an explicit owner release.
-use super::PgAuthoring;
+use super::{chapter_outbox::enqueue_chapter_first_release, PgAuthoring};
 use crate::repositories::chapter_number;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, PendingChapter, SaveChapter, SavedChapter,
@@ -238,6 +238,7 @@ impl PgAuthoring {
             expected_version_id,
         )
         .await?;
+        enqueue_chapter_first_release(&mut tx, book_id, chapter_id, expected_version_id).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(())
     }

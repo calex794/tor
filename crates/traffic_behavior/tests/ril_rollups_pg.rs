@@ -1,4 +1,4 @@
-//! Real PostgreSQL 18 evidence: stage, claim/fence, crash recovery and retention.
+//! Current PostgreSQL evidence: anonymous rollups survive retirement, crash and replay.
 use sqlx::{postgres::PgPoolOptions, Row};
 use std::time::Duration;
 use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
@@ -7,6 +7,38 @@ use tor_traffic_behavior::{
     FlowPageview, GapBucket, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder, Transition,
 };
 use uuid::Uuid;
+
+async fn require_current_schema(pool: &sqlx::PgPool) {
+    let current_schema: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
+                       WHERE version=202611168903 AND success)
+            AND EXISTS(SELECT 1 FROM pg_trigger
+                       WHERE tgrelid='ril_behavior_consents'::regclass
+                         AND tgname='retired_collection_write_fence' AND tgenabled<>'D')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert!(
+        current_schema,
+        "current-schema RIL proof requires retirement 192"
+    );
+}
+
+async fn transition_count(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COALESCE(SUM(transition_count),0)::bigint
+           FROM ril_transition_hourly
+          WHERE bucket=date_trunc('hour',now())
+            AND from_code=$1 AND to_code=$2 AND gap_group=$3",
+    )
+    .bind(RouteCode::Catalog as i16)
+    .bind(RouteCode::Books as i16)
+    .bind(GapBucket::Fast as i16)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
 
 fn sample() -> RollupDelta {
     let mut delta = RollupDelta::default();
@@ -55,7 +87,7 @@ fn sample() -> RollupDelta {
 }
 
 #[tokio::test]
-#[ignore = "requires isolated PostgreSQL 18 with official TOR migrations"]
+#[ignore = "requires isolated PostgreSQL 18 with retirement migration 192"]
 async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated CI PG URL");
     let pool = PgPoolOptions::new()
@@ -64,8 +96,10 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
         .connect(&url)
         .await
         .unwrap();
+    require_current_schema(&pool).await;
     let repo = PgRilRollups::new(pool.clone());
     let id = Uuid::new_v4().to_string();
+    // Deliberately submit an old mixed batch; only anonymous counters may persist.
     let batch = sample();
     assert_eq!(batch.route_rows().iter().map(|v| v.count).sum::<i64>(), 3);
     assert_eq!(batch.transition_rows().len(), 1);
@@ -84,6 +118,7 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
 
+    let before_transitions = transition_count(&pool).await;
     let before: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(request_count),0)::bigint FROM ril_route_hourly
           WHERE bucket=date_trunc('hour',now()) AND route_code=$1",
@@ -94,6 +129,22 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .unwrap();
 
     assert!(repo.enqueue(&id, &batch).await.unwrap());
+    let staged_flow: (i64, i64, i64) = sqlx::query_as(
+        "SELECT html_requests,opted_in_html_requests,observed_opted_in_visit_starts
+           FROM ril_flush_flow WHERE batch_id=$1",
+    )
+    .bind(&id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(staged_flow, (2, 0, 0), "staging must strip retired fields");
+    let staged_transitions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ril_flush_transitions WHERE batch_id=$1")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(staged_transitions, 0, "staging must omit behavioral paths");
     sqlx::query(
         "UPDATE ril_flush_batches SET enqueued_at=now()-INTERVAL '10 minutes'
          WHERE batch_id=$1",
@@ -172,14 +223,15 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
     assert_eq!(after_flow.0 - before_flow.0, 2);
-    assert_eq!(after_flow.1 - before_flow.1, 1);
-    assert_eq!(after_flow.2 - before_flow.2, 1);
+    assert_eq!(after_flow.1 - before_flow.1, 0);
+    assert_eq!(after_flow.2 - before_flow.2, 0);
     let hourly = reloaded.read_flow_hourly(24).await.unwrap();
     assert!(hourly.iter().any(|row| {
         row.surface == 2
             && row.acquisition_hint == 0
             && row.html_requests >= 2
-            && row.opted_in_html_requests >= 1
+            && row.opted_in_html_requests == before_flow.1
+            && row.observed_opted_in_visit_starts == before_flow.2
     }));
     assert!(reloaded.read_flow_hourly(0).await.is_err());
     assert!(reloaded.read_flow_hourly(721).await.is_err());
@@ -195,19 +247,11 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     assert!(row.try_get::<i64, _>("requests").unwrap() >= 3);
     assert!(row.try_get::<i64, _>("http_errors").unwrap() >= 1);
     assert!(row.try_get::<i64, _>("slow_requests").unwrap() >= 1);
-    let transitions: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(transition_count),0)::bigint
-           FROM ril_transition_hourly
-          WHERE bucket=date_trunc('hour',now())
-            AND from_code=$1 AND to_code=$2 AND gap_group=$3",
-    )
-    .bind(RouteCode::Catalog as i16)
-    .bind(RouteCode::Books as i16)
-    .bind(GapBucket::Fast as i16)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(transitions >= 1);
+    assert_eq!(
+        transition_count(&pool).await,
+        before_transitions,
+        "materialization must not add behavioral paths"
+    );
 
     // A forced failed attempt returns to the queue without duplicate application.
     let retry_id = Uuid::new_v4().to_string();
@@ -248,8 +292,13 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
     assert_eq!(final_flow.0 - before_flow.0, 4);
-    assert_eq!(final_flow.1 - before_flow.1, 2);
-    assert_eq!(final_flow.2 - before_flow.2, 2);
+    assert_eq!(final_flow.1 - before_flow.1, 0);
+    assert_eq!(final_flow.2 - before_flow.2, 0);
+    assert_eq!(
+        transition_count(&pool).await,
+        before_transitions,
+        "crash recovery and retry must not restore behavioral paths"
+    );
 
     // Retention removes only finished old batches. Pending data remains
     // recoverable; old summaries and their tombstones are independently scoped.
@@ -272,7 +321,7 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
 }
 
 #[tokio::test]
-#[ignore = "requires isolated PostgreSQL 18 with official TOR migrations"]
+#[ignore = "requires isolated PostgreSQL 18 with retirement migration 192"]
 async fn ril_06_background_sink_survives_pg_loss_without_failing_http() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated CI PG URL");
     let pool = PgPoolOptions::new()
@@ -280,6 +329,7 @@ async fn ril_06_background_sink_survives_pg_loss_without_failing_http() {
         .connect(&url)
         .await
         .unwrap();
+    require_current_schema(&pool).await;
     let repo = PgRilRollups::new(pool.clone());
     let recorder = TrafficRecorder::start(32, 32);
     assert!(recorder.try_record(BehaviorEvent {
@@ -315,3 +365,6 @@ async fn ril_06_background_sink_survives_pg_loss_without_failing_http() {
     pump.run_once().await; // best effort: no panic on failed PG
     assert_eq!(recorder.dropped_events(), 0);
 }
+
+#[path = "ril_rollups_pg/observed.rs"]
+mod observed;

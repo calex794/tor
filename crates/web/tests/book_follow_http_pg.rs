@@ -781,6 +781,20 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
         DeliveryMode::Immediate
     );
     assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, &csrf, "smart_time").await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::SmartTime
+    );
+    assert!(c17_settings_page(&app, &one)
+        .await
+        .contains("value=\"smart_time\" checked"));
+    assert!(c17_settings_page(&app, &two)
+        .await
+        .contains("value=\"disabled\" checked"));
+    assert_eq!(
         c17_change_mode(&app, &one, ORIGIN, &csrf, "disabled").await,
         StatusCode::SEE_OTHER
     );
@@ -790,6 +804,9 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     );
     pool.close().await;
 }
+
+#[path = "book_follow_http_pg/s018_email_proof_http_pg.rs"]
+mod s018_email_proof;
 
 #[path = "book_follow_http_pg/s014_profile_follow.rs"]
 mod s014_profile_follow;

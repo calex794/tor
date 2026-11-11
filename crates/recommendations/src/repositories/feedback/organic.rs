@@ -111,6 +111,18 @@ impl PgRecommendations {
         session: &[u8; 32],
         book: i64,
     ) -> Result<(), FeedbackError> {
+        self.record_organic_book_open_with_flow(actor, session, book)
+            .await?;
+        Ok(())
+    }
+
+    /// Proof from a successful, session-bound catalogue/search navigation.
+    pub async fn record_organic_book_open_with_flow(
+        &self,
+        actor: i64,
+        session: &[u8; 32],
+        book: i64,
+    ) -> Result<Option<String>, FeedbackError> {
         validate_actor(actor)?;
         validate_actor(book)?;
         let mut tx = self.pool.begin().await?;
@@ -129,18 +141,29 @@ impl PgRecommendations {
             .bind(book)
             .fetch_optional(&mut *tx)
             .await?;
-        if let Some(touch) = touch {
+        if let Some(touch) = touch.as_deref() {
             sqlx::query(
                 "UPDATE organic_discovery_touches
                  SET book_opened_at=COALESCE(book_opened_at,now()) WHERE id=$1::uuid",
             )
-            .bind(&touch)
+            .bind(touch)
             .execute(&mut *tx)
             .await?;
-            mark_dirty(&mut tx, &touch).await?;
+            mark_dirty(&mut tx, touch).await?;
         }
+        let proof = if let Some(touch) = touch.as_deref() {
+            sqlx::query_scalar(
+                "SELECT t.id::text FROM organic_discovery_touches t JOIN rec_subjects s ON s.subject_id=t.subject_id
+                 WHERE t.id=$1::uuid AND s.flow_epoch IS NOT NULL AND t.clicked_at>=s.flow_enabled_at",
+            )
+            .bind(touch)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
         tx.commit().await?;
-        Ok(())
+        Ok(proof)
     }
 
     /// Operator-only aggregates: issued result links are not view impressions.

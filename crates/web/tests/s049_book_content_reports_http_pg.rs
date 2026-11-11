@@ -514,11 +514,26 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .parse()
     .unwrap();
     assert_ne!(next_report, comment_report);
+    // A moderator may handle Book registration, never content complaints.
+    assert_eq!(
+        send(&app, "GET", admin_path, &moderator, "").await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let mod_cookies = format!("{moderator}; {q_cookie}");
     let queue_html = html(send(&app, "GET", admin_path, &admin_cookies, "").await).await;
     assert!(queue_html.contains("value=\"hide_comment\""));
     assert!(!queue_html.contains("Reported comment body"));
-    let manual_hide = format!("decision=hide_comment&note=Confirmed+abuse&csrf_token={q_csrf}");
+    let manual_hide = format!(
+        "decision=hide_comment&note=Confirmed+%3Cscript%3Ealert%281%29%3C%2Fscript%3E&csrf_token={q_csrf}"
+    );
     let manual_path = format!("/admin/book-reports/{next_report}/decision");
+    // An active moderator still cannot hide a comment by forged POST.
+    assert_eq!(
+        send(&app, "POST", &manual_path, &mod_cookies, &manual_hide)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
     assert_eq!(
         send(&app, "POST", &manual_path, &admin_cookies, &manual_hide)
             .await
@@ -537,6 +552,13 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
              FROM social_book_content_review_events WHERE report_id={next_report}"
         )),
         "reviewed:hide_book_comment"
+    );
+    assert_eq!(
+        pg(&format!(
+            "SELECT reviewer_user_id FROM social_book_content_review_events
+             WHERE report_id={next_report}"
+        )),
+        admin_id.to_string()
     );
     pg_rejected(&format!(
         "UPDATE social_book_content_review_events SET moderation_action='none'
@@ -578,12 +600,49 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
     .unwrap();
     let book_only_action = format!("/admin/book-reports/{book_only_report}/decision");
     assert_eq!(
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &book_only_action,
+            &mod_cookies,
+            &format!("decision=reviewed&note=No+book+rights&csrf_token={q_csrf}")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &book_only_action,
+            &mod_cookies,
+            &format!("decision=dismissed&note=No+book+rights&csrf_token={q_csrf}")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(&app, "POST", &book_only_action, &mod_cookies, &manual_hide)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // The administrator's existing Book-only review semantics are unchanged.
+    assert_eq!(
         send(
             &app,
             "POST",
             &book_only_action,
             &admin_cookies,
-            &manual_hide
+            &format!("decision=hide_comment&note=Invalid&csrf_token={q_csrf}")
         )
         .await
         .status(),
@@ -596,10 +655,76 @@ async fn s049_book_report_http_live_age_visibility_csrf_admin_review_and_audit()
         "pending",
         "invalid sanction must leave the complaint unresolved"
     );
+    // Immutable review history is public to neither readers nor guests.
+    // Moderators cannot inspect complaint history of either target type.
+    let history_response = send(&app, "GET", admin_path, &admin_cookies, "").await;
+    assert_eq!(history_response.status(), StatusCode::OK);
+    assert_eq!(
+        history_response.headers()[header::CACHE_CONTROL],
+        "no-store"
+    );
+    let history_html = html(history_response).await;
+    assert!(history_html.contains("История решений"));
+    assert!(history_html.contains(&format!("Решение по жалобе #{report}")));
+    assert!(history_html.contains(&format!("Решение по жалобе #{next_report}")));
+    assert!(history_html.contains("hide_book_comment"));
+    assert!(history_html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!history_html.contains("<script>alert(1)</script>"));
+    assert!(!history_html.contains("BookComplaintFixture"));
+    assert!(!history_html.contains("Reported comment body"));
+    assert_eq!(
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(&app, "GET", admin_path, &reader, "").await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let event_id: i64 = pg(&format!(
+        "SELECT id FROM social_book_content_review_events WHERE report_id={next_report}"
+    ))
+    .parse()
+    .unwrap();
+    let older_path = format!("{admin_path}?history_before={event_id}");
+    let older = html(send(&app, "GET", &older_path, &admin_cookies, "").await).await;
+    assert!(!older.contains(&format!("Решение по жалобе #{next_report}")));
+    assert!(older.contains(&format!("Решение по жалобе #{report}")));
+    assert_eq!(
+        send(
+            &app,
+            "GET",
+            &format!("{admin_path}?history_before=0"),
+            &admin_cookies,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
     // Prevent a test-only active administrator from contaminating the later
     // A-04/A-05 last-admin invariant on the same disposable PostgreSQL.
     pg(&format!(
         "UPDATE account_roles SET is_active=false
          WHERE user_id={admin_id} AND role='administrator'"
     ));
+    assert_eq!(
+        send(&app, "GET", admin_path, &admin_cookies, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "revoked site administrator must not read review history"
+    );
+    pg(&format!(
+        "UPDATE account_roles SET is_active=false
+         WHERE user_id={moderator_id} AND role='moderator'"
+    ));
+    assert_eq!(
+        send(&app, "GET", admin_path, &mod_cookies, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "revoked site moderator must not read review history"
+    );
 }

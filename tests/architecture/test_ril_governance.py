@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -47,6 +48,324 @@ class RilGovernanceTests(unittest.TestCase):
 
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
+
+    def test_s018_email_proof_routes_require_actor_scope_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".confirm_opt_in(actor, &digest)",
+            ".confirm_opt_in(0, &digest)",
+        )
+        self.assert_detected("/me/notification-email/confirm")
+
+    def test_s018_email_proof_request_cannot_skip_csrf(self):
+        # Disable only this handler's Origin call; unrelated routes must not
+        # camouflage missing request authorization.
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn request_email_proof(",
+        )
+        self.assert_detected("/me/notification-email/request")
+
+    def test_audience_rejects_removed_administrator_check(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        self.assert_detected("missing independent administrator role guard")
+
+    def test_audience_cannot_downgrade_to_a_normal_session(self):
+        path = self.root / INVENTORY
+        original = path.read_text(encoding="utf-8")
+        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
+                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
+            with self.subTest(route=route):
+                inventory = json.loads(original)
+                row = next(row for row in inventory["routes"] if row["template"] == route)
+                row["policy"] = "session"
+                path.write_text(json.dumps(inventory), encoding="utf-8")
+                self.assert_detected("FLOW audience must remain administrator-only")
+
+    def test_audience_visits_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_audience_visits_cannot_ignore_authorization_timeout(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/visits.rs",
+            "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}",
+        )
+        self.assert_detected("FLOW visits must reject failed authorization before reading")
+
+    def test_audience_funnel_cannot_skip_live_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_ignore_authorization_failure_or_timeout(self):
+        path = self.root / "crates/web/src/auth/audience_http/funnel.rs"
+        original = path.read_text(encoding="utf-8")
+        for before, after in (
+            ("Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}"),
+            ("Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}"),
+        ):
+            with self.subTest(before=before):
+                self.assertIn(before, original)
+                path.write_text(original.replace(before, after, 1), encoding="utf-8")
+                self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_read_without_shared_deadline(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "timeout_at(deadline, state.funnel.report(days)).await",
+            "state.funnel.report(days).await",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_restart_shared_deadline(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    let report = match timeout_at(deadline, state.funnel.report(days)).await {",
+            "    let deadline = Instant::now() + Duration::from_millis(950);\n"
+            "    let report = match timeout_at(deadline, state.funnel.report(days)).await {",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_conditionally_authorize(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {",
+            "    if headers.contains_key(\"x-require-auth\") {\n"
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {",
+        )
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    }\n    let days = match query",
+            "    }\n    }\n    let days = match query",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_return_unsecured_report(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "    secure((", "    public_response((",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_audience_funnel_cannot_return_unsecured_invalid_query(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/funnel.rs",
+            "Err(status) => return secure(status)", "Err(status) => return public_response(status)",
+        )
+        self.assert_detected("FLOW funnel must keep its secure report behind live authorization and one deadline")
+
+    def test_retired_flow_consent_cannot_write_for_any_actor(self):
+        self.mutate(
+            "crates/web/src/recommendation_http/pages.rs",
+            "    api::retired()\n}",
+            '    let _ = state.store.set_flow_consent(0, true, 0, "test").await;\n'
+            '    api::retired()\n}',
+            start="pub(super) async fn consent(",
+        )
+        self.assert_detected("retired collection route must terminate in private 410 without analytics work")
+
+    def test_canonical_reading_cannot_skip_live_authority(self):
+        self.mutate("crates/web/src/auth/audience_http/canonical.rs",
+                    "administrator(&state, &headers)", "unverified(&state, &headers)")
+        self.assert_detected("FLOW canonical must reject failed authorization before reading")
+
+    def test_canonical_reading_cannot_ignore_authority_failure(self):
+        self.mutate("crates/web/src/auth/audience_http/canonical.rs",
+                    "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}")
+        self.assert_detected("FLOW canonical must reject failed authorization before reading")
+
+    def test_audience_books_cannot_skip_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/books.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW books must reject failed authorization before reading")
+
+    def test_audience_books_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/books.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW books must reject failed authorization before reading")
+
+    def test_audience_books_checks_the_live_parent_role_guard(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        findings = check(self.root)
+        self.assertTrue(any(
+            "/admin/audience/books" in finding
+            and "missing independent administrator role guard" in finding
+            for finding in findings
+        ), findings)
+
+    def test_audience_groups_cannot_skip_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/groups.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW groups must reject failed authorization before reading")
+
+    def test_audience_groups_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/groups.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW groups must reject failed authorization before reading")
+
+    def test_audience_groups_checks_the_live_parent_role_guard(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        findings = check(self.root)
+        self.assertTrue(any(
+            "/admin/audience/groups" in finding
+            and "missing independent administrator role guard" in finding
+            for finding in findings
+        ), findings)
+
+    def test_audience_returns_cannot_skip_parent_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "administrator(&state, &headers)", "unverified_administrator(&state, &headers)",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_cannot_ignore_authorization_failure(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_cannot_ignore_authorization_timeout(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)", "Err(_) => {}",
+        )
+        self.assert_detected("FLOW returns must reject failed authorization before reading")
+
+    def test_audience_returns_checks_the_live_parent_role_guard(self):
+        self.mutate("crates/web/src/auth/audience_http.rs", "!actor.administrator", "false")
+        findings = check(self.root)
+        self.assertTrue(any(
+            "/admin/audience/returns" in finding
+            and "missing independent administrator role guard" in finding
+            for finding in findings
+        ), findings)
+
+    def test_audience_book_returns_cannot_read_before_authorization(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        guard = (
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {\n"
+            "        Ok(Ok(())) => {}\n"
+            "        Ok(Err(status)) => return secure(status),\n"
+            "        Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),\n"
+            "    }\n"
+        )
+        global_read = (
+            "    let report = match timeout_at(deadline, state.returns.returns_report(days)).await {"
+        )
+        self.mutate(path, guard, "")
+        self.mutate(
+            path, global_read, guard + global_read,
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_group_returns_cannot_read_before_authorization(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        guard = (
+            "    match timeout_at(deadline, administrator(&state, &headers)).await {\n"
+            "        Ok(Ok(())) => {}\n"
+            "        Ok(Err(status)) => return secure(status),\n"
+            "        Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),\n"
+            "    }\n"
+        )
+        # Keep the book and global reads guarded, but let a group return first.
+        self.mutate(path, guard, "")
+        self.mutate(
+            path,
+            "    if let Some(book) = query.book_id {",
+            guard + "    if let Some(book) = query.book_id {",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_no_branch_can_drop_the_shared_timeout(self):
+        path = "crates/web/src/auth/audience_http/returns.rs"
+        target = self.root / path
+        original = target.read_text(encoding="utf-8")
+        for operation in (
+            "returns_report(days)", "book_returns_report(book, days)",
+            "group_book_returns_report(&group_query)",
+        ):
+            with self.subTest(operation=operation):
+                target.write_text(original, encoding="utf-8")
+                bounded = re.search(
+                    rf"timeout_at\(\s*deadline,\s*state\.returns\."
+                    rf"{re.escape(operation)}\s*,?\s*\)\s*\.await",
+                    original,
+                )
+                self.assertIsNotNone(bounded, operation)
+                self.mutate(
+                    path,
+                    bounded.group(0),
+                    f"Ok::<_, tokio::time::error::Elapsed>(state.returns.{operation}.await)",
+                )
+                self.assert_detected(
+                    "FLOW returns must keep all three report reads behind live authorization and its deadline"
+                )
+
+    def test_audience_book_returns_cannot_ignore_denied_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status),",
+            "Ok(Err(status)) if query.as_ref().is_ok_and(|Query(query)| query.book_id.is_none())"
+            " => return secure(status),\n        Ok(Err(_)) => {},",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_group_returns_cannot_ignore_denied_authorization(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "Ok(Err(status)) => return secure(status),",
+            "Ok(Err(status)) if query.as_ref().is_ok_and(|Query(query)| query.kind.is_none())"
+            " => return secure(status),\n        Ok(Err(_)) => {},",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_cannot_restart_the_request_deadline_for_a_book(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "if let Some(book) = query.book_id {",
+            "if let Some(book) = query.book_id {\n"
+            "        let deadline = Instant::now() + Duration::from_millis(950);",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
+
+    def test_audience_returns_cannot_restart_the_request_deadline_for_a_group(self):
+        self.mutate(
+            "crates/web/src/auth/audience_http/returns.rs",
+            "if let Some(group_query) = group_query {",
+            "if let Some(group_query) = group_query {\n"
+            "        let deadline = Instant::now() + Duration::from_millis(950);",
+        )
+        self.assert_detected(
+            "FLOW returns must keep all three report reads behind live authorization and its deadline"
+        )
 
     def test_admin_mail_cannot_read_with_unverified_digest(self):
         self.mutate(

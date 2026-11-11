@@ -140,6 +140,7 @@ fn paid_grants_router(
         origin: public_origin.clone(),
     };
     let browser_enabled = paid.1.is_some();
+    let flow = crate::recommendation_http::visits::Context::new(accounts.clone(), cookies.clone());
     let grants = if let Some(s3_origin) = paid.1 {
         paid_grants_http::router_with_reader(accounts.clone(), cookies, paid.0, s3_origin)?
     } else {
@@ -177,20 +178,21 @@ fn paid_grants_router(
     } else {
         auth::router(accounts, auth_reader, secure, public_origin)
     };
+    let app = make_router_with_paid_checkout(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        Some(reader),
+        true,
+        cover_storage,
+        Some(follows),
+        ReaderModes {
+            paid_browser: browser_enabled,
+            admin_reader: true,
+        },
+    )
+    .merge(author_router)
+    .merge(grants);
     Ok(ril::instrument(
-        make_router_with_paid_checkout(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_storage,
-            Some(follows),
-            ReaderModes {
-                paid_browser: browser_enabled,
-                admin_reader: true,
-            },
-        )
-        .merge(author_router)
-        .merge(grants),
+        crate::recommendation_http::visits::instrument(app, flow),
     ))
 }

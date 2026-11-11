@@ -10,11 +10,34 @@ use sqlx::{postgres::PgRow, PgPool, Row};
 #[derive(Clone)]
 pub struct PgReadingSync {
     pool: PgPool,
+    activity_collection: bool,
+    book_return_collection: bool,
+    flow_collection: bool,
 }
 
 impl PgReadingSync {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            activity_collection: false,
+            book_return_collection: false,
+            flow_collection: false,
+        }
+    }
+
+    pub fn with_activity_collection(mut self, enabled: bool) -> Self {
+        self.activity_collection = enabled;
+        self
+    }
+
+    pub fn with_flow_collection(mut self, enabled: bool) -> Self {
+        self.flow_collection = enabled;
+        self
+    }
+
+    pub fn with_book_return_collection(mut self, enabled: bool) -> Self {
+        self.book_return_collection = enabled;
+        self
     }
 
     /// Existing free cursor (possibly on a different chapter/version of the book).
@@ -95,6 +118,9 @@ impl PgReadingSync {
         let mut tx = self
             .pool
             .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
             .await
             .map_err(|_| SyncError::Unavailable)?;
         // Lock exactly the published free version and its access gate until
@@ -236,7 +262,21 @@ impl PgReadingSync {
             .await
             .map_err(|_| SyncError::Unavailable)?;
         }
+        super::returns::record(
+            &mut tx,
+            actor,
+            book_id,
+            place,
+            self.activity_collection,
+            self.book_return_collection,
+            self.flow_collection,
+        )
+        .await?;
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
         Ok(receipt)
     }
 
@@ -335,6 +375,9 @@ impl PgReadingSync {
         let mut tx = self
             .pool
             .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
             .await
             .map_err(|_| SyncError::Unavailable)?;
         // The D-owned purchase row is locked before rights are checked.
@@ -473,7 +516,23 @@ impl PgReadingSync {
             .await
             .map_err(|_| SyncError::Unavailable)?;
         }
+        if storage_object.is_none() {
+            super::returns::record(
+                &mut tx,
+                actor,
+                book_id,
+                place,
+                self.activity_collection,
+                self.book_return_collection,
+                self.flow_collection,
+            )
+            .await?;
+        }
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
         Ok(receipt)
     }
 }

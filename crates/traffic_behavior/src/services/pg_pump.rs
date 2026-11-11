@@ -17,6 +17,7 @@ struct PumpVitality {
     since: Option<Instant>,
     last_started: Option<Instant>,
     last_completed: Option<Instant>,
+    last_success: Option<Instant>,
     active: bool,
     cycles: u64,
     failed_cycles: u64,
@@ -31,6 +32,8 @@ pub struct PgPumpSnapshot {
     pub consecutive_failures: u64,
     pub age_since_start_s: Option<u64>,
     pub age_since_last_completion_s: Option<u64>,
+    /// Successful local cycle, possibly idle; not proof any pageview reached PG.
+    pub age_since_last_success_s: Option<u64>,
     pub running_for_s: Option<u64>,
 }
 
@@ -61,13 +64,15 @@ impl PgPumpMonitor {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         vital.active = false;
-        vital.last_completed = Some(Instant::now());
+        let now = Instant::now();
+        vital.last_completed = Some(now);
         vital.cycles = vital.cycles.saturating_add(1);
         if failed {
             vital.failed_cycles = vital.failed_cycles.saturating_add(1);
             vital.consecutive_failures = vital.consecutive_failures.saturating_add(1);
         } else {
             vital.consecutive_failures = 0;
+            vital.last_success = Some(now);
         }
     }
 
@@ -86,6 +91,7 @@ impl PgPumpMonitor {
             consecutive_failures: vital.consecutive_failures,
             age_since_start_s: elapsed(vital.since),
             age_since_last_completion_s: elapsed(vital.last_completed),
+            age_since_last_success_s: elapsed(vital.last_success),
             running_for_s: if vital.active {
                 elapsed(vital.last_started)
             } else {
@@ -199,6 +205,7 @@ mod vitality_tests {
         let monitor = PgPumpMonitor::default();
         let first = monitor.snapshot();
         assert_eq!(first.cycles, 0);
+        assert_eq!(first.age_since_last_success_s, None);
         assert!(first.age_since_start_s.is_some());
         monitor.begin();
         assert!(monitor.snapshot().active);
@@ -212,6 +219,7 @@ mod vitality_tests {
         assert_eq!(unhealthy.cycles, 3);
         assert_eq!(unhealthy.failed_cycles, 3);
         assert_eq!(unhealthy.consecutive_failures, 3);
+        assert_eq!(unhealthy.age_since_last_success_s, None);
         assert!(unhealthy.age_since_last_completion_s.is_some());
         monitor.begin();
         monitor.end(false);
@@ -219,6 +227,10 @@ mod vitality_tests {
         assert_eq!(healthy.cycles, 4);
         assert_eq!(healthy.failed_cycles, 3);
         assert_eq!(healthy.consecutive_failures, 0);
+        assert!(healthy.age_since_last_success_s.is_some());
+        monitor.begin();
+        monitor.end(true);
+        assert!(monitor.snapshot().age_since_last_success_s.is_some());
         assert!(!format!("{healthy:?}").contains("batch_id"));
     }
 

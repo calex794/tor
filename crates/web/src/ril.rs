@@ -13,9 +13,8 @@ use std::time::Instant;
 use tor_observability::services::trace::{SqlEvidence, SqlSpan};
 use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
-use tor_traffic_behavior::VerifiedSubjectKey;
 
-mod flow;
+pub(crate) mod flow;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,
@@ -28,11 +27,6 @@ pub(crate) fn activate_sqlx_observation() -> bool {
     sqlx_observer::install_for_process()
 }
 
-// Trusted-only response marker. Auth supplies it after a live DB session lookup
-// and explicit opt-in; no client-controlled header is ever parsed as identity.
-#[derive(Clone)]
-pub(crate) struct VerifiedRilSubject(pub(crate) VerifiedSubjectKey);
-
 // One bounded worker per process, shared across all router variants and clones.
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
@@ -43,8 +37,6 @@ pub(crate) fn pump_health_snapshot() -> Option<PgPumpSnapshot> {
     RIL_PUMP_MONITOR.get().map(PgPumpMonitor::snapshot)
 }
 
-/// Local privacy barrier. A separate cross-instance invalidation mechanism is
-/// required before identified paths may be enabled on multiple web processes.
 /// Operator-only, lock-free aggregate loss counters. Does not inspect user paths.
 pub(crate) fn dropped_telemetry_counters() -> Option<(u64, u64)> {
     TRAFFIC
@@ -52,19 +44,14 @@ pub(crate) fn dropped_telemetry_counters() -> Option<(u64, u64)> {
         .map(|recorder| (recorder.dropped_events(), recorder.dropped_path_events()))
 }
 
-pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
-    TRAFFIC.get()?.path_report_for_diagnostics()
+/// Process-local FLOW queue coverage only, without identity or path labels.
+/// An uninitialized recorder means unavailable, not zero visitors.
+pub(crate) fn flow_capture_counters() -> Option<(u64, u64)> {
+    TRAFFIC.get().map(TrafficRecorder::flow_coverage_counts)
 }
 
-pub(crate) async fn forget_subject(key: VerifiedSubjectKey) -> bool {
-    let Some(recorder) = TRAFFIC.get().cloned() else {
-        return true;
-    };
-    tokio::task::spawn_blocking(move || recorder.forget_subject_for_privacy(key))
-        .await
-        .ok()
-        .flatten()
-        == Some(true)
+pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
+    TRAFFIC.get()?.path_report_for_diagnostics()
 }
 
 pub(crate) fn start_pg_background(repo: PgRilRollups) {
@@ -143,17 +130,9 @@ async fn observe(
         HeaderValue::from_str(&format!("{:032x}", trace_id.0)).expect("hexadecimal request ID"),
     );
     response.extensions_mut().insert(trace);
-    // Only the trusted authentication layer may set this internal response
-    // extension after confirming a live session and explicit opt-in.
-    let subject = if (200..300).contains(&status) && passport.route_known {
-        response
-            .extensions_mut()
-            .remove::<VerifiedRilSubject>()
-            .map(|marker| marker.0)
-    } else {
-        response.extensions_mut().remove::<VerifiedRilSubject>();
-        None
-    };
+    // Route/provenance and numeric diagnostics remain active. No response
+    // marker, session, old HMAC setting or consent row can identify a visitor.
+    let subject = None;
     // FLOW receives only a finite HTML category and coarse source hint.
     // Anonymous requests can be counted as pageviews, NOT as unique humans.
     let flow_pageview = flow_request.observed(

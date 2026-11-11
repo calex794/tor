@@ -1,6 +1,6 @@
 'use strict';
-// Consent-gated, real-session organic activation load. Disposable CI only.
-// Measures POST alone (not SSR ticket issuance or unrelated catalogue reads).
+// Retired organic activation: real-session compatibility load. Disposable CI only.
+// Measures private410 POST alone, with no click/write acknowledged as successful.
 const {randomBytes, createHash} = require('node:crypto');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,29 +20,27 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   assert(Number.isSafeInteger(user) && user > 0);
   assert(Number.isSafeInteger(book) && book > 0);
 
-  // The browser must already be authenticated and the reader must have
-  // explicitly enabled REC consent; no fake auth or hand-made CSRF headers.
-  const response = await page.goto(base + '/catalog?sort=newest');
+  // The browser is genuinely authenticated without an analytics subject.
+  // Use an authenticated page with a deliberate same-origin connect policy.
+  // Catalogue HTML keeps its strict CSP after the analytics scripts are retired.
+  const response = await page.goto(base + '/me/recommendations');
   assert.equal(response.status(), 200);
   const cookies = await page.context().cookies(base);
   const session = cookies.find(c => c.name === 'tor-dev-session')?.value;
   const csrf = cookies.find(c => c.name === 'tor-dev-csrf')?.value;
   assert.match(session || '', /^[A-Za-z0-9_-]{43}$/);
   assert.match(csrf || '', /^[A-Za-z0-9_-]{43}$/);
-  const subject = sql('SELECT subject_id::text FROM rec_subjects WHERE user_id=' + user + ' AND enabled');
-  assert.match(subject, /^[0-9a-f-]{36}$/i);
+  assert.equal(sql('SELECT count(*) FROM rec_subjects WHERE user_id=' + user), '0');
   assert.equal(sql('SELECT count(*) FROM rec_public_books WHERE id=' + book), '1');
 
-  // Seed only opaque ticket digests in tor_ci. No browser query, session
-  // token, CSRF secret or identifying user data is persisted.
-  const sessionDigest = digest(session);
+  // Valid opaque old-client payloads are not represented as issued tickets.
+  // Pre-barrier stored assignments belong to the installed migration test.
   const tickets = Array.from({length:COUNT}, () => randomBytes(32).toString('base64url'));
   const hashes = tickets.map(digest);
-  const values = hashes.map(h => "('" + subject + "'::uuid,decode('" +
-    sessionDigest + "','hex'),decode('" + h + "','hex')," + book + ",'catalog',1)");
-  sql('INSERT INTO organic_discovery_touches ' +
-      '(subject_id,session_digest,ticket_digest,book_id,source,position) VALUES ' +
-      values.join(','));
+
+  const {assertCurrentSchema,optionalSnapshot}=require('./collection_retirement_fixtures.cjs')(sql);
+  assertCurrentSchema();
+  const historical=optionalSnapshot(user);
 
   // Browser-origin fetch sends its real cookie, Origin and CSRF. Constant
   // 25 arrivals/s, independent of previous requests' completion.
@@ -68,8 +66,13 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: new URLSearchParams({ticket, csrf_token: csrf})
           });
+          const body=await result.json();
+          const privateRetired=result.headers.get('cache-control')==='no-store'
+            && /noindex/.test(result.headers.get('x-robots-tag') || '')
+            && /nofollow/.test(result.headers.get('x-robots-tag') || '')
+            && body.error?.code==='COLLECTION_RETIRED';
           const finished = performance.now();
-          resolve({slot: i, status: result.status, latency: finished - begun,
+          resolve({slot: i, status: result.status, privateRetired, latency: finished - begun,
             dispatchLag, dispatchedAt: begun - start, finishedAt: finished - start});
         } catch (err) {
           const finished = performance.now();
@@ -83,7 +86,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
     const results = await Promise.all(promises);
     const elapsed = performance.now() - start;
     // Resource Timing entries may be published a task after fetch() resolves
-    // for a 204 response. Wait only after measuring latency/throughput; never
+    // after the response body. Wait only after measuring latency/throughput; never
     // silently drop a slow request from the independent HTTP p95 gate.
     const resourcePrefix = location.origin + '/api/v1/discovery/activate?rec13_slot=';
     let entries = [];
@@ -165,10 +168,10 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   const credited = Number(sql('SELECT count(*) FROM organic_discovery_touches ' +
     'WHERE book_id=' + book + ' AND ticket_digest IN (' + hashed +
     ') AND clicked_at IS NOT NULL'));
-  const ok = sample.results.filter(r => r.status === 204).length;
+  const ok = sample.results.filter(r => r.status === 410 && r.privateRetired).length;
 
-  const metric = 'REC13 ORGANIC AUTH POST ' + COUNT + ' unique tickets @ target ' +
-    RATE + '/s: 204=' + ok + ', p50=' + p50.toFixed(1) + 'ms, p95=' +
+  const metric = 'REC13 RETIRED ORGANIC AUTH POST ' + COUNT + ' unique tickets @ target ' +
+    RATE + '/s: private410=' + ok + ', p50=' + p50.toFixed(1) + 'ms, p95=' +
     p95.toFixed(1) + 'ms, actual=' + actualRps.toFixed(1) +
     '/s, SQL clicks=' + credited;
   console.log(metric);
@@ -180,17 +183,18 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   }
   if (process.env.GITHUB_STEP_SUMMARY) {
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-      '\n### Consent-gated organic POST, disposable tor_ci\n\n' +
-      '| Target | 204 responses | p50 | p95 | Achieved | SQL clicks |\n' +
+      '\n### Retired organic POST, disposable tor_ci\n\n' +
+      '| Target | Private410 responses | p50 | p95 | Achieved | SQL clicks |\n' +
       '|---:|---:|---:|---:|---:|---:|\n| ' + RATE + ' req/s | ' + ok +
       '/' + COUNT + ' | ' + p50.toFixed(1) + ' ms | ' +
       p95.toFixed(1) + ' ms | ' + actualRps.toFixed(1) +
-      ' req/s | ' + credited + '/' + COUNT + ' |\n\n' +
-      'CI-hosted benchmark of authenticated activation only; not a production capacity estimate.\n\n' +
+      ' req/s | ' + credited + ' |\n\n' +
+      'CI compatibility benchmark: every authenticated request is rejected as retired; no production capacity estimate.\n\n' +
       timing + '\n' + networkTiming + '\n');
   }
-  assert.equal(ok, COUNT, 'all real-session activations must succeed: ' + JSON.stringify([...statuses]));
-  assert.equal(credited, COUNT, 'every successful activation must persist one click');
+  assert.equal(ok, COUNT, 'all real-session legacy commands must return private410: ' + JSON.stringify([...statuses]));
+  assert.equal(credited, 0, 'a retired command must never persist a click');
+  assert.deepEqual(optionalSnapshot(user),historical,'retired client payloads introduced an analytics subject or optional store');
   assert(actualRps >= 20, 'auth POST throughput below 20 req/s: ' + metric);
   assert(p95 <= P95_BUDGET_MS, 'auth POST p95 exceeds 750ms: ' + metric);
 }

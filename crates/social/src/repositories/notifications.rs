@@ -3,10 +3,19 @@
 use super::mail::{blocked, pair_lock, unavailable};
 use crate::domain::MailError;
 use sqlx::PgPool;
-use std::{collections::HashMap, fmt::Write};
+use std::collections::HashMap;
 
+#[path = "notification_daily_digest.rs"]
+mod daily_chapter_digest;
+#[path = "notification_external_candidates.rs"]
+mod external_candidates;
+pub use external_candidates::ExternalReleasePreview;
 #[path = "notification_read_policy.rs"]
 mod read_policy;
+pub use daily_chapter_digest::DailyChapterDigestEntry;
+#[path = "notification_profile_url.rs"]
+mod profile_url;
+use profile_url::encode_segment;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
@@ -103,9 +112,8 @@ impl PgNotifications {
         super::chapter_notifications::fanout(&self.pool, limit).await
     }
 
-    /// Consume only this feature's events. Row-level SKIP LOCKED and the
-    /// source-event unique key make competing workers/restarts idempotent.
-    /// No external message or notification is sent before the DB receipt.
+    /// Consume only this feature's events. SKIP LOCKED and unique receipts
+    /// make retries idempotent; no external messages are sent before commit.
     pub async fn deliver_pending(&self, limit: u16) -> Result<usize, MailError> {
         if !(1..=100).contains(&limit) {
             return Err(MailError::Invalid);
@@ -121,6 +129,7 @@ impl PgNotifications {
                  FROM outbox_events e
                  WHERE e.delivered_at IS NULL AND e.dead_at IS NULL
                    AND e.next_attempt_at<=clock_timestamp()
+                   AND (e.lease_until IS NULL OR e.lease_until<=clock_timestamp())
                    AND e.required_consumers @> ARRAY['user_notifications']::text[]
                    AND e.event_type IN
                      ('social.mail.created','social.friendship.requested',
@@ -569,32 +578,5 @@ impl PgNotifications {
             .await
             .map(|result| result.rows_affected())
             .map_err(unavailable)
-    }
-}
-
-/// Encode a single public profile path segment, not an untrusted redirect.
-fn encode_segment(name: &str) -> String {
-    let mut result = String::new();
-    for &byte in name.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            result.push(char::from(byte));
-        } else {
-            write!(result, "%{byte:02X}").expect("write to string");
-        }
-    }
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::encode_segment;
-
-    #[test]
-    fn profile_notification_link_is_one_encoded_path_segment() {
-        assert_eq!(
-            encode_segment("Алиса / Боб"),
-            "%D0%90%D0%BB%D0%B8%D1%81%D0%B0%20%2F%20%D0%91%D0%BE%D0%B1"
-        );
-        assert_eq!(encode_segment("//evil.example"), "%2F%2Fevil.example");
     }
 }

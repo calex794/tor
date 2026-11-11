@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 350)  # All reviewed route + method bindings.
-        self.assertEqual(report["route_pairs"], 348)  # Includes the S033 personal routes.
+        self.assertEqual(report["route_bindings"], 398)  # All reviewed route + method bindings.
+        self.assertEqual(report["route_pairs"], 396)  # Includes FLOW consent, visits and book funnel.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -73,6 +73,20 @@ class RilExposureTests(unittest.TestCase):
         data["routes"].reverse()
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual(before, fingerprint(self.root)["sha256"])
+
+    def test_audience_exception_cannot_extend_or_downgrade(self):
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        original = path.read_text(encoding="utf-8")
+        for route in ("/admin/audience", "/admin/audience/books", "/admin/audience/groups",
+                      "/admin/audience/returns", "/admin/audience/visits", "/admin/audience/funnel"):
+            for field, value in (("template", route + "/export"), ("policy", "session")):
+                with self.subTest(route=route, field=field):
+                    data = json.loads(original)
+                    row = next(row for row in data["routes"] if row["template"] == route)
+                    row[field] = value
+                    path.write_text(json.dumps(data), encoding="utf-8")
+                    self.assertTrue(any("internal/admin route is not denied" in x
+                                        for x in check_repository(self.root)))
 
     def test_change_in_handler_or_security_changes_fingerprint(self):
         before = fingerprint(self.root)["sha256"]
@@ -142,6 +156,62 @@ class RilExposureTests(unittest.TestCase):
             "handler": "admin_reports::queue", "policy": "admin_share_reports",
         })
         path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+    def test_s049_free_comment_appeals_cannot_enable_export(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc["routes"].append({
+            "method": "GET", "template": "/admin/free-comment-appeals/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "free_comment_appeals::queue",
+            "policy": "admin_free_comment_appeals",
+        })
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+    def test_s049_free_comment_review_does_not_enable_admin_export(self):
+        self.assertEqual(check_repository(self.root), [])
+        target = self.root / "docs/contracts/ril-route-guards-v1.json"
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        doc["routes"].append({
+            "method": "GET",
+            "template": "/admin/free-comment-reports/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "free_comment_reviews::queue",
+            "policy": "admin_free_comment_reports",
+        })
+        target.write_text(json.dumps(doc), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+
+    def test_s049_paid_appeal_review_does_not_expose_export_route(self):
+        self.assertEqual(check_repository(self.root), [])
+        path = self.root / "docs/contracts/ril-route-guards-v1.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["routes"].append({
+            "method": "GET", "template": "/admin/paid-comment-appeals/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "paid_comment_appeals::queue",
+            "policy": "admin_paid_comment_appeals",
+        })
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
+
+
+    def test_s049_paid_comment_admin_routes_cannot_broaden_to_export(self):
+        self.assertEqual(check_repository(self.root), [])
+        target = self.root / "docs/contracts/ril-route-guards-v1.json"
+        data = json.loads(target.read_text(encoding="utf-8"))
+        data["routes"].append({
+            "method": "GET",
+            "template": "/admin/paid-comment-reports/export",
+            "source": "crates/web/src/auth/book_shares.rs",
+            "handler": "paid_comment_reviews::queue",
+            "policy": "admin_paid_comment_reports",
+        })
+        target.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
     def test_s049_book_admin_exception_is_exact_not_a_prefix_grant(self):

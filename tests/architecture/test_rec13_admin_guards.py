@@ -47,25 +47,41 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertNotIn("settings.reviewed", author)
         self.assertIn("!verified.administrator", (ROOT / "crates/web/src/recommendation_http/admin.rs").read_text())
 
-    def test_organic_consent_discloses_search_catalog_and_verified_reading(self):
+    def test_retired_collection_has_no_consent_forms_and_keeps_explicit_choices(self):
         page = (ROOT / "crates/web/src/recommendation_http/pages.rs").read_text()
-        self.assertIn("переходы из поиска и каталога", page)
-        self.assertIn("подтверждённое чтение", page)
-        self.assertIn("В аналитике рекомендаций текст поисковых запросов не сохраняется", page)
-        self.assertIn("Сбор по умолчанию выключен", page)
+        self.assertNotIn(r'action=\"/me/recommendations/consent\"', page)
+        self.assertNotIn("data-flow-consent", page)
+        self.assertIn(r'action=\"/me/recommendations/feedback\"', page)
+        self.assertIn(".set_feedback(", page)
+        self.assertNotIn(".set_consent(", page)
+        self.assertNotIn(".flow_consent(", page)
+        self.assertIn("api::retired()", page)
 
-    def test_organic_runtime_flag_is_declared_and_off_by_default(self):
+    def test_legacy_collection_flags_cannot_restart_production_workers(self):
         contract = json.loads((ROOT / "docs/contracts/release-flags-v1.json").read_text())
-        flag = contract["flags"]["organic_discovery_attribution_enabled"]
-        self.assertIs(flag["default_enabled"], False)
-        self.assertEqual(set(flag["requires"]), {
-            "recommendations_enabled", "recommendation_attribution_enabled"
-        })
-        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", flag["gate"])
+        self.assertIs(
+            contract["flags"]["organic_discovery_attribution_enabled"]["default_enabled"], False
+        )
         runtime = (ROOT / "crates/web/src/recommendation_http/mod.rs").read_text()
         worker = (ROOT / "crates/web/src/recommendation_worker.rs").read_text()
-        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", runtime)
-        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", worker)
+        returns = (ROOT / "crates/web/src/recommendation_worker/returns.rs").read_text()
+        cleanup = (ROOT / "crates/web/src/auth/security_retention.rs").read_text()
+        self.assertIn("TOR_RECOMMENDATIONS_ENABLED", runtime)
+        for retired in ("TOR_REC_ATTRIBUTION_ENABLED", "TOR_ORGANIC_ATTRIBUTION_ENABLED",
+                        "TOR_READING_RETURNS_ENABLED", "TOR_BOOK_READING_RETURNS_ENABLED"):
+            self.assertNotIn('var("' + retired + '")', runtime + worker + returns)
+        self.assertNotIn(".tick_feedback(", worker + cleanup)
+        self.assertNotIn(".advance_generation(", worker + cleanup)
+        self.assertIn(".retire_analytics_batch(256)", cleanup)
+        self.assertIn(".prune_preferences()", cleanup)
+        # Current schema closes collection with a bounded I port. The P2a
+        # finalizers/recomputers may remain in legacy repository tests only.
+        for forbidden in (".maintain_retired()", ".refresh_quality(",
+                          ".refresh_organic_quality(", "initialize_retired_returns",
+                          "maintain_retired_returns", ".tick_collection(",
+                          ".tick_book_collection(", ".start_collection(",
+                          ".start_book_collection("):
+            self.assertNotIn(forbidden, worker + returns + cleanup)
 
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()

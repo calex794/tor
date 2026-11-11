@@ -156,15 +156,17 @@ impl PgAuthoring {
                 .try_get("payload_hash")
                 .map_err(|_| AuthorError::Unavailable)?;
             if previous.as_slice() != command_digest.as_slice() {
+                tx.rollback().await.map_err(write_error)?;
                 return Err(AuthorError::Conflict);
             }
             let previous_chapter: Option<i64> = row
                 .try_get("chapter_id")
                 .map_err(|_| AuthorError::Unavailable)?;
             if previous_chapter != Some(chapter_id) {
+                tx.rollback().await.map_err(write_error)?;
                 return Err(AuthorError::Conflict);
             }
-            return Ok(SavedChapter {
+            let saved = SavedChapter {
                 chapter_id,
                 version_id: row
                     .try_get::<Option<i64>, _>("version_id")
@@ -174,7 +176,11 @@ impl PgAuthoring {
                     .try_get::<Option<i64>, _>("saved_revision")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Conflict)?,
-            });
+            };
+            // Do not leave a book FOR UPDATE lock to SQLx's asynchronous
+            // rollback-on-drop after returning an idempotent HTTP reply.
+            tx.rollback().await.map_err(write_error)?;
+            return Ok(saved);
         }
         let row = sqlx::query(
             "SELECT c.chapter_no,c.title,c.edit_revision,p.version_id,
@@ -204,6 +210,7 @@ impl PgAuthoring {
             .try_get("chapter_no")
             .map_err(|_| AuthorError::Unavailable)?;
         if revision != input.expected_revision || number != input.number {
+            tx.rollback().await.map_err(write_error)?;
             return Err(AuthorError::Conflict);
         }
         let old_title: String = row.try_get("title").map_err(|_| AuthorError::Unavailable)?;

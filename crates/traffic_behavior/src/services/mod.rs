@@ -1,3 +1,5 @@
+pub mod audience;
+pub mod observed_audience;
 mod paths_worker;
 mod pg_pump;
 mod recorder;

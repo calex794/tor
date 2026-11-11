@@ -6,11 +6,34 @@ use sqlx::{PgPool, Row};
 #[derive(Clone)]
 pub struct PgReadingProgress {
     pool: PgPool,
+    activity_collection: bool,
+    book_return_collection: bool,
+    flow_collection: bool,
 }
 
 impl PgReadingProgress {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            activity_collection: false,
+            book_return_collection: false,
+            flow_collection: false,
+        }
+    }
+
+    pub fn with_activity_collection(mut self, enabled: bool) -> Self {
+        self.activity_collection = enabled;
+        self
+    }
+
+    pub fn with_flow_collection(mut self, enabled: bool) -> Self {
+        self.flow_collection = enabled;
+        self
+    }
+
+    pub fn with_book_return_collection(mut self, enabled: bool) -> Self {
+        self.book_return_collection = enabled;
+        self
     }
 
     pub async fn saved_place(
@@ -168,6 +191,63 @@ impl PgReadingProgress {
         {
             return Err(ProgressError::Invalid);
         }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
+        crate::repositories::flow_capture::prepare_read(&mut tx, self.flow_collection)
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
+        // The manual form must satisfy the same C text/access boundary as the
+        // CAS path. HTTP validation alone cannot authorize a trusted day fact.
+        let edition = sqlx::query(
+            "SELECT c.book_id,published.version_id,v.body_markdown
+             FROM chapters c JOIN books b ON b.id=c.book_id
+             JOIN users viewer ON viewer.id=$2 AND viewer.account_state='active'
+             JOIN chapter_publications published ON published.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=published.version_id AND v.chapter_id=c.id
+             WHERE c.id=$1 AND b.visibility='public' AND b.visibility_status='active'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.access_level='basic'
+                 OR (b.access_level='adult' AND viewer.adult_enabled)
+                 OR (b.access_level='pro_adult' AND EXISTS(
+                   SELECT 1 FROM user_level_grants g
+                   WHERE g.user_id=viewer.id AND g.level='pro_adult' AND g.is_active)))
+               AND c.visibility='public' AND c.access_level='free'
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+             FOR SHARE OF c,b,viewer,published,v",
+        )
+        .bind(chapter_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| ProgressError::Unavailable)?
+        .ok_or(ProgressError::NotFound)?;
+        if edition
+            .try_get::<i64, _>("version_id")
+            .map_err(|_| ProgressError::Unavailable)?
+            != version_id
+        {
+            return Err(ProgressError::StaleVersion);
+        }
+        let body: String = edition
+            .try_get("body_markdown")
+            .map_err(|_| ProgressError::Unavailable)?;
+        if (self.activity_collection || self.book_return_collection)
+            && (!crate::domain::renderer::valid_reader_length(&body)
+                || crate::services::progress::valid_text_place(
+                    place,
+                    &crate::services::progress::reader_blocks(&body),
+                )
+                .is_err())
+        {
+            return Err(ProgressError::Invalid);
+        }
+        let book: i64 = edition
+            .try_get("book_id")
+            .map_err(|_| ProgressError::Unavailable)?;
         let result = sqlx::query(
             "INSERT INTO reader_book_positions AS saved \
                 (user_id, book_id, chapter_id, chapter_no, chapter_revision, \
@@ -211,38 +291,29 @@ impl PgReadingProgress {
         .bind(version_id)
         .bind(place.block_index)
         .bind(place.char_offset)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|_| ProgressError::Unavailable)?;
         if result.rows_affected() > 0 {
-            return Ok(());
+            super::returns::record(
+                &mut tx,
+                user_id,
+                book,
+                place,
+                self.activity_collection,
+                self.book_return_collection,
+                self.flow_collection,
+            )
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
         }
-        // Zero rows can also mean a stale/no-op command. Recheck the access gate.
-        let current: Option<i64> = sqlx::query_scalar(
-            "SELECT published.version_id FROM chapters c \
-             JOIN books b ON b.id = c.book_id \
-             JOIN users AS viewer ON viewer.id=$2 AND viewer.account_state='active' \
-             JOIN chapter_publications published ON published.chapter_id = c.id \
-             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
-               AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND (b.access_level='basic' \
-               OR (b.access_level='adult' AND viewer.adult_enabled) \
-               OR (b.access_level='pro_adult' AND EXISTS ( \
-                   SELECT 1 FROM user_level_grants AS age_grant \
-                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
-               AND c.visibility = 'public' AND c.access_level = 'free' \
-               AND NOT c.admin_hold AND NOT c.is_deleted \
-               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
-        )
-        .bind(chapter_id)
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| ProgressError::Unavailable)?;
-        match current {
-            None => Err(ProgressError::NotFound),
-            Some(id) if id != version_id => Err(ProgressError::StaleVersion),
-            Some(_) => Ok(()), // Delayed request is harmless; do not roll back.
-        }
+        // A no-op preserves the old form's harmless delayed-request behavior;
+        // it cannot enroll a reader or manufacture another observed day.
+        let capture_failed = crate::repositories::flow_capture::read_failed(&mut tx)
+            .await
+            .map_err(|_| ProgressError::Unavailable)?;
+        tx.commit().await.map_err(|_| ProgressError::Unavailable)?;
+        crate::repositories::flow_capture::read_committed(capture_failed);
+        Ok(())
     }
 }

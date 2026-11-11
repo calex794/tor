@@ -74,11 +74,12 @@ mod tests {
         for mode in [
             DeliveryMode::Disabled,
             DeliveryMode::Immediate,
+            DeliveryMode::SmartTime,
             DeliveryMode::DailyDigest,
         ] {
             assert_eq!(DeliveryMode::parse(mode.as_str()), Some(mode));
         }
-        for invalid in ["", "instant", "smart_time", "DISABLED", "email", "all"] {
+        for invalid in ["", "instant", "SMART_TIME", "DISABLED", "email", "all"] {
             assert_eq!(DeliveryMode::parse(invalid), None);
         }
     }

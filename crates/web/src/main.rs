@@ -1,9 +1,9 @@
 mod book_schedule_worker;
+mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
 mod social_notification_consumer;
 mod support_cleanup;
-
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -12,7 +12,6 @@ use tor_books::{
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
-
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -41,6 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if paid_author_enabled && !paid_grants_enabled {
         return Err("Paid author publication requires enabled paid grants".into());
     }
+    let g09_operator_enabled = g09_bootstrap::enabled(demo)?;
     #[cfg(not(feature = "s3-paid"))]
     if paid_author_enabled {
         return Err("Paid author publication requires a build with --features s3-paid".into());
@@ -68,7 +68,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
     #[cfg(not(feature = "s3-covers"))]
     let _ = &cdn_config;
-
     // Private cover S3 is an explicit operator-owned opt-in. A deployment
     // without S3 continues serving books, but never invents image URLs.
     #[cfg(feature = "s3-covers")]
@@ -95,7 +94,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     };
-
     // Chapter-import staging is a separate private S3 capability. It stores
     // only the author's already-reviewed canonical UTF-8 text.
     #[cfg(feature = "s3-chapter-import")]
@@ -197,23 +195,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
-    let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
+    let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
-    for flag in ["TOR_RECOMMENDATIONS_ENABLED", "TOR_REC_ATTRIBUTION_ENABLED"] {
-        if let Ok(value) = env::var(flag) {
-            if !matches!(value.as_str(), "0" | "1") {
-                return Err(format!("invalid boolean flag {flag}").into());
-            }
+    // The product switch still controls the catalogue recommendation surface.
+    // Retired collection flags cannot enable identity capture or block AUTH=0.
+    if let Ok(value) = env::var("TOR_RECOMMENDATIONS_ENABLED") {
+        if !matches!(value.as_str(), "0" | "1") {
+            return Err("invalid boolean flag TOR_RECOMMENDATIONS_ENABLED".into());
         }
-    }
-    if env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1")
-        && env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1")
-    {
-        return Err("attribution requires recommendations".into());
     }
     let mut pending_social_notifications = None;
     let mut pending_support_cleanup = None;
@@ -275,11 +268,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
-            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                pending_rec_worker = Some(
-                    tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
-                );
-            }
+            pending_security_retention = Some(PgAccounts::from_pool(pool.clone()));
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_support_cleanup = Some(
                     tor_support::repositories::postgres::PgSupport::new(pool.clone()),
@@ -333,7 +322,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
-                pending_security_retention = Some(accounts.clone());
+                if g09_operator_enabled {
+                    pending_g09_routes = Some(
+                        g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
+                    );
+                }
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -496,13 +489,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let app = if let Some(routes) = pending_chapter_import_routes {
-        // The base router already has RIL instrumentation. Instrument this
-        // late-bound route group with the same process recorder before merge.
-        app.merge(tor_web::instrument_additional_routes(routes))
-    } else {
-        app
-    };
+    let app = [pending_g09_routes, pending_chapter_import_routes]
+        .into_iter()
+        .flatten()
+        .fold(app, |app, routes| {
+            // The base router already has RIL instrumentation. Instrument each
+            // late-bound route group with the same process recorder before merge.
+            app.merge(tor_web::instrument_additional_routes(routes))
+        });
     let listener = tokio::net::TcpListener::bind(address).await?;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
@@ -568,13 +562,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
-    let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
-    // The authenticated server starts this worker once, after binding HTTP.
+    // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
     let account_retention =
-        pending_security_retention.map(tor_web::start_account_security_retention);
+        tor_web::start_account_security_retention(pending_security_retention).await;
     let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

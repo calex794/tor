@@ -13,12 +13,12 @@ use std::{
         Arc,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 const MAX_QUEUE: usize = 4_096;
 enum Message {
-    Event(BehaviorEvent, Option<FlowPageview>),
+    Event(BehaviorEvent, Option<FlowPageview>, Option<i64>),
     Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
@@ -30,6 +30,8 @@ enum Message {
 pub struct TrafficRecorder {
     sender: SyncSender<Message>,
     dropped: Arc<AtomicU64>,
+    flow_candidates: Arc<AtomicU64>,
+    flow_dropped: Arc<AtomicU64>,
     paths: PathRecorder,
     started: Instant,
 }
@@ -52,7 +54,7 @@ impl TrafficRecorder {
                 let mut fail_closed = false;
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(mut event, flow) => {
+                        Message::Event(mut event, flow, observed_hour) => {
                             // An in-flight request may arrive after consent has
                             // been revoked. It cannot recreate the old path.
                             while let Some((time, key)) = expirations.front().copied() {
@@ -75,6 +77,7 @@ impl TrafficRecorder {
                                     .subject
                                     .is_some_and(|key| visits.observe(key, event.at_millis));
                                 rollup.record_flow(pageview, event.subject.is_some(), started);
+                                rollup.record_observed_flow(pageview, observed_hour);
                             }
                             if event.subject.is_some() {
                                 let _ = path_sink.try_record(event);
@@ -113,6 +116,8 @@ impl TrafficRecorder {
         Self {
             sender,
             dropped,
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths,
             started: Instant::now(),
         }
@@ -129,10 +134,23 @@ impl TrafficRecorder {
     /// Atomic best-effort enqueue: the RIL event and its bounded HTML sample
     /// either enter the same worker queue together or are dropped together.
     pub fn try_record_with_flow(&self, event: BehaviorEvent, flow: Option<FlowPageview>) -> bool {
-        match self.sender.try_send(Message::Event(event, flow)) {
+        // Candidates are HTML requests, never distinct people or sessions.
+        let has_flow = flow.is_some();
+        if has_flow {
+            self.flow_candidates.fetch_add(1, Ordering::Relaxed);
+        }
+        // Capture at the HTTP producer, not after queueing or PostgreSQL delay.
+        let observed_hour = flow.and_then(|_| crate::domain::observation_hour(SystemTime::now()));
+        match self
+            .sender
+            .try_send(Message::Event(event, flow, observed_hour))
+        {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
+                if has_flow {
+                    self.flow_dropped.fetch_add(1, Ordering::Relaxed);
+                }
                 false
             }
         }
@@ -190,6 +208,15 @@ impl TrafficRecorder {
 
     pub fn dropped_events(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// The queue can lose eligible HTML events without affecting HTTP.
+    /// A successful enqueue does NOT guarantee downstream PG materialization.
+    pub fn flow_coverage_counts(&self) -> (u64, u64) {
+        (
+            self.flow_candidates.load(Ordering::Relaxed),
+            self.flow_dropped.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -313,6 +340,8 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -328,11 +357,38 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
         assert!(!recorder.try_record(event()));
         assert_eq!(recorder.dropped_events(), 1);
+    }
+
+    #[test]
+    fn flow_02_queue_loss_is_not_confused_with_other_dropped_events() {
+        use tor_contracts::flow::{AcquisitionChannel, RouteSurface};
+        // An idle channel makes saturation deterministic.
+        let (sender, _idle_receiver) = mpsc::sync_channel(1);
+        let recorder = TrafficRecorder {
+            sender,
+            dropped: Arc::new(AtomicU64::new(0)),
+            flow_candidates: Arc::new(AtomicU64::new(0)),
+            flow_dropped: Arc::new(AtomicU64::new(0)),
+            paths: PathRecorder::start(2, 2),
+            started: Instant::now(),
+        };
+        let page = FlowPageview {
+            surface: RouteSurface::Catalogue,
+            acquisition_hint: AcquisitionChannel::DirectOrUnknown,
+        };
+        assert_eq!(recorder.flow_coverage_counts(), (0, 0));
+        assert!(recorder.try_record_with_flow(event(), Some(page)));
+        assert!(!recorder.try_record_with_flow(event(), Some(page)));
+        assert!(!recorder.try_record(event()));
+        assert_eq!(recorder.flow_coverage_counts(), (2, 1));
+        assert_eq!(recorder.dropped_events(), 2);
     }
 
     #[test]
@@ -371,7 +427,7 @@ mod tests {
         let row = first_batch.flow_rows()[0];
         assert_eq!(row.html_requests, 3);
         assert_eq!(row.opted_in_html_requests, 2);
-        assert_eq!(row.observed_opted_in_visit_starts, 1);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
         assert!(recorder
             .drain_for_persistence()
             .unwrap()

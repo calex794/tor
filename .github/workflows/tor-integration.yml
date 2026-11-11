@@ -133,6 +133,12 @@ jobs:
       PGPASSWORD: tor-ci-postgres
       TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
       MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      LEGACY_ANALYTICS_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_legacy_analytics
+      LEGACY_ANALYTICS_MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_legacy_analytics
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_collection_retirement_startup
     steps:
       - uses: actions/checkout@v4
         with:
@@ -203,6 +209,34 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'
           E08_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_e08_upgrade' \
             cargo test -p tor-migrations --test e08_installed_upgrade_pg -- --ignored --test-threads=1
+      - name: REC explicit preferences installed upgrade (disposable database)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_rec_preferences_upgrade OWNER tor_migrator'
+          REC_PREFERENCES_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_rec_preferences_upgrade' \
+            cargo test -p tor-migrations --test rec_preferences_installed_upgrade_pg -- --ignored --test-threads=1
+      - name: Prepare explicit legacy and installed-upgrade analytics databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
+          SQL
+          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
+            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
+          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
+          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          done
+          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+      - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
@@ -263,6 +297,7 @@ jobs:
           # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
           # Fix all seeded entities before running tests that INSERT default IDs.
           PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT max(id) FROM users),1), true);
           SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
           SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
           SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
@@ -307,9 +342,12 @@ jobs:
           cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
+          cargo test -p tor-ingest --test outbox_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
@@ -328,6 +366,7 @@ jobs:
           cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_import_worker_contention_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test book_related_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test public_related_http_pg -- --ignored --test-threads=1
@@ -370,6 +409,28 @@ jobs:
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_book_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_book_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_group_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
@@ -377,15 +438,22 @@ jobs:
           cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1 --show-output
           ci_pg_phase_done "reading_library"
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test recommendation_preferences_legacy_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test catalog_legacy_history_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test analytics_invalidation_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
           TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
@@ -402,7 +470,7 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
-           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1 --show-output
           cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
           # Enable owner Layer management for exactly this isolated PG/HTTP suite.
           # All other tests and the actual application retain the default OFF gate.
@@ -412,6 +480,11 @@ jobs:
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d08_finance_pg s038_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_reject_pg d_09_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_approval_quote_pg d_09_quote_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_posting_pg d_09_post_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test d09_payout_mature_pg d_09_post_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           ci_pg_phase_done "commerce_support"
@@ -423,26 +496,44 @@ jobs:
           cargo test -p tor-web --test s016_book_shares_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s049_book_share_reports_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s049_book_content_reports_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s049_comment_appeals_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test s049_free_comment_reports_http_pg -- --ignored --nocapture --test-threads=1
           cargo test -p tor-web --test s009_collections_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test s030_owner_transfer_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
           env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
-          env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_DIRECT_REFUND_REQUESTS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refund_browser_disabled_by_default -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
-          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_REFUND_REQUESTS_ENABLED=1 TOR_REFUND_APPROVAL_HTTP_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_buyer_http_owner_csrf_policy_submit_replay_and_history -- --ignored --test-threads=1
+          env -u TOR_PAID_CHECKOUT_ENABLED -u TOR_ADMIN_SUPPORT_REFUNDS_ENABLED cargo test -p tor-web --test direct_refund_browser_http_pg s036_refunds_not_routed_to_buyer -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_ADMIN_SUPPORT_REFUNDS_ENABLED=1 cargo test -p tor-web --test direct_refund_browser_http_pg s036_admin_support_search_exact_purchase_prepare_approve_and_replay -- --ignored --test-threads=1
+          
+          env -u TOR_S039_PAYOUT_REJECT_HTTP_ENABLED cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_S039_PAYOUT_REJECT_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_admin_http_pg s039_http_admin_role_csrf_idempotent_rejection -- --ignored --test-threads=1
+          env -u TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_admin_only_and_no_wallet_movement -- --ignored --test-threads=1
+          cargo test -p tor-web --test s039_payout_step_up_pg s039_password_step_up_is_session_bound_and_posted_only_once -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
-          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --nocapture --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
             TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 
+      - name: Preserve FLOW audience browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-audience-pg-browser
+          path: |
+            ${{ runner.temp }}/rec13-browser/shots/audience*.png
+            ${{ runner.temp }}/rec13-browser/shots/flow-visits*.png
+            ${{ runner.temp }}/rec13-browser/shots/recommendation-preferences*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
@@ -1397,6 +1488,7 @@ jobs:
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           node --check tools/s035_contiguous_paid_browser.cjs
           node --check tools/paid_reader_private_media_browser.cjs
+          cargo test -p tor-web --features s3-paid --test g09_operator_http_pg -- --ignored --test-threads=1
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/layer_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1

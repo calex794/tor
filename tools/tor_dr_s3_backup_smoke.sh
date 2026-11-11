@@ -214,3 +214,7 @@ private_code="$(curl --silent --max-time 5 --output /dev/null \
   exit 1
 }
 echo 'I11_S3_PG18_RESTORED_AXUM_ACL_OK'
+
+# The existing sealed-remote-copy job also proves WAL replay, not only pg_dump.
+# This independent sandbox has no ports, host bind mounts or runtime network.
+python3 tools/i11_pitr_drill.py

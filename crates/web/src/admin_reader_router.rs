@@ -22,6 +22,13 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
     enable_cover_uploads: bool,
 ) -> Router {
     let auth_reader = reader.clone();
+    let flow = crate::recommendation_http::visits::Context::new(
+        accounts.clone(),
+        auth_cookies::CookiePolicy {
+            secure,
+            origin: public_origin.clone(),
+        },
+    );
     let follows =
         book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone());
     let admin = paid_grants_http::administrator_only_router(
@@ -41,20 +48,19 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
         ),
         _ => auth::router(accounts, auth_reader, secure, public_origin),
     };
-    ril::instrument(
-        make_router_with_paid_checkout(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_objects,
-            Some(follows),
-            ReaderModes {
-                paid_browser: false,
-                admin_reader: true,
-            },
-        )
-        .merge(owner_auth)
-        .merge(admin),
+    let app = make_router_with_paid_checkout(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        Some(reader),
+        true,
+        cover_objects,
+        Some(follows),
+        ReaderModes {
+            paid_browser: false,
+            admin_reader: true,
+        },
     )
+    .merge(owner_auth)
+    .merge(admin);
+    ril::instrument(crate::recommendation_http::visits::instrument(app, flow))
 }

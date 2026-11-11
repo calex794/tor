@@ -1,7 +1,7 @@
 //! A normal Save to an already public book releases a free chapter in one
 //! atomic owner-only transaction. The historical private/draft commands remain
 //! separate for books that are not yet published.
-use super::PgAuthoring;
+use super::{chapter_outbox::enqueue_chapter_first_release, PgAuthoring};
 use crate::repositories::chapter_number;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, SaveChapter, SavedChapter,
@@ -95,9 +95,10 @@ impl PgAuthoring {
                 .try_get("payload_hash")
                 .map_err(|_| AuthorError::Unavailable)?;
             if old_hash.as_slice() != payload_hash.as_slice() {
+                tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
                 return Err(AuthorError::Conflict);
             }
-            return Ok(SavedChapter {
+            let saved = SavedChapter {
                 chapter_id: row
                     .try_get::<Option<i64>, _>("chapter_id")
                     .map_err(|_| AuthorError::Unavailable)?
@@ -110,7 +111,14 @@ impl PgAuthoring {
                     .try_get::<Option<i64>, _>("saved_revision")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-            });
+            };
+            // SQLx rollback-on-drop is asynchronous. Explicitly release the
+            // book FOR UPDATE lock before returning an HTTP replay/conflict:
+            // otherwise the following FK check for a late subscriber can
+            // wait on an idle-in-transaction connection in a single-thread
+            // Tokio test or under a busy runtime.
+            tx.rollback().await.map_err(|_| AuthorError::Unavailable)?;
+            return Ok(saved);
         }
 
         let number = chapter_number::assign(&mut tx, input.book_id, input.number).await?;
@@ -156,6 +164,7 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+        enqueue_chapter_first_release(&mut tx, input.book_id, chapter_id, version_id).await?;
         sqlx::query(
             "UPDATE chapter_save_commands SET chapter_id=$3,version_id=$4,saved_revision=1
              WHERE user_id=$1 AND command_key=$2",

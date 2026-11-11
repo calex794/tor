@@ -242,5 +242,5 @@ pub(super) async fn reader_page(
             "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
-    response
+    crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }

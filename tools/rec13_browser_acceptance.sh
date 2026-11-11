@@ -6,6 +6,8 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "$TEST_DATABASE_URL" != postgresql://tor_
   echo 'REC13 browser acceptance is restricted to isolated GitHub Actions tor_ci' >&2
   exit 2
 fi
+# Bounded screenshots from the actual CI checkout supplement the full PNG artifacts.
+export TOR_BROWSER_PROOF_IMAGES=1
 root="${RUNNER_TEMP:-/tmp}/rec13-browser"
 mkdir -p "$root/shots" "$root/node"
 exec > >(tee "$root/browser.log") 2>&1
@@ -35,25 +37,93 @@ else
   node_path="$root/node/node_modules"
 fi
 ci_rec_step_done "playwright_setup"
-TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
-  TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
-  DATABASE_URL="$TEST_DATABASE_URL" ./target/debug/tor-web >"$root/server.log" 2>&1 &
-pid=$!
+: "${LEGACY_ANALYTICS_DATABASE_URL:?explicit legacy 192 database required}"
+: "${COLLECTION_RETIREMENT_APP_DATABASE_URL:?installed 190 to current upgrade database required}"
+pid=''
+stop_server() {
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    pid=''
+  fi
+}
 cleanup() {
   result=$?
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  if (( result != 0 )); then tail -n 60 "$root/server.log" >&2; fi
+  stop_server
+  if (( result != 0 )); then
+    for server_log in "$root"/server-*.log; do
+      if [[ -f "$server_log" ]]; then tail -n 60 "$server_log" >&2; fi
+    done
+  fi
   exit "$result"
 }
 trap cleanup EXIT
-for attempt in $(seq 1 45); do
-  if curl --fail --silent http://127.0.0.1:3108/readyz >/dev/null; then break; fi
-  kill -0 "$pid"
-  sleep 1
- done
-curl --fail --silent http://127.0.0.1:3108/readyz
-ci_rec_step_done "http_ready"
+start_server() {
+  local fixture_url="$1"
+  local fixture_name="$2"
+  TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
+    TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
+    DATABASE_URL="$fixture_url" ./target/debug/tor-web >"$root/server-$fixture_name.log" 2>&1 &
+  pid=$!
+  for attempt in $(seq 1 45); do
+    if curl --fail --silent http://127.0.0.1:3108/readyz >/dev/null; then break; fi
+    kill -0 "$pid"
+    sleep 1
+  done
+  curl --fail --silent http://127.0.0.1:3108/readyz
+  if [[ "$fixture_name" == current ]]; then
+    ci_rec_step_done "http_ready"
+  else
+    ci_rec_step_done "http_ready_$fixture_name"
+  fi
+}
+# Current business behavior is always exercised behind the installed SQL barrier.
+start_server "$TEST_DATABASE_URL" current
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
 ci_rec_step_done "browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_pg_browser.cjs
+ci_rec_step_done "audience_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_hours_pg_browser.cjs
+ci_rec_step_done "audience_hours_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/flow_visits_pg_browser.cjs
+ci_rec_step_done "flow_visits_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/flow_funnel_pg_browser.cjs
+ci_rec_step_done "flow_funnel_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
+  TOR_PREFERENCES_PROOF_IMAGES=1 node tools/recommendation_preferences_pg_browser.cjs
+ci_rec_step_done "recommendation_preferences_browser_acceptance"
+stop_server
+# Historical collector/report arithmetic remains executable in its own 192 database.
+# No current-schema trigger is disabled and no application collection bypass is added.
+start_server "$LEGACY_ANALYTICS_DATABASE_URL" legacy192
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_sources_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_sources_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_books_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_books_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_groups_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_groups_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_returns_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_returns_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_book_returns_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_book_returns_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_group_returns_pg_browser.cjs
+ci_rec_step_done "legacy192_audience_group_returns_browser_acceptance"
+stop_server
+# This database was genuinely upgraded from accepted 190 and drained by the bounded port.
+start_server "$COLLECTION_RETIREMENT_APP_DATABASE_URL" installed-upgrade
+NODE_PATH="$node_path" APP_URL="$COLLECTION_RETIREMENT_APP_DATABASE_URL" \
+  TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/analytics_retirement_pg_browser.cjs
+ci_rec_step_done "installed_retirement_browser_acceptance"
+stop_server

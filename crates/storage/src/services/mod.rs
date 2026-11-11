@@ -1,4 +1,5 @@
 pub mod crypto;
 pub mod gc;
 pub mod provider;
+pub mod reconciliation;
 pub mod unconfigured;

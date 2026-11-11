@@ -40,9 +40,51 @@ AUDITED_S049_BOOK_ADMIN = {
     ("POST", "/admin/book-reports/{report_id}/decision",
      "content_reports::decide", "admin_book_reports"),
 }
+AUDITED_S049_PAID_COMMENT_APPEALS = {
+    ("GET", "/admin/paid-comment-appeals", "paid_comment_appeals::queue", "admin_paid_comment_appeals"),
+    ("POST", "/admin/paid-comment-appeals/{appeal_id}/decision",
+     "paid_comment_appeals::decide", "admin_paid_comment_appeals"),
+}
+AUDITED_S049_FREE_COMMENT_APPEALS = {
+    ("GET", "/admin/free-comment-appeals", "free_comment_appeals::queue", "admin_free_comment_appeals"),
+    ("POST", "/admin/free-comment-appeals/{appeal_id}/decision",
+     "free_comment_appeals::decide", "admin_free_comment_appeals"),
+}
+AUDITED_S049_FREE_COMMENT_ADMIN = {
+    ("GET", "/admin/free-comment-reports", "free_comment_reviews::queue", "admin_free_comment_reports"),
+    ("POST", "/admin/free-comment-reports/{report_id}/decision",
+     "free_comment_reviews::decide", "admin_free_comment_reports"),
+}
+AUDITED_S049_PAID_COMMENT_ADMIN = {
+    ("GET", "/admin/paid-comment-reports", "paid_comment_reviews::queue", "admin_paid_comment_reports"),
+    ("POST", "/admin/paid-comment-reports/{report_id}/decision",
+     "paid_comment_reviews::decide", "admin_paid_comment_reports"),
+}
+AUDITED_S049_COMMENT_APPEALS = {
+    ("GET", "/admin/book-comment-appeals", "comment_appeals::queue", "admin_comment_appeals"),
+    ("POST", "/admin/book-comment-appeals/{appeal_id}/decision",
+     "comment_appeals::decide", "admin_comment_appeals"),
+}
 AUDITED_REFUND_ADMIN = {
     ("GET", "/admin/finance/refunds", "page", "admin_refund"),
+    ("GET", "/admin/finance/refunds/user/{id}", "buyer", "admin_refund"),
+    ("POST", "/admin/finance/refunds/prepare", "prepare::submit", "admin_refund_prepare"),
     ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
+}
+AUDITED_G09_ADMIN = {
+    ("GET", "/admin/storage/g09", "page", "admin_g09"),
+    ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command", "admin_g09"),
+}
+AUDITED_SURPRISE_ADMIN = {
+    ("GET", "/admin/surprises", "page", "admin_surprises"),
+    ("POST", "/admin/surprises/policy", "policy", "admin_surprises"),
+    ("POST", "/admin/surprises/create", "create", "admin_surprises"),
+    ("POST", "/admin/surprises/{id}/state", "set_state", "admin_surprises"),
+}
+AUDITED_PAYOUT_ADMIN = {
+    ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
+    ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
+    ("GET", "/admin/finance/payouts/{id}/quote", "quote", "admin_payout"),
 }
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),
@@ -111,11 +153,41 @@ def check_repository(root: Path = ROOT) -> list[str]:
                              and key in AUDITED_SUPPORT_ADMIN)
             allow_refund = (row["source"] == "crates/web/src/auth/admin_refund_review.rs"
                             and key in AUDITED_REFUND_ADMIN)
+            allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
+                         and key in AUDITED_G09_ADMIN)
+            allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
+                              and key in AUDITED_SURPRISE_ADMIN)
+            allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
+                            and key in AUDITED_PAYOUT_ADMIN)
             allow_s049 = (row["source"] == "crates/web/src/auth/book_shares.rs"
                           and key in AUDITED_S049_ADMIN)
             allow_book = (row["source"] == "crates/web/src/auth/book_shares.rs"
                           and key in AUDITED_S049_BOOK_ADMIN)
-            if not (allow_mail or allow_support or allow_refund or allow_s049 or allow_book):
+            allow_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                            and key in AUDITED_S049_COMMENT_APPEALS)
+            allow_paid = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                          and key in AUDITED_S049_PAID_COMMENT_ADMIN)
+            allow_free = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                          and key in AUDITED_S049_FREE_COMMENT_ADMIN)
+            allow_paid_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                                 and key in AUDITED_S049_PAID_COMMENT_APPEALS)
+            allow_audience = (
+                row["source"] == "crates/web/src/auth/audience_http.rs"
+                and key in {
+                    ("GET", "/admin/audience", "page", "administrator"),
+                    ("GET", "/admin/audience/books", "books::page", "administrator"),
+                    ("GET", "/admin/audience/groups", "groups::page", "administrator"),
+                    ("GET", "/admin/audience/returns", "returns::page", "administrator"),
+                    ("GET", "/admin/audience/visits", "visits::page", "administrator"),
+                    ("GET", "/admin/audience/funnel", "funnel::page", "administrator"),
+                    ("GET", "/admin/audience/reading", "canonical::page", "administrator"),
+                }
+            )
+            allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
+                                 and key in AUDITED_S049_FREE_COMMENT_APPEALS)
+            if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
+                    or allow_appeal or allow_paid or allow_paid_appeal or allow_free
+                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

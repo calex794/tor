@@ -1,7 +1,9 @@
-//! S049: authenticated Book complaints and administrator-only review.
+//! S049: authenticated Book complaints, administrator-only review.
 //! Reports are moderation evidence only, not automatic holds or read grants.
 #![forbid(unsafe_code)]
 use super::book_shares::BookShareError;
+
+mod history;
 use sqlx::{PgPool, Postgres, Transaction};
 
 #[derive(Clone)]
@@ -35,11 +37,13 @@ fn valid_command_key(command: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Only the global administrator reviews content reports; moderators handle
+/// Book registration rather than content/comments. Lock live role until commit.
 async fn administrator(
     tx: &mut Transaction<'_, Postgres>,
     digest: &[u8; 32],
 ) -> Result<i64, BookShareError> {
-    let id: Option<i64> = sqlx::query_scalar(
+    let actor: Option<i64> = sqlx::query_scalar(
         "SELECT u.id FROM sessions s
          JOIN users u ON u.id=s.user_id
          JOIN account_roles r ON r.user_id=u.id
@@ -51,7 +55,7 @@ async fn administrator(
     .bind(digest.as_slice())
     .fetch_optional(&mut **tx)
     .await?;
-    id.ok_or(BookShareError::Forbidden)
+    actor.ok_or(BookShareError::Forbidden)
 }
 
 impl PgBookContentReports {
@@ -347,7 +351,7 @@ impl PgBookContentReports {
         let hide_comment = decision == "hide_comment";
         if hide_comment {
             let comment_id = comment_id.ok_or(BookShareError::Invalid)?;
-            // Explicit administrator action, not an automatic response to a report.
+            // Explicit administrator action, never automatic on report.
             // Lock the exact visible public-Book comment to prevent stale sanctions.
             let found: Option<i64> = sqlx::query_scalar(
                 "SELECT id FROM discussion_comments WHERE id=$1 AND book_id=$2

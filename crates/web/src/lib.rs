@@ -38,6 +38,7 @@ pub mod cover_delivery;
 mod cover_http;
 pub mod cover_private_cleanup;
 pub mod cover_private_source_cleanup;
+mod cpu_work;
 mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
@@ -50,6 +51,8 @@ pub use cover_http::{
 };
 mod admin_reader_router;
 pub mod cover_worker;
+#[cfg(feature = "s3-paid")]
+pub mod g09_operator;
 mod observability;
 mod operator_overview;
 mod operator_traces;
@@ -98,7 +101,6 @@ struct ReaderModes {
     paid_browser: bool,
     admin_reader: bool,
 }
-
 async fn text_issue_script() -> Response {
     (
         [(
@@ -155,7 +157,6 @@ struct TocQuery {
     limit: Option<u16>,
     after: Option<String>,
 }
-
 #[derive(Serialize)]
 struct TocItem {
     chapter_id: String,
@@ -413,7 +414,6 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         None,
     ))
 }
-
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -431,7 +431,6 @@ pub fn router_with_postgres_reading_auth(
         false,
     )
 }
-
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
@@ -475,31 +474,13 @@ fn make_router_with_paid_checkout(
     } else {
         book_router
     };
-    // Only the four public HTML routes get A-owned optional consent
-    // verification. The account/session lookup is disabled by default and
-    // shares the same signer, opt-in and single-instance safety gates as RIL.
+    // Public pages carry no per-account analytics identity. RIL still records
+    // finite anonymous route, status, latency and HTML request counters.
     let public_pages = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/reader/{id}", get(reader_page));
-    let public_pages = if let Some(control) = follow_control.as_ref() {
-        let (accounts, cookies) = control.browser_context();
-        let context = auth::behavior_consent::PublicFlowConsentContext::new(
-            accounts.clone(),
-            cookies.clone(),
-        );
-        if context.enabled() {
-            public_pages.layer(axum::middleware::from_fn_with_state(
-                context,
-                auth::behavior_consent::annotate_public_flow,
-            ))
-        } else {
-            public_pages
-        }
-    } else {
-        public_pages
-    };
     let mut app = Router::new()
         .merge(public_pages)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))

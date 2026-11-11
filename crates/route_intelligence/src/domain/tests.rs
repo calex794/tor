@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 348);
+    assert_eq!(unique.len(), 396);
 }
 
 #[test]
@@ -321,4 +321,241 @@ fn s049_book_complaint_routes_are_classified_and_admin_only_on_private_surface()
         assert_eq!(route.product_area, ProductArea::Admin);
     }
     assert!(!classify(Some("/admin/book-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_comment_appeal_private_and_independent_admin_routes_are_distinct() {
+    for (template, method) in [
+        ("/me/comment-appeals", "GET"),
+        ("/me/comment-appeals/{hide_event_id}", "POST"),
+    ] {
+        let r = classify(Some(template), method);
+        assert!(r.route_known);
+        assert_eq!(r.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(r.product_area, ProductArea::Dashboard);
+    }
+    for (template, method) in [
+        ("/admin/book-comment-appeals", "GET"),
+        ("/admin/book-comment-appeals/{appeal_id}/decision", "POST"),
+    ] {
+        let r = classify(Some(template), method);
+        assert!(r.route_known);
+        assert_eq!(r.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(r.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/book-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn s049_paid_comment_reports_are_administrator_only_routes() {
+    for (template, method) in [
+        ("/admin/paid-comment-reports", "GET"),
+        ("/admin/paid-comment-reports/{report_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/paid-comment-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_paid_appeals_author_and_independent_admin_routes_are_distinct() {
+    for (template, method) in [
+        ("/me/paid-comment-appeals", "GET"),
+        ("/me/paid-comment-appeals/{hide_event_id}", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Dashboard);
+    }
+    for (template, method) in [
+        ("/admin/paid-comment-appeals", "GET"),
+        ("/admin/paid-comment-appeals/{appeal_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/paid-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn s049_free_comment_report_route_is_reader_scoped_not_administrator() {
+    for method in ["GET", "POST"] {
+        let route = classify(
+            Some("/reader/{chapter_id}/comments/{comment_id}/report"),
+            method,
+        );
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Social);
+    }
+}
+
+#[test]
+fn s049_free_comment_admin_review_routes_are_not_general_moderator_routes() {
+    for (template, method) in [
+        ("/admin/free-comment-reports", "GET"),
+        ("/admin/free-comment-reports/{report_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/free-comment-reports"), "POST").route_known);
+}
+
+#[test]
+fn s049_independent_free_comment_appeals_route_guard_distinction() {
+    for (template, method) in [
+        ("/me/free-comment-appeals", "GET"),
+        ("/me/free-comment-appeals/{hide_event_id}", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::PublicPage);
+        assert_eq!(route.product_area, ProductArea::Dashboard);
+    }
+    for (template, method) in [
+        ("/admin/free-comment-appeals", "GET"),
+        ("/admin/free-comment-appeals/{appeal_id}/decision", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+    }
+    assert!(!classify(Some("/admin/free-comment-appeals"), "POST").route_known);
+}
+
+#[test]
+fn g_07_administrator_dead_letter_retry_is_write_only_admin_traffic() {
+    let route = "/api/v1/admin/jobs/{id}/retry";
+    let passport = classify(Some(route), "POST");
+    assert!(passport.route_known);
+    assert_eq!(passport.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(passport.product_area, ProductArea::Admin);
+    assert_eq!(passport.cost_class, CostClass::Write);
+    assert!(!classify(Some(route), "GET").route_known);
+}
+
+#[test]
+fn s036_refunds_are_administrator_only_not_buyer_self_service() {
+    for method in ["GET", "POST"] {
+        assert!(!classify(Some("/me/refunds"), method).route_known);
+    }
+    for (template, method) in [
+        ("/admin/finance/refunds", "GET"),
+        ("/admin/finance/refunds/user/{id}", "GET"),
+        ("/admin/finance/refunds/prepare", "POST"),
+        ("/admin/finance/refunds/approve", "POST"),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Billing);
+    }
+}
+
+#[test]
+fn s039_admin_quote_is_private_read_without_an_http_post() {
+    let quote = classify(Some("/admin/finance/payouts/{id}/quote"), "GET");
+    assert!(quote.route_known);
+    assert_eq!(quote.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(quote.cost_class, CostClass::CheapRead);
+    assert!(!classify(Some("/admin/finance/payouts/{id}/quote"), "POST").route_known);
+}
+
+#[test]
+fn audience_books_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/books"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/books", "POST"),
+        ("/admin/audience/books/export", "GET"),
+        ("/admin/audience/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn audience_groups_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/groups"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/groups", "POST"),
+        ("/admin/audience/groups/export", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn audience_returns_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/returns"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/returns", "POST"),
+        ("/admin/audience/returns/export", "GET"),
+        ("/admin/audience/returns/{user_id}", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
+fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
+    let read = classify(Some("/admin/storage/g09"), "GET");
+    let action = classify(
+        Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+        "POST",
+    );
+    assert!(read.route_known && action.route_known);
+    assert_eq!(read.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(action.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(read.product_area, ProductArea::Admin);
+    assert_eq!(action.product_area, ProductArea::Admin);
+    assert_eq!(read.cost_class, CostClass::CheapRead);
+    assert_eq!(action.cost_class, CostClass::Write);
+    assert!(!classify(Some("/admin/storage/g09"), "POST").route_known);
+    assert!(
+        !classify(
+            Some("/admin/storage/g09/{direction}/{scope}/{action}"),
+            "GET"
+        )
+        .route_known
+    );
+}
+
+#[test]
+fn canonical_reading_admin_route_has_no_public_or_write_alias() {
+    let route = classify(Some("/admin/audience/reading"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (path, method) in [
+        ("/admin/audience/reading", "POST"),
+        ("/admin/audience/reading/export", "GET"),
+        ("/admin/audience/reading/{user_id}", "GET"),
+    ] {
+        assert!(!classify(Some(path), method).route_known);
+    }
 }
