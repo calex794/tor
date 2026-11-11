@@ -107,6 +107,7 @@ pub(super) async fn reader_page(
     Query(query): Query<PublicIssueQuery>,
     headers: HeaderMap,
     method: Method,
+    observation: crate::editorial_http::display::Issuer,
 ) -> Response {
     let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
@@ -224,17 +225,28 @@ pub(super) async fn reader_page(
     } else {
         None
     };
-    let mut response = auth_cookies::private_response(
-        pages::reader_with_public_discussions(
-            &chapter,
-            Some(id),
-            progress_csrf.as_deref(),
-            query.issue.as_deref(),
-            discussion.as_ref(),
-            query.comment.as_deref(),
-        ),
-        &progress_cookies,
+    let html = pages::reader_with_public_discussions(
+        &chapter,
+        Some(id),
+        progress_csrf.as_deref(),
+        query.issue.as_deref(),
+        discussion.as_ref(),
+        query.comment.as_deref(),
     );
+    let html = if let Some(editorial) = &state.editorial {
+        editorial
+            .attach(
+                &headers,
+                tor_contracts::exposure::PromotionSlot::ChapterEndFree,
+                i64::try_from(chapter.book_id).ok(),
+                html,
+                crate::editorial_http::display::issuer(&observation),
+            )
+            .await
+    } else {
+        html
+    };
+    let mut response = auth_cookies::private_response(html, &progress_cookies);
     // Never enable scripts for paid, hidden or denied content.
     response.headers_mut().insert(
         "content-security-policy",

@@ -417,6 +417,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/flow/observations"), "POST") => Some(402),
         (Some("/assets/flow-observations.js"), "GET") => Some(403),
         (Some("/admin/audience/exposure"), "GET") => Some(404),
+        (Some("/admin/promotion/editorial"), "GET") => Some(405),
+        (Some("/admin/promotion/editorial"), "POST") => Some(406),
         _ => None,
     };
     index

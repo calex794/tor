@@ -30,6 +30,7 @@ pub async fn start(app: Router, accounts: Option<PgAccounts>) -> (Router, Option
         return (app, None);
     }
     let secure = origin.starts_with("https://");
-    let (runtime, worker) = Runtime::new(accounts, origin, secure, None);
+    let guard = crate::editorial_http::observation_guard(&accounts);
+    let (runtime, worker) = Runtime::new(accounts, origin, secure, Some(guard));
     (runtime.attach(app), Some(tokio::spawn(worker.run())))
 }

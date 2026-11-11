@@ -61,7 +61,9 @@ trap cleanup EXIT
 start_server() {
   local fixture_url="$1"
   local fixture_name="$2"
-  TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
+  local editorial_flag=0
+  if [[ "$fixture_name" == current ]]; then editorial_flag=1; fi
+  TOR_EDITORIAL_PROMOTION_ENABLED="$editorial_flag" TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
     TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
     DATABASE_URL="$fixture_url" ./target/debug/tor-web >"$root/server-$fixture_name.log" 2>&1 &
   pid=$!
@@ -107,6 +109,10 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
   node tools/exposure_pg_browser.cjs
 ci_rec_step_done "anonymous_exposure_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" TOR_EDITORIAL_EXPECT_OBSERVATIONS=1 \
+  TOR_EDITORIAL_BASE=http://127.0.0.1:3108 TOR_EDITORIAL_SHOTS="$root/shots" \
+  node tools/editorial_pg_browser.cjs
+ci_rec_step_done "editorial_promotion_browser_acceptance"
 stop_server
 # Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.

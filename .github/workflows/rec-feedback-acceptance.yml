@@ -173,6 +173,8 @@ jobs:
           cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1

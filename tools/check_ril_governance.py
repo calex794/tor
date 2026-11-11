@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -592,6 +592,18 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                     "timeout_at(deadline, query)")
         if not audited_exposure or not all(marker in body for marker in required):
             errors.append(f"{label}: exposure report must remain a bounded live administrator read")
+    editorial_route = (entry["source"] == "crates/web/src/editorial_http/mod.rs"
+                       and admin_key in {("GET", "/admin/promotion/editorial", "admin::page"),
+                                         ("POST", "/admin/promotion/editorial", "admin::submit")})
+    audited_editorial = editorial_route and policy == "admin_editorial"
+    if editorial_route or policy == "admin_editorial":
+        required = ("administrator(&state, &headers)", "Duration::from_millis(950)",
+                    "tokio::time::timeout(", "secure(StatusCode::SERVICE_UNAVAILABLE, &[])")
+        operation = ".campaigns(after)" if entry["method"] == "GET" else ".execute(&actor, &form.command_key, &command)"
+        if not (audited_editorial and all(marker in body for marker in required)
+                and operation in body and "session_actor(&digest)" in evidence
+                and "!actor.administrator" in evidence and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: editorial promotion requires live administrator and bounded actor operation")
     audited_admin = (policy == "admin_mail"
                      and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
@@ -806,7 +818,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1878,6 +1890,12 @@ def check(root: Path = ROOT) -> list[str]:
                 _strip_comments(identity_file.read_text(encoding="utf-8"))
                 if identity_file.exists() else ""
             )
+        if (entry.get("source") == "crates/web/src/editorial_http/mod.rs"
+                and entry.get("handler") in {"admin::page", "admin::submit"}):
+            child = _strip_comments(_production(path.read_text(encoding="utf-8")))
+            imported = re.search(r"use\s+super::\{[^}]*\badministrator\b", child)
+            parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+            source_cache[path]["administrator"] = parent.get("administrator", "") if imported else ""
         if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
                 and (entry.get("method"), entry.get("template"), entry.get("handler"))
                     in {
