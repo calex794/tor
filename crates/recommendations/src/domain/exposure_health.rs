@@ -10,8 +10,7 @@ impl ExposureHealthPeriod {
         self.loss_hours > 0 || self.error_hours > 0
     }
     pub fn complete(self, days: i32) -> bool {
-        [1, 7, 30, 90].contains(&days)
-            && self.confirmed_hours == days * 24 && !self.has_failure()
+        [1, 7, 30, 90].contains(&days) && self.confirmed_hours == days * 24 && !self.has_failure()
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

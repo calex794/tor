@@ -36,17 +36,20 @@ async function privateResponse(response, expected = 200) {
   let browser, actor;
   try {
     assert.equal(sql('SELECT count(*) FROM _sqlx_migrations WHERE version=202611294684 AND success'), '1');
-    const many = Array.from({length: 101}, (_, n) => label + 'a' + String(n).padStart(3, '0'));
     const low = label + 'zzz-low <script>';
     const unknown = label + 'zzzz-unknown';
-    const first = Number(sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
-      prefix + "first','ru','" + label + " main','public','basic',ARRAY[" + many.map(x => "'" + x + "'").join(',') + "]) RETURNING id"));
+    // Respect the production per-book genre limit: 101 ordinary books, one label each.
+    const normal = sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres)" +
+      " SELECT '" + prefix + "normal-'||n,'ru','" + label + " normal '||n,'public','basic'," +
+      "ARRAY['" + label + "a'||lpad(n::text,3,'0')] FROM generate_series(0,100) n RETURNING id")
+      .split(/\s+/).map(Number);
+    assert.equal(normal.length, 101);
+    assert.ok(normal.every(id => Number.isSafeInteger(id) && id > 0));
+    const first = normal[0];
     const lowBook = Number(sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
       prefix + "low','ru','" + label + " low <script>safe</script>','public','basic',ARRAY['" + low + "']) RETURNING id"));
     sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
       prefix + "unknown','ru','" + label + " unknown','public','basic',ARRAY['" + unknown + "']);" +
-      "INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) SELECT '" + prefix +
-      "page-'||n,'ru','" + label + " page '||n,'public','basic',ARRAY['" + many[0] + "'] FROM generate_series(1,51) n;" +
       "INSERT INTO flow_observation_hourly(bucket,book_id,surface,opportunities,rendered,views)" +
       " SELECT date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '2 hours',id,'home',20,20," +
       "CASE WHEN id=" + lowBook + " THEN 0 ELSE 6 END FROM books WHERE source_identity LIKE '" + prefix +

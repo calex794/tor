@@ -139,7 +139,8 @@ fn validate(filter: &ExposureFilter, book: Option<i64>) -> Result<(), ExposureEr
 }
 async fn limits(tx: &mut Transaction<'_, Postgres>) -> Result<(), ExposureError> {
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        .execute(&mut **tx).await?;
+        .execute(&mut **tx)
+        .await?;
     sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
         .execute(&mut **tx).await?;
     Ok(())
@@ -150,54 +151,55 @@ async fn report_in(
     closed: bool,
     book: Option<i64>,
 ) -> Result<ExposureReport, ExposureError> {
-        let totals=format!("{BASE} SELECT extract(epoch FROM now())::bigint AS checked_at_epoch,(SELECT extract(epoch FROM until)::bigint FROM bounds) AS until_epoch,count(*) AS books,{}, {},count(*) FILTER(WHERE class='low') AS low_books,count(*) FILTER(WHERE class='unknown') AS unknown_books FROM classified",sum_columns(""),sum_columns("previous_"));
-        let total = bind(&totals, filter, closed, book)
-            .fetch_one(&mut **tx)
-            .await?;
-        let detail=format!("{BASE} SELECT * FROM classified WHERE id>$9 AND ($10::text IS NULL OR class=$10) ORDER BY id LIMIT 51");
-        let rows = bind(&detail, filter, closed, book)
-            .bind(filter.after)
-            .bind(filter.class.map(|c| c.as_str()))
-            .fetch_all(&mut **tx)
-            .await?;
-        let more = rows.len() > 50;
-        let rows = rows
-            .into_iter()
-            .take(50)
-            .map(|row| {
-                Ok(ExposureBook {
-                    id: row.try_get("id")?,
-                    title: row.try_get("title")?,
-                    counts: counts(&row, "")?,
-                    previous: counts(&row, "previous_")?,
-                })
+    let totals=format!("{BASE} SELECT extract(epoch FROM now())::bigint AS checked_at_epoch,(SELECT extract(epoch FROM until)::bigint FROM bounds) AS until_epoch,count(*) AS books,{}, {},count(*) FILTER(WHERE class='low') AS low_books,count(*) FILTER(WHERE class='unknown') AS unknown_books FROM classified",sum_columns(""),sum_columns("previous_"));
+    let total = bind(&totals, filter, closed, book)
+        .fetch_one(&mut **tx)
+        .await?;
+    let detail=format!("{BASE} SELECT * FROM classified WHERE id>$9 AND ($10::text IS NULL OR class=$10) ORDER BY id LIMIT 51");
+    let rows = bind(&detail, filter, closed, book)
+        .bind(filter.after)
+        .bind(filter.class.map(|c| c.as_str()))
+        .fetch_all(&mut **tx)
+        .await?;
+    let more = rows.len() > 50;
+    let rows = rows
+        .into_iter()
+        .take(50)
+        .map(|row| {
+            Ok(ExposureBook {
+                id: row.try_get("id")?,
+                title: row.try_get("title")?,
+                counts: counts(&row, "")?,
+                previous: counts(&row, "previous_")?,
             })
-            .collect::<Result<Vec<_>, ExposureError>>()?;
-        let next = more.then(|| rows.last().map(|r| r.id)).flatten();
-        // A book contributes once within each group, never once per duplicate label.
-        // The list is bounded; any exact group can also be selected through the form.
-        let grouped = format!(
-            r#"{BASE} SELECT g.kind,g.label,count(*) AS books,{}
+        })
+        .collect::<Result<Vec<_>, ExposureError>>()?;
+    let next = more.then(|| rows.last().map(|r| r.id)).flatten();
+    // A book contributes once within each group, never once per duplicate label.
+    // The list is bounded; any exact group can also be selected through the form.
+    let grouped = format!(
+        r#"{BASE} SELECT g.kind,g.label,count(*) AS books,{}
           FROM classified b CROSS JOIN LATERAL (
             SELECT DISTINCT 'genre' AS kind,v AS label FROM unnest(CASE WHEN cardinality(b.genres)=0 THEN ARRAY['']::text[] ELSE b.genres END) v
             UNION SELECT DISTINCT 'tag',v FROM unnest(CASE WHEN cardinality(b.tags)=0 THEN ARRAY['']::text[] ELSE b.tags END) v
           ) g GROUP BY g.kind,g.label ORDER BY g.kind COLLATE "C",g.label COLLATE "C" LIMIT 100"#,
-            sum_columns("")
-        );
-        let groups = bind(&grouped, filter, closed, book)
-            .fetch_all(&mut **tx)
-            .await?
-            .into_iter()
-            .map(|row| {
-                Ok(ExposureGroup {
-                    kind: row.try_get("kind")?,
-                    label: row.try_get("label")?,
-                    books: row.try_get("books")?,
-                    counts: counts(&row, "")?,
-                })
+        sum_columns("")
+    );
+    let groups = bind(&grouped, filter, closed, book)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .map(|row| {
+            Ok(ExposureGroup {
+                kind: row.try_get("kind")?,
+                label: row.try_get("label")?,
+                books: row.try_get("books")?,
+                counts: counts(&row, "")?,
             })
-            .collect::<Result<Vec<_>, ExposureError>>()?;
-        let genre_sql = format!(r#"{BASE}, genre_counts AS (
+        })
+        .collect::<Result<Vec<_>, ExposureError>>()?;
+    let genre_sql = format!(
+        r#"{BASE}, genre_counts AS (
             SELECT g.label,sum(opportunities) AS opportunities,sum(rendered) AS rendered,sum(views) AS views
             FROM classified b CROSS JOIN LATERAL (
                 SELECT DISTINCT v AS label FROM unnest(b.genres) v WHERE btrim(v)<>''
@@ -208,24 +210,27 @@ async fn report_in(
         ) SELECT count(*) AS genres,count(*) FILTER(WHERE class='low') AS low,
           count(*) FILTER(WHERE class='unknown') AS unknown,
           ARRAY(SELECT label FROM genre_classes WHERE class='low' ORDER BY label COLLATE "C" LIMIT 20) AS low_labels
-          FROM genre_classes"#);
-        let genre = bind(&genre_sql, filter, closed, book).fetch_one(&mut **tx).await?;
-        Ok(ExposureReport {
-            checked_at_epoch: total.try_get("checked_at_epoch")?,
-            until_epoch: total.try_get("until_epoch")?,
-            books: total.try_get("books")?,
-            current: counts(&total, "")?,
-            previous: counts(&total, "previous_")?,
-            low_observed_books: total.try_get("low_books")?,
-            unknown_books: total.try_get("unknown_books")?,
-            genres: GenreExposureSummary {
-                genres: genre.try_get("genres")?,
-                low_observed: genre.try_get("low")?,
-                unknown: genre.try_get("unknown")?,
-                low_labels: genre.try_get("low_labels")?,
-            },
-            rows,
-            next,
-            groups,
-        })
+          FROM genre_classes"#
+    );
+    let genre = bind(&genre_sql, filter, closed, book)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(ExposureReport {
+        checked_at_epoch: total.try_get("checked_at_epoch")?,
+        until_epoch: total.try_get("until_epoch")?,
+        books: total.try_get("books")?,
+        current: counts(&total, "")?,
+        previous: counts(&total, "previous_")?,
+        low_observed_books: total.try_get("low_books")?,
+        unknown_books: total.try_get("unknown_books")?,
+        genres: GenreExposureSummary {
+            genres: genre.try_get("genres")?,
+            low_observed: genre.try_get("low")?,
+            unknown: genre.try_get("unknown")?,
+            low_labels: genre.try_get("low_labels")?,
+        },
+        rows,
+        next,
+        groups,
+    })
 }
