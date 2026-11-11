@@ -13,7 +13,7 @@ pub(super) fn page(days: i32, zone: &str, report: Option<&ReadingTimeReport>) ->
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\"><p class=\"eyebrow\">Администратору сайта</p><h1>Подтверждённое чтение по времени</h1>{navigation}"
     );
-    body.push_str("<p data-testid=\"reading-time-scope\">Все сохранившиеся подтверждённые начала и завершения глав за выбранные часы. Следующая глава прежнего читателя учитывается; повтор того же подтверждения не добавляет событие. Это не число первых пар «аккаунт–книга», людей, прочитанных книг или длительность чтения.</p>");
+    body.push_str("<p data-testid=\"reading-time-scope\">Все сохранившиеся подтверждённые начала и завершения глав за выбранные часы. Следующая глава прежнего читателя учитывается; повтор команды или завершения той же главы не добавляет событие. Повторное чтение уже учтённой главы здесь не измеряется. Это не число первых пар «аккаунт–книга», людей, прочитанных книг или длительность чтения.</p>");
     super::period_form(&mut body, days, zone, true);
     body.push_str("<section class=\"book-section-card\"><h2>Что означают числа</h2><p>Два соседних периода по 24 часа × число дней. Границы — закрытые часы UTC: начало включено, конец не включён. Текущий незавершённый час исключён. Часовой пояс меняет местные подписи и распределение по часам и дням недели, сохраняя границы и общие числа.</p><p>Нуль означает отсутствие сохранившихся подтверждённых записей в этом окне. Он не доказывает отсутствие чтения. Неизвестное или неверное подтверждение не заменяется нулём; число людей и полнота всей истории не оцениваются.</p><p>Учитываются исторически разрешённые записи чтения независимо от нынешней публичности книги. Имена, книги и история отдельных читателей не выводятся. Начало и завершение главы могут попасть в разные часы; их соотношение не является долей дочитывания.</p></section>");
     let Some(report) = report else {
@@ -81,7 +81,7 @@ fn period(body: &mut String, key: &str, title: &str, value: &ReadingTimePeriod) 
 fn cell(body: &mut String, key: &str, value: &ReadingTimeCell) {
     write!(body,"<td data-period=\"{key}\" data-utc-hours=\"{}\">",value.utc_hours).expect("String");
     if value.utc_hours == 0 {
-        body.push_str("<span data-testid=\"reading-time-no-slot\">Нет такого часа в окне</span>");
+        body.push_str("<span data-testid=\"reading-time-no-slot\">Не входит в выбранный период</span>");
     } else {
         counts(body,value.counts.as_ref());
         write!(body,"<br><small>Часов UTC: {}</small>",value.utc_hours).expect("String");

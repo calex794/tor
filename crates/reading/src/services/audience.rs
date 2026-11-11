@@ -5,6 +5,10 @@ pub mod canonical;
 pub mod closed;
 pub use closed::{ClosedReadingCounts, ClosedReadingReport};
 pub mod intent;
+pub mod time;
+pub use time::{
+    ReadingTimeCell, ReadingTimeCounts, ReadingTimeHour, ReadingTimePeriod, ReadingTimeReport,
+};
 
 use std::{error::Error, fmt};
 

@@ -1,0 +1,116 @@
+name: FLOW reading hour ports validation
+on:
+  push:
+    branches: ['wip/flow-reading-hours-*']
+permissions:
+  contents: read
+concurrency:
+  group: flow-reading-hours-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust-and-disposable-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format diagnostic candidates and emit exact changed source
+        run: |
+          cargo fmt --all
+          git diff --check
+          python3 <<'PY'
+          import base64, hashlib, json, pathlib, subprocess
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", "--", "*.rs"], text=True
+          ).splitlines()
+          for name in changed:
+              data = pathlib.Path(name).read_bytes()
+              digest = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              print("FLOW_FMT_BEGIN " + json.dumps({"path": name, "git_blob": digest, "bytes": len(data)}))
+              encoded = base64.b64encode(data).decode("ascii")
+              for offset in range(0, len(encoded), 3000):
+                  print("FLOW_FMT_DATA " + encoded[offset:offset + 3000])
+              print("FLOW_FMT_END")
+          print("FLOW_FMT_FILES " + str(len(changed)))
+          PY
+      - name: Existing canonical route and source guards
+        run: python3 -m unittest discover -s tests/architecture -p test_flow_canonical_reading.py
+      - name: Reading and web unit tests
+        run: cargo test -p tor-reading -p tor-web --lib
+      - name: PostgreSQL client
+        run: |
+          if command -v psql >/dev/null 2>&1; then
+            psql --version
+          else
+            bash tools/ci_prepare_ubuntu_mirror.sh
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+      - name: Create isolated validation roles and database
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply all current migrations and replay
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Required reading PostgreSQL cases
+        run: |
+          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+      - name: Required reading-time and existing hour HTTP cases
+        run: cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1 --nocapture
+      - name: Strict owner and web Clippy
+        run: |
+          cargo clippy -p tor-reading -p tor-web --all-targets -- -D warnings
+      - name: Require the checked-in source to match formatting
+        if: always()
+        run: |
+          if ! git diff --quiet -- '*.rs'; then
+            printf 'Formatted candidate source differs from this commit; commit and rerun it before acceptance.\n'
+            git diff --name-only -- '*.rs'
+            exit 1
+          fi
+      - name: Disposable PostgreSQL diagnostics
+        if: always()
+        run: docker logs ${{ job.services.postgres.id }} 2>&1 | tail -n 400
