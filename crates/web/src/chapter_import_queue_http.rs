@@ -1,6 +1,6 @@
 //! S023 owner-only queue endpoints. No S3 key or object URL leaves this module.
 use axum::{
-    extract::{DefaultBodyLimit, Json, Path, State},
+    extract::{DefaultBodyLimit, Extension, Json, Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
@@ -151,6 +151,7 @@ async fn enqueue(
     State(state): State<QueueState>,
     Path(book_id): Path<i64>,
     headers: HeaderMap,
+    trace: Option<Extension<crate::observability::TraceId>>,
     Json(input): Json<QueueInput>,
 ) -> axum::response::Response {
     if !state.cookies.same_origin(&headers)
@@ -329,8 +330,8 @@ async fn enqueue(
         return fail(code, message);
     }
 
-    let job_id = match state
-        .jobs
+    let jobs = state.jobs.with_origin_trace_id(trace.map(|Extension(id)| id.0));
+    let job_id = match jobs
         .enqueue_verified(
             actor_id,
             book_id,
@@ -368,14 +369,18 @@ async fn enqueue(
             );
         }
     };
-    private_response(
+    let mut response = private_response(
         Json(QueueResponse {
             job_id,
             status: "queued".to_owned(),
             status_url: format!("/me/books/{book_id}/chapters/import-jobs/{job_id}"),
         }),
         &[],
-    )
+    );
+    response
+        .extensions_mut()
+        .insert(crate::observability::background::QueuedWork);
+    response
 }
 
 async fn latest(

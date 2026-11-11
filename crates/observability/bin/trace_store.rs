@@ -20,6 +20,7 @@ mod unix_store {
         repositories::sqlite::{SearchFilter, StorePolicy, TraceStore},
         services::{
             lookup::{self, LookupResult},
+            trace::background::{lookup as background_lookup, BackgroundTrace},
             wire::{decode, MAX_FRAME_BYTES},
         },
     };
@@ -79,6 +80,20 @@ mod unix_store {
         }
         let mut body = vec![0_u8; length];
         stream.read_exact(&mut body)?;
+        if let Some(parent) = background_lookup::parse_query(&body) {
+            let page = store.background_for_parent(parent)?;
+            let response = background_lookup::encode_reply(&page)
+                .ok_or("invalid background lookup result")?;
+            stream.write_all(&(response.len() as u32).to_be_bytes())?;
+            stream.write_all(&response)?;
+            return Ok(());
+        }
+        if body.starts_with(b"OBG1") {
+            let trace = BackgroundTrace::decode(&body).ok_or("invalid background frame")?;
+            store.append_background(&trace, unix_now()?)?;
+            stream.write_all(&[1_u8])?;
+            return Ok(());
+        }
         if let Some(id) = lookup::parse_query(&body) {
             // Exact indexed lookup on the single store-owner process.
             // The web process never opens or migrates SQLite.

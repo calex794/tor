@@ -60,22 +60,26 @@ impl TraceBuffer {
         if !trace.should_keep() {
             return false;
         }
-        self.record_correlated(trace);
-        true
+        self.record_correlated(trace)
     }
 
     /// Keep a complete root that durably enqueued correlated work. This does not
     /// expand capacity, preserve raw input, or block on persistent storage.
-    pub fn record_correlated(&self, trace: RequestTrace) {
+    /// A root already retained by normal sampling is not duplicated/re-exported.
+    pub fn record_correlated(&self, trace: RequestTrace) -> bool {
         let mut recent = self
             .recent
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if recent.iter().any(|old| old.trace_id == trace.trace_id) {
+            return false;
+        }
         if recent.len() == MAX_TRACES {
             recent.pop_front();
             self.evicted.fetch_add(1, Ordering::Relaxed);
         }
         recent.push_back(trace);
+        true
     }
 
     /// Operator-only in-process diagnostics; no public HTTP route.
@@ -158,10 +162,20 @@ mod tests {
     fn correlated_roots_are_retained_without_unbounded_growth() {
         let buffer = TraceBuffer::default();
         for id in 1..=200 {
-            buffer.record_correlated(trace(id, StatusGroup::Success, 100));
+            assert!(buffer.record_correlated(trace(id, StatusGroup::Success, 100)));
         }
         assert_eq!(buffer.snapshot().len(), MAX_TRACES);
         assert_eq!(buffer.evicted(), 72);
         assert_eq!(buffer.snapshot().last().unwrap().trace_id, 200);
+    }
+
+    #[test]
+    fn normally_sampled_root_is_not_duplicated_by_a_durable_enqueue() {
+        let buffer = TraceBuffer::default();
+        let value = trace(16, StatusGroup::Success, 100);
+        assert!(buffer.record(value.clone()));
+        assert!(!buffer.record_correlated(value));
+        assert_eq!(buffer.snapshot().len(), 1);
+        assert_eq!(buffer.evicted(), 0);
     }
 }

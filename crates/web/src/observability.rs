@@ -19,6 +19,8 @@ use tor_observability::{
     },
 };
 
+pub(crate) mod background;
+
 static METRICS: OnceLock<HttpMetrics> = OnceLock::new();
 static LOGIN_METRICS: OnceLock<LoginMetrics> = OnceLock::new();
 static TRACES: OnceLock<TraceBuffer> = OnceLock::new();

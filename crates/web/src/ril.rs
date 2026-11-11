@@ -129,6 +129,14 @@ async fn observe(
     });
     let trace =
         crate::observability::finish_trace(trace_id, passport.route_family, status, elapsed, sqlx);
+    if response.status().is_success()
+        && response
+            .extensions()
+            .get::<crate::observability::background::QueuedWork>()
+            .is_some()
+    {
+        crate::observability::background::retain_root(&trace);
+    }
     response.headers_mut().insert(
         HeaderName::from_static("x-request-id"),
         HeaderValue::from_str(&format!("{:032x}", trace_id.0)).expect("hexadecimal request ID"),

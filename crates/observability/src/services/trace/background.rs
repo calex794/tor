@@ -48,7 +48,10 @@ pub struct BackgroundTrace {
 
 impl BackgroundTrace {
     pub fn encode(&self) -> Option<[u8; FRAME_SIZE]> {
-        let sum = self.phase_us.iter().try_fold(0_u64, |n, x| n.checked_add(*x))?;
+        let sum = self
+            .phase_us
+            .iter()
+            .try_fold(0_u64, |n, x| n.checked_add(*x))?;
         if self.parent_trace_id == 0
             || self.trace_id == 0
             || self.parent_trace_id == self.trace_id

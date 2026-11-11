@@ -1,4 +1,5 @@
 //! S023: one bounded worker for owner-approved, canonical UTF-8 chapter batches.
+use crate::observability::background::ImportSpan;
 use std::{sync::Arc, time::Duration};
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tor_books::{
@@ -13,6 +14,7 @@ use tor_imports::{
     repositories::postgres::PgImportJobs,
     services::{ChapterImportObjectStore, ChapterImportStoreError},
 };
+use tor_observability::services::trace::background::Outcome;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChapterImportWorkerResult {
@@ -48,13 +50,35 @@ impl ChapterImportWorker {
         else {
             return Ok(ChapterImportWorkerResult::Idle);
         };
+        // The durable origin survives a restart/reclaim; every attempt gets a
+        // distinct server ID. No identity or source metadata enters the frame.
+        let mut span = ImportSpan::new(claim.origin_trace_id, claim.attempts);
+        let result = self.run_claimed(&claim, &mut span).await;
+        let outcome = match result {
+            Ok(ChapterImportWorkerResult::Completed) => Outcome::Completed,
+            Ok(ChapterImportWorkerResult::Retried) => Outcome::Retried,
+            Ok(ChapterImportWorkerResult::Failed) => Outcome::Failed,
+            Ok(ChapterImportWorkerResult::Stale) => Outcome::Stale,
+            Ok(ChapterImportWorkerResult::Idle) | Err(_) => Outcome::Unavailable,
+        };
+        span.finish(outcome);
+        result
+    }
 
+    async fn run_claimed(
+        &self,
+        claim: &ChapterImportClaim,
+        span: &mut ImportSpan,
+    ) -> Result<ChapterImportWorkerResult, &'static str> {
         let expected_hash: [u8; 32] = match claim.source_sha256.as_slice().try_into() {
             Ok(value) => value,
             Err(_) => {
-                return self.terminal_failure(&claim, "invalid_source_hash").await;
+                return self
+                    .terminal_failure(claim, "invalid_source_hash", span)
+                    .await;
             }
         };
+        span.enter(1);
         let bytes = match self
             .storage
             .get_verified(
@@ -68,16 +92,21 @@ impl ChapterImportWorker {
             Ok(bytes) => bytes,
             Err(ChapterImportStoreError::Unavailable) => {
                 return self
-                    .retryable_failure(&claim, "source_store_unavailable")
+                    .retryable_failure(claim, "source_store_unavailable", span)
                     .await;
             }
-            Err(_) => return self.terminal_failure(&claim, "source_object_invalid").await,
+            Err(_) => {
+                return self
+                    .terminal_failure(claim, "source_object_invalid", span)
+                    .await;
+            }
         };
         // One worker consumes one claimed batch at a time. Keep UTF-8
         // conversion, structural parsing and SHA-256 fingerprinting off
         // Tokio: an imported source can be 700 KiB. A cancelled waiter cannot
         // stop a spawn_blocking task; it has no PostgreSQL or S3 side effects.
         // The epoch-fenced completion below remains the only place that writes.
+        span.enter(2);
         let filename = claim.source_filename.clone();
         let expected_count = claim.expected_chapter_count;
         let approved_fingerprint = claim.approved_fingerprint.clone();
@@ -95,14 +124,15 @@ impl ChapterImportWorker {
         .await;
         let chapters = match parsed {
             Ok(Ok(chapters)) => chapters,
-            Ok(Err(code)) => return self.terminal_failure(&claim, code).await,
+            Ok(Err(code)) => return self.terminal_failure(claim, code, span).await,
             Err(_) => {
                 return self
-                    .retryable_failure(&claim, "source_parse_unavailable")
+                    .retryable_failure(claim, "source_parse_unavailable", span)
                     .await;
             }
         };
 
+        span.enter(3);
         match self
             .authoring
             .complete_chapter_import_job(claim.job_id, claim.epoch, &chapters)
@@ -111,19 +141,25 @@ impl ChapterImportWorker {
             Ok(_) => {
                 // The succeeded state and all chapters are already committed.
                 // Cleanup failure leaves only an unreferenced private staging object.
+                // Phase 4 measures the cleanup attempt, not a guarantee of deletion.
+                span.enter(4);
                 let _ = self.storage.delete(&claim.source_key).await;
                 Ok(ChapterImportWorkerResult::Completed)
             }
             Err(AuthorError::Unavailable) => {
-                self.retryable_failure(&claim, "database_unavailable").await
+                self.retryable_failure(claim, "database_unavailable", span)
+                    .await
             }
             Err(AuthorError::Conflict) => {
                 // A current epoch with a chapter-number conflict becomes failed.
                 // A cancelled, expired or reclaimed epoch cannot update or delete
                 // the source object belonging to the winning worker.
-                self.terminal_failure(&claim, "import_conflict").await
+                self.terminal_failure(claim, "import_conflict", span).await
             }
-            Err(_) => self.terminal_failure(&claim, "book_not_importable").await,
+            Err(_) => {
+                self.terminal_failure(claim, "book_not_importable", span)
+                    .await
+            }
         }
     }
 
@@ -131,16 +167,19 @@ impl ChapterImportWorker {
         &self,
         claim: &ChapterImportClaim,
         code: &str,
+        span: &mut ImportSpan,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
-        self.record_failure(claim, claim.attempts < 8, code).await
+        self.record_failure(claim, claim.attempts < 8, code, span)
+            .await
     }
 
     async fn terminal_failure(
         &self,
         claim: &ChapterImportClaim,
         code: &str,
+        span: &mut ImportSpan,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
-        self.record_failure(claim, false, code).await
+        self.record_failure(claim, false, code, span).await
     }
 
     async fn record_failure(
@@ -148,7 +187,9 @@ impl ChapterImportWorker {
         claim: &ChapterImportClaim,
         retry: bool,
         code: &str,
+        span: &mut ImportSpan,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
+        span.enter(3);
         let changed = self
             .jobs
             .fail_if_current(claim.job_id, claim.epoch, retry, code)
@@ -160,6 +201,7 @@ impl ChapterImportWorker {
             return Ok(ChapterImportWorkerResult::Stale);
         }
         if !retry {
+            span.enter(4);
             let _ = self.storage.delete(&claim.source_key).await;
             Ok(ChapterImportWorkerResult::Failed)
         } else {

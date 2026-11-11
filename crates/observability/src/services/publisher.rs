@@ -101,7 +101,10 @@ impl TracePublisher {
     }
 
     /// Shares the same bounded queue and loss counters as HTTP roots.
-    pub fn try_publish_background(&self, trace: &super::trace::background::BackgroundTrace) -> bool {
+    pub fn try_publish_background(
+        &self,
+        trace: &super::trace::background::BackgroundTrace,
+    ) -> bool {
         let Some(tx) = &self.queue else {
             return false;
         };
