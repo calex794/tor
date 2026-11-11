@@ -470,7 +470,7 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
-           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1 --show-output
           cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
           # Enable owner Layer management for exactly this isolated PG/HTTP suite.
           # All other tests and the actual application retain the default OFF gate.
