@@ -15,7 +15,7 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
            genres=ARRAY['fantasy'],tags=ARRAY['romance']
          WHERE id=ANY($4::bigint[])",
     )
-    .bind(&[source, author_book])
+    .bind([source, author_book])
     .bind(owner)
     .bind(teammate)
     .bind(&f.books)
