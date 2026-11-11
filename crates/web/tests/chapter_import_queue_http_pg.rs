@@ -393,9 +393,9 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri(&queue_path)
+                .uri(queue_path.as_str())
                 .method("POST")
-                .header(header::COOKIE, &owner_cookie)
+                .header(header::COOKIE, owner_cookie.as_str())
                 .header(header::ORIGIN, ORIGIN)
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("x-request-id", "CLIENT-FORGED-TRACE")
