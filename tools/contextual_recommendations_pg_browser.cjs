@@ -27,7 +27,7 @@ async function feed(context,seed){const response=await context.request.get(base+
 (async()=>{
  const stamp=Date.now();let browser,actor;const books=[],generations=[];
  try {
-  assert.equal(sql('SELECT max(version) FROM _sqlx_migrations WHERE success'),'202611198437');
+  assert.equal(sql('SELECT count(*) FROM _sqlx_migrations WHERE version=202611198437 AND success'),'1');
   browser=await chromium.launch({headless:true});
   const admin=await browser.newContext({viewport:{width:1440,height:900},javaScriptEnabled:false});
   const page=await admin.newPage();
