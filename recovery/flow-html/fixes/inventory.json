@@ -1,0 +1,38 @@
+{
+  "status": "UNCOMPILED_UNVERIFIED",
+  "scope": "Other files in this fixes checkpoint; excludes this inventory",
+  "files": [
+    {
+      "path": "recovery/flow-html/fixes.json",
+      "characters": 52627
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/crates/traffic_behavior/src/repositories/html_health/read.rs",
+      "characters": 2812
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/migrations/202611294685_flow_html_health.sql",
+      "characters": 1336
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/crates/traffic_behavior/src/repositories/html_health.rs",
+      "characters": 14844
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/crates/traffic_behavior/src/services/recorder/flow_health.rs",
+      "characters": 8563
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/crates/traffic_behavior/src/services/html_pump.rs",
+      "characters": 7341
+    },
+    {
+      "path": "recovery/flow-html/fixes/sources/crates/traffic_behavior/tests/ril_rollups_pg/health.rs",
+      "characters": 19113
+    },
+    {
+      "path": "recovery/flow-html/fixes/README.md",
+      "characters": 6640
+    }
+  ]
+}
