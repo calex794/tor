@@ -100,6 +100,15 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
                   WHERE cohort_day=((now()-interval '31 days') AT TIME ZONE 'UTC')::date
                     AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4";
     let before_rollup: i64 = pg(&url, rollup).parse().unwrap();
+    let recent_days = pg(
+        &url,
+        &format!(
+            "SELECT count(DISTINCT (v.started_at AT TIME ZONE 'UTC')::date)
+             FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id
+             WHERE s.user_id={actor} AND v.started_at > now()-interval '30 days'"
+        ),
+    );
+    let expected_recent = format!("2|2|{recent_days}|0");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
@@ -138,7 +147,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .send()
             .await
             .is_ok_and(|response| response.status().is_success())
-            && retained(&url, actor) == "2|2|1|0"
+            && retained(&url, actor) == expected_recent
             && funnel::expired(&url, actor)
             && preferences::expired(&url, actor, &preference_probe)
             && retirement::expired(&url, actor)
@@ -173,7 +182,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .status()
             .is_success());
     }
-    assert_eq!(retained(&url, actor), "2|2|1|0");
+    assert_eq!(retained(&url, actor), expected_recent);
     funnel::assert_preserved(&url, actor, expired_book);
     preferences::assert_preserved(&url, actor, &preference_probe);
     retirement::assert_preserved(&url, actor, expired_book);
