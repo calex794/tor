@@ -47,7 +47,13 @@ impl PgHtmlHealth {
         };
         match (epochs, hourly, applied) {
             (false, false, false) => Ok(false),
-            (true, true, true) => Ok(true),
+            (true, true, true) => {
+                // A recorded migration with the runtime registration column
+                // missing is a damaged capability, not the legacy fallback.
+                sqlx::query("SELECT registration_key FROM ril_flow_health_epochs LIMIT 0")
+                    .execute(&mut **tx).await?;
+                Ok(true)
+            },
             _ => Err(HtmlHealthError::Unavailable),
         }
     }

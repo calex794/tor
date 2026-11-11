@@ -120,3 +120,16 @@ async fn html_retry_of_committed_replacement_keeps_one_successor_and_the_origina
     assert_eq!(epoch_count(&f).await, count);
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires fresh isolated PostgreSQL with keyed HTML health migration"]
+async fn html_missing_registration_column_is_damaged_health_not_a_legacy_fallback() {
+    let f = Fixture::new().await;
+    sqlx::query(&format!(
+        "ALTER TABLE {}.ril_flow_health_epochs DROP COLUMN registration_key", f.schema
+    )).execute(&f.owner).await.unwrap();
+    let health = PgHtmlHealth::new(f.app.clone());
+    assert_eq!(health.ready().await, Err(HtmlHealthError::Unavailable));
+    assert!(PgFlowAudience::new(f.app.clone()).observed_health_report(1, "UTC").await.is_err());
+    f.finish().await;
+}
