@@ -99,7 +99,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps --only-shell chromium
+          npx playwright install --only-shell chromium
       - name: Browse chapter, TOC, mobile layout and locked URLs
         run: |
           set -euo pipefail
