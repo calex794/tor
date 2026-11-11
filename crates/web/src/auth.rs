@@ -114,6 +114,7 @@ pub(crate) mod security_retention;
 mod session_security;
 mod settings_routes;
 mod support_bundle;
+pub(crate) mod surprise_http;
 mod sync_actions;
 mod teams;
 mod text_issues;
@@ -249,6 +250,7 @@ fn router_inner(
     };
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(surprise_http::router())
         .merge(layer_routes::routes())
         .merge(layer_storefront::router())
         .merge(support_bundle::router())

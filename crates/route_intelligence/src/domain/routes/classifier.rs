@@ -398,6 +398,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/audience/visits"), "GET") => Some(383),
         (Some("/admin/audience/funnel"), "GET") => Some(384),
         (Some("/admin/audience/reading"), "GET") => Some(385),
+        (Some("/api/v1/me/surprises/plan"), "GET") => Some(386),
+        (Some("/api/v1/me/surprises/claim"), "POST") => Some(387),
+        (Some("/api/v1/me/surprises/open"), "POST") => Some(388),
+        (Some("/api/v1/me/surprises/disable"), "POST") => Some(389),
+        (Some("/assets/surprise.js"), "GET") => Some(390),
+        (Some("/assets/surprise.css"), "GET") => Some(391),
         _ => None,
     };
     index

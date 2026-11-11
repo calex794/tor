@@ -84,13 +84,23 @@ fn layout_with_seo(
     content: &str,
     seo_markup: &str,
 ) -> Html<String> {
-    Html(
-        include_str!("../templates/layout.html")
-            .replace("<!--PAGE_TITLE-->", &escape_html(title))
-            .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
-            .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
-            .replace("<!--PAGE_CONTENT-->", content),
-    )
+    let mut html = include_str!("../templates/layout.html")
+        .replace("<!--PAGE_TITLE-->", &escape_html(title))
+        .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+        .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
+        .replace("<!--PAGE_CONTENT-->", content);
+    if crate::auth::surprise_http::enabled() {
+        html = html
+            .replace(
+                "</head>",
+                "<link rel=\"stylesheet\" href=\"/assets/surprise.css\">\\n</head>",
+            )
+            .replace(
+                "</body>",
+                "<script src=\"/assets/surprise.js\" defer></script>\\n</body>",
+            );
+    }
+    Html(html)
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.

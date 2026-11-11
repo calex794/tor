@@ -2717,6 +2717,48 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "canonical::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/surprises/plan",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "plan",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/surprises/claim",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "claim",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/surprises/open",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "open",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/surprises/disable",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "disable",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/surprise.js",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/surprise.css",
+      "source": "crates/web/src/auth/surprise_http.rs",
+      "handler": "styles",
+      "policy": "public"
     }
   ]
 }
