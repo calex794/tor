@@ -65,6 +65,9 @@ impl SignalWorker {
         }
     }
     pub async fn run_once(&self, days: i32) -> Result<bool, SignalError> {
+        if !matches!(days, 1 | 7 | 30 | 90) {
+            return Err(SignalError::Invalid);
+        }
         tokio::time::timeout(Duration::from_secs(5), self.round(days))
             .await
             .map_err(|_| SignalError::Unavailable)?

@@ -62,6 +62,7 @@ jobs:
           PY
       - name: Route classification and negative authorization guards
         run: |
+          python3 tools/check_feature_layout.py
           python3 tools/check_ril_routes.py
           python3 tools/check_ril_governance.py
           python3 tools/check_ril_exposure.py
@@ -117,17 +118,37 @@ jobs:
             tor-web:exposure_report_http_pg:crates/web \
             tor-web:flow_signals_http_pg:crates/web; do
             IFS=: read -r flow_pkg flow_test flow_dir <<< "$flow_case"
-            if test -f "$flow_dir/tests/$flow_test.rs"; then
-              printf 'FLOW_TARGET package=%s test=%s\n' "$flow_pkg" "$flow_test"
-              cargo test -p "$flow_pkg" --test "$flow_test" -- --ignored --test-threads=1
-            else
-              printf 'FLOW_PENDING_SOURCE package=%s test=%s\n' "$flow_pkg" "$flow_test"
-            fi
+            test -f "$flow_dir/tests/$flow_test.rs"
+            printf 'FLOW_TARGET package=%s test=%s\n' "$flow_pkg" "$flow_test"
+            cargo test -p "$flow_pkg" --test "$flow_test" -- --ignored --test-threads=1
           done
       - name: Strict owner and web Clippy
         run: |
           cargo clippy -p tor-recommendations -p tor-traffic_behavior \
             -p tor-search -p tor-reading -p tor-web --all-targets -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install full Chromium prerequisites
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --prefix /tmp/flow-root-browser playwright@1.56.1
+          /tmp/flow-root-browser/node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Actual native signals and public-page browser forms
+        env:
+          NODE_PATH: /tmp/flow-root-browser/node_modules
+          TOR_SIGNALS_SHOTS: /tmp/flow-signals-shots
+        run: |
+          cargo build -p tor-web
+          bash tools/flow_signals_browser_acceptance.sh
+      - name: Preserve actual FLOW browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-final-signals-browser
+          path: /tmp/flow-signals-shots
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Require the checked-in source to match formatting
         if: always()
         run: |

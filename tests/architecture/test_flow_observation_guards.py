@@ -24,6 +24,9 @@ class ObservationGuardTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         shutil.copy2(ROOT / "docs/contracts/ril-route-guards-v1.json", target)
 
+    def test_current_source_matches_the_reviewed_policy(self):
+        self.assertEqual(check(self.root), [])
+
     def test_origin_proof_live_rights_and_budget_are_required(self):
         path = self.root / "crates/web/src/flow_exposure/ingest.rs"
         original = path.read_text()
@@ -80,6 +83,10 @@ class ObservationGuardTests(unittest.TestCase):
             "!actor.administrator",
             "timeout_at(deadline, guard.campaign_book(campaign))",
             "timeout_at(deadline, query)",
+            ".report_campaign_book_closed_with_health(&filter, book)",
+            ".report_closed_with_health(&filter)",
+            ".report_campaign_book(&filter, book)",
+            ".report(&filter)",
             "Ok(Err(status)) => return secure(status)",
             "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)",
         ):

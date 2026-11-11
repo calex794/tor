@@ -21,7 +21,10 @@ pub struct Worker {
 impl Worker {
     /// Uses the same managed worker path as production bootstrap.
     pub fn spawn_managed(self) -> ObservationCollector {
-        let probe = QueueProbe { counters: self.counters.clone(), gate: self.gate.clone() };
+        let probe = QueueProbe {
+            counters: self.counters.clone(),
+            gate: self.gate.clone(),
+        };
         let (stop, receiver) = oneshot::channel();
         let join = tokio::spawn(self.run_managed(receiver));
         ObservationCollector { join, stop, probe }
@@ -221,4 +224,11 @@ impl Worker {
 }
 fn count(n: u64) -> Result<i64, ExposureError> {
     i64::try_from(n).map_err(|_| ExposureError::Unavailable)
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        // Abort/panic stops readiness immediately, but cannot certify a DB tail.
+        self.gate.disable();
+    }
 }

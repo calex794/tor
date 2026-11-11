@@ -624,9 +624,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                     "match timeout_at(deadline, auth).await", "Ok(Err(status)) => return secure(status)",
                     "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)",
                     "timeout_at(deadline, guard.campaign_book(campaign))",
-                    "state.store.report_campaign_book(&filter, book)", "state.store.report(&filter)",
                     "timeout_at(deadline, query)")
-        if not audited_exposure or not all(marker in body for marker in required):
+        owner_reads = (
+            r"\bstate\s*\.\s*store\s*\.\s*report_campaign_book\(&filter,\s*book\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report\(&filter\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report_campaign_book_closed_with_health\(&filter,\s*book\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report_closed_with_health\(&filter\)",
+        )
+        bounded_owner_reads = (
+            all(re.search(pattern, body) for pattern in owner_reads)
+            and "match (window, campaign_book)" in body
+            and "(ReportWindow::Closed, Some(book))" in body
+            and "(ReportWindow::Closed, None)" in body
+            and body.index("match timeout_at(deadline, auth)") < body.index("let query = async")
+        )
+        if not audited_exposure or not all(marker in body for marker in required) or not bounded_owner_reads:
             errors.append(f"{label}: exposure report must remain a bounded live administrator read")
     editorial_route = (entry["source"] == "crates/web/src/editorial_http/mod.rs"
                        and admin_key in {("GET", "/admin/promotion/editorial", "admin::page"),
@@ -1942,7 +1954,14 @@ def check(root: Path = ROOT) -> list[str]:
             )
             for helper_file, names in helpers:
                 try:
-                    helper_functions = _functions((root / helper_file).read_text(encoding="utf-8"))
+                    helper_source = (root / helper_file).read_text(encoding="utf-8")
+                    # _functions intentionally recognizes free handlers at column
+                    # zero. Normalize only these reviewed impl-method declarations.
+                    helper_source = re.sub(
+                        r"(?m)^    (?=(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+)",
+                        "", helper_source,
+                    )
+                    helper_functions = _functions(helper_source)
                 except OSError:
                     helper_functions = {}
                 for name in names:
