@@ -42,16 +42,20 @@ impl PgAudience {
         {
             return Err(AudienceError::Unavailable);
         }
-        let rows = records.iter().skip(1).map(|row| {
-            let counts = counts(row)?;
-            Ok(CanonicalRankRow {
-                book_id: row.try_get("book_id").map_err(unavailable)?,
-                label: row.try_get("label").map_err(unavailable)?,
-                small_current_sample: counts.current_pairs < COMPARISON_MIN_PAIRS,
-                small_previous_sample: counts.previous_pairs < COMPARISON_MIN_PAIRS,
-                counts,
+        let rows = records
+            .iter()
+            .skip(1)
+            .map(|row| {
+                let counts = counts(row)?;
+                Ok(CanonicalRankRow {
+                    book_id: row.try_get("book_id").map_err(unavailable)?,
+                    label: row.try_get("label").map_err(unavailable)?,
+                    small_current_sample: counts.current_pairs < COMPARISON_MIN_PAIRS,
+                    small_previous_sample: counts.previous_pairs < COMPARISON_MIN_PAIRS,
+                    counts,
+                })
             })
-        }).collect::<Result<Vec<_>, AudienceError>>()?;
+            .collect::<Result<Vec<_>, AudienceError>>()?;
         let report = CanonicalRankReport {
             measured_at_utc: total.try_get("measured_at_utc").map_err(unavailable)?,
             current_from_utc: total.try_get("current_from_utc").map_err(unavailable)?,

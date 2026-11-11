@@ -48,7 +48,8 @@ impl PgAudience {
             return Err(AudienceError::Unavailable);
         }
         let mut rows = Vec::with_capacity(ids.len());
-        for (id, pair) in ids.into_iter().zip(records.chunks_exact(2)) {
+        let pairs = records.as_chunks::<2>().0;
+        for (id, pair) in ids.into_iter().zip(pairs) {
             if pair[0].try_get::<i64, _>("book_id").map_err(unavailable)? != id
                 || pair[1].try_get::<i64, _>("book_id").map_err(unavailable)? != id
                 || pair[0].try_get::<i32, _>("ordinal").map_err(unavailable)? != 0

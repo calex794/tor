@@ -288,3 +288,8 @@ mod intent;
 
 #[path = "audience_pg/canonical.rs"]
 mod canonical;
+
+// The full CI already requires this target; the additive FLOW-05 cases cannot
+// disappear behind an optional standalone development command.
+#[path = "audience_catalog_pg.rs"]
+mod catalogue;

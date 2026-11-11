@@ -112,7 +112,6 @@ pub struct CanonicalReport {
     pub next_after_label: Option<String>,
 }
 
-
 /// A bounded descriptive ranking of retained first account/book completions.
 /// The threshold is a presentation caveat, not statistical significance.
 #[derive(Clone, Debug, Eq, PartialEq)]
