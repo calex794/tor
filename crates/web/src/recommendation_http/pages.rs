@@ -82,6 +82,35 @@ pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
     out
 }
 
+
+/// Free-chapter promotional shelf shares the site's existing public Book cover
+/// and card routes; it does not mint a paid entitlement or track a user.
+pub(super) fn shelf_panel(feed: &Feed) -> String {
+    if feed.items.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "<section class=\"section reader-end-shelf\" data-rec-panel aria-label=\"Рекомендации после главы\"><div class=\"container\"><h2>Что почитать дальше</h2><div class=\"home-shelf__track\" aria-label=\"Подборка других книг\">"
+    );
+    for item in &feed.items {
+        let Ok(id) = book_id(&item.book_id) else { continue };
+        let title = html::escape_html(&item.title);
+        let relation = match item.source.as_str() {
+            "author" => "Ещё у автора",
+            "teammate" => "Из команды автора",
+            "site" => "Другие книги сайта",
+            _ => "Рекомендуем",
+        };
+        let _ = write!(
+            out,
+            "<article class=\"book-mini-card book-mini-card--shelf\" data-rec-card data-rec-source=\"{}\"><a class=\"book-mini-card__link\" href=\"/books/{id}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\"><img src=\"/covers/{id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\"></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><small class=\"book-mini-card__meta\">{relation}</small></div></a></article>",
+            item.source,
+        );
+    }
+    out.push_str("</div></div></section>");
+    out
+}
+
 pub(super) async fn page(
     State(state): State<Runtime>,
     headers: HeaderMap,
