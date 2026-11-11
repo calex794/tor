@@ -65,6 +65,42 @@ for name in ('wrong-key', 'restore', 'bad-restore'):
             break
 PY
 }
+# pg_ctl -w accepts PM_STATUS_STANDBY as well as READY. Neither its return
+# code nor an open socket proves that WAL replay has finished and SQL works.
+wait_for_primary() {
+  local deadline=$((SECONDS + ${1:-30})) state
+  while ((SECONDS < deadline)); do
+    if ! pg_ctl -D "$restore_dir" status >/dev/null 2>&1; then
+      echo 'FAIL: restored PostgreSQL exited before primary readiness' >&2
+      return 1
+    fi
+    if state=$(PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' \
+        restored_sql -c 'SELECT pg_is_in_recovery()' 2>"$work/log/readiness-client.log"); then
+      case "$state" in
+        f) return 0 ;;
+        t) ;; # A readable standby is still not the requested promoted database.
+        *) echo 'FAIL: unexpected restored recovery state' >&2; return 1 ;;
+      esac
+    fi
+    sleep 0.2
+  done
+  echo 'FAIL: restored PostgreSQL did not become a SQL-ready primary' >&2
+  return 1
+}
+
+wait_for_target_failure() {
+  local deadline=$((SECONDS + ${1:-30}))
+  while pg_ctl -D "$work/bad-target" status >/dev/null 2>&1; do
+    if ((SECONDS >= deadline)); then
+      echo 'FAIL: unreachable recovery target stayed running' >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  # An arbitrary crash is not proof of correct recovery-target enforcement.
+  grep -Fq 'recovery ended before configured recovery target was reached' "$work/log/bad-start.log"
+}
+
 trap cleanup EXIT
 trap 'report_failure "$LINENO"' ERR
 trap 'exit 130' INT
@@ -137,6 +173,7 @@ restore_target "$conf" >"$work/log/restore.log" 2>&1
 pg_ctl -D "$restore_dir" -l "$work/log/restored.log" -w -t 30 \
   -o "-c listen_addresses='' -c port=55433 -c unix_socket_directories=$work/restore-socket -c archive_mode=off -c hot_standby=off" start >/dev/null
 restored_sql() { psql -X -v ON_ERROR_STOP=1 -At -h "$work/restore-socket" -p 55433 -U postgres -d postgres "$@"; }
+wait_for_primary 30
 [[ $(restored_sql -c 'SELECT pg_is_in_recovery()') == f ]]
 [[ $(restored_sql -c "SELECT string_agg(id,',' ORDER BY id) FROM public.i11_recovery_markers") == 'base_snapshot,before_target' ]]
 if restored_sql -c 'SET ROLE i11_reader; SELECT * FROM public.i11_recovery_markers' >"$work/log/acl.log" 2>&1; then
@@ -144,15 +181,15 @@ if restored_sql -c 'SET ROLE i11_reader; SELECT * FROM public.i11_recovery_marke
   exit 1
 fi
 grep -q 'permission denied for table i11_recovery_markers' "$work/log/acl.log"
-# Disable hot standby so pg_ctl cannot report success before the target fails.
+# Keep hot standby off, then observe the eventual process exit and exact fatal.
+# pg_ctl may return success in STANDBY before the unreachable target is detected.
 backrest --pg1-path="$work/bad-target" --set="$label" --type=name \
   --target=tor_i11_nonexistent --target-action=promote restore >"$work/log/bad-restore.log" 2>&1
-if pg_ctl -D "$work/bad-target" -l "$work/log/bad-start.log" -w -t 30 \
-    -o "-c listen_addresses='' -c port=55434 -c unix_socket_directories=$work/bad-socket -c archive_mode=off -c hot_standby=off" start >"$work/log/bad-pgctl.log" 2>&1; then
-  echo 'FAIL: unreachable recovery target accepted' >&2
-  exit 1
-fi
-grep -q 'recovery ended before configured recovery target was reached' "$work/log/bad-start.log"
+bad_start_status=0
+pg_ctl -D "$work/bad-target" -l "$work/log/bad-start.log" -w -t 30 \
+    -o "-c listen_addresses='' -c port=55434 -c unix_socket_directories=$work/bad-socket -c archive_mode=off -c hot_standby=off" start >"$work/log/bad-pgctl.log" 2>&1 || bad_start_status=$?
+# Both early startup success and immediate failure require the same terminal proof.
+wait_for_target_failure 30
 python3 - "$started" "$pg_version" "$backrest_version" "$label" <<'PY'
 import json, sys, time
 print(json.dumps({
