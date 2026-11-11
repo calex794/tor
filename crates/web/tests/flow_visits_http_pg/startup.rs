@@ -80,7 +80,19 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
                SELECT subject_id,flow_epoch,now()-interval '40 minutes' FROM rec_subjects WHERE user_id={actor}"
         ),
     );
-    assert_eq!(retained(&url, actor), "3|3|2|1");
+    // UTC date buckets change across midnight. The 40m/10m synthetic visits
+    // may straddle midnight even though the exact visit/receipt count is 3.
+    // Derive the expected day count from authoritative source rows, not a
+    // wall-clock-dependent fixed literal.
+    let expected_days = pg(
+        &url,
+        &format!(
+            "SELECT count(DISTINCT (v.started_at AT TIME ZONE 'UTC')::date)
+             FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id
+             WHERE s.user_id={actor}"
+        ),
+    );
+    assert_eq!(retained(&url, actor), format!("3|3|{expected_days}|1"));
     let expired_book = funnel::seed(&url, actor).await;
     let preference_probe = preferences::seed(&url, actor, expired_book).await;
     retirement::seed(&url, actor, expired_book);
