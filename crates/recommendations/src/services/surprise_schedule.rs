@@ -66,6 +66,36 @@ fn draw_range(value: u64, start: u32, end: u32) -> u32 {
     start + (value % u64::from(end - start + 1)) as u32
 }
 
+/// Stable mutually exclusive experiment assignment; never read from a URL,
+/// browser cookie, navigation, click count or purchase history. The HMAC key
+/// must remain pinned throughout pilot v1 or assignment would reshuffle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExperimentArm {
+    Control,
+    Gentle,
+    Standard,
+}
+
+impl ExperimentArm {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Control => "control",
+            Self::Gentle => "gentle",
+            Self::Standard => "standard",
+        }
+    }
+}
+
+/// Version 1: 20% control, 40% gentle, 40% standard.
+/// All arms are assigned before the independent appearance draw.
+pub fn experiment_arm(key: &[u8; 32], subject: &[u8; 32]) -> ExperimentArm {
+    match hmac_draw(key, subject, 1, b"experiment-assignment") % 1000 {
+        0..=199 => ExperimentArm::Control,
+        200..=599 => ExperimentArm::Gentle,
+        _ => ExperimentArm::Standard,
+    }
+}
+
 /// The caller owns the stable opaque session subject and period; changing a
 /// URL, clicking, refreshing or opening another tab must not change either.
 /// Limits and eligibility must be enforced atomically in the repository.
@@ -164,6 +194,50 @@ mod tests {
         assert_ne!(base, decide(&KEY, &SESSION, 101, cfg));
         assert_ne!(base, decide(&KEY, &another_session, 100, cfg));
         assert_ne!(base, decide(&another_key, &SESSION, 100, cfg));
+    }
+
+    #[test]
+    fn experimental_assignment_is_stable_and_independent_of_daily_chance() {
+        let arm = experiment_arm(&KEY, &SESSION);
+        for day in 0..100 {
+            let _ = decide(
+                &KEY, &SESSION, day,
+                SurpriseSchedule { enabled: true, probability_per_mille: 350 },
+            )
+            .unwrap();
+            assert_eq!(experiment_arm(&KEY, &SESSION), arm);
+        }
+        let mut other_key = KEY;
+        other_key[0] ^= 11;
+        assert_ne!(
+            (0..1000).map(|i| {
+                let mut subject = SESSION;
+                subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+                experiment_arm(&KEY, &subject)
+            }).collect::<Vec<_>>(),
+            (0..1000).map(|i| {
+                let mut subject = SESSION;
+                subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+                experiment_arm(&other_key, &subject)
+            }).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn experimental_groups_have_bounded_20_40_40_sample_distribution() {
+        let mut counts = [0_u32; 3];
+        for i in 0..10_000_u64 {
+            let mut subject = SESSION;
+            subject[0..8].copy_from_slice(&i.to_be_bytes());
+            match experiment_arm(&KEY, &subject) {
+                ExperimentArm::Control => counts[0] += 1,
+                ExperimentArm::Gentle => counts[1] += 1,
+                ExperimentArm::Standard => counts[2] += 1,
+            }
+        }
+        assert!((1800..2200).contains(&counts[0]), "{counts:?}");
+        assert!((3700..4300).contains(&counts[1]), "{counts:?}");
+        assert!((3700..4300).contains(&counts[2]), "{counts:?}");
     }
 
     #[test]
