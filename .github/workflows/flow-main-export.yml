@@ -1,0 +1,31 @@
+name: FLOW pinned main export
+on:
+  push:
+    branches: [qa/flow-completion-publisher-20261111]
+    paths: [.github/workflows/flow-main-export.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 563754a4b0a678aaef91071c4b13c52d3e6e2a39
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export only source history
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 563754a4b0a678aaef91071c4b13c52d3e6e2a39
+          mkdir -p "$RUNNER_TEMP/flow-main"
+          git branch exported-main HEAD
+          git bundle create "$RUNNER_TEMP/flow-main/main.bundle" exported-main
+          git rev-parse HEAD > "$RUNNER_TEMP/flow-main/COMMIT"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-main/TREE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow-main-563754a4
+          path: ${{ runner.temp }}/flow-main/
+          retention-days: 3
