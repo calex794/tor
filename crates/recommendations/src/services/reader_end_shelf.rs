@@ -16,7 +16,7 @@ pub enum ShelfSource {
 }
 
 impl ShelfSource {
-    const fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         match self {
             Self::Author => 0,
             Self::Teammate => 1,
@@ -120,9 +120,9 @@ pub fn select_shelf(
 
     let mut seen = BTreeSet::from([source_book_id]);
     for pool in &mut pools {
+        order_pool(pool, rotation);
         pool.retain(|item| item.book_id > 0 && seen.insert(item.book_id));
         pool.truncate(MAX_POOL);
-        order_pool(pool, rotation);
         // Every Book has exactly one slot. Candidates must have been checked
         // for public Book visibility and viewer age permissions by the caller.
     }
