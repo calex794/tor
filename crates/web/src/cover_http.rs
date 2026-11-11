@@ -104,16 +104,9 @@ pub(super) async fn homepage_with_cdn(
     updates: &[pages::PublicBookCard],
     rising: &[pages::PublicBookCard],
     covers: &std::collections::HashSet<u64>,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    let html = if rising.is_empty() {
-        if updates.is_empty() {
-            pages::home_recent_with_covers(cards, covers)
-        } else {
-            pages::home_recent_with_updates(cards, covers, updates)
-        }
-    } else {
-        pages::home_recent_with_growth(cards, covers, updates, rising)
-    };
+    let html = pages::home_observed(cards, covers, updates, rising, issuer);
     let mut ids = std::collections::HashSet::new();
     for book in cards.iter().chain(updates).chain(rising) {
         ids.insert(book.id);

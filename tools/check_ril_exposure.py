@@ -155,6 +155,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
                             and key in AUDITED_REFUND_ADMIN)
             allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
                          and key in AUDITED_G09_ADMIN)
+            allow_observations = (row["source"] == "crates/web/src/flow_exposure/mod.rs"
+                                  and key == ("GET", "/admin/audience/exposure", "report::page", "administrator"))
             allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
                               and key in AUDITED_SURPRISE_ADMIN)
             allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
@@ -189,7 +191,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise):
+                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
