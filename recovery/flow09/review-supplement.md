@@ -135,6 +135,14 @@ tests and final installed-schema/real-server acceptance are required.
 
 ### Deterministic RR regression, not a timing guess
 
+The fixture obtains until_epoch from the actual combined owner port before adding
+counter/health rows. Counts are placed two hours inside that window; old confirmed
+health stops two hours before that anchor; final confirmed health extends two hours
+past it. The fixture does not calculate an independent 15-minute boundary or use
+902000-1 milliseconds. This isolates the MVCC assertion from any 900/902-second
+grace difference and from the narrow UTC hour transition. Exact TTL/grace-edge
+regressions still belong on the recovered actual F source and are not claimed here.
+
 The test's view acquires a signal advisory key after the report snapshot exists,
 then waits with pg_try_advisory_xact_lock and a 2ms pause on a gate held by the
 writer. This keeps the production 75ms lock timeout unchanged. While the report

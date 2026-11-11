@@ -97,13 +97,15 @@ async fn full_genre_totals_include_low_and_unknown_groups_beyond_detail_100() {
 async fn closed_counts_and_health_cannot_come_from_different_commits() {
     let f=Fixture::new().await;
     f.book(1,vec!["genre".into()]).await;
-    let until:i64=sqlx::query_scalar("SELECT extract(epoch FROM date_trunc('hour',(now()-interval '15 minutes') AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::bigint")
-        .fetch_one(&f.pool).await.unwrap();
+    // This tests one MVCC snapshot, not the proof/grace boundary. Obtain the
+    // actual owner's anchor and keep both counts and health far from its edge.
+    let until=PgExposure::new(f.pool.clone()).report_closed_with_health(&filter())
+        .await.unwrap().0.until_epoch;
     sqlx::query("INSERT INTO flow_observation_hourly(bucket,book_id,surface,opportunities,rendered,views)
-        VALUES(to_timestamp(($1-3600)::double precision),1,'home',20,20,1)")
+        VALUES(to_timestamp(($1-7200)::double precision),1,'home',20,20,1)")
         .bind(until).execute(&f.pool).await.unwrap();
     let epoch:i64=sqlx::query_scalar("INSERT INTO flow_observation_epochs(started_ms,confirmed_ms,lease_until_ms)
-        VALUES(($1-172800)*1000,$1*1000+902000-1,($1+7200)*1000) RETURNING epoch")
+        VALUES(($1-172800)*1000,($1-7200)*1000,($1+7200)*1000) RETURNING epoch")
         .bind(until).fetch_one(&f.pool).await.unwrap();
     let gate=(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() & 0x3fff_ffff_ffff_ffff) as i64;
     let signal=gate+1;
