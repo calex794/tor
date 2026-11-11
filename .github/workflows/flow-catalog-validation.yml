@@ -90,6 +90,11 @@ jobs:
           ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
             GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
           SQL
+      - name: Diagnose bounded PostgreSQL waits in disposable service
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_lock_waits = 'on'"
+          psql -X -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET deadlock_timeout = '5ms'"
+          psql -X -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"
       - name: Apply all current migrations and replay
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -128,6 +133,11 @@ jobs:
             git diff --name-only -- '*.rs'
             exit 1
           fi
+      - name: Retain disposable PostgreSQL diagnostics
+        if: always()
+        env:
+          FLOW_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: docker logs "$FLOW_POSTGRES_CONTAINER" > /tmp/catalog-postgres.log 2>&1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -135,3 +145,4 @@ jobs:
           path: |
             /tmp/catalog-interest-shots
             /tmp/catalog-interest-server.log
+            /tmp/catalog-postgres.log
