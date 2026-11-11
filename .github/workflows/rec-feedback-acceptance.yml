@@ -20,6 +20,12 @@ on:
       # but must not launch this redundant specialist workflow.
       - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
+      - 'crates/web/assets/surprise.js'
+      - 'crates/web/assets/surprise.css'
+      - 'crates/web/src/auth/surprise_http.rs'
+      - 'crates/web/src/auth/surprise_admin.rs'
+      - 'crates/web/tests/surprise_http_pg.rs'
+      - 'tools/surprise_pg_browser.cjs'
       - 'tools/recommendation_preferences_pg_browser.cjs'
       - 'tools/audience_retirement_fixtures.cjs'
       - 'tools/audience_retired_pg_helpers.cjs'

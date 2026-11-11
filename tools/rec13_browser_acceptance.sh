@@ -61,7 +61,13 @@ trap cleanup EXIT
 start_server() {
   local fixture_url="$1"
   local fixture_name="$2"
-  TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
+  local surprises_optin="${3:-0}"
+  local surprise_test_key=''
+  if [[ "$surprises_optin" == 1 ]]; then
+    surprise_test_key="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))")"
+  fi
+  TOR_SURPRISE_HTTP_ENABLED="$surprises_optin" TOR_SURPRISE_HMAC_KEY="$surprise_test_key" \
+    TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
     TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
     DATABASE_URL="$fixture_url" ./target/debug/tor-web >"$root/server-$fixture_name.log" 2>&1 &
   pid=$!
@@ -107,6 +113,13 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
   node tools/exposure_pg_browser.cjs
 ci_rec_step_done "anonymous_exposure_browser_acceptance"
+stop_server
+# Isolated surprise UI: enabled only for a disposable tor_ci Chromium receipt.
+start_server "$TEST_DATABASE_URL" surprises 1
+NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+  TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \
+  node tools/surprise_pg_browser.cjs
+ci_rec_step_done "surprise_chromium_acceptance"
 stop_server
 # Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.
