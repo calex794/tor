@@ -75,6 +75,12 @@ AUDITED_G09_ADMIN = {
     ("GET", "/admin/storage/g09", "page", "admin_g09"),
     ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command", "admin_g09"),
 }
+AUDITED_SURPRISE_ADMIN = {
+    ("GET", "/admin/surprises", "page", "admin_surprises"),
+    ("POST", "/admin/surprises/policy", "policy", "admin_surprises"),
+    ("POST", "/admin/surprises/create", "create", "admin_surprises"),
+    ("POST", "/admin/surprises/{id}/state", "set_state", "admin_surprises"),
+}
 AUDITED_PAYOUT_ADMIN = {
     ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
     ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
@@ -149,6 +155,8 @@ def check_repository(root: Path = ROOT) -> list[str]:
                             and key in AUDITED_REFUND_ADMIN)
             allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
                          and key in AUDITED_G09_ADMIN)
+            allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
+                              and key in AUDITED_SURPRISE_ADMIN)
             allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
                             and key in AUDITED_PAYOUT_ADMIN)
             allow_s049 = (row["source"] == "crates/web/src/auth/book_shares.rs"
@@ -179,7 +187,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_audience or allow_free_appeal or allow_g09):
+                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
