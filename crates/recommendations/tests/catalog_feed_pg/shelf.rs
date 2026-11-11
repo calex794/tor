@@ -91,6 +91,15 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
             .len()
     );
 
+    // Catalog entries with no owner are still eligible for the site pool.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
+        .bind(site_book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap())
+        .contains(&site_book));
+
     f.store
         .set_feedback(
             owner,
