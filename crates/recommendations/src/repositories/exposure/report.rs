@@ -84,10 +84,25 @@ impl PgExposure {
         &self,
         filter: &ExposureFilter,
     ) -> Result<(ExposureReport, ExposureHealth), ExposureError> {
-        validate(filter, None)?;
+        self.report_closed_health_for_book(filter, None).await
+    }
+    /// Same closed snapshot with a campaign's book resolved by the editorial owner.
+    pub async fn report_campaign_book_closed_with_health(
+        &self,
+        filter: &ExposureFilter,
+        book: i64,
+    ) -> Result<(ExposureReport, ExposureHealth), ExposureError> {
+        self.report_closed_health_for_book(filter, Some(book)).await
+    }
+    async fn report_closed_health_for_book(
+        &self,
+        filter: &ExposureFilter,
+        book: Option<i64>,
+    ) -> Result<(ExposureReport, ExposureHealth), ExposureError> {
+        validate(filter, book)?;
         let mut tx = self.pool.begin().await?;
         limits(&mut tx).await?;
-        let report = report_in(&mut tx, filter, true, None).await?;
+        let report = report_in(&mut tx, filter, true, book).await?;
         let health = PgExposureHealth::report_in(&mut tx, filter.days, report.until_epoch).await?;
         tx.commit().await?;
         Ok((report, health))

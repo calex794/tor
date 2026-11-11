@@ -15,7 +15,12 @@ fn checked_url(name: &str, role: &str) -> String {
     let raw=std::env::var(name).expect("explicit disposable PostgreSQL URL");
     let opts=PgConnectOptions::from_str(&raw).unwrap();
     assert_eq!(opts.get_host(),"127.0.0.1");
-    assert_eq!(opts.get_port(),5432);
+    let port = std::env::var("FLOW_TEST_PG_PORT")
+        .unwrap_or_else(|_| "5432".into())
+        .parse::<u16>()
+        .expect("explicit disposable PostgreSQL port");
+    assert!(port > 0);
+    assert_eq!(opts.get_port(), port);
     assert_eq!(opts.get_database(),Some("tor_ci"));
     assert_eq!(opts.get_username(),role);
     raw

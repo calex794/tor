@@ -2,7 +2,7 @@
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use tor_accounts::repositories::PgAccounts;
-use tor_reading::repositories::PgAudience;
+use tor_reading::repositories::audience::PgAudience;
 use tor_recommendations::{
     repositories::{exposure::PgExposure, flow_signals::PgFlowSignals},
     services::flow_signals::SignalError,

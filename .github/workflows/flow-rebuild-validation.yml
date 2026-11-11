@@ -106,7 +106,9 @@ jobs:
             tor-search:public_pages_pg:crates/search \
             tor-reading:audience_closed_pg:crates/reading \
             tor-web:audience_http_pg:crates/web \
-            tor-web:exposure_http_pg:crates/web; do
+            tor-web:exposure_http_pg:crates/web \
+            tor-web:exposure_report_http_pg:crates/web \
+            tor-web:flow_signals_http_pg:crates/web; do
             IFS=: read -r flow_pkg flow_test flow_dir <<< "$flow_case"
             if test -f "$flow_dir/tests/$flow_test.rs"; then
               printf 'FLOW_TARGET package=%s test=%s\n' "$flow_pkg" "$flow_test"

@@ -7,6 +7,8 @@ mod groups;
 mod render;
 mod returns;
 mod seo;
+mod signals;
+mod public_pages;
 mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -72,6 +74,8 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/signals", get(signals::page))
+        .route("/admin/audience/pages", get(public_pages::page))
         .route("/admin/audience/seo", get(seo::page))
         .route(
             "/admin/audience/seo/refresh",
@@ -152,7 +156,7 @@ async fn page(
         timeout_at(deadline, state.store.report(days)),
         timeout_at(deadline, state.store.intent_report(days)),
         timeout_at(deadline, state.discovery.report(days)),
-        timeout_at(deadline, state.traffic.observed_report(days, zone)),
+        timeout_at(deadline, state.traffic.observed_health_report(days, zone)),
         async {
             if hours_supported {
                 timeout_at(deadline, state.traffic.report(days)).await.ok()
@@ -192,7 +196,11 @@ async fn page(
             hours.as_ref(),
             crate::ril::flow_capture_counters(),
             crate::ril::pump_health_snapshot(),
-            (zone, observed.as_ref()),
+            (
+                zone,
+                observed.as_ref().map(|value| &value.0),
+                observed.as_ref().and_then(|value| value.1.as_ref()),
+            ),
         ),
     ))
 }

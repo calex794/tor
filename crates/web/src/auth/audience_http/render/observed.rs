@@ -1,6 +1,8 @@
 //! FLOW-04: observation-hour counts; no individual navigation or tracking UI.
+mod health;
 use crate::pages::escape_html;
 use std::fmt::Write;
+use tor_traffic_behavior::domain::html_health::HtmlHealthReport;
 use tor_traffic_behavior::services::observed_audience::{ObservedAudienceReport, ObservedPeriod};
 
 const SURFACES: [&str; 4] = ["Главная", "Каталог", "Страницы книг", "Читалка"];
@@ -16,7 +18,12 @@ fn number(value: Option<i64>) -> String {
     value.map_or_else(|| "Нет измерения".into(), |n| n.to_string())
 }
 
-pub(super) fn section(body: &mut String, report: Option<&ObservedAudienceReport>) {
+pub(super) fn section(
+    body: &mut String,
+    report: Option<&ObservedAudienceReport>,
+    quality: Option<&HtmlHealthReport>,
+) {
+    health::section(body, report, quality);
     let Some(report) = report else {
         body.push_str("<section class=\"book-section-card\" data-testid=\"audience-observed-unavailable\"><h2>Просмотры по времени ответа сервера</h2><p role=\"alert\">Отчет по времени просмотра недоступен. Данные не получены; нули не подставляются.</p></section>");
         return;
@@ -29,14 +36,19 @@ pub(super) fn section(body: &mut String, report: Option<&ObservedAudienceReport>
     )
     .expect("String");
     body.push_str("<div class=\"audience-source-grid\">");
-    period(body, "current", "Текущий период", &report.current);
-    period(body, "previous", "Предыдущий период", &report.previous);
+    let quality = quality.filter(|proof| proof.until_epoch == report.current.until_epoch);
+    let current_complete =
+        health::complete(quality.map(|proof| proof.current), report.current.hours.len());
+    let previous_complete =
+        health::complete(quality.map(|proof| proof.previous), report.previous.hours.len());
+    period(body, "current", "Текущий период", &report.current, current_complete);
+    period(body, "previous", "Предыдущий период", &report.previous, previous_complete);
     body.push_str("</div><p>Это категории недоверенного заголовка запроса, не доказанный первый вход из поиска. Внутренний поиск и рекомендации здесь не подменяют внешние каналы.</p>");
     write!(body,"<p>Отброшено при обработке новых пакетов: <span data-metric=\"observed-discards\">{}</span>. По времени обработки за текущий период: неверные часы, предел памяти или истекший срок. Потери до очереди и при остановке процесса в это число не входят.</p>",report.persisted_discards).expect("String");
     if report.persisted_discards > 0 {
         body.push_str("<p role=\"alert\" data-testid=\"audience-observed-loss\">Обнаружены потери при обработке. Показатели не являются полным учетом трафика.</p>");
     }
-    heatmap(body, &report.current);
+    heatmap(body, &report.current, current_complete);
     body.push_str(
         "<p>Таблица: последние 168 часов. Сводка и дни недели охватывают весь период.</p>",
     );
@@ -60,22 +72,22 @@ pub(super) fn section(body: &mut String, report: Option<&ObservedAudienceReport>
         )
         .expect("String");
         for value in hour.views {
-            write!(body, "<td>{}</td>", number(value)).expect("String");
+            write!(body, "<td>{}</td>", number(value.or(current_complete.then_some(0)))).expect("String");
         }
         body.push_str("</tr>");
     }
     body.push_str("</tbody></table></div></details></section>");
 }
 
-fn period(body: &mut String, key: &str, title: &str, value: &ObservedPeriod) {
+fn period(body: &mut String, key: &str, title: &str, value: &ObservedPeriod, complete: bool) {
     write!(body,"<section class=\"book-section-card\" data-testid=\"audience-observed-{key}\"><h3>{title}</h3><p>{} &mdash; {}.</p><p>Сохраненные просмотры: <strong data-metric=\"observed-total\">{}</strong>.</p><p>Часов с записями: <span data-metric=\"observed-hours\">{}</span> из {}.</p><dl>",
-        super::time(&value.from_utc),super::time(&value.until_utc),number(value.saved_total),
+        super::time(&value.from_utc),super::time(&value.until_utc),number(value.saved_total.or(complete.then_some(0))),
         value.recorded_hours,value.hours.len()).expect("String");
     for (index, label) in SURFACES.iter().enumerate() {
         write!(
             body,
             "<dt>{label}</dt><dd data-observed-surface=\"{index}\">{}</dd>",
-            number(value.surfaces[index])
+            number(value.surfaces[index].or(complete.then_some(0)))
         )
         .expect("String");
     }
@@ -84,14 +96,14 @@ fn period(body: &mut String, key: &str, title: &str, value: &ObservedPeriod) {
         write!(
             body,
             "<dt>{label}</dt><dd data-observed-source=\"{index}\">{}</dd>",
-            number(value.sources[index])
+            number(value.sources[index].or(complete.then_some(0)))
         )
         .expect("String");
     }
     body.push_str("</dl></section>");
 }
 
-fn heatmap(body: &mut String, period: &ObservedPeriod) {
+fn heatmap(body: &mut String, period: &ObservedPeriod, complete: bool) {
     body.push_str("<h3>Дни недели и часы</h3><p>Сохраненные просмотры; часы с записями / часы в интервале. Полноту сбора это не доказывает.</p><div class=\"audience-hours-scroll\" tabindex=\"0\" role=\"region\" aria-label=\"Дни недели и часы\"><table class=\"audience-hours-table\" data-testid=\"audience-observed-week\"><thead><tr><th scope=\"col\">Дни недели и часы</th>");
     for hour in 0..24 {
         write!(body, "<th scope=\"col\">{hour:02}:00</th>").expect("String");
@@ -103,7 +115,7 @@ fn heatmap(body: &mut String, period: &ObservedPeriod) {
             write!(
                 body,
                 "<td>{}<br><small>{}/{}</small></td>",
-                number(period.weekday_hour[day][hour]),
+                number(period.weekday_hour[day][hour].or((complete && period.expected_slots[day][hour] > 0).then_some(0))),
                 period.recorded_slots[day][hour],
                 period.expected_slots[day][hour]
             )
@@ -138,7 +150,7 @@ mod tests {
     #[test]
     fn absence_zero_and_failure_have_distinct_markup() {
         let mut html = String::new();
-        section(&mut html, None);
+        section(&mut html, None, None);
         assert!(html.contains("audience-observed-unavailable"));
         assert!(!html.contains("data-metric="));
         let report = ObservedAudienceReport {
@@ -150,7 +162,7 @@ mod tests {
             persisted_discards: 2,
         };
         html.clear();
-        section(&mut html, Some(&report));
+        section(&mut html, Some(&report), None);
         assert!(html.contains("data-observed-surface=\"0\">0</dd>"));
         assert!(html.contains("data-observed-surface=\"1\">Нет измерения</dd>"));
         assert!(html.contains("audience-observed-loss"));
@@ -168,7 +180,7 @@ mod tests {
         };
         report.current.from_utc = report.time_zone.clone();
         let mut html = String::new();
-        section(&mut html, Some(&report));
+        section(&mut html, Some(&report), None);
         assert!(!html.contains("<script>bad()"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("audience-observed-loss"));

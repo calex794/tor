@@ -24,9 +24,10 @@ use tor_recommendations::services::audience::DiscoveryReport;
 use tor_traffic_behavior::services::{audience::FlowHourlyReport, PgPumpSnapshot};
 
 fn start(days: i32, zone: &str) -> String {
+    let navigation = crate::flow_navigation::links(days);
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
-         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
+         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>{navigation}\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/admin/audience/seo?days={days}\">SEO</a></p>\
@@ -98,11 +99,12 @@ pub(super) fn page(
     observed: (
         &str,
         Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,
+        Option<&tor_traffic_behavior::domain::html_health::HtmlHealthReport>,
     ),
 ) -> Html<String> {
     let (reading, intents) = reading;
     let mut body = start(days, observed.0);
-    observed::section(&mut body, observed.1);
+    observed::section(&mut body, observed.1, observed.2);
     hours::section(&mut body, days, traffic);
     quality::section(&mut body, days, traffic, capture, pump);
     intent::section(&mut body, intents);
@@ -252,7 +254,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
@@ -277,7 +279,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
@@ -291,12 +293,12 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None)
+            ("UTC", None, None)
         )
         .0
         .contains("data-metric=\"readers\""));
         assert!(
-            page(30, (None, None), None, None, None, None, ("UTC", None))
+            page(30, (None, None), None, None, None, None, ("UTC", None, None))
                 .0
                 .contains("role=\"alert\"")
         );
@@ -313,7 +315,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(!html.contains("<script>bad()"));

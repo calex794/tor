@@ -11,9 +11,16 @@ pub(super) async fn read(
     lock: bool,
 ) -> Result<Vec<PageTarget>, PageProbeError> {
     let mut targets: Vec<_> = PageSlot::ALL.into_iter().map(PageTarget::empty).collect();
-    let sql = format!("SELECT b.id,b.xmin::text AS revision FROM books b WHERE {PUBLIC_BOOK}
-        ORDER BY b.id LIMIT 1 {}", if lock { "FOR SHARE OF b" } else { "" });
-    if let Some(row) = sqlx::query(&sql).fetch_optional(&mut **tx).await.map_err(unavailable)? {
+    let sql = format!(
+        "SELECT b.id,b.xmin::text AS revision FROM books b WHERE {PUBLIC_BOOK}
+        ORDER BY b.id LIMIT 1 {}",
+        if lock { "FOR SHARE OF b" } else { "" }
+    );
+    if let Some(row) = sqlx::query(&sql)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(unavailable)?
+    {
         targets[2].book_id = Some(row.try_get("id").map_err(unavailable)?);
         targets[2].book_revision = Some(row.try_get("revision").map_err(unavailable)?);
     }
@@ -26,7 +33,11 @@ pub(super) async fn read(
         AND NOT c.admin_hold AND NOT c.is_deleted
         AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
         ORDER BY c.id LIMIT 1 {}", if lock { "FOR SHARE OF b,c,p" } else { "" });
-    if let Some(row) = sqlx::query(&sql).fetch_optional(&mut **tx).await.map_err(unavailable)? {
+    if let Some(row) = sqlx::query(&sql)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(unavailable)?
+    {
         targets[3] = PageTarget {
             slot: PageSlot::FreeChapter,
             book_id: Some(row.try_get("book_id").map_err(unavailable)?),

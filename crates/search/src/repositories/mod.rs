@@ -1,6 +1,6 @@
-pub mod public_pages;
 pub mod catalog;
 pub mod catalog_window;
+pub mod public_pages;
 pub mod seo_analytics;
 pub mod seo_provider;
 pub mod showcases;

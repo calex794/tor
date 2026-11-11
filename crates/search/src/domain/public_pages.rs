@@ -26,7 +26,10 @@ impl PageSlot {
         }
     }
     pub fn parse(code: i16) -> Result<Self, PageProbeError> {
-        Self::ALL.into_iter().find(|slot| slot.code() == code).ok_or(PageProbeError::Invalid)
+        Self::ALL
+            .into_iter()
+            .find(|slot| slot.code() == code)
+            .ok_or(PageProbeError::Invalid)
     }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,8 +44,15 @@ pub struct PageTarget {
 }
 impl PageTarget {
     pub fn empty(slot: PageSlot) -> Self {
-        Self { slot, book_id: None, chapter_id: None, book_revision: None,
-            chapter_revision: None, publication_revision: None, version_id: None }
+        Self {
+            slot,
+            book_id: None,
+            chapter_id: None,
+            book_revision: None,
+            chapter_revision: None,
+            publication_revision: None,
+            version_id: None,
+        }
     }
     pub fn path(&self) -> Option<String> {
         match self.slot {
@@ -89,12 +99,18 @@ pub struct PublicPageReport {
 }
 impl PublicPageReport {
     pub fn checked_targets(&self) -> i32 {
-        self.rows.iter().filter(|row| matches!(row.state, PageState::Healthy | PageState::Lost)).count() as i32
+        self.rows
+            .iter()
+            .filter(|row| matches!(row.state, PageState::Healthy | PageState::Lost))
+            .count() as i32
     }
     pub fn expected_targets(&self) -> i32 {
         self.rows.iter().filter(|row| row.path.is_some()).count() as i32
     }
     pub fn lost_targets(&self) -> i64 {
-        self.rows.iter().filter(|row| row.state == PageState::Lost).count() as i64
+        self.rows
+            .iter()
+            .filter(|row| row.state == PageState::Lost)
+            .count() as i64
     }
 }
