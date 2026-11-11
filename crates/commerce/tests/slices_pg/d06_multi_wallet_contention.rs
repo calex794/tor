@@ -149,7 +149,7 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
                 assert_eq!(totals.available_minor, balance - totals.reserved_minor);
                 assert!(totals.available_minor >= 0);
 
-                // A replay must never issue a second refund or reserve again.
+                // Replays must not issue a second refund, reserve twice, or debit the buyer twice.
                 let repeat = approval
                     .approve_once(
                         f.moderator,
@@ -170,6 +170,29 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
                     assert_eq!(repeat.id, first.id);
                     assert!(!repeat.created);
                 }
+                if let Ok(first) = purchased {
+                    let repeat = checkout
+                        .checkout_once(&purchase)
+                        .await
+                        .expect("replay winning checkout");
+                    assert_eq!(repeat.purchase_id, first.purchase_id);
+                    assert!(repeat.replayed);
+                }
+                let (balance_after_replays, purchase_facts_after_replays, refund_postings_after_replays):
+                    (i64, i64, i64) = sqlx::query_as(
+                        "SELECT w.balance_minor,
+                           (SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id=$1),
+                           (SELECT COUNT(*) FROM finance_direct_refund_postings WHERE purchase_id=$2)
+                         FROM reader_wallet_accounts w WHERE w.user_id=$1",
+                    )
+                    .bind(f.buyer)
+                    .bind(f.purchase)
+                    .fetch_one(&db)
+                    .await
+                    .expect("verify financial replay idempotence");
+                assert_eq!(balance_after_replays, balance);
+                assert_eq!(purchase_facts_after_replays, purchases);
+                assert_eq!(refund_postings_after_replays, 1);
 
                 sqlx::query(
                     "UPDATE account_roles SET is_active=FALSE
@@ -224,22 +247,28 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
     durations.sort_unstable();
     acquires.sort_unstable();
     let operation_p95 = durations[durations.len() * 95 / 100];
+    let operation_max = durations[durations.len() - 1];
     let acquire_p95 = acquires[acquires.len() * 95 / 100];
     let acquire_max = acquires[acquires.len() - 1];
     println!(
-        "TOR_MULTI_WALLET_D06_S038_CONTENTION wallets={} rounds={} operations={} reserve_wins={} purchase_wins={} financial_p95_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
+        "TOR_MULTI_WALLET_D06_S038_CONTENTION wallets={} rounds={} operations={} reserve_wins={} purchase_wins={} financial_p95_ms={} financial_max_ms={} pg_acquire_p95_ms={} pg_acquire_max_ms={}",
         WALLETS,
         ROUNDS,
         durations.len(),
         reservation_winners,
         purchase_winners,
         operation_p95.as_millis(),
+        operation_max.as_millis(),
         acquire_p95.as_millis(),
         acquire_max.as_millis(),
     );
     assert!(
         operation_p95 < Duration::from_secs(3),
         "financial p95 budget exceeded"
+    );
+    assert!(
+        operation_max < Duration::from_secs(5),
+        "an individual financial operation exceeded the tail latency budget"
     );
     assert!(
         acquire_p95 < Duration::from_secs(2),
