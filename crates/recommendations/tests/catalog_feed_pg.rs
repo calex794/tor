@@ -227,3 +227,6 @@ async fn catalog_does_not_wait_for_legacy_history_generation_or_rollout_tables()
 
 #[path = "catalog_feed_pg/contextual_scale.rs"]
 mod contextual_scale;
+
+#[path = "catalog_feed_pg/shelf.rs"]
+mod shelf;
