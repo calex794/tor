@@ -167,14 +167,12 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     let book_id = authoring.create_owned_book(owner, &book).await.unwrap();
     let store = MemoryStore::default();
     // Run the real late-bound Axum/RIL instrumentation around this queue.
-    let app = tor_web::instrument_additional_routes(
-        tor_web::chapter_import_queue_http::router(
-            accounts,
-            false,
-            ORIGIN.to_owned(),
-            Arc::new(store.clone()),
-        ),
-    );
+    let app = tor_web::instrument_additional_routes(tor_web::chapter_import_queue_http::router(
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+        Arc::new(store.clone()),
+    ));
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let stranger_cookie = format!("tor-dev-session={stranger_token}; tor-dev-csrf={csrf}");
 
