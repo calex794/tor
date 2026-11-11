@@ -75,7 +75,12 @@ impl DisplayRuntime {
         html: Html<String>,
         observation: Option<&dyn ObservationIssuer>,
     ) -> Html<String> {
-        if !self.enabled {
+        if !self.enabled
+            || (slot == PromotionSlot::ChapterEndFree
+                && std::env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() == Ok("1"))
+        {
+            // The 50/40/10 shelf owns the chapter-end inventory when REC is
+            // enabled. Do not render a second editorial block above it.
             return Html(html.0.replace(MARKER, ""));
         }
         let operation = async {
