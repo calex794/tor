@@ -30,8 +30,7 @@ async fn http(
     method: &str,
     path: &str,
     cookie: &str,
-    origin: &str,
-    csrf: &str,
+    auth: (&str, &str),
     body: &str,
     json_body: bool,
 ) -> Response {
@@ -41,8 +40,8 @@ async fn http(
                 .method(method)
                 .uri(path)
                 .header(header::COOKIE, cookie)
-                .header(header::ORIGIN, origin)
-                .header("x-csrf-token", csrf)
+                .header(header::ORIGIN, auth.0)
+                .header("x-csrf-token", auth.1)
                 .header(
                     header::CONTENT_TYPE,
                     if json_body {
@@ -61,8 +60,10 @@ async fn http(
 fn private(response: &Response, code: StatusCode) {
     assert_eq!(response.status(), code);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    let robots = response.headers()["x-robots-tag"].to_str().unwrap();
-    assert!(robots.contains("noindex") && robots.contains("nofollow"));
+    // Private A/F responses have an explicit no-store and unframeable CSP;
+    // an x-robots-tag is not part of the shared private_response contract.
+    assert!(response.headers()["content-security-policy"]
+        .to_str().unwrap().contains("frame-ancestors 'none'"));
 }
 
 async fn parse(response: Response) -> Value {
@@ -118,8 +119,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/api/v1/me/surprises/plan",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         true,
     )
@@ -139,8 +139,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/api/v1/me/surprises/plan",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         true,
     )
@@ -153,8 +152,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/admin/surprises",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         false,
     )
@@ -165,8 +163,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/api/v1/me/surprises/plan",
         "",
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         true,
     )
@@ -192,8 +189,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/admin/surprises/create",
         &cookie,
-        "https://other.example",
-        &csrf,
+        ("https://other.example", &csrf),
         &create,
         false,
     )
@@ -204,8 +200,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/admin/surprises/create",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &create,
         false,
     )
@@ -224,8 +219,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         &format!("/admin/surprises/{item_id}/state"),
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &approval,
         false,
     )
@@ -238,8 +232,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/admin/surprises/policy",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &control,
         false,
     )
@@ -251,8 +244,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/api/v1/me/surprises/plan",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         true,
     )
@@ -271,8 +263,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/claim",
         &cookie,
-        ORIGIN,
-        "not-a-valid-token",
+        (ORIGIN, "not-a-valid-token"),
         &attempted,
         true,
     )
@@ -283,8 +274,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/claim",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &attempted,
         true,
     )
@@ -309,8 +299,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/claim",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &attempted,
         true,
     )
@@ -322,8 +311,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/claim",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &attempted,
         true,
     )
@@ -337,8 +325,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/open",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &open,
         true,
     )
@@ -355,8 +342,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/disable",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "{}",
         true,
     )
@@ -367,8 +353,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "POST",
         "/api/v1/me/surprises/open",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &open,
         true,
     )
@@ -379,8 +364,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/api/v1/me/surprises/plan",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         true,
     )
@@ -401,8 +385,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "GET",
         "/admin/surprises",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         false,
     )
