@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_accounts::services::security::session_token_digest;
+use tor_reading::repositories::audience::PgAudience;
 use tor_recommendations::domain::exposure::{ExposureError, ExposureFilter, ObservationClass};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,7 +133,7 @@ pub(super) async fn page(
         let Some(guard) = state.guard.as_ref() else {
             return secure((
                 StatusCode::SERVICE_UNAVAILABLE,
-                super::render::page(&filter, window, None, None, state.queue_snapshot()),
+                super::render::page(&filter, window, None, None, None, state.queue_snapshot()),
             ));
         };
         match timeout_at(deadline, guard.campaign_book(campaign)).await {
@@ -141,7 +142,7 @@ pub(super) async fn page(
             _ => {
                 return secure((
                     StatusCode::SERVICE_UNAVAILABLE,
-                    super::render::page(&filter, window, None, None, state.queue_snapshot()),
+                    super::render::page(&filter, window, None, None, None, state.queue_snapshot()),
                 ))
             }
         }
@@ -173,6 +174,18 @@ pub(super) async fn page(
         }
     };
     let report = timeout_at(deadline, query).await.ok().and_then(Result::ok);
+    // F determines the closed boundary and the current page. C reads only
+    // these book IDs under the same whole-request deadline; its failure cannot
+    // turn a missing chapter-evidence source into a zero or a global category.
+    let reading = if window == ReportWindow::Closed {
+        if let Some((ref report, _)) = report {
+            let ids: Vec<i64> = report.rows.iter().map(|book| book.id).collect();
+            let source = PgAudience::new(state.accounts.pool().clone());
+            timeout_at(deadline, source.closed_book_evidence(
+                filter.days, report.until_epoch, &ids,
+            )).await.ok().and_then(Result::ok)
+        } else { None }
+    } else { None };
     secure((
         if report.is_some() {
             StatusCode::OK
@@ -184,6 +197,7 @@ pub(super) async fn page(
             window,
             report.as_ref().map(|r| &r.0),
             report.as_ref().and_then(|r| r.1.as_ref()),
+            reading.as_ref(),
             state.queue_snapshot(),
         ),
     ))
