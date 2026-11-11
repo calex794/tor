@@ -4,6 +4,7 @@ mod book_evidence;
 mod canonical;
 mod closed;
 mod intent;
+mod time;
 
 use crate::services::audience::{
     validate_period, AudienceCounts, AudienceError, AudiencePeriod, AudienceReport,

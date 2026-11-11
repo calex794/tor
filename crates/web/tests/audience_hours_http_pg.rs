@@ -394,3 +394,6 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
 
 #[path = "audience_hours_http_pg/observed.rs"]
 mod observed;
+
+#[path = "audience_hours_http_pg/reading_time.rs"]
+mod reading_time;
