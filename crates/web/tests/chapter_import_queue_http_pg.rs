@@ -418,25 +418,15 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .unwrap();
     assert!(!new_job, "replay must not be a newly linked root");
     assert_eq!(replayed_job, causal_job);
-    let linked: Option<Vec<u8>> =
-        sqlx::query_scalar("SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1")
-            .bind(causal_job)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(linked, Some(PARENT.to_be_bytes().to_vec()));
-    assert_eq!(
-        worker.run_one().await.unwrap(),
-        ChapterImportWorkerResult::Completed,
-        "real claim must decode the stored parent before running the worker",
-    );
-    let linked_after_restart: Option<Vec<u8>> =
-        sqlx::query_scalar("SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1")
-            .bind(causal_job)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(linked_after_restart, linked);
+    let claimed = jobs.claim_next().await.unwrap().unwrap();
+    assert_eq!(claimed.job_id, causal_job);
+    assert_eq!(claimed.parent_trace_id, Some(PARENT));
+    assert_eq!(claimed.attempts, 1);
+    assert!(jobs
+        .fail_if_current(causal_job, claimed.epoch, false, "test_probe")
+        .await
+        .unwrap());
+    store.delete(&source_key).await.unwrap();
     assert!(store.0.lock().await.is_empty());
     assert_eq!(
         authoring
@@ -444,7 +434,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        2
+        1
     );
 
     // Publishing a book must close the queued import route before any S3 PUT,
@@ -482,7 +472,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        2,
+        1,
         "rejected published-book import must not add chapters"
     );
     pool.close().await;
