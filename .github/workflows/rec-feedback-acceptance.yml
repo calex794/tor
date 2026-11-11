@@ -20,6 +20,7 @@ on:
       # but must not launch this redundant specialist workflow.
       - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
+      - 'tools/surprise_pg_browser.cjs'
       - 'tools/recommendation_preferences_pg_browser.cjs'
       - 'tools/audience_retirement_fixtures.cjs'
       - 'tools/audience_retired_pg_helpers.cjs'
