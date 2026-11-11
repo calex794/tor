@@ -20,19 +20,18 @@ ci_rec_step_done() {
 }
 cargo build -p tor-web
 ci_rec_step_done "cargo_build"
+# Mandatory current-schema acceptance, also executed by main postgres-runtime.
+cargo test -p tor-web --test surprise_experiment_pg -- --ignored --test-threads=1
+ci_rec_step_done "surprise_reading_pg_acceptance"
 # The mandatory PostgreSQL job has already installed Playwright and the
 # headless Chromium shell. Reuse them only when explicitly requested; keep
 # this acceptance script self-contained for its independent workflow.
 if [[ "${TOR_REC_REUSE_PLAYWRIGHT:-0}" == 1 ]]; then
-  # Playwright's executablePath() points to *headed* Chromium, which is
-  # intentionally absent in --only-shell mode. Launch the real headless shell
-  # instead, so missing browser dependencies fail before starting the test.
+  # executablePath() points to headed Chromium, absent in --only-shell mode.
   node -e "const p=require('playwright'); if (require('playwright/package.json').version !== '1.56.1') process.exit(1); p.chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
   node_path="$PWD/node_modules"
 else
   npm install --prefix "$root/node" --no-save playwright@1.56.1
-  # Standalone REC acceptance uses the same real headless Chromium as the
-  # mandatory PG job. Avoid optional Ubuntu fonts downloaded via apt mirrors.
   "$root/node/node_modules/.bin/playwright" install --only-shell chromium
   node_path="$root/node/node_modules"
 fi
@@ -85,10 +84,8 @@ start_server() {
     ci_rec_step_done "http_ready_$fixture_name"
   fi
 }
-# No other fixture server is running while the actual process lifecycle is proved.
 APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tools/flow_lifecycle_pg.cjs
 ci_rec_step_done "flow_process_lifecycle"
-# Current business behavior is always exercised behind the installed SQL barrier.
 start_server "$TEST_DATABASE_URL" current
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" node tools/rec13_browser.cjs
@@ -140,9 +137,12 @@ NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
   TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \
   node tools/surprise_pg_browser.cjs
 ci_rec_step_done "surprise_chromium_acceptance"
+NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+  TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \
+  node tools/surprise_experiment_pg_browser.cjs
+ci_rec_step_done "surprise_experiment_chromium_acceptance"
 stop_server
-# Historical collector/report arithmetic remains executable in its own 192 database.
-# No current-schema trigger is disabled and no application collection bypass is added.
+# Historical collectors remain executable only in their explicit 192 database.
 start_server "$LEGACY_ANALYTICS_DATABASE_URL" legacy192
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_sources_pg_browser.cjs
@@ -163,7 +163,6 @@ NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_group_returns_pg_browser.cjs
 ci_rec_step_done "legacy192_audience_group_returns_browser_acceptance"
 stop_server
-# This database was genuinely upgraded from accepted 190 and drained by the bounded port.
 start_server "$COLLECTION_RETIREMENT_APP_DATABASE_URL" installed-upgrade
 NODE_PATH="$node_path" APP_URL="$COLLECTION_RETIREMENT_APP_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/analytics_retirement_pg_browser.cjs

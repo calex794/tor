@@ -21,12 +21,12 @@ BEGIN
         IF active_id IS NOT NULL THEN
             SELECT x.* INTO p FROM surprise_experiment_participants x
               WHERE x.run_id=active_id AND x.user_id=NEW.user_id
-                AND at_time>=x.enrolled_at AND at_time<x.enrolled_at+interval '8 days'
+                AND at_time>=x.enrolled_at AND at_time<x.enrolled_at+interval '192 hours'
               FOR UPDATE;
             IF FOUND THEN
                 IF TG_TABLE_NAME='reader_chapter_completions' THEN
-                    -- Deferred trigger: the canonical completion and its outbox
-                    -- receipt are both visible, even for the same modifying CTE.
+                    -- Deferred trigger: canonical completion and outbox receipt
+                    -- are both visible, including a same-statement modifying CTE.
                     SELECT EXISTS(SELECT 1 FROM outbox_events e
                       WHERE e.id=NEW.source_event_id AND e.event_type='ChapterCompletedV1'
                         AND e.schema_version=1 AND e.aggregate_kind='chapter'
@@ -42,7 +42,7 @@ BEGIN
                               AND e.payload->>'authority'='C-verified-purchased-position'
                               AND e.payload->>'purchase_id'=NEW.purchase_id::text))) INTO verified;
                     IF verified AND NEW.completed_at>=p.enrolled_at
-                       AND at_time<p.enrolled_at+interval '7 days' THEN
+                       AND at_time<p.enrolled_at+interval '168 hours' THEN
                         SELECT NOT EXISTS(SELECT 1 FROM reader_chapter_starts s
                           WHERE s.user_id=NEW.user_id AND s.book_id=NEW.book_id
                             AND s.started_at<p.enrolled_at)
@@ -56,17 +56,17 @@ BEGIN
                     END IF;
                 ELSE
                     UPDATE surprise_experiment_participants SET
-                      returned_d1=returned_d1 OR (at_time>=enrolled_at+interval '1 day'
-                        AND at_time<enrolled_at+interval '2 days'),
-                      returned_d7=returned_d7 OR at_time>=enrolled_at+interval '7 days'
+                      returned_d1=returned_d1 OR (at_time>=enrolled_at+interval '24 hours'
+                        AND at_time<enrolled_at+interval '48 hours'),
+                      returned_d7=returned_d7 OR at_time>=enrolled_at+interval '168 hours'
                       WHERE id=p.id;
                 END IF;
             END IF;
         END IF;
         PERFORM set_config('lock_timeout',old_timeout,true);
     EXCEPTION WHEN OTHERS THEN
-        -- Sequences do not wait for the participant/run row and survive rollback.
-        -- PostgreSQL OTHERS intentionally does not swallow query_canceled.
+        -- Sequences do not wait for a participant row and survive rollback.
+        -- OTHERS intentionally does not swallow PostgreSQL query_canceled.
         PERFORM nextval('surprise_capture_fault_seq');
         PERFORM set_config('lock_timeout',old_timeout,true);
     END;
@@ -91,7 +91,7 @@ BEGIN
           FROM surprise_experiment_runs e
           WHERE p.run_id=e.id AND p.user_id=NEW.user_id AND e.state='running'
             AND clock_timestamp()<e.ends_at
-            AND clock_timestamp()<p.enrolled_at+interval '8 days';
+            AND clock_timestamp()<p.enrolled_at+interval '192 hours';
         PERFORM set_config('lock_timeout',old_timeout,true);
     EXCEPTION WHEN OTHERS THEN
         PERFORM nextval('surprise_capture_fault_seq');
@@ -108,7 +108,7 @@ BEGIN
     WITH old_rows AS (
       SELECT p.id FROM surprise_experiment_participants p
       JOIN surprise_experiment_runs e ON e.id=p.run_id
-      WHERE p.enrolled_at<clock_timestamp()-interval '30 days' AND e.state<>'running'
+      WHERE p.enrolled_at<clock_timestamp()-interval '720 hours' AND e.state<>'running'
       ORDER BY p.enrolled_at,p.id FOR UPDATE OF p SKIP LOCKED LIMIT 1000
     ) DELETE FROM surprise_experiment_participants WHERE id IN (SELECT id FROM old_rows);
     GET DIAGNOSTICS removed=ROW_COUNT;

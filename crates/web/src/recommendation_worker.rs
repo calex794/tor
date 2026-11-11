@@ -17,9 +17,10 @@ pub fn start_contextual(accounts: Option<PgAccounts>) -> Option<tokio::task::Joi
         let mut checked = None::<Instant>;
         loop {
             if checked.is_none_or(|at| at.elapsed() >= Duration::from_secs(60)) {
+                let enabled = crate::auth::surprise_http::enabled();
                 match tokio::time::timeout(
                     Duration::from_millis(2000),
-                    surprises.maintain_experiment(),
+                    surprises.maintain_experiment_with_delivery(enabled),
                 )
                 .await
                 {

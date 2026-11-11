@@ -1,8 +1,9 @@
 //! One server-owned chance per UTC day; every state-changing operation locks
 //! the live A user and the F preference head in a fixed order.
 use super::{PgSurprises, PlanState, SurpriseError};
-use crate::services::surprise_schedule::{
-    decide, experiment_arm, Decision, ExperimentArm, SurpriseSchedule,
+use crate::services::{
+    surprise_experiment_assignment::for_run,
+    surprise_schedule::{decide, Decision, ExperimentArm, SurpriseSchedule},
 };
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -26,12 +27,13 @@ impl PgSurprises {
         if active.is_none() {
             return Err(SurpriseError::Forbidden);
         }
-        let (enabled, mut prob, experimental): (bool, i16, bool) = sqlx::query_as(
-            "SELECT enabled,probability_per_mille,experiment_enabled
-             FROM surprise_runtime_policy WHERE singleton",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let (enabled, mut prob, experimental, configured_run): (bool, i16, bool, Option<i64>) =
+            sqlx::query_as(
+                "SELECT enabled,probability_per_mille,experiment_enabled,experiment_run_id
+                 FROM surprise_runtime_policy WHERE singleton",
+            )
+            .fetch_one(&mut *tx)
+            .await?;
         let disabled: bool = sqlx::query_scalar(
             "SELECT COALESCE((SELECT disabled FROM surprise_user_preferences WHERE user_id=$1),false)",
         )
@@ -53,14 +55,16 @@ impl PgSurprises {
         let mut arm = None;
         let mut run = None;
         if experimental {
-            // Enroll BEFORE the appearance draw. A stored assignment, not a
-            // later click, key rotation or new day, owns this account's arm.
-            let candidate = experiment_arm(server_key, &subject);
+            // Per-run HMAC before the daily appearance draw. The SQL fence
+            // rejects a run changed concurrently with this policy snapshot.
+            let run_id = configured_run.ok_or(SurpriseError::Unavailable)?;
+            let candidate = for_run(server_key, &subject, run_id);
             let assigned: Option<(i64, String, i16)> =
-                sqlx::query_as("SELECT run_id,arm,probability FROM surprise_enroll($1,$2,$3)")
+                sqlx::query_as("SELECT run_id,arm,probability FROM surprise_enroll($1,$2,$3,$4)")
                     .bind(user_id)
                     .bind(candidate.as_str())
                     .bind(day)
+                    .bind(run_id)
                     .fetch_optional(&mut *tx)
                     .await?;
             let Some((id, pinned, probability)) = assigned else {

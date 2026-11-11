@@ -8,8 +8,8 @@ $$;
 CREATE TABLE surprise_experiment_runs (
     id bigserial PRIMARY KEY,
     started_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    enrollment_ends_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '14 days',
-    ends_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '22 days',
+    enrollment_ends_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '336 hours',
+    ends_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '528 hours',
     last_checked_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     probability_per_mille smallint NOT NULL CHECK(probability_per_mille BETWEEN 0 AND 1000),
     state text NOT NULL DEFAULT 'running' CHECK(state IN ('running','stopped','completed')),
@@ -68,13 +68,13 @@ CREATE FUNCTION surprise_refresh_totals(p_run bigint) RETURNS void LANGUAGE sql 
       (run_id,arm,enrolled,mature,meaningful,baseline_eligible,current_completed,
        returned_d1,returned_d7,disabled,prior_readers,measured_at)
     SELECT p_run,a.arm,count(p.id),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days'),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.meaningful_new_book),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.baseline_chapter_id IS NOT NULL),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.baseline_chapter_id IS NOT NULL AND p.current_completed),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.returned_d1),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.returned_d7),
-      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '8 days' AND p.disabled),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours'),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.meaningful_new_book),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.baseline_chapter_id IS NOT NULL),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.baseline_chapter_id IS NOT NULL AND p.current_completed),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.returned_d1),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.returned_d7),
+      count(p.id) FILTER(WHERE p.enrolled_at<=transaction_timestamp()-interval '192 hours' AND p.disabled),
       count(p.id) FILTER(WHERE p.prior_reader),transaction_timestamp()
     FROM unnest(ARRAY['control','gentle','standard']) a(arm)
     LEFT JOIN surprise_experiment_participants p ON p.run_id=p_run AND p.arm=a.arm
@@ -115,7 +115,7 @@ CREATE TRIGGER surprise_experiment_policy_transition
     EXECUTE FUNCTION surprise_experiment_policy_transition();
 
 -- I-owned read projection: C remains authoritative for starts, positions and completions.
-CREATE FUNCTION surprise_enroll(p_user bigint,p_candidate text,p_day bigint)
+CREATE FUNCTION surprise_enroll(p_user bigint,p_candidate text,p_day bigint,p_run bigint)
 RETURNS TABLE(run_id bigint,arm text,probability smallint) LANGUAGE plpgsql AS $$
 DECLARE r surprise_experiment_runs%ROWTYPE; selected_arm text; at_time timestamptz;
 BEGIN
@@ -123,7 +123,7 @@ BEGIN
     SELECT e.* INTO r FROM surprise_experiment_runs e
       JOIN surprise_runtime_policy policy ON policy.experiment_run_id=e.id
       WHERE policy.singleton AND policy.enabled AND policy.experiment_enabled
-        AND e.state='running' AND clock_timestamp()<e.ends_at
+        AND e.id=p_run AND e.state='running' AND clock_timestamp()<e.ends_at
         AND e.last_checked_at>=clock_timestamp()-interval '2 minutes'
         AND e.faults_start=surprise_capture_faults() FOR SHARE OF e;
     IF NOT FOUND THEN RETURN; END IF;
@@ -131,7 +131,7 @@ BEGIN
        AND d.utc_day=p_day AND d.experiment_run_id IS DISTINCT FROM r.id) THEN RETURN; END IF;
     SELECT p.arm INTO selected_arm FROM surprise_experiment_participants p
       WHERE p.run_id=r.id AND p.user_id=p_user
-        AND clock_timestamp()<p.enrolled_at+interval '8 days';
+        AND clock_timestamp()<p.enrolled_at+interval '192 hours';
     IF NOT FOUND THEN
         IF clock_timestamp()>=r.enrollment_ends_at OR EXISTS(
             SELECT 1 FROM surprise_experiment_participants p
@@ -168,7 +168,7 @@ RETURNS boolean LANGUAGE sql VOLATILE AS $$
           WHERE e.id=d.experiment_run_id AND p.arm=d.experiment_arm AND e.state='running'
             AND e.faults_start=surprise_capture_faults() AND clock_timestamp()<e.ends_at
             AND e.last_checked_at>=clock_timestamp()-interval '2 minutes'
-            AND clock_timestamp()<p.enrolled_at+interval '8 days')
+            AND clock_timestamp()<p.enrolled_at+interval '192 hours')
       ELSE d.experiment_arm IS NULL END
       FROM surprise_daily_decisions d CROSS JOIN surprise_runtime_policy policy
       WHERE policy.singleton AND d.user_id=p_user AND d.utc_day=p_day),false)

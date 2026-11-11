@@ -148,8 +148,8 @@ impl Fixture {
 
     pub async fn enroll(&self, user: i64, arm: &str) {
         let assigned: String = sqlx::query_scalar(
-            "SELECT arm FROM surprise_enroll($1,$2,((now() AT TIME ZONE 'UTC')::date-DATE '1970-01-01')::bigint)",
-        ).bind(user).bind(arm).fetch_one(&self.pool).await.unwrap();
+            "SELECT arm FROM surprise_enroll($1,$2,((now() AT TIME ZONE 'UTC')::date-DATE '1970-01-01')::bigint,$3)",
+        ).bind(user).bind(arm).bind(self.run).fetch_one(&self.pool).await.unwrap();
         assert_eq!(assigned, arm);
     }
 
@@ -231,4 +231,42 @@ impl Fixture {
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable tor_ci PostgreSQL"]
+async fn delivery_gate_stops_a_run_and_rejects_a_stale_assignment() {
+    let mut f = Fixture::new().await;
+    let user = f.user().await;
+    f.start().await;
+    let wrong_run: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM surprise_enroll($1,'standard',21000,$2)",
+    )
+    .bind(user)
+    .bind(f.run + 1)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(wrong_run, 0);
+    f.surprises
+        .maintain_experiment_with_delivery(false)
+        .await
+        .unwrap();
+    let report = f
+        .surprises
+        .admin_reading_experiment(&f.digest)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(report.state, "stopped");
+    assert_eq!(report.decision, "delivery_disabled");
+    assert!(report.differences.is_none());
+    let flags: (bool, bool) = sqlx::query_as(
+        "SELECT enabled,experiment_enabled FROM surprise_runtime_policy WHERE singleton",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(flags, (false, false));
+    f.cleanup().await;
 }

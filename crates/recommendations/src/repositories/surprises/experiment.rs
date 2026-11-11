@@ -54,8 +54,7 @@ async fn counts(
 }
 
 impl PgSurprises {
-    /// Read-only administrative report. Collection and cleanup never depend on
-    /// someone opening this page. Closed trials retain only their frozen totals.
+    /// Read-only report; maintenance never depends on opening this page.
     pub async fn admin_reading_experiment(
         &self,
         digest: &[u8; 32],
@@ -69,7 +68,11 @@ impl PgSurprises {
             .await?;
         live_admin(&mut tx, digest).await?;
         let row = sqlx::query(
-            "SELECT e.id,e.state,e.decision,
+            "SELECT e.id,e.state,
+               CASE WHEN e.state='running' AND e.faults_start<>surprise_capture_faults()
+                    THEN 'capture_failure'
+                    WHEN e.state='running' AND e.last_checked_at<clock_timestamp()-interval '2 minutes'
+                    THEN 'monitor_gap' ELSE e.decision END AS decision,
                to_char(e.started_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS started,
                to_char(e.enrollment_ends_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS enrollment_end,
                to_char(e.ends_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS trial_end,
@@ -107,9 +110,17 @@ impl PgSurprises {
         Ok(Some(report))
     }
 
-    /// A single bounded tick, including when the feature is disabled. Returns
-    /// false when an expired receipt backlog still needs the next tick.
+    /// Repository-only maintenance for isolated callers with delivery available.
+    /// The process worker supplies the actual HTTP/key gate explicitly instead.
     pub async fn maintain_experiment(&self) -> Result<bool, SurpriseError> {
+        self.maintain_experiment_with_delivery(true).await
+    }
+
+    /// A bounded tick, including when disabled. False means a cleanup backlog.
+    pub async fn maintain_experiment_with_delivery(
+        &self,
+        delivery_enabled: bool,
+    ) -> Result<bool, SurpriseError> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET LOCAL statement_timeout='750ms'")
             .execute(&mut *tx)
@@ -141,9 +152,9 @@ impl PgSurprises {
                 .execute(&mut *tx)
                 .await?;
             let assessment = assess(&counts(&mut tx, id).await?, finished, healthy);
-            if assessment.stop || monitor_gap {
-                // Same lock order as administrative policy changes. C's shared
-                // run lock makes all already accepted captures finish first.
+            if assessment.stop || monitor_gap || !delivery_enabled {
+                // Same lock order as the administrator: policy, then run.
+                // C holds the shared run fence until accepted captures commit.
                 let current: Option<i64> = sqlx::query_scalar(
                     "SELECT experiment_run_id FROM surprise_runtime_policy
                      WHERE singleton AND experiment_enabled FOR UPDATE",
@@ -153,19 +164,16 @@ impl PgSurprises {
                 .flatten();
                 if current == Some(id) {
                     let sealed: Option<i64> = sqlx::query_scalar(
-                        "UPDATE surprise_experiment_runs SET
-                           state=CASE WHEN $2 THEN 'completed' ELSE 'stopped' END,
+                        "UPDATE surprise_experiment_runs SET state='stopped',
                            closed_at=clock_timestamp(),faults_end=surprise_capture_faults(),
                            last_checked_at=clock_timestamp()
                          WHERE id=$1 AND state='running' RETURNING id",
                     )
                     .bind(id)
-                    .bind(finished && healthy && !monitor_gap)
                     .fetch_optional(&mut *tx)
                     .await?;
                     if sealed.is_some() {
-                        // Freeze totals only AFTER acquiring the exclusive run
-                        // fence, not from the preliminary monitoring snapshot.
+                        // Freeze only after acquiring the exclusive run fence.
                         sqlx::query("SELECT surprise_refresh_totals($1)")
                             .bind(id)
                             .execute(&mut *tx)
@@ -179,17 +187,25 @@ impl PgSurprises {
                         .await?;
                         let final_assessment =
                             assess(&counts(&mut tx, id).await?, finished, final_health);
-                        let code = if monitor_gap {
+                        let code = if !final_health {
+                            "capture_failure"
+                        } else if !delivery_enabled {
+                            "delivery_disabled"
+                        } else if monitor_gap {
                             "monitor_gap"
-                        } else {
+                        } else if final_assessment.stop {
                             final_assessment.code
+                        } else {
+                            assessment.code
                         };
                         sqlx::query(
                             "UPDATE surprise_experiment_runs SET decision=$2,
+                               state=CASE WHEN $3 THEN 'completed' ELSE 'stopped' END,
                                faults_end=surprise_capture_faults() WHERE id=$1",
                         )
                         .bind(id)
                         .bind(code)
+                        .bind(finished && final_health && delivery_enabled && !monitor_gap)
                         .execute(&mut *tx)
                         .await?;
                         sqlx::query(
@@ -221,7 +237,7 @@ impl PgSurprises {
                 WHERE utc_day<((clock_timestamp() AT TIME ZONE 'UTC')::date-DATE '1970-01-01')::bigint-30)
              AND NOT EXISTS(SELECT 1 FROM surprise_experiment_participants p
                 JOIN surprise_experiment_runs e ON e.id=p.run_id
-                WHERE p.enrolled_at<clock_timestamp()-interval '30 days' AND e.state<>'running')",
+                WHERE p.enrolled_at<clock_timestamp()-interval '720 hours' AND e.state<>'running')",
         )
         .fetch_one(&mut *tx)
         .await?;
