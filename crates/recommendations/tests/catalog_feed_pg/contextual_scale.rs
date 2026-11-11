@@ -8,8 +8,26 @@ async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
     let f = fixture("contextual-scale").await;
     metadata(&f).await;
     let language = format!("ctx-{}", f.books[0]);
-    sqlx::query("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres,tags) SELECT 'ci:contextual-scale:'||$1||':'||n,$1,'Metadata scale '||n,'public','basic',ARRAY['shared'],ARRAY['system'] FROM generate_series(1,100000) n")
-        .bind(&language).execute(&f.pool).await.unwrap();
+    // Earlier CI scenarios have explicit book IDs beyond the sequence. Reserve
+    // a disjoint range under a table lock; do not reset a shared sequence or
+    // ignore conflicts, which would silently shrink the measured workload.
+    let mut setup = f.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *setup)
+        .await
+        .unwrap();
+    // Reproduce the full-CI condition: an explicit ID is ahead of nextval.
+    let sentinel: i64 = sqlx::query_scalar("INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) SELECT coalesce(max(id),0)+93610,'ci:contextual-scale-sentinel:'||$1,'zz','Unrelated explicit ID','draft','basic' FROM books RETURNING id")
+        .bind(&language).fetch_one(&mut *setup).await.unwrap();
+    sqlx::query("INSERT INTO books(id,source_identity,target_language,title,visibility,access_level,genres,tags) SELECT (SELECT coalesce(max(id),0) FROM books)+n, 'ci:contextual-scale:'||$1||':'||n,$1,'Metadata scale '||n,'public','basic',ARRAY['shared'],ARRAY['system'] FROM generate_series(1,100000) n")
+        .bind(&language).execute(&mut *setup).await.unwrap();
+    setup.commit().await.unwrap();
+    let candidates: i64 = sqlx::query_scalar("SELECT count(*) FROM books WHERE target_language=$1 AND source_identity LIKE 'ci:contextual-scale:%'")
+        .bind(&language)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(candidates, 100000, "all scale candidates were inserted");
     let generation = command(&f, Action::Refresh, None).await;
     // Skip only pre-existing fixture books so this page contains the chosen
     // seed; no model is marked finished and all runtime SQL remains real.
@@ -68,10 +86,18 @@ async fn model_page_is_bounded_with_100k_books_and_reader_requests() {
     command(&f, Action::Cancel, Some(&generation)).await;
     shared.close().await;
     stop(&f, &[generation]).await;
-    sqlx::query("UPDATE books SET admin_hold=true WHERE target_language=$1")
+    sqlx::query("DELETE FROM books WHERE target_language=$1 AND source_identity LIKE 'ci:contextual-scale:%'")
         .bind(&language)
         .execute(&f.pool)
         .await
         .unwrap();
+    sqlx::query(
+        "DELETE FROM books WHERE id=$1 AND source_identity='ci:contextual-scale-sentinel:'||$2",
+    )
+    .bind(sentinel)
+    .bind(&language)
+    .execute(&f.pool)
+    .await
+    .unwrap();
     f.cleanup().await;
 }
