@@ -1,7 +1,10 @@
 //! F-04 homepage orchestration: new additions and real free chapter releases.
 //! This is a read-only public projection. B remains the only publisher.
 use super::{cover_http, pages, public_cards, AppState};
-use axum::{http::StatusCode, response::Html};
+use axum::{
+    http::{header, HeaderValue, StatusCode},
+    response::{Html, IntoResponse, Response},
+};
 use std::collections::HashSet;
 use tor_search::{
     domain::SearchBook,
@@ -9,6 +12,37 @@ use tor_search::{
     services::showcases::{RecentShowcases, ReleaseShowcases, RisingShowcases},
     SearchError,
 };
+
+pub(super) async fn page(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    headers: axum::http::HeaderMap,
+    observation: crate::editorial_http::display::Issuer,
+) -> Result<Response, StatusCode> {
+    let html = homepage(
+        state.clone(),
+        observation.as_ref().map(|value| value.0.clone()),
+    )
+    .await?;
+    let html = if let Some(editorial) = &state.editorial {
+        editorial
+            .attach(
+                &headers,
+                tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                None,
+                html,
+                crate::editorial_http::display::issuer(&observation),
+            )
+            .await
+    } else {
+        html
+    };
+    // Age and explicit Hide are response-specific, even if observation is unavailable.
+    let mut response = html.into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
+}
 
 fn status(error: SearchError) -> StatusCode {
     match error {

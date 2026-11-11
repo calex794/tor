@@ -12,6 +12,7 @@ s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
+tor-ads = { path = "../ads" }
 axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time", "io-util"] }
 tor-books = { path = "../books" }

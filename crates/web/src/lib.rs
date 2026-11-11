@@ -39,6 +39,7 @@ mod cover_http;
 pub mod cover_private_cleanup;
 pub mod cover_private_source_cleanup;
 mod cpu_work;
+mod editorial_http;
 pub mod flow_exposure;
 mod homepage_updates;
 mod layer_reader_assets;
@@ -97,6 +98,7 @@ struct AppState {
     private_admin_sealed_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
+    editorial: Option<editorial_http::display::DisplayRuntime>,
 }
 /// Wiring mode is explicit; availability of a private admin shell does not
 /// enable wallet checkout, encrypted S3 grants or Layer reading.
@@ -152,12 +154,6 @@ async fn public_cards(
             genres: Vec::new(),
         })
         .collect())
-}
-async fn homepage(
-    State(state): State<AppState>,
-    issuer: Option<axum::Extension<std::sync::Arc<dyn tor_contracts::exposure::ObservationIssuer>>>,
-) -> Result<Html<String>, StatusCode> {
-    homepage_updates::homepage(state, issuer.map(|e| e.0)).await
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -236,6 +232,7 @@ async fn book_detail(
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
     headers: axum::http::HeaderMap,
+    observation: editorial_http::display::Issuer,
 ) -> Response {
     // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
@@ -284,6 +281,7 @@ async fn book_detail(
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
+            let html = editorial_http::display::book(&state, &headers, id, html, observation).await;
             return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
@@ -316,8 +314,17 @@ async fn reader_page(
     Query(query): Query<public_reader_http::PublicIssueQuery>,
     headers: axum::http::HeaderMap,
     method: axum::http::Method,
+    observation: editorial_http::display::Issuer,
 ) -> Response {
-    public_reader_http::reader_page(State(state), Path(id), Query(query), headers, method).await
+    public_reader_http::reader_page(
+        State(state),
+        Path(id),
+        Query(query),
+        headers,
+        method,
+        observation,
+    )
+    .await
 }
 
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
@@ -443,7 +450,7 @@ fn make_router_with_paid_checkout(
     // Public pages carry no per-account analytics identity. RIL still records
     // finite anonymous route, status, latency and HTML request counters.
     let public_pages = Router::new()
-        .route("/", get(homepage))
+        .route("/", get(homepage_updates::page))
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/reader/{id}", get(reader_page));
@@ -520,6 +527,7 @@ fn make_router_with_paid_checkout(
         let (accounts, cookies) = control.browser_context();
         recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
     });
+    let editorial = editorial_http::display::configured(postgres.as_ref(), follow_control.as_ref());
     let app = app
         .with_state(AppState {
             books: repo,
@@ -537,6 +545,7 @@ fn make_router_with_paid_checkout(
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
+            editorial,
             follow_control,
         })
         .merge(api)

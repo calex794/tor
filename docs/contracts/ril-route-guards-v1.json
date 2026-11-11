@@ -20,7 +20,7 @@
       "method": "GET",
       "template": "/",
       "source": "crates/web/src/lib.rs",
-      "handler": "homepage",
+      "handler": "homepage_updates::page",
       "policy": "public"
     },
     {
@@ -2850,6 +2850,20 @@
       "source": "crates/web/src/flow_exposure/mod.rs",
       "handler": "report::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/promotion/editorial",
+      "source": "crates/web/src/editorial_http/mod.rs",
+      "handler": "admin::page",
+      "policy": "admin_editorial"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/editorial",
+      "source": "crates/web/src/editorial_http/mod.rs",
+      "handler": "admin::submit",
+      "policy": "admin_editorial"
     }
   ]
 }
