@@ -96,6 +96,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET deadlock_timeout = '5ms'"
           psql -X -v ON_ERROR_STOP=1 -c "SELECT pg_reload_conf()"
       - name: Apply all current migrations and replay
+        id: catalog_migrations
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -114,15 +115,18 @@ jobs:
           TOR_BROWSER_PROOF_IMAGES: '1'
         run: bash tools/flow_catalog_interest_browser_acceptance.sh
       - name: Required reading PostgreSQL cases
+        if: ${{ !cancelled() && steps.catalog_migrations.outcome == 'success' }}
         run: |
           cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test audience_catalog_pg -- --ignored --test-threads=1
       - name: Required current report HTTP
+        if: ${{ !cancelled() && steps.catalog_migrations.outcome == 'success' }}
         run: |
           cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
       - name: Strict owner and web Clippy
+        if: ${{ !cancelled() }}
         run: |
           cargo clippy -p tor-reading -p tor-web --all-targets -- -D warnings
       - name: Require the checked-in source to match formatting

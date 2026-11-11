@@ -35,11 +35,17 @@ async function complete(context, page, pair) {
     assert.equal(response.status(), expected, 'production C progress response: ' + await response.text());
     return expected === 200 ? (await response.json()).revision : null;
   }
-  const started = await save(3, 0);
+  // The CAS revision belongs to the account/book, including a different chapter.
+  const state = await context.request.get(base + '/api/v1/me/progress/free?chapter_id=' + pair.chapter);
+  assert.equal(state.status(), 200);
+  const currentRevision = Number((await state.json()).revision);
+  assert.ok(Number.isSafeInteger(currentRevision) && currentRevision >= 0);
+  const started = await save(3, currentRevision);
   const completed = await save(13, started);
   await save(13, completed, 409);
   assert.equal(scalar('SELECT count(*) FROM reader_chapter_starts WHERE chapter_id=' + pair.chapter), 1);
   assert.equal(scalar('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + pair.chapter), 1);
+  return currentRevision;
 }
 async function metric(locator, name) {
   return (await locator.locator('[data-metric="' + name + '"]').first().innerText()).trim();
@@ -97,7 +103,8 @@ async function snapshot(page, name, target) {
     const old = f.chapter(0, 1);
     const newer = f.chapter(0, 2);
     for (const pair of [old, newer, f.chapter(51, 1), f.chapter(52, 1)]) {
-      await complete(readerContext, readerPage, pair);
+      const previousRevision = await complete(readerContext, readerPage, pair);
+      if (pair.chapter === newer.chapter) assert.ok(previousRevision > 0, 'same-book revision must survive a chapter change');
       f.placeVerifiedFact(pair.chapter, pair.chapter === old.chapter ? 200 * 86400 : 7200);
     }
     assert.equal(scalar('SELECT count(*) FROM reader_chapter_completions WHERE book_id=' + f.books[0]), 2);

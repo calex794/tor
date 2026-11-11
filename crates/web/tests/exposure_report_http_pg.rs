@@ -115,7 +115,8 @@ impl Fixture {
         }
     }
     async fn get(&self, suffix: &str, cookie: &str) -> Response {
-        let response = self.app
+        let response = self
+            .app
             .clone()
             .oneshot(
                 Request::get(format!("{REPORT}{suffix}"))
