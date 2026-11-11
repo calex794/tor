@@ -2,6 +2,8 @@
 #[derive(Debug, Clone)]
 pub struct ChapterImportClaim {
     pub job_id: i64,
+    /// Opaque server-created HTTP trace; not a job, user, or content identifier.
+    pub parent_trace_id: Option<u128>,
     pub book_id: i64,
     pub actor_id: i64,
     pub command_key: String,

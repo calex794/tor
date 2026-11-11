@@ -39,6 +39,10 @@ fn publisher() -> &'static tor_observability::services::publisher::TracePublishe
 #[derive(Clone, Copy)]
 pub(crate) struct TraceId(pub(crate) u128);
 
+/// Internal response marker: a new durable job carries this HTTP parent ID.
+#[derive(Clone, Copy)]
+pub(crate) struct CorrelatedJobEnqueued;
+
 pub(crate) fn new_trace_id() -> TraceId {
     let tick = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -54,6 +58,7 @@ pub(crate) fn finish_trace(
     status: u16,
     elapsed: Duration,
     sqlx: Option<SqlEvidence>,
+    correlated_job: bool,
 ) -> RequestTrace {
     let trace = RequestTrace {
         trace_id: id.0,
@@ -62,9 +67,13 @@ pub(crate) fn finish_trace(
         duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
         sqlx,
     };
-    let retained = TRACES
-        .get_or_init(TraceBuffer::default)
-        .record(trace.clone());
+    let buffer = TRACES.get_or_init(TraceBuffer::default);
+    let retained = if correlated_job {
+        buffer.record_correlated(trace.clone());
+        true
+    } else {
+        buffer.record(trace.clone())
+    };
     #[cfg(unix)]
     if retained {
         let _ = publisher().try_publish(&trace);
@@ -72,6 +81,16 @@ pub(crate) fn finish_trace(
     #[cfg(not(unix))]
     let _ = retained;
     trace
+}
+
+/// Emit a post-response worker attempt on a bounded non-blocking channel.
+pub(crate) fn publish_background_trace(
+    trace: &tor_observability::services::trace::background::BackgroundTrace,
+) {
+    #[cfg(unix)]
+    let _ = publisher().try_publish_background(trace);
+    #[cfg(not(unix))]
+    let _ = trace;
 }
 
 /// The operator can inspect these without an HTTP route or user identity.
