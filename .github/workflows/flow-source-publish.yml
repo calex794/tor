@@ -1,0 +1,62 @@
+name: FLOW verified source publication
+on:
+  push:
+    branches: [qa/flow-completion-publisher-20261111]
+permissions:
+  contents: write
+concurrency:
+  group: flow-completion-publisher
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          fetch-depth: 0
+      - name: Publish exact verified tree to a new QA branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,hashlib,json,lzma,os,pathlib,re,subprocess
+          item=json.loads(pathlib.Path('payload/.qa/flow-publish.json').read_text())
+          assert re.fullmatch(r'[0-9a-f]{40}',item['base'])
+          assert re.fullmatch(r'[0-9a-f]{40}',item['tree'])
+          assert re.fullmatch(r'qa/flow[0-9a-z-]+-20261111',item['target'])
+          patch=lzma.decompress(base64.b64decode(item['patch_lzma_base64'],validate=True))
+          assert len(patch)<2000000
+          assert hashlib.sha256(patch).hexdigest()==item['patch_sha256']
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-publication';root.mkdir()
+          path=root/'source.patch';path.write_bytes(patch)
+          def git(*args):
+              return subprocess.check_output(['git','-C','source',*args],text=True).strip()
+          assert not git('ls-remote','--heads','origin','refs/heads/'+item['target'])
+          git('checkout','--detach',item['base'])
+          assert git('rev-parse','HEAD')==item['base']
+          git('apply','--check',str(path));git('apply','--index',str(path))
+          paths=git('diff','--cached','--name-only').splitlines()
+          assert paths and all(p.startswith(('crates/','tools/','tests/','docs/','migrations/','architecture/')) for p in paths)
+          assert git('write-tree')==item['tree']
+          git('diff','--cached','--check')
+          git('config','user.name','FLOW QA')
+          git('config','user.email','flow-qa@users.noreply.github.com')
+          git('commit','-m',item['message'])
+          git('push','origin','HEAD:refs/heads/'+item['target'])
+          (root/'COMMIT').write_text(git('rev-parse','HEAD'))
+          (root/'TREE').write_text(git('rev-parse','HEAD^{tree}'))
+          git('branch','exported-flow-source','HEAD')
+          git('bundle','create',str(root/'source.bundle'),'exported-flow-source')
+          print(json.dumps({'commit':git('rev-parse','HEAD'),'tree':item['tree'],'target':item['target']}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow-verified-source-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-publication/
+          retention-days: 3
