@@ -96,12 +96,10 @@ impl Fixture {
     }
 
     async fn enable(&self) {
-        sqlx::query(
-            "UPDATE surprise_runtime_policy SET enabled=true,probability_per_mille=1000",
-        )
-        .execute(&self.app)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE surprise_runtime_policy SET enabled=true,probability_per_mille=1000")
+            .execute(&self.app)
+            .await
+            .unwrap();
     }
 
     async fn finish(self) {

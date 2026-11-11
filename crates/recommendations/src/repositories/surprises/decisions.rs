@@ -24,11 +24,10 @@ impl PgSurprises {
         if active.is_none() {
             return Err(SurpriseError::Forbidden);
         }
-        let enabled: bool = sqlx::query_scalar(
-            "SELECT enabled FROM surprise_runtime_policy WHERE singleton",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let enabled: bool =
+            sqlx::query_scalar("SELECT enabled FROM surprise_runtime_policy WHERE singleton")
+                .fetch_one(&mut *tx)
+                .await?;
         let disabled: bool = sqlx::query_scalar(
             "SELECT COALESCE((SELECT disabled FROM surprise_user_preferences WHERE user_id=$1),false)",
         )

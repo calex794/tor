@@ -1,8 +1,8 @@
 //! F-SURPRISE: account-owned, durable, non-monetary surprise decisions.
 use sqlx::PgPool;
 
-mod decisions;
 mod content;
+mod decisions;
 
 #[derive(Clone)]
 pub struct PgSurprises {
