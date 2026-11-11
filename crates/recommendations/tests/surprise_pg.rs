@@ -274,7 +274,10 @@ async fn surprise_admin_requires_live_role_and_audits_bounded_editorial_changes(
     assert!(id > 0);
     assert!(f.store.admin_state(&digest, id, "approved").await.unwrap());
     assert!(!f.store.admin_state(&digest, id, "approved").await.unwrap());
-    f.store.admin_policy(&digest, true, 350, false).await.unwrap();
+    f.store
+        .admin_policy(&digest, true, 350, false)
+        .await
+        .unwrap();
     let (enabled, chance, experimental, items) = f.store.admin_overview(&digest).await.unwrap();
     assert!(!experimental, "experiment must be opt-in");
     assert!(enabled);
