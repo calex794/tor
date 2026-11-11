@@ -213,6 +213,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rec13-browser"
           cargo build -p tor-web
           bash tools/flow_html_health_browser_acceptance.sh
+      - name: FLOW catalogue index migration and recovery (disposable databases)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_flow_index_fresh OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_invalid OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_unrecorded OWNER tor_migrator;
+          SQL
+          FLOW_BOOK_INDEX_MIGRATOR_URL="${MIGRATOR_URL%/tor_ci}/tor_ci_flow_index_fresh" \
+            cargo test -p tor-migrations --test flow_book_indexes_pg -- --ignored --test-threads=1 --nocapture
       - name: E-08 baseline-to-Draft installed SQLx ledger upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'

@@ -1,9 +1,11 @@
+mod reading;
 use super::report::ReportWindow;
 use super::QueueSnapshot;
 use crate::pages::{escape_html as e, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_contracts::exposure::ExposureSurface;
+use tor_reading::services::audience::ClosedBookEvidenceReport;
 use tor_recommendations::domain::exposure::{
     Counts, ExposureFilter, ExposureReport, ObservationClass,
 };
@@ -14,6 +16,7 @@ pub(super) fn page(
     window: ReportWindow,
     report: Option<&ExposureReport>,
     health: Option<&ExposureHealth>,
+    reading: Option<&ClosedBookEvidenceReport>,
     queue: QueueSnapshot,
 ) -> Html<String> {
     let mut body = String::from(
@@ -33,10 +36,12 @@ pub(super) fn page(
             body.push_str("</section>");
             if window == ReportWindow::Closed { collector_health(&mut body, q.days, health); }
             genres(&mut body, q, window, report);
+            if window == ReportWindow::Closed { reading::intro(&mut body, q.days, report.until_epoch, reading); }
             if report.rows.is_empty(){body.push_str(r#"<p data-testid="exposure-empty">Нет книг для этой страницы и фильтров.</p>"#)}
             for book in &report.rows {
                 write!(body,r#"<article class="book-section-card audience-book-row" data-testid="exposure-row" data-book-id="{}"><h2><a href="/books/{}">{}</a></h2><p data-testid="exposure-class">{}</p>"#,book.id,book.id,e(&book.title),class_label(book.counts.classification())).expect("String");
                 metrics(&mut body,book.counts);
+                if window == ReportWindow::Closed { reading::row(&mut body, q.days, report.until_epoch, book, health, reading); }
                 write!(body,"<p>Предыдущий период: подтверждённых показов — {}. Сравнение описательное; причинный эффект продвижения не установлен.</p></article>",known(book.previous.known_views())).expect("String");
             }
             body.push_str(r#"<nav class="audience-books-pagination" aria-label="Страницы книг">"#);
@@ -91,7 +96,7 @@ fn collector_health(out: &mut String, days: i32, health: Option<&ExposureHealth>
             if health.current.complete(days) && health.previous.complete(days) {
                 out.push_str(r#"<p data-testid="exposure-health-complete">Работа зарегистрированных сборщиков подтверждена в обоих окнах.</p>"#);
             } else {
-                out.push_str(r#"<p data-testid="exposure-health-unknown">Полнота наблюдения не подтверждена. Пропуски или ошибки не позволяют объявить отсутствие проблемы.</p>"#);
+                out.push_str(r#"<p data-testid="exposure-health-unknown">Полнота двух окон для сравнения не подтверждена. Статус каждого окна указан отдельно.</p>"#);
             }
         }
     }

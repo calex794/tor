@@ -1,7 +1,9 @@
 //! C-owned retained facts; aggregate metadata only, never a reader history.
+mod ranking;
 use super::{evidence::encode, time};
 use crate::pages::{escape_html, layout};
 use axum::response::Html;
+pub(crate) use ranking::page as ranked_page;
 use std::fmt::Write;
 use tor_reading::services::audience::canonical::{
     CanonicalCounts, CanonicalQuery, CanonicalReport,
@@ -17,7 +19,7 @@ pub(crate) fn page(query: &CanonicalQuery, report: Option<&CanonicalReport>) -> 
         query.days
     )
     .expect("String");
-    filters(&mut body, query);
+    filters(&mut body, query, false);
     match report {
         None=>body.push_str(r#"<p role="alert" data-testid="canonical-unavailable">Данные временно недоступны. Нули не подставляются.</p>"#),
         Some(report)=>{
@@ -74,13 +76,25 @@ fn metrics(body: &mut String, c: CanonicalCounts) {
         ),
     }
 }
-fn filters(body: &mut String, q: &CanonicalQuery) {
+fn filters(body: &mut String, q: &CanonicalQuery, ranked: bool) {
     body.push_str(r#"<form class="author-form audience-books-filters" method="get" action="/admin/audience/reading"><div><label for="canonical-days">Дней в периоде</label><select id="canonical-days" name="days">"#);
     for days in [1, 7, 30, 90] {
         write!(
             body,
             r#"<option value="{days}"{}>{days}</option>"#,
             if days == q.days { " selected" } else { "" }
+        )
+        .expect("String");
+    }
+    body.push_str(r#"</select></div><div><label for="canonical-view">Представление</label><select id="canonical-view" name="view">"#);
+    for (key, label, selected) in [
+        ("all", "Все строки по страницам", !ranked),
+        ("top20", "Топ-20 по подтверждениям", ranked),
+    ] {
+        write!(
+            body,
+            r#"<option value="{key}"{}>{label}</option>"#,
+            if selected { " selected" } else { "" }
         )
         .expect("String");
     }

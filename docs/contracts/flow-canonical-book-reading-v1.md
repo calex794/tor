@@ -65,3 +65,9 @@ escaped metadata. Negative route-governance tests reject removing authorization.
 No migration, new event producer, queue, journal, tracking consent or Cargo
 dependency. Production deployment and persistent databases are out of scope.
 This closes one FLOW-05 slice, not the entire line or all catalogue-interest goals.
+
+## Additive catalogue-interest reports
+
+The opt-in top-20 descriptive ranking and the bounded same-window retained
+chapter-evidence port are specified in [FLOW catalogue interest](flow-catalog-interest-v1.md).
+They do not change this report's keyset ordering or first account/book meaning.
