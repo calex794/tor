@@ -108,9 +108,6 @@ impl PgSurprises {
     ) -> Result<Vec<ExperimentSummary>, SurpriseError> {
         let mut tx = self.pool.begin().await?;
         live_admin(&mut tx, digest).await?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx)
-            .await?;
         sqlx::query("SET LOCAL statement_timeout='750ms'")
             .execute(&mut *tx)
             .await?;
