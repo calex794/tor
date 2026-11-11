@@ -20,7 +20,7 @@ fn sample(recorder: &TrafficRecorder) {
 fn pause(recorder: &TrafficRecorder) -> mpsc::Sender<()> {
     let (ready, started) = mpsc::channel();
     let (resume, wait) = mpsc::channel();
-    recorder.sender.try_send(Message::Pause(ready, wait)).unwrap();
+    assert!(recorder.sender.try_send(Message::Pause(ready, wait)).is_ok());
     started.recv_timeout(Duration::from_secs(2)).unwrap();
     resume
 }
