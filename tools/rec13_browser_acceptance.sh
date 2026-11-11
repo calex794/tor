@@ -130,6 +130,10 @@ stop_server
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_SIGNALS_SHOTS="$root/shots" bash tools/flow_signals_browser_acceptance.sh
 ci_rec_step_done "flow_signals_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_CATALOG_INTEREST_SHOTS="$root/shots" TOR_CATALOG_INTEREST_LOG="$root/server-catalog-interest.log" \
+  bash tools/flow_catalog_interest_browser_acceptance.sh
+ci_rec_step_done "catalog_interest_browser_acceptance"
 # Isolated surprise UI: enabled only for a disposable tor_ci Chromium receipt.
 start_server "$TEST_DATABASE_URL" surprises 1
 NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \

@@ -94,6 +94,20 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium and all browser dependencies
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps --only-shell chromium
+      - name: Production server build
+        run: cargo build -p tor-web --bin tor-web
+      - name: Current catalogue browser with isolated F history
+        env:
+          TOR_BROWSER_PROOF_IMAGES: '1'
+        run: bash tools/flow_catalog_interest_browser_acceptance.sh
       - name: Required reading PostgreSQL cases
         run: |
           cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
@@ -114,3 +128,10 @@ jobs:
             git diff --name-only -- '*.rs'
             exit 1
           fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-interest-browser
+          path: |
+            /tmp/catalog-interest-shots
+            /tmp/catalog-interest-server.log

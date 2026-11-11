@@ -115,7 +115,7 @@ impl Fixture {
         }
     }
     async fn get(&self, suffix: &str, cookie: &str) -> Response {
-        self.app
+        let response = self.app
             .clone()
             .oneshot(
                 Request::get(format!("{REPORT}{suffix}"))
@@ -124,7 +124,13 @@ impl Fixture {
                     .unwrap(),
             )
             .await
-            .unwrap()
+            .unwrap();
+        eprintln!(
+            "EXPOSURE_REPORT_HTTP suffix={suffix:?} session={} status={}",
+            !cookie.is_empty(),
+            response.status()
+        );
+        response
     }
     fn admin(&self) {
         sql(
