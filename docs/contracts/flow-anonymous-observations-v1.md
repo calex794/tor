@@ -72,6 +72,14 @@ placements. Private libraries and paid-reader pages are excluded. HEAD requests
 receive no issuer: Axum may execute a GET handler but discards its HTML body.
 Admin editorial previews pass no issuer. Ordinary links and forms work without JS.
 
+HTML responses served with an issuer are `no-store` and have no ETag before any
+body transformation. The observer script is added only to bounded, complete UTF-8
+HTML with a closing body tag. Larger than 2 MiB, unknown-length, and incomplete
+HTML bodies are passed through unchanged with the same cache isolation; missing
+browser signals remain unknown. Ordinary text containing the asset URL cannot
+suppress script insertion. CSP directives are separated explicitly even if the
+original policy has no trailing semicolon; existing unrelated restrictions remain.
+
 ## Browser and HTTP protocol
 
 Trusted cards receive `data-flow-proof`; only their ordinary `data-flow-link`
