@@ -209,26 +209,40 @@ mod tests {
         for rotation in 0..20 {
             let cards = select_shelf(1, [pool(10, 1), vec![], pool(1000, 20)], 5, rotation);
             assert_eq!(cards.len(), 5);
-            assert_eq!(cards.iter().filter(|c| c.source == ShelfSource::Author).count(), 1);
-            assert_eq!(cards.iter().map(|c| c.book_id).collect::<BTreeSet<_>>().len(), 5);
+            assert_eq!(
+                cards
+                    .iter()
+                    .filter(|c| c.source == ShelfSource::Author)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                cards
+                    .iter()
+                    .map(|c| c.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+                5
+            );
         }
     }
 
     #[test]
     fn duplicates_are_owned_by_author_before_team_before_site() {
-        let cards = select_shelf(
-            1,
-            [pool(2, 1), pool(2, 2), pool(2, 3)],
-            5,
-            2,
-        );
+        let cards = select_shelf(1, [pool(2, 1), pool(2, 2), pool(2, 3)], 5, 2);
         assert_eq!(cards.len(), 3);
         assert_eq!(
-            cards.iter().find(|card| card.book_id == 2).map(|c| c.source),
+            cards
+                .iter()
+                .find(|card| card.book_id == 2)
+                .map(|c| c.source),
             Some(ShelfSource::Author)
         );
         assert_eq!(
-            cards.iter().find(|card| card.book_id == 3).map(|c| c.source),
+            cards
+                .iter()
+                .find(|card| card.book_id == 3)
+                .map(|c| c.source),
             Some(ShelfSource::Teammate)
         );
     }
@@ -239,8 +253,16 @@ mod tests {
             1,
             [
                 vec![
-                    ShelfCandidate { book_id: 2, relevance: 800, preference_boost: 0 },
-                    ShelfCandidate { book_id: 3, relevance: 730, preference_boost: 150 },
+                    ShelfCandidate {
+                        book_id: 2,
+                        relevance: 800,
+                        preference_boost: 0,
+                    },
+                    ShelfCandidate {
+                        book_id: 3,
+                        relevance: 730,
+                        preference_boost: 150,
+                    },
                 ],
                 vec![],
                 vec![],
@@ -248,7 +270,10 @@ mod tests {
             4,
             0,
         );
-        assert_eq!(cards.iter().map(|item| item.book_id).collect::<Vec<_>>(), vec![3, 2]);
+        assert_eq!(
+            cards.iter().map(|item| item.book_id).collect::<Vec<_>>(),
+            vec![3, 2]
+        );
         assert!(cards.iter().all(|item| item.source == ShelfSource::Author));
     }
 
@@ -256,6 +281,9 @@ mod tests {
     fn no_ineligible_placeholder_or_unbounded_requested_shelf() {
         assert!(select_shelf(1, [vec![], vec![], vec![]], 5, 0).is_empty());
         assert!(select_shelf(1, [pool(10, 5), vec![], vec![]], 10, 0).is_empty());
-        assert_eq!(select_shelf(1, [pool(10, 8), vec![], vec![]], 4, 0).len(), 4);
+        assert_eq!(
+            select_shelf(1, [pool(10, 8), vec![], vec![]], 4, 0).len(),
+            4
+        );
     }
 }
