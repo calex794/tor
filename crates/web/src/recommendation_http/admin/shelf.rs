@@ -13,12 +13,12 @@ use std::time::Duration;
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PreviewQuery {
+pub(crate) struct PreviewQuery {
     book: Option<i64>,
     chapter: Option<i64>,
 }
 
-pub(super) async fn page(
+pub(crate) async fn page(
     State(state): State<Runtime>,
     headers: HeaderMap,
     Query(query): Query<PreviewQuery>,
