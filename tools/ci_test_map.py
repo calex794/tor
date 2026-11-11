@@ -56,6 +56,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 # These production areas can change access, money, publication, or delivery.
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
 CRITICAL_PACKAGES = {
+    "tor-ads",  # Editorial availability and fresh administrator authority.
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
     "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",

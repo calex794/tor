@@ -412,3 +412,6 @@ mod canonical;
 
 #[path = "audience_http_pg/seo.rs"]
 mod seo;
+
+#[path = "audience_http_pg/health.rs"]
+mod health;

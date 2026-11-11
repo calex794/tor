@@ -1,7 +1,10 @@
 //! Read-only C aggregate for the independently authorized site administrator.
 //! Canonical facts remain owned by C; no REC identity, profile or event is created.
+mod book_evidence;
 mod canonical;
+mod closed;
 mod intent;
+mod time;
 
 use crate::services::audience::{
     validate_period, AudienceCounts, AudienceError, AudiencePeriod, AudienceReport,

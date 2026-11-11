@@ -1,5 +1,7 @@
 //! Optional PG-backed RIL-06 pump. Runs outside HTTP and never blocks responses.
 //! Enqueue uses a stable UUID across retries; PG claims survive process death.
+use super::html_pump::HtmlPump;
+use crate::domain::html_health::{HtmlCheckpoint, HtmlHealthError, HtmlIngressStopped};
 use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};
 use uuid::Uuid;
 
@@ -106,12 +108,19 @@ struct Pending {
     delta: RollupDelta,
 }
 
+struct Draining {
+    point: Option<HtmlCheckpoint>,
+    response: tokio::sync::oneshot::Receiver<RollupDelta>,
+}
+
 pub struct PgRollupPump {
     repo: PgRilRollups,
     recorder: TrafficRecorder,
     pending: Option<Pending>,
+    draining: Option<Draining>,
     ticks: u64,
     monitor: PgPumpMonitor,
+    html: HtmlPump,
 }
 
 impl PgRollupPump {
@@ -125,9 +134,11 @@ impl PgRollupPump {
         monitor: PgPumpMonitor,
     ) -> Self {
         Self {
+            html: HtmlPump::new(repo.html_health(), &recorder),
             repo,
             recorder,
             pending: None,
+            draining: None,
             ticks: 0,
             monitor,
         }
@@ -138,19 +149,47 @@ impl PgRollupPump {
     /// retried rather than counting the in-memory delta twice.
     pub async fn run_once(&mut self) {
         self.monitor.begin();
-        let mut failed = false;
-
-        if self.pending.is_none() {
-            let source = self.recorder.clone();
-            match tokio::task::spawn_blocking(move || source.drain_for_persistence()).await {
-                Ok(Some(delta)) if !delta.is_empty() => {
-                    self.pending = Some(Pending {
-                        id: Uuid::new_v4().to_string(),
-                        delta,
-                    });
+        let failed =
+            match tokio::time::timeout(std::time::Duration::from_secs(6), self.progress()).await {
+                Ok(failed) => failed,
+                Err(_) => {
+                    self.html.failure(&self.recorder);
+                    true
                 }
-                Ok(Some(_)) => {}                   // healthy idle cycle
-                Ok(None) | Err(_) => failed = true, // worker refused the barrier
+            };
+        self.monitor.end(failed);
+    }
+    async fn progress(&mut self) -> bool {
+        let healthy = self.html.prepare(&self.recorder).await.is_ok();
+        let mut failed = !healthy;
+
+        if self.pending.is_none() && !self.html.waiting() {
+            if self.draining.is_none() {
+                let point = healthy.then(|| self.html.point()).flatten();
+                self.draining = self
+                    .recorder
+                    .start_persistence_drain(point.is_some())
+                    .map(|response| Draining { point, response });
+                if self.draining.is_none() {
+                    failed = true;
+                }
+            }
+            if let Some(draining) = self.draining.as_mut() {
+                // Await by reference: a timeout keeps both the receiver and its
+                // exact checkpoint in this pump. There is no detached task that
+                // could enqueue an old barrier after the next cycle reopens.
+                let result = (&mut draining.response).await;
+                let point = draining.point;
+                self.draining = None;
+                match result {
+                    Ok(delta) if !delta.is_empty() => {
+                        let id = Uuid::new_v4().to_string();
+                        self.html.drained(point, Some(id.clone()));
+                        self.pending = Some(Pending { id, delta });
+                    }
+                    Ok(_) => self.html.drained(point, None),
+                    Err(_) => failed = true,
+                }
             }
         }
 
@@ -182,17 +221,67 @@ impl PgRollupPump {
         if self.ticks.is_multiple_of(360) && self.repo.prune_expired().await.is_err() {
             failed = true;
         }
-        self.monitor.end(failed);
+        if self.ticks.is_multiple_of(360) && self.html.prune().await.is_err() {
+            failed = true;
+        }
+        if self.html.complete(&self.recorder, failed).await.is_err() {
+            failed = true;
+        }
+        failed
+    }
+
+    /// Call only after the HTTP listener has stopped accepting requests and all
+    /// in-flight middleware has drained. Closing the producer alone is not a stop
+    /// witness. Pending durable RIL batches remain recoverable; an abort, panic or
+    /// Drop without the HTTP witness leaves an unresolved epoch and unknown tail.
+    pub async fn shutdown(mut self, witness: HtmlIngressStopped) -> Result<(), HtmlHealthError> {
+        // The witness excludes new HTTP producers. Try one final bounded cycle;
+        // a pending or failed batch still leaves its tail unacknowledged.
+        self.run_once().await;
+        self.recorder.close_flow_health();
+        self.html.shutdown(&self.recorder, &witness).await
+    }
+
+    /// Serializes terminal shutdown with the owned progress loop. An explicit
+    /// witness is consumed only between complete progress units. Dropping the
+    /// sender or aborting the task leaves the epoch unresolved.
+    pub fn spawn_with_shutdown(
+        mut self,
+        mut stop: tokio::sync::oneshot::Receiver<HtmlIngressStopped>,
+    ) -> tokio::task::JoinHandle<Result<(), HtmlHealthError>> {
+        tokio::spawn(async move {
+            loop {
+                match stop.try_recv() {
+                    Ok(witness) => return self.shutdown(witness).await,
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        return Err(HtmlHealthError::Unavailable);
+                    }
+                }
+                self.run_once().await;
+                match tokio::time::timeout(std::time::Duration::from_secs(10), &mut stop).await {
+                    Ok(Ok(witness)) => return self.shutdown(witness).await,
+                    Ok(Err(_)) => return Err(HtmlHealthError::Unavailable),
+                    Err(_) => {}
+                }
+            }
+        })
     }
 
     /// One long-lived task per PG-backed web process, sharing its existing pool.
     pub fn spawn_background(mut self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 self.run_once().await;
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             }
         })
+    }
+}
+
+impl Drop for PgRollupPump {
+    fn drop(&mut self) {
+        self.recorder.close_flow_health();
     }
 }
 

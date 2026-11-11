@@ -188,6 +188,7 @@ fn router_inner(
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
+    let editorial_routes = crate::editorial_http::routes(accounts.clone(), cookies.clone());
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -220,6 +221,10 @@ fn router_inner(
 
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        editorial: crate::editorial_http::display::DisplayRuntime::new(
+            tor_ads::repositories::editorial::PgEditorial::new(pool.clone()),
+            Some((accounts.clone(), cookies.clone())),
+        ),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
         notification_proof_delivery,
@@ -446,6 +451,7 @@ fn router_inner(
     let app = app
         .merge(crate::recommendation_http::routes(rec_runtime.clone()))
         .merge(audience_routes);
+    let app = app.merge(editorial_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
 

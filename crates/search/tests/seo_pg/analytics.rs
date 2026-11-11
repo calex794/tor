@@ -460,3 +460,123 @@ async fn flow_seo_backfill_is_idempotent_and_expired_old_jobs_are_bounded() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL and current migrations"]
+async fn flow_seo_claim_keeps_google_history_and_yandex_recent_boundaries() {
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    url_guard::check(&url);
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&url)
+        .await
+        .unwrap();
+    let store = PgSeoAnalytics::new(pool.clone());
+    let origin = "https://flow-seo-claim-bounds.test";
+    sqlx::query("DELETE FROM flow_seo_sources WHERE origin=$1")
+        .bind(origin)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let google = store
+        .configure(SourceKey {
+            provider: Provider::Google,
+            property: format!("{origin}/"),
+            origin: origin.into(),
+        })
+        .await
+        .unwrap();
+    let yandex = store
+        .configure(SourceKey {
+            provider: Provider::Yandex,
+            property: "https:flow-seo-claim-bounds.test:443".into(),
+            origin: origin.into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(store.request_backfill(&google).await.unwrap(), 180);
+    assert_eq!(store.request_backfill(&yandex).await.unwrap(), 11);
+    let bounds = sqlx::query_as::<_, (String, i64, i32, i32)>(
+        "SELECT s.provider,count(*),
+            min((now() AT TIME ZONE 'UTC')::date-j.day),
+            max((now() AT TIME ZONE 'UTC')::date-j.day)
+         FROM flow_seo_jobs j JOIN flow_seo_sources s ON s.id=j.source_id
+         WHERE s.id=ANY($1) GROUP BY s.provider ORDER BY s.provider",
+    )
+    .bind(vec![google.id, yandex.id])
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        bounds,
+        vec![("google".into(), 180, 3, 182), ("yandex".into(), 11, 3, 13)]
+    );
+
+    // Leave each provider's oldest installed job due. A manually queued older
+    // job must stay ineligible; it must not prevent the boundary job being claimed.
+    sqlx::query(
+        "UPDATE flow_seo_jobs SET next_attempt_at=now()+interval '1 hour'
+         WHERE source_id=ANY($1)
+           AND day>(now() AT TIME ZONE 'UTC')::date-
+             (CASE WHEN source_id=$2 THEN 182 ELSE 13 END)",
+    )
+    .bind(vec![google.id, yandex.id])
+    .bind(google.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO flow_seo_jobs(source_id,day) VALUES
+         ($1,(now() AT TIME ZONE 'UTC')::date-183),
+         ($2,(now() AT TIME ZONE 'UTC')::date-14)",
+    )
+    .bind(google.id)
+    .bind(yandex.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let expected = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT source_id,id FROM flow_seo_jobs WHERE source_id=ANY($1)
+           AND day=(now() AT TIME ZONE 'UTC')::date-
+             (CASE WHEN source_id=$2 THEN 182 ELSE 13 END)",
+    )
+    .bind(vec![google.id, yandex.id])
+    .bind(google.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(expected.len(), 2);
+    let google_job = store.claim(&google).await.unwrap().unwrap();
+    let yandex_job = store.claim(&yandex).await.unwrap().unwrap();
+    assert!(expected.contains(&(google.id, google_job.id)));
+    assert!(expected.contains(&(yandex.id, yandex_job.id)));
+    assert!(store.claim(&google).await.unwrap().is_none());
+    assert!(store.claim(&yandex).await.unwrap().is_none());
+    let older_pending: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM flow_seo_jobs WHERE source_id=ANY($1) AND state='pending'
+           AND day<(now() AT TIME ZONE 'UTC')::date-
+             (CASE WHEN source_id=$2 THEN 182 ELSE 13 END)",
+    )
+    .bind(vec![google.id, yandex.id])
+    .bind(google.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(older_pending, 2);
+
+    // The oldest Google date contributes to the previous 90-day provider
+    // window; successful restart backfill must not reset this completed job.
+    store.finish(&google_job, &snapshot(9)).await.unwrap();
+    let report = store.report(90, Provider::Google, None).await.unwrap();
+    assert_eq!(report.current.clicks, None);
+    assert_eq!(report.previous.clicks, Some(9));
+    assert_eq!(report.previous.total_days, 1);
+    assert_eq!(store.request_backfill(&google).await.unwrap(), 0);
+    assert_eq!(store.request_backfill(&yandex).await.unwrap(), 0);
+    sqlx::query("DELETE FROM flow_seo_sources WHERE origin=$1")
+        .bind(origin)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+}

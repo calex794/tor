@@ -24,7 +24,7 @@ def fixtures():
             "status": "completed", "conclusion": "success",
             "created_at": "2026-10-29T00:00:00Z", "run_attempt": 1,
         })
-        names = (["select / select", *SUITE_JOB_IDS.values(), CI_REQUIRED_JOB]
+        names = (["select / select", "preflight", *SUITE_JOB_IDS.values(), CI_REQUIRED_JOB]
                  if filename == CI_WORKFLOW else ["rules"])
         jobs[number] = [
             {"name": name, "status": "completed", "conclusion": "success"}
@@ -62,7 +62,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         expected, _, jobs = fixtures()
         self.assertEqual(set(expected.values()), {"rules.yml", CI_WORKFLOW})
         self.assertEqual(len(expected), 2)
-        self.assertEqual(len(jobs[2]), len(SUITE_JOB_IDS) + 2)
+        self.assertEqual(len(jobs[2]), len(SUITE_JOB_IDS) + 3)
 
     def test_every_real_suite_and_rules_is_required(self):
         expected, runs, jobs = fixtures()
@@ -196,6 +196,48 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         _, runs, jobs = fixtures()
         report = collect(MockAPI(runs, jobs), SHA, ROOT)
         self.assertTrue(report["ci_complete"])
+        self.assertFalse(report["release_approved"])
+
+    def test_old_sixteen_job_receipt_without_preflight_is_rejected(self):
+        expected, runs, jobs = fixtures()
+        jobs[2] = [job for job in jobs[2] if job["name"] != "preflight"]
+        report = evaluate_ci(runs, jobs, SHA, expected)
+        self.assertFalse(report["ci_complete"])
+        self.assertIn("preflight", " ".join(report["blockers"]))
+        self.assertFalse(report["release_approved"])
+
+    def test_bad_preflight_cannot_be_hidden_by_green_wrapper(self):
+        states = (("completed", "failure"), ("completed", "skipped"),
+                  ("completed", "cancelled"), ("completed", "neutral"),
+                  ("completed", "timed_out"), ("in_progress", None), ("queued", None))
+        for status, conclusion in states:
+            with self.subTest(status=status, conclusion=conclusion):
+                expected, runs, jobs = fixtures()
+                preflight = next(job for job in jobs[2] if job["name"] == "preflight")
+                preflight.update(status=status, conclusion=conclusion)
+                report = evaluate_ci(runs, jobs, SHA, expected)
+                self.assertFalse(report["ci_complete"])
+                self.assertFalse(report["release_approved"])
+
+    def test_duplicate_or_renamed_preflight_fails(self):
+        for action in ("duplicate", "rename"):
+            with self.subTest(action=action):
+                expected, runs, jobs = fixtures()
+                preflight = next(job for job in jobs[2] if job["name"] == "preflight")
+                if action == "duplicate":
+                    jobs[2].append(dict(preflight))
+                else:
+                    preflight["name"] = "preflight-untrusted"
+                self.assertFalse(evaluate_ci(runs, jobs, SHA, expected)["ci_complete"])
+
+    def test_preflight_is_not_counted_as_an_additional_suite(self):
+        expected, runs, jobs = fixtures()
+        jobs[2].reverse()
+        report = collect(MockAPI(runs, jobs), SHA, ROOT)
+        integration_title = next(title for title, path in expected.items() if path == CI_WORKFLOW)
+        self.assertTrue(report["ci_complete"])
+        self.assertEqual(report["checks"][integration_title]["jobs"], len(SUITE_JOB_IDS) + 3)
+        self.assertEqual(report["required_suites"], len(SUITE_JOB_IDS))
         self.assertFalse(report["release_approved"])
 
 

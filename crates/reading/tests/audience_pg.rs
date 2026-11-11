@@ -288,3 +288,6 @@ mod intent;
 
 #[path = "audience_pg/canonical.rs"]
 mod canonical;
+
+#[path = "audience_pg/time.rs"]
+mod time;

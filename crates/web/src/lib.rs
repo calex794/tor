@@ -39,6 +39,11 @@ mod cover_http;
 pub mod cover_private_cleanup;
 pub mod cover_private_source_cleanup;
 mod cpu_work;
+mod editorial_http;
+pub mod flow_exposure;
+mod flow_navigation;
+pub mod flow_runtime;
+pub mod flow_signal_worker;
 mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
@@ -81,7 +86,9 @@ mod password_jobs;
 pub mod ranking_consumer;
 pub mod referral_consumer;
 mod ril;
+mod runtime_diagnostics;
 mod worker_health;
+pub use runtime_diagnostics::ril_cost_map_for_diagnostics;
 #[derive(Clone)]
 struct AppState {
     books: Arc<dyn PublicBookRepository>,
@@ -94,6 +101,7 @@ struct AppState {
     private_admin_sealed_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
+    editorial: Option<editorial_http::display::DisplayRuntime>,
 }
 /// Wiring mode is explicit; availability of a private admin shell does not
 /// enable wallet checkout, encrypted S3 grants or Layer reading.
@@ -149,9 +157,6 @@ async fn public_cards(
             genres: Vec::new(),
         })
         .collect())
-}
-async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
-    homepage_updates::homepage(state).await
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -230,6 +235,7 @@ async fn book_detail(
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
     headers: axum::http::HeaderMap,
+    observation: editorial_http::display::Issuer,
 ) -> Response {
     // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
@@ -278,6 +284,7 @@ async fn book_detail(
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
+            let html = editorial_http::display::book(&state, &headers, id, html, observation).await;
             return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
@@ -310,8 +317,17 @@ async fn reader_page(
     Query(query): Query<public_reader_http::PublicIssueQuery>,
     headers: axum::http::HeaderMap,
     method: axum::http::Method,
+    observation: editorial_http::display::Issuer,
 ) -> Response {
-    public_reader_http::reader_page(State(state), Path(id), Query(query), headers, method).await
+    public_reader_http::reader_page(
+        State(state),
+        Path(id),
+        Query(query),
+        headers,
+        method,
+        observation,
+    )
+    .await
 }
 
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
@@ -326,47 +342,6 @@ async fn register() -> impl axum::response::IntoResponse {
 
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
-}
-
-pub async fn ril_cost_map_for_diagnostics(
-    catalog: &PgCatalog,
-    days: u16,
-    limit: usize,
-) -> Option<Vec<tor_route_intelligence::RouteCostRanking>> {
-    use tor_route_intelligence::{rank_route_costs, RouteCostBucket};
-    use tor_traffic_behavior::repositories::PgRilRollups;
-
-    let rows = PgRilRollups::new(catalog.pool())
-        .read_cost_buckets(days)
-        .await
-        .ok()?;
-    let buckets: Vec<RouteCostBucket> = rows
-        .into_iter()
-        .map(|row| RouteCostBucket {
-            route_code: row.route,
-            status_group: row.status,
-            latency_group: row.latency,
-            request_count: row.count,
-        })
-        .collect();
-    // Read SQLx evidence independently; if missing, keep the latency map
-    // but leave query fields explicitly unmeasured.
-    let mut ranked = rank_route_costs(&buckets, limit).ok()?;
-    if let Ok(measured) = PgRilRollups::new(catalog.pool()).read_sql_costs(days).await {
-        let evidence: Vec<tor_route_intelligence::RouteSqlEvidence> = measured
-            .into_iter()
-            .map(|row| tor_route_intelligence::RouteSqlEvidence {
-                route_code: row.route,
-                observed_requests: row.observed_requests,
-                observed_queries: row.observed_queries,
-                sqlx_elapsed_us: row.sqlx_elapsed_us,
-            })
-            .collect();
-        if tor_route_intelligence::attach_sql_evidence(&mut ranked, &evidence).is_err() {
-            return None; // Inconsistent PG evidence: no misleading report.
-        }
-    }
-    Some(ranked)
 }
 
 /// Bounded process-local diagnostic traces, without user IDs or raw SQL.
@@ -478,7 +453,7 @@ fn make_router_with_paid_checkout(
     // Public pages carry no per-account analytics identity. RIL still records
     // finite anonymous route, status, latency and HTML request counters.
     let public_pages = Router::new()
-        .route("/", get(homepage))
+        .route("/", get(homepage_updates::page))
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/reader/{id}", get(reader_page));
@@ -555,6 +530,7 @@ fn make_router_with_paid_checkout(
         let (accounts, cookies) = control.browser_context();
         recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
     });
+    let editorial = editorial_http::display::configured(postgres.as_ref(), follow_control.as_ref());
     let app = app
         .with_state(AppState {
             books: repo,
@@ -572,6 +548,7 @@ fn make_router_with_paid_checkout(
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
+            editorial,
             follow_control,
         })
         .merge(api)

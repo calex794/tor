@@ -1,0 +1,11 @@
+[Unit]
+Description=TOR daily PostgreSQL 18 differential copy except Sunday
+
+[Timer]
+OnCalendar=Mon..Sat *-*-* 02:15:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=tor-pgbackrest-diff.service
+
+[Install]
+WantedBy=timers.target

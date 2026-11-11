@@ -7,8 +7,10 @@ pub use book_stars::{BookStars, PgBookStars, StarKind, StarRatingError, StarTota
 mod completion;
 pub mod postgres;
 pub use postgres::{PgRanking, RankingCommand, RankingCommit, RankingStoreError, VisibleRank};
+pub mod exposure;
 pub mod feedback;
 pub mod flow_funnel;
 pub mod surprises;
 pub mod visits;
 pub use feedback::PgRecommendations;
+pub mod flow_signals;

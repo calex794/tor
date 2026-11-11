@@ -1,6 +1,6 @@
 //! Exact migrated C tables, real SELECT-only role, no analytics or consent tables.
 #[path = "canonical/fixture.rs"]
-mod fixture;
+pub(super) mod fixture;
 use fixture::Fixture;
 use sqlx::Row;
 use tor_reading::{
@@ -242,3 +242,9 @@ async fn one_hundred_thousand_facts_exclude_older_firsts_with_bounded_query() {
     }
     f.finish().await;
 }
+
+// Required audience_pg coverage shares this module's SELECT-only fixture.
+#[path = "../audience_catalog_pg/evidence.rs"]
+mod chapter_evidence;
+#[path = "../audience_catalog_pg/ranking.rs"]
+mod ranking;

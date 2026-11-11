@@ -6,7 +6,7 @@ mod assignments;
 mod consent;
 mod contextual;
 mod conversions;
-mod discovery;
+pub(crate) mod discovery;
 mod flow_consent;
 mod generations;
 mod maintenance;

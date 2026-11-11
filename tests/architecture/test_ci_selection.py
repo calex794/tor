@@ -22,6 +22,7 @@ class SelectionTests(unittest.TestCase):
         paths = [
             "Cargo.toml", "Cargo.lock", "crates/search/Cargo.toml", "rust-toolchain.toml",
             "crates/contracts/src/paid_delivery.rs", "crates/commerce/src/new_checkout.rs",
+            "crates/ads/src/repositories/editorial.rs",
             "crates/accounts/src/services/security.rs", "crates/books/src/repositories/postgres.rs",
             "crates/reading/src/services/progress.rs", "crates/storage/src/services/crypto.rs",
             "crates/ingest/src/services/cover_jobs.rs", "migrations/202610270999_access.sql",

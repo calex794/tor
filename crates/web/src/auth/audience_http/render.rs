@@ -10,6 +10,7 @@ mod hours;
 mod intent;
 mod observed;
 mod quality;
+pub(super) mod reading_hours;
 mod retirement;
 pub(super) mod returns;
 pub(super) mod seo;
@@ -24,9 +25,10 @@ use tor_recommendations::services::audience::DiscoveryReport;
 use tor_traffic_behavior::services::{audience::FlowHourlyReport, PgPumpSnapshot};
 
 fn start(days: i32, zone: &str) -> String {
+    let navigation = crate::flow_navigation::links(days);
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
-         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
+         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>{navigation}\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/admin/audience/seo?days={days}\">SEO</a></p>\
@@ -35,11 +37,22 @@ fn start(days: i32, zone: &str) -> String {
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>\
-         <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
-         <label for=\"audience-days\">Длительность периода</label>\
-         <select id=\"audience-days\" name=\"days\">",
+         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",
     );
+    period_form(&mut body, days, zone, false);
+    body
+}
+
+pub(super) fn period_form(body: &mut String, days: i32, zone: &str, reading: bool) {
+    body.push_str("<form class=\"author-form\" method=\"get\" action=\"/admin/audience\"><label for=\"audience-view\">Представление</label><select id=\"audience-view\" name=\"view\">");
+    for (value, label, selected) in [
+        ("overview", "Общая сводка и HTML по времени", !reading),
+        ("reading_hours", "Чтение по времени", reading),
+    ] {
+        let selected = if selected { " selected" } else { "" };
+        write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
+    }
+    body.push_str("</select><label for=\"audience-days\">Длительность периода</label><select id=\"audience-days\" name=\"days\">");
     for (value, label) in [
         (1, "1 день"),
         (7, "7 дней"),
@@ -61,7 +74,6 @@ fn start(days: i32, zone: &str) -> String {
     body.push_str(
         "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
     );
-    body
 }
 
 fn finish(mut body: String) -> Html<String> {
@@ -98,11 +110,12 @@ pub(super) fn page(
     observed: (
         &str,
         Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,
+        Option<&tor_traffic_behavior::domain::html_health::HtmlHealthReport>,
     ),
 ) -> Html<String> {
     let (reading, intents) = reading;
     let mut body = start(days, observed.0);
-    observed::section(&mut body, observed.1);
+    observed::section(&mut body, observed.1, observed.2);
     hours::section(&mut body, days, traffic);
     quality::section(&mut body, days, traffic, capture, pump);
     intent::section(&mut body, intents);
@@ -252,7 +265,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
@@ -277,7 +290,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
@@ -291,15 +304,21 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None)
+            ("UTC", None, None)
         )
         .0
         .contains("data-metric=\"readers\""));
-        assert!(
-            page(30, (None, None), None, None, None, None, ("UTC", None))
-                .0
-                .contains("role=\"alert\"")
-        );
+        assert!(page(
+            30,
+            (None, None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None)
+        )
+        .0
+        .contains("role=\"alert\""));
     }
 
     #[test]
@@ -313,7 +332,7 @@ mod tests {
             None,
             None,
             None,
-            ("UTC", None),
+            ("UTC", None, None),
         )
         .0;
         assert!(!html.contains("<script>bad()"));

@@ -1,4 +1,5 @@
 use super::PgAccounts;
+use std::time::Duration;
 use tor_contracts::auth::{AccountRole, Actor, SessionActor, UserId};
 
 #[derive(Debug)]
@@ -18,6 +19,24 @@ impl PgAccounts {
         &self,
         digest: &[u8; 32],
     ) -> Result<Option<SessionActor>, sqlx::Error> {
+        // Dropping a caller's future alone does not stop an in-flight SQL query.
+        // Bound the server work as well as pool acquisition so an authority lock
+        // cannot retain every connection shared with reader requests.
+        tokio::time::timeout(Duration::from_millis(300), self.read_session_actor(digest))
+            .await
+            .map_err(|_| sqlx::Error::PoolTimedOut)?
+    }
+
+    async fn read_session_actor(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<Option<SessionActor>, sqlx::Error> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT set_config('statement_timeout','200ms',true),set_config('lock_timeout','25ms',true)")
+            .execute(&mut *tx).await?;
         let row: Option<(i64,bool,bool,bool)> = sqlx::query_as(
             "SELECT u.id,
                EXISTS(SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.role='author' AND r.is_active),
@@ -25,7 +44,8 @@ impl PgAccounts {
                EXISTS(SELECT 1 FROM account_roles r WHERE r.user_id=u.id AND r.role='administrator' AND r.is_active)
              FROM users u JOIN sessions s ON s.user_id=u.id
              WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.account_state='active'",
-        ).bind(digest.as_slice()).fetch_optional(self.pool()).await?;
+        ).bind(digest.as_slice()).fetch_optional(&mut *tx).await?;
+        tx.commit().await?;
         Ok(row.and_then(|(id, author, moderator, administrator)| {
             UserId::new(id).ok().map(|user_id| SessionActor {
                 actor: Actor { user_id },

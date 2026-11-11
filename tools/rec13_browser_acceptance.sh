@@ -61,7 +61,15 @@ trap cleanup EXIT
 start_server() {
   local fixture_url="$1"
   local fixture_name="$2"
-  TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
+  local editorial_flag=0
+  if [[ "$fixture_name" == current ]]; then editorial_flag=1; fi
+  local surprises_optin="${3:-0}"
+  local surprise_test_key=''
+  if [[ "$surprises_optin" == 1 ]]; then
+    surprise_test_key="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))")"
+  fi
+  TOR_SURPRISE_HTTP_ENABLED="$surprises_optin" TOR_SURPRISE_HMAC_KEY="$surprise_test_key" \
+    TOR_EDITORIAL_PROMOTION_ENABLED="$editorial_flag" TOR_AUTH_ENABLED=1 TOR_FLOW_VISITS_ENABLED=1 TOR_READING_RETURNS_ENABLED=1 TOR_BOOK_READING_RETURNS_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
     TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
     DATABASE_URL="$fixture_url" ./target/debug/tor-web >"$root/server-$fixture_name.log" 2>&1 &
   pid=$!
@@ -77,6 +85,9 @@ start_server() {
     ci_rec_step_done "http_ready_$fixture_name"
   fi
 }
+# No other fixture server is running while the actual process lifecycle is proved.
+APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tools/flow_lifecycle_pg.cjs
+ci_rec_step_done "flow_process_lifecycle"
 # Current business behavior is always exercised behind the installed SQL barrier.
 start_server "$TEST_DATABASE_URL" current
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
@@ -102,6 +113,33 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
   node tools/contextual_recommendations_pg_browser.cjs
 ci_rec_step_done "contextual_recommendations_browser_acceptance"
+node --test tools/exposure_client.test.cjs
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
+  node tools/exposure_pg_browser.cjs
+ci_rec_step_done "anonymous_exposure_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
+  node tools/exposure_report_pg_browser.cjs
+ci_rec_step_done "exposure_report_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" TOR_EDITORIAL_EXPECT_OBSERVATIONS=1 \
+  TOR_EDITORIAL_BASE=http://127.0.0.1:3108 TOR_EDITORIAL_SHOTS="$root/shots" \
+  node tools/editorial_pg_browser.cjs
+ci_rec_step_done "editorial_promotion_browser_acceptance"
+stop_server
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_SIGNALS_SHOTS="$root/shots" bash tools/flow_signals_browser_acceptance.sh
+ci_rec_step_done "flow_signals_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_CATALOG_INTEREST_SHOTS="$root/shots" TOR_CATALOG_INTEREST_LOG="$root/server-catalog-interest.log" \
+  bash tools/flow_catalog_interest_browser_acceptance.sh
+ci_rec_step_done "catalog_interest_browser_acceptance"
+# Isolated surprise UI: enabled only for a disposable tor_ci Chromium receipt.
+start_server "$TEST_DATABASE_URL" surprises 1
+NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+  TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \
+  node tools/surprise_pg_browser.cjs
+ci_rec_step_done "surprise_chromium_acceptance"
 stop_server
 # Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.

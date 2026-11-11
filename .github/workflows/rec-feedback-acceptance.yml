@@ -20,6 +20,12 @@ on:
       # but must not launch this redundant specialist workflow.
       - 'migrations/*_rec_*.sql'
       - 'tools/rec13_*'
+      - 'crates/web/assets/surprise.js'
+      - 'crates/web/assets/surprise.css'
+      - 'crates/web/src/auth/surprise_http.rs'
+      - 'crates/web/src/auth/surprise_admin.rs'
+      - 'crates/web/tests/surprise_http_pg.rs'
+      - 'tools/surprise_pg_browser.cjs'
       - 'tools/recommendation_preferences_pg_browser.cjs'
       - 'tools/audience_retirement_fixtures.cjs'
       - 'tools/audience_retired_pg_helpers.cjs'
@@ -125,6 +131,30 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Chromium for native fresh-schema HTML quality
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps --only-shell chromium
+      - name: Native HTML quality on the fresh schema
+        env:
+          TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
+          TOR_HTML_HEALTH_LOG: ${{ runner.temp }}/rec13-browser/server-html-health.log
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
+      - name: FLOW catalogue index migration and recovery (disposable databases)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_flow_index_fresh OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_invalid OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_unrecorded OWNER tor_migrator;
+          SQL
+          FLOW_BOOK_INDEX_MIGRATOR_URL="${MIGRATOR_URL%/tor_ci}/tor_ci_flow_index_fresh" \
+            cargo test -p tor-migrations --test flow_book_indexes_pg -- --ignored --test-threads=1 --nocapture
       - name: REC explicit preferences installed upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_rec_preferences_upgrade OWNER tor_migrator'
@@ -171,6 +201,18 @@ jobs:
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1

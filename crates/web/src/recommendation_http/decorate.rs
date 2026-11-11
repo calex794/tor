@@ -1,5 +1,6 @@
 //! Contextual SSR cards and native preference forms. This adapter performs no
-//! assignment, impression, click, book-open or individual audience write.
+//! assignment, book-open or individual audience write. Anonymous observation
+//! proofs are issued through a separate bounded queue when attached by main.
 use super::{api, pages, ReaderContext, Runtime};
 use axum::{
     body::{to_bytes, Body, HttpBody},
@@ -46,6 +47,14 @@ fn page_csrf(state: &Runtime, request: &HeaderMap, response: &HeaderMap) -> (Str
 }
 
 pub(super) async fn append(State(state): State<Runtime>, request: Request, next: Next) -> Response {
+    let issuer = request
+        .extensions()
+        .get::<std::sync::Arc<dyn tor_contracts::exposure::ObservationIssuer>>()
+        .cloned();
+    let searching = request.uri().query().is_some_and(|q| {
+        q.split('&')
+            .any(|pair| pair.starts_with("q=") && pair.len() > 2)
+    });
     let path = request.uri().path().to_owned();
     let headers = request.headers().clone();
     let response = next.run(request).await;
@@ -92,20 +101,19 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         Err(StatusCode::UNAUTHORIZED) => None,
         Err(_) => return response,
     };
-    // The new relation-weighted shelf is exclusive to the public free reader.
-    // Paid readers and other REC surfaces retain their existing implementation.
-    let free_chapter = path
-        .strip_prefix("/reader/")
-        .and_then(|id| book_id(id).ok());
-    let is_shelf = surface == Surface::ReaderEnd && free_chapter.is_some() && seed.is_some();
-    let feed_result = if is_shelf {
+    // On public free chapters the relation-weighted shelf replaces REC's
+    // generic grid. Other surfaces keep the existing observed REC cards.
+    let shelf_book = if surface == Surface::ReaderEnd {
+        path.strip_prefix("/reader/")
+            .and_then(|id| book_id(id).ok())
+            .and_then(|chapter| seed.map(|book| (book, chapter)))
+    } else {
+        None
+    };
+    let feed_result = if let Some((book, chapter)) = shelf_book {
         state
             .store
-            .reader_end_shelf(
-                identity.as_ref().map(|(id, _)| *id),
-                seed.expect("checked above"),
-                free_chapter.expect("checked above"),
-            )
+            .reader_end_shelf(identity.as_ref().map(|(id, _)| *id), book, chapter)
             .await
     } else {
         api::load(&state, identity, surface, seed, 10).await
@@ -126,7 +134,7 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     if original.contains("data-rec-panel") {
         return Response::from_parts(parts, Body::from(bytes));
     }
-    let at = if is_shelf {
+    let at = if shelf_book.is_some() {
         original.find("<!--READER_END_SHELF-->")
     } else {
         original.rfind("</main>")
@@ -141,13 +149,30 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     } else {
         (String::new(), Vec::new())
     };
-    let panel = if is_shelf {
-        pages::shelf_panel(&feed)
+    use tor_contracts::exposure::ExposureSurface as Observed;
+    let observed = if path.starts_with("/read/paid/") {
+        None
     } else {
-        pages::panel(&feed, &csrf)
+        match surface {
+            Surface::Home => Some(Observed::Home),
+            Surface::Catalog => Some(if searching {
+                Observed::Search
+            } else {
+                Observed::Catalog
+            }),
+            Surface::BookDetail => Some(Observed::BookDetail),
+            Surface::ReaderEnd => Some(Observed::ReaderEnd),
+            Surface::Library => None,
+        }
+    };
+    let observer = issuer.as_deref().zip(observed);
+    let panel = if shelf_book.is_some() {
+        pages::shelf_panel_observed(&feed, issuer.as_deref())
+    } else {
+        pages::panel_observed(&feed, &csrf, observer)
     };
     let mut html = original.to_owned();
-    if is_shelf {
+    if shelf_book.is_some() {
         html = html.replace("<!--READER_END_SHELF-->", &panel);
     } else {
         html.insert_str(at, &panel);

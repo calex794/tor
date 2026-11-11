@@ -75,7 +75,7 @@ python3 tools/check_feature_layout.py
 | C (12) | `reading` → TOC/позиция/личная библиотека | 501+ глав, free + pinned purchased progress | [C](lanes/C.md) |
 | D (13) | `commerce` → покупки/права/ledger | Один atomic commit, batch/refund и незацепленный Boosty | [D](lanes/D.md) |
 | E (14) | `discussions`, `social`, `clubs`, `support` | Discussion→reply→Inbox, соцсвязи/модерация | [E](lanes/E.md) |
-| F (14) | `search`, `recommendations`, `referrals` | Catalog/SEO/projections/recommendations, выключенная без доказательств реклама | [F](lanes/F.md) |
+| F (14) | `search`, `recommendations`, `referrals`, `ads` | Catalog/SEO/projections/recommendations; [редакционное продвижение](../contracts/editorial-promotion-v1.md); платная реклама остаётся отдельным этапом | [F](lanes/F.md) |
 | G (12) | `ingest`, `imports` | Загруженные файлы→job→B command→outbox→notification/index (URL crawler заморожен) | [G](lanes/G.md) |
 | H (12) | `web` — страницы/assets, **без SQL** | Гость/читатель/автор/админ проходят реальные формы | [H](lanes/H.md) |
 | I (13) | `contracts`, root router/Cargo/migrations/CI/deploy | PG-основа, стабильный контракт, постоянный зелёный main и стенд | [I](lanes/I.md) |

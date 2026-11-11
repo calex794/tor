@@ -4,9 +4,12 @@ mod books;
 mod canonical;
 mod funnel;
 mod groups;
+mod public_pages;
+mod reading_hours;
 mod render;
 mod returns;
 mod seo;
+mod signals;
 mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -41,6 +44,7 @@ struct AudienceState {
     visits: tor_recommendations::repositories::visits::PgFlowVisits,
     funnel: tor_recommendations::repositories::flow_funnel::PgFlowFunnel,
     capture: tor_reading::repositories::flow_capture::PgFlowCapture,
+    public_pages: tor_search::repositories::public_pages::PgPublicPages,
 }
 
 #[derive(Default, Deserialize)]
@@ -48,9 +52,18 @@ struct AudienceState {
 struct AudienceQuery {
     days: Option<i32>,
     time_zone: Option<String>,
+    view: Option<String>,
 }
 
 impl AudienceQuery {
+    fn reading_hours(&self) -> Result<bool, StatusCode> {
+        match self.view.as_deref().unwrap_or("overview") {
+            "overview" => Ok(false),
+            "reading_hours" => Ok(true),
+            _ => Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
     fn days(&self) -> Result<i32, StatusCode> {
         match self.days.unwrap_or(7) {
             days @ (1 | 7 | 30 | 90) => Ok(days),
@@ -70,8 +83,12 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         tor_recommendations::repositories::flow_funnel::PgFlowFunnel::new(accounts.pool().clone());
     let capture =
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
+    let public_pages =
+        tor_search::repositories::public_pages::PgPublicPages::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/signals", get(signals::page))
+        .route("/admin/audience/pages", get(public_pages::page))
         .route("/admin/audience/seo", get(seo::page))
         .route(
             "/admin/audience/seo/refresh",
@@ -93,6 +110,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
             visits,
             funnel,
             capture,
+            public_pages,
         })
 }
 
@@ -135,24 +153,28 @@ async fn page(
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
     // Carry extractor errors through authorization, and secure error responses too.
-    let (days, zone) = match query
-        .map_err(|_| StatusCode::BAD_REQUEST)
-        .and_then(|Query(query)| {
-            let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
-                query.time_zone.as_deref().unwrap_or("UTC"),
-            )
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-            Ok((query.days()?, zone))
-        }) {
-        Ok(selection) => selection,
-        Err(status) => return secure(status),
-    };
+    let (days, zone, reading_hours) =
+        match query
+            .map_err(|_| StatusCode::BAD_REQUEST)
+            .and_then(|Query(query)| {
+                let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
+                    query.time_zone.as_deref().unwrap_or("UTC"),
+                )
+                .map_err(|_| StatusCode::BAD_REQUEST)?;
+                Ok((query.days()?, zone, query.reading_hours()?))
+            }) {
+            Ok(selection) => selection,
+            Err(status) => return secure(status),
+        };
+    if reading_hours {
+        return reading_hours::page(&state, days, zone, deadline).await;
+    }
     let hours_supported = matches!(days, 1 | 7);
     let (reading, intents, sources, observed, hours) = tokio::join!(
         timeout_at(deadline, state.store.report(days)),
         timeout_at(deadline, state.store.intent_report(days)),
         timeout_at(deadline, state.discovery.report(days)),
-        timeout_at(deadline, state.traffic.observed_report(days, zone)),
+        timeout_at(deadline, state.traffic.observed_health_report(days, zone)),
         async {
             if hours_supported {
                 timeout_at(deadline, state.traffic.report(days)).await.ok()
@@ -192,7 +214,11 @@ async fn page(
             hours.as_ref(),
             crate::ril::flow_capture_counters(),
             crate::ril::pump_health_snapshot(),
-            (zone, observed.as_ref()),
+            (
+                zone,
+                observed.as_ref().map(|value| &value.0),
+                observed.as_ref().and_then(|value| value.1.as_ref()),
+            ),
         ),
     ))
 }
@@ -224,6 +250,23 @@ mod tests {
                 .map_err(|_| StatusCode::BAD_REQUEST)
                 .and_then(|Query(query)| query.days());
             assert_eq!(result, Err(StatusCode::BAD_REQUEST), "{raw}");
+        }
+    }
+
+    #[test]
+    fn time_view_is_explicit_and_unknown_values_are_rejected() {
+        assert_eq!(AudienceQuery::default().reading_hours(), Ok(false));
+        for (value, expected) in [("overview", false), ("reading_hours", true)] {
+            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            let query = Query::<AudienceQuery>::try_from_uri(&uri).unwrap();
+            assert_eq!(query.reading_hours(), Ok(expected));
+        }
+        for value in ["", "reading", "HTML", "reading_hours&view=overview"] {
+            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            assert!(Query::<AudienceQuery>::try_from_uri(&uri)
+                .map_err(|_| StatusCode::BAD_REQUEST)
+                .and_then(|Query(query)| query.reading_hours())
+                .is_err());
         }
     }
 

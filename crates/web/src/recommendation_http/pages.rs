@@ -55,6 +55,16 @@ fn choice_form(book: &str, revision: i64, hidden: bool, csrf: &str) -> String {
     format!("<form method=\"post\" action=\"/me/recommendations/feedback\"><input type=\"hidden\" name=\"book_id\" value=\"{book}\"><input type=\"hidden\" name=\"choice\" value=\"{choice}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{revision}\"><input type=\"hidden\" name=\"command_key\" value=\"{key}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--small\" type=\"submit\">{label}</button></form>",book=html::escape_html(book),key=generate_session_token(),csrf=html::escape_html(csrf))
 }
 pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
+    panel_observed(feed, csrf, None)
+}
+pub(super) fn panel_observed(
+    feed: &Feed,
+    csrf: &str,
+    observer: Option<(
+        &dyn tor_contracts::exposure::ObservationIssuer,
+        tor_contracts::exposure::ExposureSurface,
+    )>,
+) -> String {
     if feed.items.is_empty() {
         return String::new();
     }
@@ -72,7 +82,19 @@ pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
             "trending" => "Набирает интерес",
             _ => "Из доступного каталога",
         };
-        let _=write!(out,"<article class=\"book-card\" data-rec-card><div class=\"book-card__body\"><h3 class=\"book-card__title\"><a data-rec-link href=\"/books/{id}\">{title}</a></h3><p>{explanation}</p>",title=html::escape_html(&item.title));
+        let observation = observer
+            .map(|(issuer, surface)| {
+                crate::flow_exposure::attributes(
+                    Some(issuer),
+                    tor_contracts::exposure::CardObservation {
+                        book_id: id,
+                        surface,
+                        editorial: None,
+                    },
+                )
+            })
+            .unwrap_or_default();
+        let _=write!(out,"<article class=\"book-card\" data-rec-card{observation}><div class=\"book-card__body\"><h3 class=\"book-card__title\"><a data-rec-link data-flow-link href=\"/books/{id}\">{title}</a></h3><p>{explanation}</p>",title=html::escape_html(&item.title));
         if let Some(revision) = item.feedback_revision {
             out.push_str(&choice_form(&item.book_id, revision, true, csrf));
         }
@@ -82,30 +104,42 @@ pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
     out
 }
 
-/// Free-chapter promotional shelf shares the site's existing public Book cover
-/// and card routes; it does not mint a paid entitlement or track a user.
-pub(super) fn shelf_panel(feed: &Feed) -> String {
+/// Cross-promotion of discoverable owner/team/site Books after free chapters.
+/// Browser-visible observation uses the shared bounded FLOW collector, not a
+/// reader history or a second paid placement.
+pub(super) fn shelf_panel_observed(
+    feed: &Feed,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
     if feed.items.is_empty() {
         return String::new();
     }
     let mut out = String::from(
-        "<section class=\"section reader-end-shelf\" data-rec-panel aria-label=\"Рекомендации после главы\"><div class=\"container\"><h2>Что почитать дальше</h2><div class=\"home-shelf__track\" aria-label=\"Подборка других книг\">"
+        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">"#,
     );
     for item in &feed.items {
         let Ok(id) = book_id(&item.book_id) else {
             continue;
         };
         let title = html::escape_html(&item.title);
+        let source = html::escape_html(&item.source);
         let relation = match item.source.as_str() {
             "author" => "Ещё у автора",
             "teammate" => "Из команды автора",
             "site" => "Другие книги сайта",
             _ => "Рекомендуем",
         };
+        let observation = crate::flow_exposure::attributes(
+            issuer,
+            tor_contracts::exposure::CardObservation {
+                book_id: id,
+                surface: tor_contracts::exposure::ExposureSurface::ReaderEnd,
+                editorial: None,
+            },
+        );
         let _ = write!(
             out,
-            "<article class=\"book-mini-card book-mini-card--shelf\" data-rec-card data-rec-source=\"{}\"><a class=\"book-mini-card__link\" href=\"/books/{id}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\"><img src=\"/covers/{id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\"></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><small class=\"book-mini-card__meta\">{relation}</small></div></a></article>",
-            item.source,
+            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3><small class="book-mini-card__meta">{relation}</small></div></a></article>"#,
         );
     }
     out.push_str("</div></div></section>");

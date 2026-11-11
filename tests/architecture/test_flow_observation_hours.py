@@ -9,7 +9,19 @@ def read(path):
 class FlowObservationHours(unittest.TestCase):
     def test_clock_is_captured_before_queue_and_carried_into_rollup(self):
         src=read('crates/traffic_behavior/src/services/recorder.rs')
-        self.assertIn('observation_hour(SystemTime::now())',src)
+        body=src.split('pub fn try_record_with_flow',1)[1].split('pub fn try_record_sql',1)[0]
+        markers=[
+            'self.flow_gate.lock()',
+            'guard.observation_time()',
+            'observed_at.and_then(crate::domain::observation_hour)',
+            '.try_send(Message::Event(event, flow, observed_hour))',
+            'drop(guard)',
+        ]
+        positions=[body.index(marker) for marker in markers]
+        self.assertEqual(positions,sorted(positions))
+        self.assertNotIn('SystemTime::now()',body)
+        clock=read('crates/traffic_behavior/src/services/recorder/flow_health.rs')
+        self.assertIn('let now = SystemTime::now();',clock)
         self.assertIn('Message::Event(event, flow, observed_hour)',src)
         self.assertIn('record_observed_flow(pageview, observed_hour)',src)
         domain=read('crates/traffic_behavior/src/domain/observed_flow.rs')

@@ -20,6 +20,7 @@ pub(super) async fn page(
     Query(query): Query<IssueFeedbackQuery>,
     headers: HeaderMap,
     method: Method,
+    observation: crate::editorial_http::display::Issuer,
 ) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
@@ -90,21 +91,29 @@ pub(super) async fn page(
         }
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let mut response = private_response(
-        pages::private_reader_with_options(
-            id,
-            &chapter,
-            &csrf,
-            saved,
-            revision,
-            completed,
-            pages::PrivateReaderOptions {
-                demand,
-                issue: query.issue.as_deref(),
-            },
-        ),
-        &cookies,
+    let html = pages::private_reader_with_options(
+        id,
+        &chapter,
+        &csrf,
+        saved,
+        revision,
+        completed,
+        pages::PrivateReaderOptions {
+            demand,
+            issue: query.issue.as_deref(),
+        },
     );
+    let html = state
+        .editorial
+        .attach(
+            &headers,
+            tor_contracts::exposure::PromotionSlot::ChapterEndFree,
+            i64::try_from(chapter.book_id).ok(),
+            html,
+            crate::editorial_http::display::issuer(&observation),
+        )
+        .await;
+    let mut response = private_response(html, &cookies);
     // E-12: the only new script is self-hosted and cannot run inline JS.
     response.headers_mut().insert(
         "content-security-policy",

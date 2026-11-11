@@ -414,6 +414,13 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/recommendations/contextual"), "POST") => Some(399),
         (Some("/admin/audience/seo"), "GET") => Some(400),
         (Some("/admin/audience/seo/refresh"), "POST") => Some(401),
+        (Some("/api/v1/flow/observations"), "POST") => Some(402),
+        (Some("/assets/flow-observations.js"), "GET") => Some(403),
+        (Some("/admin/audience/exposure"), "GET") => Some(404),
+        (Some("/admin/promotion/editorial"), "GET") => Some(405),
+        (Some("/admin/promotion/editorial"), "POST") => Some(406),
+        (Some("/admin/audience/signals"), "GET") => Some(407),
+        (Some("/admin/audience/pages"), "GET") => Some(408),
         _ => None,
     };
     index

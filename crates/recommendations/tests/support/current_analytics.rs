@@ -6,7 +6,11 @@ pub fn url(variable: &str, role: &str) -> String {
     let url = std::env::var(variable).expect("explicit current-schema fixture URL");
     let options = PgConnectOptions::from_str(&url).expect("valid fixture connection options");
     assert_eq!(options.get_host(), "127.0.0.1");
-    assert_eq!(options.get_port(), 5432);
+    let port = std::env::var("FLOW_TEST_PG_PORT")
+        .ok()
+        .map(|v| v.parse::<u16>().expect("disposable port"))
+        .unwrap_or(5432);
+    assert_eq!(options.get_port(), port);
     assert_eq!(options.get_database(), Some("tor_ci"));
     assert_eq!(options.get_username(), role);
     url

@@ -20,7 +20,7 @@
       "method": "GET",
       "template": "/",
       "source": "crates/web/src/lib.rs",
-      "handler": "homepage",
+      "handler": "homepage_updates::page",
       "policy": "public"
     },
     {
@@ -2828,6 +2828,55 @@
       "template": "/admin/audience/seo/refresh",
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "seo::refresh",
+      "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/flow/observations",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "ingest::event",
+      "policy": "observation"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/flow-observations.js",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "client::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/exposure",
+      "source": "crates/web/src/flow_exposure/mod.rs",
+      "handler": "report::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/promotion/editorial",
+      "source": "crates/web/src/editorial_http/mod.rs",
+      "handler": "admin::page",
+      "policy": "admin_editorial"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/editorial",
+      "source": "crates/web/src/editorial_http/mod.rs",
+      "handler": "admin::submit",
+      "policy": "admin_editorial"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/signals",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "signals::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/pages",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "public_pages::page",
       "policy": "administrator"
     }
   ]
