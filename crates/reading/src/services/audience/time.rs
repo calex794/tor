@@ -18,8 +18,13 @@ pub struct ReadingTimeCounts {
 impl ReadingTimeCounts {
     fn checked_add(self, rhs: Self) -> Result<Self, AudienceError> {
         Ok(Self {
-            starts: self.starts.checked_add(rhs.starts).ok_or(AudienceError::Unavailable)?,
-            chapter_completions: self.chapter_completions.checked_add(rhs.chapter_completions)
+            starts: self
+                .starts
+                .checked_add(rhs.starts)
+                .ok_or(AudienceError::Unavailable)?,
+            chapter_completions: self
+                .chapter_completions
+                .checked_add(rhs.chapter_completions)
                 .ok_or(AudienceError::Unavailable)?,
         })
     }
@@ -52,7 +57,10 @@ impl ReadingTimeCell {
         self.counts = if self.utc_hours == 0 {
             counts
         } else {
-            self.counts.zip(counts).map(|(a, b)| a.checked_add(b)).transpose()?
+            self.counts
+                .zip(counts)
+                .map(|(a, b)| a.checked_add(b))
+                .transpose()?
         };
         self.utc_hours += 1;
         Ok(())
@@ -77,8 +85,11 @@ impl ReadingTimePeriod {
         let mut total = ReadingTimeCell::default();
         for (index, hour) in self.hours.iter().enumerate() {
             if hour.epoch != self.from_epoch + index as i64 * 3600
-                || hour.weekday >= 7 || hour.local_hour >= 24
-                || hour.counts.is_some_and(|c| c.starts < 0 || c.chapter_completions < 0)
+                || hour.weekday >= 7
+                || hour.local_hour >= 24
+                || hour
+                    .counts
+                    .is_some_and(|c| c.starts < 0 || c.chapter_completions < 0)
             {
                 return Err(AudienceError::Unavailable);
             }
@@ -127,7 +138,11 @@ mod tests {
         assert_eq!(cell.utc_hours, 1);
         assert_eq!(cell.counts, Some(ReadingTimeCounts::default()));
         cell.include(None).unwrap();
-        cell.include(Some(ReadingTimeCounts { starts: 3, chapter_completions: 2 })).unwrap();
+        cell.include(Some(ReadingTimeCounts {
+            starts: 3,
+            chapter_completions: 2,
+        }))
+        .unwrap();
         assert_eq!(cell.utc_hours, 3);
         assert_eq!(cell.counts, None);
     }
@@ -142,7 +157,13 @@ mod tests {
         for days in [i32::MIN, 0, 2, 91, i32::MAX] {
             assert_eq!(validate(days, "UTC"), Err(AudienceError::Invalid));
         }
-        for zone in ["", "utc", "Asia/Kathmandu", "Europe/London", "UTC; SELECT 1"] {
+        for zone in [
+            "",
+            "utc",
+            "Asia/Kathmandu",
+            "Europe/London",
+            "UTC; SELECT 1",
+        ] {
             assert_eq!(validate(7, zone), Err(AudienceError::Invalid));
         }
     }

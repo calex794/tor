@@ -15,11 +15,17 @@ impl PgAudience {
         validate(days, zone)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx).await.map_err(unavailable)?;
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
             .execute(&mut *tx).await.map_err(unavailable)?;
         let rows = sqlx::query(include_str!("time.sql"))
-            .bind(days).bind(zone).fetch_all(&mut *tx).await.map_err(unavailable)?;
+            .bind(days)
+            .bind(zone)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         let length = days as usize * 24;
         if rows.len() != length * 2 {
             return Err(AudienceError::Unavailable);
@@ -31,7 +37,11 @@ impl PgAudience {
             return Err(AudienceError::Unavailable);
         }
         let report = ReadingTimeReport {
-            days, time_zone: zone.into(), until_epoch, current, previous,
+            days,
+            time_zone: zone.into(),
+            until_epoch,
+            current,
+            previous,
             measured_at_utc: rows[0].try_get("measured_at_utc").map_err(unavailable)?,
         };
         tx.commit().await.map_err(unavailable)?;
@@ -46,7 +56,8 @@ fn period(rows: &[PgRow], ordinal: i32) -> Result<ReadingTimePeriod, AudienceErr
         until_epoch: first.try_get("period_until_epoch").map_err(unavailable)?,
         from_utc: first.try_get("from_utc").map_err(unavailable)?,
         until_utc: first.try_get("until_utc").map_err(unavailable)?,
-        totals: None, hours: Vec::with_capacity(rows.len()),
+        totals: None,
+        hours: Vec::with_capacity(rows.len()),
         by_hour: [ReadingTimeCell::default(); 24],
         by_weekday: [ReadingTimeCell::default(); 7],
     };
