@@ -1,4 +1,4 @@
-//! Positive legacy report regressions use only the explicit 191 fixture database.
+//! Positive legacy report regressions use only the explicit pre-barrier fixture database.
 use std::process::Command;
 
 pub fn url() -> String {
@@ -15,7 +15,7 @@ pub fn url() -> String {
         .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", &url, "--command"])
         .arg(
             "SELECT current_database()='tor_ci_legacy_analytics' AND current_user='tor_app'
-             AND (SELECT count(*)=191 AND bool_and(success) AND max(version)=202611163274 FROM _sqlx_migrations)
+             AND (SELECT count(*)=192 AND bool_and(success) AND max(version)=202611163827 FROM _sqlx_migrations)
              AND to_regclass('public.rec_analytics_invalidations') IS NOT NULL
              AND to_regprocedure('public.rec_retire_analytics_batch(integer)') IS NULL
              AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='retired_collection_write_fence')",

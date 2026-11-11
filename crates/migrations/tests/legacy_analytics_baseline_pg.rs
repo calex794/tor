@@ -7,7 +7,8 @@ use sqlx::{
 use std::{borrow::Cow, env, error::Error, str::FromStr, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
-const LEGACY_LAST_VERSION: i64 = 202611163274;
+// Includes the independent anonymous observation projection, not the barrier.
+const LEGACY_LAST_VERSION: i64 = 202611163827;
 const RETIREMENT_VERSION: i64 = 202611168903;
 
 #[tokio::test]
@@ -39,13 +40,13 @@ async fn prepare_explicit_legacy_analytics_baseline_with_sqlx_ledger() -> Result
         migrations: Cow::Owned(
             MIGRATOR
                 .iter()
-                .filter(|migration| migration.version < RETIREMENT_VERSION)
+                .filter(|migration| migration.version <= LEGACY_LAST_VERSION)
                 .cloned()
                 .collect(),
         ),
         ..Migrator::DEFAULT
     };
-    assert_eq!(baseline.migrations.len(), 191);
+    assert_eq!(baseline.migrations.len(), 192);
     assert_eq!(
         baseline.migrations.last().unwrap().version,
         LEGACY_LAST_VERSION
@@ -101,7 +102,7 @@ async fn prepare_explicit_legacy_analytics_baseline_with_sqlx_ledger() -> Result
         "legacy baseline requires the primitives and no installed barrier objects"
     );
     println!(
-        "TOR_LEGACY_ANALYTICS_SQLX_OK 191/191 database=tor_ci_legacy_analytics barrier=absent"
+        "TOR_LEGACY_ANALYTICS_SQLX_OK 192/192 database=tor_ci_legacy_analytics barrier=absent"
     );
     pool.close().await;
     Ok(())

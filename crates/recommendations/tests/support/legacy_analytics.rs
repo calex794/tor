@@ -1,4 +1,4 @@
-//! Retained collectors run only against the explicitly installed 191 baseline.
+//! Retained collectors run only against the explicitly installed pre-barrier baseline with anonymous observation tables.
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use std::str::FromStr;
 
@@ -31,10 +31,10 @@ pub async fn assert_schema(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(database, "tor_ci_legacy_analytics");
-    assert_eq!((count, last, successful), (191, 202611163274, true));
+    assert_eq!((count, last, successful), (192, 202611163827, true));
     assert!(
         primitives,
-        "the explicit 191 baseline includes invalidation primitives"
+        "the explicit pre-barrier baseline with anonymous observation tables includes invalidation primitives"
     );
     assert!(
         !barrier,

@@ -1,4 +1,5 @@
-//! Installed190 -> primitives191 -> atomic192, with no trigger bypass.
+//! Installed190 -> primitives191 -> anonymous observation -> atomic retirement.
+//! Every installed checksum is compared, with no trigger bypass.
 //! Leaves drained synthetic source keys for the separate real HTTP/browser proof.
 #[path = "collection_retirement_installed_upgrade_pg/boundaries.rs"]
 mod boundaries;
@@ -45,6 +46,8 @@ async fn installed_retirement_preserves_business_and_erases_with_bounded_evidenc
         0,
         "191 is a preparatory test boundary, not a production retirement"
     );
+    harness::through(harness::OBSERVATION).run(&owner).await?;
+    ril::seed_observed(&owner).await?;
     harness::grant_app(&owner).await?;
     let app = harness::connect(
         "COLLECTION_RETIREMENT_APP_DATABASE_URL",
@@ -104,6 +107,7 @@ async fn installed_retirement_preserves_business_and_erases_with_bounded_evidenc
     budget::bounded_rollback_workers_and_retention(&owner, &app, &fixture).await?;
     assert_eq!(fixture.canonical(&owner).await?, canonical);
     assert_eq!(fixture.preferences(&owner).await?, preferences);
+    ril::observed_is_preserved(&owner).await?;
     app.close().await;
     owner.close().await;
     Ok(())

@@ -9,6 +9,7 @@ use std::{borrow::Cow, collections::HashMap, env, str::FromStr, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
 pub const PRIMITIVES: i64 = 202611163274;
+pub const OBSERVATION: i64 = 202611163827;
 pub const BARRIER: i64 = 202611168903;
 
 pub fn through(version: i64) -> Migrator {
@@ -102,13 +103,18 @@ pub async fn assert_ledger(pool: &PgPool, before: &HashMap<i64, Vec<u8>>) -> Tes
         sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(pool)
             .await?;
-    assert_eq!(installed.len(), 192);
+    let expected = through(BARRIER);
+    assert_eq!(installed.len(), expected.migrations.len());
+    assert!(expected.version_exists(OBSERVATION));
+    assert_eq!(expected.migrations.len(), before.len() + 3);
     assert!(installed.iter().all(|row| row.2));
-    for (version, checksum, _) in installed {
+    for ((version, checksum, _), migration) in installed.into_iter().zip(expected.iter()) {
+        assert_eq!(version, migration.version);
+        assert_eq!(checksum.as_slice(), migration.checksum.as_ref());
         if let Some(old) = before.get(&version) {
             assert_eq!(&checksum, old, "old checksum changed for {version}");
         } else {
-            assert!([PRIMITIVES, BARRIER].contains(&version));
+            assert!([PRIMITIVES, OBSERVATION, BARRIER].contains(&version));
         }
     }
     Ok(())

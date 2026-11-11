@@ -138,3 +138,17 @@ pub async fn mixed_batches(pool: &PgPool, fixture: &Fixture) -> TestResult {
     );
     Ok(())
 }
+
+// The independently accepted observation projection must survive retirement.
+pub async fn seed_observed(pool: &PgPool) -> TestResult {
+    run(
+        pool,
+        "INSERT INTO ril_flow_observed_hourly(bucket,surface_code,acquisition_hint,html_requests)
+      VALUES(date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',2,3,37)",
+    )
+    .await
+}
+pub async fn observed_is_preserved(pool: &PgPool) -> TestResult {
+    assert_eq!(count(pool,"SELECT sum(html_requests)::bigint FROM ril_flow_observed_hourly WHERE surface_code=2 AND acquisition_hint=3").await?,37);
+    Ok(())
+}
