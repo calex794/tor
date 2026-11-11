@@ -92,7 +92,22 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         Err(StatusCode::UNAUTHORIZED) => None,
         Err(_) => return response,
     };
-    let feed = match api::load(&state, identity, surface, seed, 10).await {
+    // The new relation-weighted shelf is exclusive to the public free reader.
+    // Paid readers and other REC surfaces retain their existing implementation.
+    let free_chapter = path
+        .strip_prefix("/reader/")
+        .and_then(|id| book_id(id).ok());
+    let is_shelf = surface == Surface::ReaderEnd && free_chapter.is_some() && seed.is_some();
+    let feed_result = if is_shelf {
+        state.store.reader_end_shelf(
+            identity.as_ref().map(|(id, _)| *id),
+            seed.expect("checked above"),
+            free_chapter.expect("checked above"),
+        ).await
+    } else {
+        api::load(&state, identity, surface, seed, 10).await
+    };
+    let feed = match feed_result {
         Ok(feed) if !feed.items.is_empty() => feed,
         _ => return response,
     };
@@ -108,7 +123,12 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     if original.contains("data-rec-panel") {
         return Response::from_parts(parts, Body::from(bytes));
     }
-    let Some(at) = original.rfind("</main>") else {
+    let at = if is_shelf {
+        original.find("<!--READER_END_SHELF-->")
+    } else {
+        original.rfind("</main>")
+    };
+    let Some(at) = at else {
         return Response::from_parts(parts, Body::from(bytes));
     };
     // An anonymous recommendation card has no account-setting form and does
@@ -118,9 +138,17 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     } else {
         (String::new(), Vec::new())
     };
-    let panel = pages::panel(&feed, &csrf);
+    let panel = if is_shelf {
+        pages::shelf_panel(&feed)
+    } else {
+        pages::panel(&feed, &csrf)
+    };
     let mut html = original.to_owned();
-    html.insert_str(at, &panel);
+    if is_shelf {
+        html = html.replace("<!--READER_END_SHELF-->", &panel);
+    } else {
+        html.insert_str(at, &panel);
+    }
     for cookie in cookies {
         if let Ok(value) = HeaderValue::from_str(&cookie) {
             parts.headers.append(header::SET_COOKIE, value);
