@@ -1,0 +1,24 @@
+[
+  {
+    "path": "docs/contracts/flow-data-signals-v1.md",
+    "replace": [
+      [
+        "| HTML | сохранённые успешные публичные ответы, по времени наблюдения | оба соседних интервала завершённых часов имеют строки каждого часа; нет известных потерь и локального отказа |",
+        "| HTML | сохранённые успешные публичные ответы, по времени наблюдения | оба соседних интервала завершённых часов подтверждены долговечным журналом зарегистрированных исполнителей; нет сохранённых потерь/ошибок в обоих окнах |"
+      ],
+      [
+        "счётчики процесса не доказывают состояние других процессов или прошлых запусков.",
+        "счётчики процесса не доказывают состояние других процессов или прошлых запусков.\nHTML и его health читаются одним снимком; правила подтверждения, пустого ACK,\nчасов и остановки заданы в [договоре HTML health](flow-html-health-v1.md)."
+      ]
+    ]
+  },
+  {
+    "path": "docs/contracts/flow-observation-hours-v1.md",
+    "replace": [
+      [
+        "# FLOW-02/04: anonymous observation-hour counts\n",
+        "# FLOW-02/04: anonymous observation-hour counts\n\nDurable queue/materialization acknowledgement and period diagnostics are specified\nin [FLOW HTML health](flow-html-health-v1.md). Presence of hour rows alone is not\nthe completeness source used by current comparison signals.\n"
+      ]
+    ]
+  }
+]

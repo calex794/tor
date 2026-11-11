@@ -1,0 +1,44 @@
+{
+  "baseCommit": "cc418415a813c527237a54b71426c9a4c69abf9b",
+  "branch": "feat/flow-signals",
+  "worktree": "/workspace/scratch/1e86e471c018/tor-signals",
+  "migration": 202611294685,
+  "state": "uncommitted; not published",
+  "completedChecks": {
+    "migration": "200/200 twice",
+    "rilRollupsPg": "10/10 including 3 new health cases",
+    "trafficUnits": "51/51",
+    "htmlAndReadingAdapterUnits": "2/2",
+    "audienceHttp": "1/1 passed before final extra health lock assertions",
+    "clippy": "-p tor-traffic_behavior -p tor-web --all-targets -- -D warnings PASS after extra HTTP assertions",
+    "format": "cargo fmt --all completed",
+    "layout": "PASS",
+    "migrationSources": "PASS"
+  },
+  "outstanding": [
+    "Review pending: startup/registration gaps and known rejected-before-readiness samples must not be swallowed by new epoch counter baseline",
+    "BLOCKER: expired non-retired epoch must quarantine later hours until proven stopped; current read ends at lease_until and another live worker can mask it",
+    "Compatibility: absent H health schema currently fails entire observed_health_report; preserve available legacy observation report with unknown optional health",
+    "Review clock uncertainty: monotonic sample captured before awaited SQL may expand positive clock tolerance by SQL RTT; verify loss flags at a UTC hour boundary with deterministic test",
+    "Final owner PG rerun after added HTTP health lock assertions",
+    "Actual Chromium 390/1440 for added durable health section",
+    "Independent review completion",
+    "Commit and parent integration exact CI"
+  ],
+  "logs": [
+    "/workspace/scratch/1e86e471c018/html-health-check.log",
+    "/workspace/scratch/1e86e471c018/html-health-pg.log",
+    "/workspace/scratch/1e86e471c018/html-health-clippy.log"
+  ],
+  "keys": [
+    "flow_html_health_new_files_1",
+    "flow_html_health_new_files_2",
+    "flow_html_health_new_files_3",
+    "flow_html_health_existing_edits",
+    "flow_html_health_tests",
+    "flow_html_health_docs",
+    "flow_html_health_input_regression",
+    "flow_html_health_http_browser_edits"
+  ],
+  "reconstruction": "Authoring contents and edits reconstructed from captured tool inputs, not guaranteed byte-identical to final cargo fmt output. Restore only as a new reviewable tree, format and rerun checks. Base cc418 full tree is NOT recoverable from this cache alone."
+}

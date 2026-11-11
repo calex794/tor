@@ -1,0 +1,163 @@
+//! Service state for the durable HTML acknowledgement. No SQL or HTTP work here.
+use crate::{
+    domain::html_health::{HtmlCheckpoint, HtmlHealthError},
+    repositories::PgHtmlHealth,
+    services::TrafficRecorder,
+};
+use std::time::{Duration, Instant};
+
+pub(super) struct HtmlPump {
+    store: PgHtmlHealth,
+    epoch: Option<i64>,
+    point: Option<HtmlCheckpoint>,
+    drained: bool,
+    batch: Option<String>,
+    failures: u64,
+    reported:(u64,u64),
+}
+impl HtmlPump {
+    pub(super) fn new(store: PgHtmlHealth, recorder: &TrafficRecorder) -> Self {
+        recorder.manage_flow_health();
+        Self {
+            store,
+            epoch: None,
+            point: None,
+            drained: false,
+            batch: None,
+            failures: 0,
+            reported:(0,0),
+        }
+    }
+    pub(super) fn failure(&mut self, recorder: &TrafficRecorder) {
+        self.failures = self.failures.saturating_add(1);
+        recorder.close_flow_health();
+    }
+    pub(super) fn waiting(&self) -> bool {
+        self.point.is_some() && self.drained
+    }
+    pub(super) fn has_point(&self) -> bool {
+        self.point.is_some()
+    }
+    pub(super) fn drained(&mut self, batch: Option<String>) {
+        if self.point.is_some() {
+            self.drained = true;
+            self.batch = batch;
+        }
+    }
+    pub(super) async fn prepare(
+        &mut self,
+        recorder: &TrafficRecorder,
+    ) -> Result<(), HtmlHealthError> {
+        let started = Instant::now();
+        let dropped=recorder.flow_coverage_counts().1;
+        let result = tokio::time::timeout(Duration::from_millis(950), self.prepare_inner(dropped)).await;
+        match result {
+            Ok(Ok(clock)) if recorder.activate_flow_health(clock, started) => Ok(()),
+            Ok(Err(HtmlHealthError::Expired)) => {
+                self.failure(recorder);
+                self.retire(recorder).await?;
+                Err(HtmlHealthError::Expired)
+            }
+            _ => {
+                self.failure(recorder);
+                Err(HtmlHealthError::Unavailable)
+            }
+        }
+    }
+    async fn prepare_inner(&mut self,dropped:u64) -> Result<i64, HtmlHealthError> {
+        if self.epoch.is_none() {
+            if !self.store.ready().await? {
+                return Err(HtmlHealthError::Unavailable);
+            }
+            self.epoch = Some(self.store.start_epoch_with_counters(cap(dropped),cap(self.failures)).await?.0);
+            self.reported=(dropped,self.failures);
+        }
+        if let Some(point) = self.point {
+            return self.store.renew(point).await;
+        }
+        let point = self
+            .store
+            .begin(self.epoch.ok_or(HtmlHealthError::Unavailable)?)
+            .await?;
+        self.point = Some(point);
+        self.drained = false;
+        self.batch = None;
+        Ok(point.cut_ms)
+    }
+    pub(super) async fn complete(
+        &mut self,
+        recorder: &TrafficRecorder,
+        failed: bool,
+    ) -> Result<(), HtmlHealthError> {
+        if failed {
+            self.failures = self.failures.saturating_add(1);
+        }
+        let (_, dropped) = recorder.flow_coverage_counts();
+        if let Some(epoch)=self.epoch.filter(|_|self.reported!=(dropped,self.failures)) {
+            tokio::time::timeout(Duration::from_millis(950),self.store.note(epoch,cap(dropped),cap(self.failures))).await.map_err(|_|HtmlHealthError::Unavailable)??;
+            self.reported=(dropped,self.failures);
+        }
+        let Some(point) = self.point.filter(|_| self.drained) else {
+            return Ok(());
+        };
+        match tokio::time::timeout(
+            Duration::from_millis(950),
+            self.store.finish(
+                point,
+                self.batch.as_deref(),
+                cap(dropped),
+                cap(self.failures),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(true)) => {
+                self.point = None;
+                self.batch = None;
+                self.drained = false;
+                Ok(())
+            }
+            Ok(Ok(false)) => Ok(()),
+            Ok(Err(HtmlHealthError::Expired)) => {
+                self.failure(recorder);
+                self.retire(recorder).await?;
+                Err(HtmlHealthError::Expired)
+            }
+            _ => {
+                self.failure(recorder);
+                Err(HtmlHealthError::Unavailable)
+            }
+        }
+    }
+    async fn retire(&mut self, recorder: &TrafficRecorder) -> Result<(), HtmlHealthError> {
+        recorder.close_flow_health();
+        if let Some(epoch) = self.epoch {
+            let (_, dropped) = recorder.flow_coverage_counts();
+            tokio::time::timeout(
+                Duration::from_millis(950),
+                self.store.retire(epoch, cap(dropped), cap(self.failures)),
+            )
+            .await
+            .map_err(|_| HtmlHealthError::Unavailable)??;
+        }
+        self.epoch = None;
+        self.point = None;
+        self.drained = false;
+        self.batch = None;
+        Ok(())
+    }
+    pub(super) async fn shutdown(
+        &mut self,
+        recorder: &TrafficRecorder,
+    ) -> Result<(), HtmlHealthError> {
+        self.retire(recorder).await
+    }
+    pub(super) async fn prune(&self) -> Result<(), HtmlHealthError> {
+        tokio::time::timeout(Duration::from_millis(950), self.store.prune())
+            .await
+            .map_err(|_| HtmlHealthError::Unavailable)?
+    }
+}
+fn cap(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}

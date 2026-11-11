@@ -1,0 +1,26 @@
+[
+  {
+    "path": "crates/web/tests/audience_http_pg/signals.rs",
+    "replace": [
+      [
+        "    fn acquire(url: &str) -> Self {",
+        "    fn acquire(url: &str) -> Self {\n        Self::table(url,\"flow_signal_states\")\n    }\n    fn table(url:&str,table:&str)->Self{\n        assert!(matches!(table,\"flow_signal_states\"|\"ril_flow_health_epochs\"));"
+      ],
+      [
+        "BEGIN; LOCK TABLE flow_signal_states IN ACCESS EXCLUSIVE MODE; SELECT 'signals-locked';",
+        "BEGIN; LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE; SELECT 'signals-locked';"
+      ]
+    ],
+    "insert_after": {
+      "anchor": "pub(super) async fn check(app: &Router, url: &str, cookies: &[String], accounts: &PgAccounts) {\n",
+      "value": "\n    let health_before=pg(url,\"SELECT (SELECT count(*) FROM ril_flow_health_epochs)||'|'||(SELECT count(*) FROM ril_flow_health_hourly)\");\n    let r=call(app,\"GET\",\"/admin/audience?days=1\",&cookies[0],\"\",\"\").await;\n    assert_eq!(r.status(),StatusCode::OK);\n    private(&r);\n    let html=page(r).await;\n    assert!(html.contains(\"audience-durable-quality\"));\n    assert!(html.contains(\"Старая история до журнала\"));\n    assert!(html.contains(\"не всех процессов установки\"));\n    assert_eq!(health_before,pg(url,\"SELECT (SELECT count(*) FROM ril_flow_health_epochs)||'|'||(SELECT count(*) FROM ril_flow_health_hourly)\"),\"GET never acknowledges a worker\");\n    let lock=LockedSignals::table(url,\"ril_flow_health_epochs\");\n    let began=std::time::Instant::now();\n    let r=call(app,\"GET\",\"/admin/audience?days=1\",&cookies[0],\"\",\"\").await;\n    assert_eq!(r.status(),StatusCode::SERVICE_UNAVAILABLE);\n    private(&r);\n    assert!(page(r).await.contains(\"Долговечную диагностику прочитать не удалось\"));\n    assert!(began.elapsed()<std::time::Duration::from_secs(2));\n    drop(lock);\n"
+    }
+  },
+  {
+    "path": "tools/audience_signals_pg_helpers.cjs",
+    "insert_after": {
+      "anchor": "    assert.equal(await page.locator('[data-signal=\"google_clicks\"] a').getAttribute('href'),'/admin/audience/seo?days=1&provider=google');\n",
+      "value": "    await privateResponse(await page.goto(base+'/admin/audience?days=1'),200);\n    const health=page.getByTestId('audience-durable-quality');\n    assert.match(await health.textContent(),/зарегистрированных исполнителей/);\n    assert.match(await health.textContent(),/Старая история до журнала/);\n    for (const width of [1440,390]) {\n      await page.setViewportSize({width,height:width===390?844:900});\n      await health.scrollIntoViewIfNeeded();\n      const sizes=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:window.innerWidth}));\n      assert.ok(sizes.scroll<=sizes.width+1,'HTML health must fit mobile width');\n      await page.screenshot({path:path.join(shots,`audience-html-health-${width}.png`),fullPage:false});\n      await require('./ci_browser_preview.cjs')(page,`audience-html-health-${width}`,'[data-testid=\"audience-durable-quality\"]');\n    }\n"
+    }
+  }
+]

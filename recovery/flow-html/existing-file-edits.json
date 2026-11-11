@@ -1,0 +1,235 @@
+[
+  {
+    "path": "crates/traffic_behavior/src/domain/mod.rs",
+    "replace": [
+      [
+        "mod flow;",
+        "mod flow;\npub mod html_health;"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/repositories/mod.rs",
+    "replace": [
+      [
+        "mod audience;",
+        "mod audience;\nmod html_health;"
+      ],
+      [
+        "pub use audience::PgFlowAudience;",
+        "pub use audience::PgFlowAudience;\npub use html_health::PgHtmlHealth;"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/repositories/postgres.rs",
+    "replace": [
+      [
+        "    pub fn new(pool: PgPool) -> Self {\n        Self { pool }\n    }",
+        "    pub fn new(pool: PgPool) -> Self {\n        Self { pool }\n    }\n\n    pub(crate) fn html_health(&self) -> super::PgHtmlHealth {\n        super::PgHtmlHealth::new(self.pool.clone())\n    }"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/services/mod.rs",
+    "replace": [
+      [
+        "mod pg_pump;",
+        "mod pg_pump;\nmod html_pump;"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/services/recorder.rs",
+    "replace": [
+      [
+        "//! Full/disconnected queues count dropped telemetry, not failed user requests.",
+        "//! Full/disconnected queues count dropped telemetry, not failed user requests.\nmod flow_health;\nuse flow_health::FlowGate;"
+      ],
+      [
+        "time::{Duration, Instant, SystemTime},",
+        "time::{Duration, Instant},"
+      ],
+      [
+        "    flow_dropped: Arc<AtomicU64>,",
+        "    flow_dropped: Arc<AtomicU64>,\n    flow_gate: Arc<FlowGate>,"
+      ],
+      [
+        "            flow_dropped: Arc::new(AtomicU64::new(0)),",
+        "            flow_dropped: Arc::new(AtomicU64::new(0)),\n            flow_gate: Arc::new(FlowGate::default()),"
+      ],
+      [
+        "        // Capture at the HTTP producer, not after queueing or PostgreSQL delay.\n        let observed_hour = flow.and_then(|_| crate::domain::observation_hour(SystemTime::now()));\n        match self\n            .sender\n            .try_send(Message::Event(event, flow, observed_hour))\n        {\n            Ok(()) => true,\n            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {\n                self.dropped.fetch_add(1, Ordering::Relaxed);\n                if has_flow {\n                    self.flow_dropped.fetch_add(1, Ordering::Relaxed);\n                }\n                false\n            }\n        }",
+        "        let guard = has_flow.then(|| self.flow_gate.lock()).flatten();\n        let observed_at = guard.as_ref().and_then(|guard| guard.observation_time());\n        let unavailable = has_flow && observed_at.is_none();\n        if unavailable { self.flow_dropped.fetch_add(1, Ordering::Relaxed); }\n        let flow = if unavailable { None } else { flow };\n        // Timestamp and enqueue are fenced together against the pump barrier.\n        let observed_hour = observed_at.and_then(crate::domain::observation_hour);\n        let accepted = match self\n            .sender\n            .try_send(Message::Event(event, flow, observed_hour))\n        {\n            Ok(()) => !unavailable,\n            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {\n                self.dropped.fetch_add(1, Ordering::Relaxed);\n                if has_flow && !unavailable {\n                    self.flow_dropped.fetch_add(1, Ordering::Relaxed);\n                }\n                false\n            }\n        };\n        drop(guard);\n        accepted"
+      ],
+      [
+        "    /// Serializes against earlier traffic events, then queries the independent",
+        "    pub(crate) fn manage_flow_health(&self) { self.flow_gate.manage(); }\n    pub(crate) fn activate_flow_health(&self, clock_ms: i64, started: Instant) -> bool {\n        self.flow_gate.activate(clock_ms, started)\n    }\n    pub(crate) fn close_flow_health(&self) { self.flow_gate.close(); }\n    pub(crate) fn drain_for_health(&self) -> Option<RollupDelta> {\n        let guard = self.flow_gate.lock()?;\n        guard.observation_time()?;\n        let (reply, response) = mpsc::channel();\n        self.sender.try_send(Message::Drain(reply)).ok()?;\n        drop(guard);\n        response.recv_timeout(Duration::from_secs(2)).ok()\n    }\n\n    /// Serializes against earlier traffic events, then queries the independent"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/services/pg_pump.rs",
+    "replace": [
+      [
+        "use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};",
+        "use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};\nuse super::html_pump::HtmlPump;"
+      ],
+      [
+        "    monitor: PgPumpMonitor,\n}",
+        "    monitor: PgPumpMonitor,\n    html: HtmlPump,\n}"
+      ],
+      [
+        "        Self {\n            repo,",
+        "        Self {\n            html: HtmlPump::new(repo.html_health(), &recorder),\n            repo,"
+      ],
+      [
+        "        self.monitor.begin();\n        let mut failed = false;\n\n        if self.pending.is_none() {\n            let source = self.recorder.clone();\n            match tokio::task::spawn_blocking(move || source.drain_for_persistence()).await {\n                Ok(Some(delta)) if !delta.is_empty() => {\n                    self.pending = Some(Pending {\n                        id: Uuid::new_v4().to_string(),\n                        delta,\n                    });\n                }\n                Ok(Some(_)) => {}                   // healthy idle cycle\n                Ok(None) | Err(_) => failed = true, // worker refused the barrier\n            }\n        }",
+        "        self.monitor.begin();\n        let failed = match tokio::time::timeout(std::time::Duration::from_secs(6), self.progress()).await {\n            Ok(failed) => failed,\n            Err(_) => { self.html.failure(&self.recorder); true }\n        };\n        self.monitor.end(failed);\n    }\n    async fn progress(&mut self) -> bool {\n        let healthy = self.html.prepare(&self.recorder).await.is_ok();\n        let mut failed = !healthy;\n\n        if self.pending.is_none() && !self.html.waiting() {\n            let source = self.recorder.clone();\n            let managed = healthy && self.html.has_point();\n            match tokio::task::spawn_blocking(move || if managed {source.drain_for_health()} else {source.drain_for_persistence()}).await {\n                Ok(Some(delta)) if !delta.is_empty() => {\n                    let id=Uuid::new_v4().to_string();\n                    if managed {self.html.drained(Some(id.clone()));}\n                    self.pending = Some(Pending {\n                        id,\n                        delta,\n                    });\n                }\n                Ok(Some(_)) => {if managed {self.html.drained(None);}}\n                Ok(None) | Err(_) => failed = true,\n            }\n        }"
+      ],
+      [
+        "        self.monitor.end(failed);\n    }\n\n    /// One long-lived task",
+        "        if self.ticks.is_multiple_of(360) && self.html.prune().await.is_err() {failed=true;}\n        if self.html.complete(&self.recorder,failed).await.is_err() {failed=true;}\n        failed\n    }\n\n    /// Closes the producer first. Pending durable RIL batches remain recoverable;\n    /// unacknowledged memory is an unknown tail, never a healthy zero after SIGTERM.\n    pub async fn shutdown(&mut self) {\n        self.recorder.close_flow_health();\n        let _=self.html.shutdown(&self.recorder).await;\n    }\n\n    /// One long-lived task"
+      ],
+      [
+        "                tokio::time::sleep(std::time::Duration::from_secs(10)).await;\n                self.run_once().await;",
+        "                self.run_once().await;\n                tokio::time::sleep(std::time::Duration::from_secs(10)).await;"
+      ],
+      [
+        "#[cfg(test)]\nmod vitality_tests",
+        "impl Drop for PgRollupPump {\n    fn drop(&mut self) { self.recorder.close_flow_health(); }\n}\n\n#[cfg(test)]\nmod vitality_tests"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/src/repositories/audience/observed.rs",
+    "replace": [
+      [
+        "use super::{unavailable, PgFlowAudience};",
+        "use super::{unavailable, PgFlowAudience};\nuse crate::{domain::html_health::HtmlHealthReport,repositories::PgHtmlHealth};"
+      ],
+      [
+        "    ) -> Result<ObservedAudienceReport, FlowHourlyError> {\n        let count",
+        "    ) -> Result<ObservedAudienceReport, FlowHourlyError> {\n        self.observed_snapshot(days,zone,false).await.map(|value|value.0)\n    }\n    /// Counts and their durable quality proof share one repeatable-read snapshot.\n    /// A later checkpoint cannot certify counts omitted by an earlier read.\n    pub async fn observed_health_report(&self,days:i32,zone:&str)->Result<(ObservedAudienceReport,HtmlHealthReport),FlowHourlyError>{\n        let (report,health)=self.observed_snapshot(days,zone,true).await?;\n        Ok((report,health.ok_or(FlowHourlyError::Unavailable)?))\n    }\n    async fn observed_snapshot(&self,days:i32,zone:&str,with_health:bool)->Result<(ObservedAudienceReport,Option<HtmlHealthReport>),FlowHourlyError>{\n        let count"
+      ],
+      [
+        "        let report = observed_report(days, zone, anchor, hours)?;\n        tx.commit().await.map_err(unavailable)?;\n        Ok(report)",
+        "        let report = observed_report(days, zone, anchor, hours)?;\n        let health=if with_health {\n            Some(PgHtmlHealth::read_in(&mut tx,days,report.current.until_epoch).await.map_err(|_|FlowHourlyError::Unavailable)?)\n        }else {None};\n        tx.commit().await.map_err(unavailable)?;\n        Ok((report,health))"
+      ]
+    ]
+  },
+  {
+    "path": "crates/web/src/flow_signal_worker/inputs.rs",
+    "replace": [
+      [
+        "use tor_traffic_behavior::services::{observed_audience::ObservedAudienceReport, PgPumpSnapshot};",
+        "use tor_traffic_behavior::{domain::html_health::HtmlHealthReport,services::observed_audience::ObservedAudienceReport};"
+      ]
+    ],
+    "replace_between": {
+      "start": "pub(super) fn html(",
+      "end": "pub(super) fn reading(",
+      "value": "pub(super) fn html(snapshot: Option<&(ObservedAudienceReport, HtmlHealthReport)>) -> Evidence {\n    let Some((report, health)) = snapshot else {\n        return Evidence::missing(true);\n    };\n    let expected = report.days * 24;\n    let zero = |value: Option<i64>, period:tor_traffic_behavior::domain::html_health::HtmlHealthPeriod| value.or_else(|| (period.confirmed_hours == expected && !period.has_failure()).then_some(0));\n    Evidence {\n        enabled: true,\n        available: health.until_epoch == report.current.until_epoch,\n        current: zero(report.current.saved_total, health.current),\n        previous: zero(report.previous.saved_total, health.previous),\n        current_units: health.current.confirmed_hours,\n        previous_units: health.previous.confirmed_hours,\n        expected_units: expected,\n        known_discards: report.persisted_discards,\n        source_failed: health.current.has_failure() || health.previous.has_failure(),\n        limited_units: 0,\n        omitted_rows: 0,\n        current_ack_per_mille: None,\n        previous_ack_per_mille: None,\n    }\n}\n"
+    }
+  },
+  {
+    "path": "crates/web/src/flow_signal_worker.rs",
+    "replace": [
+      [
+        "traffic.observed_report(days, \"UTC\")",
+        "traffic.observed_health_report(days, \"UTC\")"
+      ],
+      [
+        "    let html = inputs::html(\n        html.as_ref(),\n        crate::ril::flow_capture_counters(),\n        crate::ril::pump_health_snapshot(),\n    );",
+        "    let html = inputs::html(html.as_ref());"
+      ]
+    ]
+  },
+  {
+    "path": "crates/web/src/auth/audience_http.rs",
+    "replace": [
+      [
+        "state.traffic.observed_report(days, zone)",
+        "state.traffic.observed_health_report(days, zone)"
+      ],
+      [
+        "(zone, observed.as_ref()),",
+        "(zone, observed.as_ref().map(|value| &value.0), observed.as_ref().map(|value| &value.1)),"
+      ]
+    ]
+  },
+  {
+    "path": "crates/web/src/auth/audience_http/render.rs",
+    "replace": [
+      [
+        "        Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,",
+        "        Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,\n        Option<&tor_traffic_behavior::domain::html_health::HtmlHealthReport>,"
+      ],
+      [
+        "    quality::section(&mut body, days, traffic, capture, pump);",
+        "    quality::section(&mut body, days, traffic, capture, pump);\n    quality::durable(&mut body,days,observed.2);"
+      ],
+      [
+        "(\"UTC\", None)",
+        "(\"UTC\", None, None)"
+      ]
+    ]
+  },
+  {
+    "path": "crates/web/src/auth/audience_http/render/signals.rs",
+    "replace": [
+      [
+        "Единица — сохранённый успешный ответ HTML. Покрытие — часы с записями, не доля всех посещений. Локальная диагностика относится к текущему процессу.",
+        "Единица — сохранённый успешный ответ HTML. Покрытие — часы с долговечным подтверждением очереди и записи всех зарегистрированных исполнителей. Строка часа и чистый новый процесс не доказывают полноту. Потери любого из сравниваемых окон приостанавливают сравнение; старая история без журнала остаётся неизвестной. Это не полнота установки и не доля людей."
+      ]
+    ]
+  },
+  {
+    "path": "crates/web/src/auth/audience_http/render/quality.rs",
+    "insert_after": {
+      "anchor": "const STALE_SECONDS: u64 = 90;\n",
+      "value": "\npub(super) fn durable(body:&mut String,days:i32,report:Option<&tor_traffic_behavior::domain::html_health::HtmlHealthReport>){\n    body.push_str(\"<section class=\\\"book-section-card\\\" data-testid=\\\"audience-durable-quality\\\"><h2>Подтверждение записи HTML по периодам</h2><p>Равные завершённые UTC-окна. Подтверждённый час означает, что все зарегистрированные исполнители передали очередь и сохранили её пакеты. Проверяются аренда, часы сервера и ошибки записи. Это охват данного механизма зарегистрированных исполнителей, не всех процессов установки и не людей.</p>\");\n    let Some(report)=report else {\n        body.push_str(\"<p role=\\\"alert\\\">Долговечную диагностику прочитать не удалось. Полнота и отсутствие потерь не подтверждены.</p></section>\");return;\n    };\n    for (key,title,period) in [(\"current\",\"Текущий период\",report.current),(\"previous\",\"Предыдущий период\",report.previous)]{\n        write!(body,\"<section data-health-period=\\\"{key}\\\"><h3>{title}</h3><dl><dt>Подтверждённые часы</dt><dd data-metric=\\\"html-confirmed-hours\\\">{} из {}</dd><dt>Часы с потерями</dt><dd>{}</dd><dt>Часы с ошибками</dt><dd>{}</dd></dl>\",period.confirmed_hours,days*24,period.loss_hours,period.error_hours).expect(\"String\");\n        if period.confirmed_hours<days*24 || period.has_failure(){body.push_str(\"<p role=\\\"alert\\\">Период не подтверждён целиком либо содержит потери. Сравнение объёма приостановлено.</p>\");}\n        body.push_str(\"</section>\");\n    }\n    body.push_str(\"<p>Старая история до журнала, незавершённый хвост после остановки и пропуски не восстанавливаются новым процессом. Ноль часов с зарегистрированной ошибкой не доказывает отсутствие ошибок в неизвестном интервале. Ниже локальные счётчики остаются отдельной диагностикой текущего процесса.</p></section>\");\n}\n"
+    }
+  },
+  {
+    "path": "crates/traffic_behavior/tests/ril_rollups_pg/observed.rs",
+    "replace": [
+      [
+        "struct Fixture {",
+        "pub(super) struct Fixture {"
+      ],
+      [
+        "    app: PgPool,",
+        "    pub(super) app: PgPool,"
+      ],
+      [
+        "    async fn new() -> Self {",
+        "    pub(super) async fn new() -> Self {"
+      ],
+      [
+        "    async fn hour(&self) -> i64 {",
+        "    pub(super) async fn hour(&self) -> i64 {"
+      ],
+      [
+        "    async fn finish(self) {",
+        "    pub(super) async fn finish(self) {"
+      ],
+      [
+        "            \"ril_flow_observed_receipts\",",
+        "            \"ril_flow_observed_receipts\",\n            \"ril_flow_health_epochs\",\n            \"ril_flow_health_hourly\","
+      ],
+      [
+        "            format!(\"GRANT USAGE ON SCHEMA {schema} TO tor_app\"),",
+        "            format!(\"GRANT USAGE ON SCHEMA {schema} TO tor_app\"),\n            format!(\"GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app\"),"
+      ],
+      [
+        "sqlx::query(\"SET TIME ZONE 'Asia/Kathmandu'\")",
+        "sqlx::query(\"SET statement_timeout = '1s'\").execute(&mut *connection).await?;\n                    sqlx::query(\"SET lock_timeout = '75ms'\").execute(&mut *connection).await?;\n                    sqlx::query(\"SET TIME ZONE 'Asia/Kathmandu'\")"
+      ]
+    ]
+  },
+  {
+    "path": "crates/traffic_behavior/tests/ril_rollups_pg.rs",
+    "append": "\n#[path = \"ril_rollups_pg/health.rs\"]\nmod health;\n"
+  }
+]

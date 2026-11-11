@@ -1,0 +1,61 @@
+{
+  "scope": "Other files in this checkpoint; this inventory excludes itself",
+  "files": [
+    {
+      "path": "recovery/flow-html/sources/migrations/202611294685_flow_html_health.sql",
+      "characters": 1299
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/src/domain/html_health.rs",
+      "characters": 931
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/src/services/recorder/flow_health.rs",
+      "characters": 2912
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/src/repositories/html_health.rs",
+      "characters": 11033
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/src/repositories/html_health/read.rs",
+      "characters": 2727
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/src/services/html_pump.rs",
+      "characters": 5513
+    },
+    {
+      "path": "recovery/flow-html/sources/crates/traffic_behavior/tests/ril_rollups_pg/health.rs",
+      "characters": 8805
+    },
+    {
+      "path": "recovery/flow-html/sources/docs/contracts/flow-html-health-v1.md",
+      "characters": 6033
+    },
+    {
+      "path": "recovery/flow-html/existing-file-edits.json",
+      "characters": 17133
+    },
+    {
+      "path": "recovery/flow-html/input-regression-edit.json",
+      "characters": 2050
+    },
+    {
+      "path": "recovery/flow-html/http-browser-edits.json",
+      "characters": 3055
+    },
+    {
+      "path": "recovery/flow-html/document-edits.json",
+      "characters": 1348
+    },
+    {
+      "path": "recovery/flow-html/checkpoint.json",
+      "characters": 2385
+    },
+    {
+      "path": "recovery/flow-html/README.md",
+      "characters": 4559
+    }
+  ]
+}
