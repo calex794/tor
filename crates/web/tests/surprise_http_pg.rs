@@ -358,6 +358,93 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     assert_eq!(gift["editorial"], true);
     assert!(gift["book_id"].is_null());
 
+    // Switching an active legacy-day decision to randomized experiment
+    // must never re-roll it into another treatment slot or leak an opened
+    // legacy gift through the experiment. The control arm has no prize.
+    let pilot_config = format!(
+        "csrf_token={csrf}&enabled=on&probability_per_mille=1000&experiment_enabled=on"
+    );
+    let activated = http(
+        &app,
+        "POST",
+        "/admin/surprises/policy",
+        &cookie,
+        (ORIGIN, &csrf),
+        &pilot_config,
+        false,
+    ).await;
+    private(&activated, StatusCode::SEE_OTHER);
+
+    let old_plan = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &cookie,
+        (ORIGIN, &csrf),
+        "",
+        true,
+    ).await;
+    private(&old_plan, StatusCode::OK);
+    assert_eq!(parse(old_plan).await["state"], "none");
+
+    let old_open = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/open",
+        &cookie,
+        (ORIGIN, &csrf),
+        &open,
+        true,
+    ).await;
+    private(&old_open, StatusCode::NOT_FOUND);
+
+    let pilot_token = generate_session_token();
+    let pilot_csrf = generate_session_token();
+    let pilot_user = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            &format!("surprise-pilot-{nonce}@tor-ci.example"),
+            "Surprise randomized pilot",
+            &hash_password("SurprisePilotAcceptancePass2026").unwrap(),
+            &session_token_digest(&pilot_token),
+            NonZeroU32::new(3600).unwrap(),
+        ).await.unwrap();
+    let pilot_cookie = format!("tor-dev-session={pilot_token}; tor-dev-csrf={pilot_csrf}");
+    let assigned = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &pilot_cookie,
+        (ORIGIN, &pilot_csrf),
+        "",
+        true,
+    ).await;
+    private(&assigned, StatusCode::OK);
+    let response = parse(assigned).await;
+    let arm = pg(
+        &url,
+        &format!("SELECT experiment_arm FROM surprise_daily_decisions WHERE user_id={pilot_user}"),
+    );
+    assert!(["control", "gentle", "standard"].contains(&arm.as_str()), "{arm}");
+    assert_eq!(response["state"], if arm == "control" { "none" } else { "planned" });
+    let repeat = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &pilot_cookie,
+        (ORIGIN, &pilot_csrf),
+        "",
+        true,
+    ).await;
+    private(&repeat, StatusCode::OK);
+    assert_eq!(parse(repeat).await["state"], response["state"]);
+    assert_eq!(
+        pg(&url, &format!("SELECT count(*) FROM surprise_daily_decisions WHERE user_id={pilot_user}")),
+        "1",
+        "navigation must not create an extra draw",
+    );
+    pg(&url, &format!("DELETE FROM users WHERE id={pilot_user}"));
+    pg(&url, "UPDATE surprise_runtime_policy SET experiment_enabled=false WHERE singleton");
+
     let disabled = http(
         &app,
         "POST",
@@ -418,7 +505,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
 fn clean(url: &str, actor: i64, item_id: i64) {
     pg(
         url,
-        "UPDATE surprise_runtime_policy SET enabled=false WHERE singleton",
+        "UPDATE surprise_runtime_policy SET enabled=false,experiment_enabled=false WHERE singleton",
     );
     pg(
         url,
