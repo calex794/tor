@@ -132,7 +132,7 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
 
     def test_reader_and_visual_use_headless_chromium_shell(self):
-        # Both manual jobs must remain identical to required CI; avoid optional apt font packs.
+        # Manual and required jobs retain full dependencies with a verified mirror fallback.
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         for job, manual_file in (
             ("reader-browser", "tor-reader-visual.yml"),
@@ -143,8 +143,8 @@ class WorkflowWiringTests(unittest.TestCase):
                     integration[job],
                     job_sections((WORKFLOWS / manual_file).read_text())[job],
                 ):
-                    self.assertIn("npx playwright install --only-shell chromium", body)
-                    self.assertNotIn("npx playwright install --with-deps", body)
+                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                    self.assertNotIn("npx playwright install --with-deps chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
@@ -163,9 +163,27 @@ class WorkflowWiringTests(unittest.TestCase):
                         self.assertNotIn("npx playwright install --with-deps", body)
                         self.assertIn("chromium.launch({headless:true})", body)
                     else:
-                        self.assertIn("npx playwright install --only-shell chromium", body)
-                        self.assertNotIn("npx playwright install --with-deps", body)
+                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
+
+    def test_browser_mirror_preparation_precedes_any_package_install(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_file in (
+            ("reader-browser", "tor-reader-visual.yml"),
+            ("visual", "visual-smoke.yml"),
+            ("author-cover", "tor-cover-browser.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_file).read_text())[job],
+                ):
+                    prepare = body.index("bash tools/ci_prepare_ubuntu_mirror.sh")
+                    self.assertLess(body.index("uses: actions/checkout@v4"), prepare)
+                    self.assertLess(prepare, body.index("npx playwright install"))
+                    if "sudo apt-get update" in body:
+                        self.assertLess(prepare, body.index("sudo apt-get update"))
 
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
         mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()

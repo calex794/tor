@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build HTTP and isolated trace-store binaries
@@ -29,7 +31,7 @@ jobs:
       - name: Install headless browser
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --only-shell chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Browser layout checks and screenshots
         run: |
           set -euo pipefail

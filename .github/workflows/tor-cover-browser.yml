@@ -43,6 +43,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -123,7 +125,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --only-shell chromium
+          npx playwright install --with-deps --only-shell chromium
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
