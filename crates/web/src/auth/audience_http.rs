@@ -5,6 +5,7 @@ mod canonical;
 mod funnel;
 mod groups;
 mod public_pages;
+mod reading_hours;
 mod render;
 mod returns;
 mod seo;
@@ -51,9 +52,18 @@ struct AudienceState {
 struct AudienceQuery {
     days: Option<i32>,
     time_zone: Option<String>,
+    view: Option<String>,
 }
 
 impl AudienceQuery {
+    fn reading_hours(&self) -> Result<bool, StatusCode> {
+        match self.view.as_deref().unwrap_or("overview") {
+            "overview" => Ok(false),
+            "reading_hours" => Ok(true),
+            _ => Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
     fn days(&self) -> Result<i32, StatusCode> {
         match self.days.unwrap_or(7) {
             days @ (1 | 7 | 30 | 90) => Ok(days),
@@ -143,18 +153,21 @@ async fn page(
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
     // Carry extractor errors through authorization, and secure error responses too.
-    let (days, zone) = match query
+    let (days, zone, reading_hours) = match query
         .map_err(|_| StatusCode::BAD_REQUEST)
         .and_then(|Query(query)| {
             let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
                 query.time_zone.as_deref().unwrap_or("UTC"),
             )
             .map_err(|_| StatusCode::BAD_REQUEST)?;
-            Ok((query.days()?, zone))
+            Ok((query.days()?, zone, query.reading_hours()?))
         }) {
         Ok(selection) => selection,
         Err(status) => return secure(status),
     };
+    if reading_hours {
+        return reading_hours::page(&state, days, zone, deadline).await;
+    }
     let hours_supported = matches!(days, 1 | 7);
     let (reading, intents, sources, observed, hours) = tokio::join!(
         timeout_at(deadline, state.store.report(days)),
@@ -236,6 +249,24 @@ mod tests {
                 .map_err(|_| StatusCode::BAD_REQUEST)
                 .and_then(|Query(query)| query.days());
             assert_eq!(result, Err(StatusCode::BAD_REQUEST), "{raw}");
+        }
+    }
+
+
+    #[test]
+    fn time_view_is_explicit_and_unknown_values_are_rejected() {
+        assert_eq!(AudienceQuery::default().reading_hours(), Ok(false));
+        for (value, expected) in [("overview", false), ("reading_hours", true)] {
+            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            let query = Query::<AudienceQuery>::try_from_uri(&uri).unwrap();
+            assert_eq!(query.reading_hours(), Ok(expected));
+        }
+        for value in ["", "reading", "HTML", "reading_hours&view=overview"] {
+            let uri: Uri = format!("/admin/audience?view={value}").parse().unwrap();
+            assert!(Query::<AudienceQuery>::try_from_uri(&uri)
+                .map_err(|_| StatusCode::BAD_REQUEST)
+                .and_then(|Query(query)| query.reading_hours())
+                .is_err());
         }
     }
 

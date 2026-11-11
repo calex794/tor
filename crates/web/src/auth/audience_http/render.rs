@@ -10,6 +10,7 @@ mod hours;
 mod intent;
 mod observed;
 mod quality;
+pub(super) mod reading_hours;
 mod retirement;
 pub(super) mod returns;
 pub(super) mod seo;
@@ -36,33 +37,32 @@ fn start(days: i32, zone: &str) -> String {
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
-         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>\
-         <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
-         <label for=\"audience-days\">Длительность периода</label>\
-         <select id=\"audience-days\" name=\"days\">",
+         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",
     );
-    for (value, label) in [
-        (1, "1 день"),
-        (7, "7 дней"),
-        (30, "30 дней"),
-        (90, "90 дней"),
+    period_form(&mut body, days, zone, false);
+    body
+}
+
+pub(super) fn period_form(body: &mut String, days: i32, zone: &str, reading: bool) {
+    body.push_str("<form class=\"author-form\" method=\"get\" action=\"/admin/audience\"><label for=\"audience-view\">Представление</label><select id=\"audience-view\" name=\"view\">");
+    for (value, label, selected) in [
+        ("overview", "Общая сводка и HTML по времени", !reading),
+        ("reading_hours", "Чтение по времени", reading),
     ] {
+        let selected = if selected { " selected" } else { "" };
+        write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
+    }
+    body.push_str("</select><label for=\"audience-days\">Длительность периода</label><select id=\"audience-days\" name=\"days\">");
+    for (value, label) in [(1, "1 день"), (7, "7 дней"), (30, "30 дней"), (90, "90 дней")] {
         let selected = if days == value { " selected" } else { "" };
         write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
     }
     body.push_str("</select><label for=\"audience-zone\">Часовой пояс</label><select id=\"audience-zone\" name=\"time_zone\">");
     for choice in tor_traffic_behavior::services::observed_audience::OBSERVED_ZONES {
         let selected = if choice == zone { " selected" } else { "" };
-        write!(
-            body,
-            "<option value=\"{choice}\"{selected}>{choice}</option>"
-        )
-        .expect("String");
+        write!(body, "<option value=\"{choice}\"{selected}>{choice}</option>").expect("String");
     }
-    body.push_str(
-        "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
-    );
-    body
+    body.push_str("</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>");
 }
 
 fn finish(mut body: String) -> Html<String> {
