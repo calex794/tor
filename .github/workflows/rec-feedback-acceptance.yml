@@ -129,6 +129,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rec13-browser"
           exec > >(tee "$RUNNER_TEMP/rec13-browser/acceptance.log") 2>&1
           cargo test -p tor-recommendations --all-targets
+          cargo test -p tor-recommendations --test surprise_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1
