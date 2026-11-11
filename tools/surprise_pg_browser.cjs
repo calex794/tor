@@ -68,8 +68,13 @@ async function activateIcon(page, user, plan) {
   assert.equal(await page.evaluate(()=>document.visibilityState),'visible');
   assert.equal(await page.evaluate(()=>document.hasFocus()),true);
   const trigger=page.getByRole('button',{name:'Открыть случайную находку'});
-  for (let sec=0;sec<=plan.active_after_seconds+60;sec+=30) {
-    await page.clock.runFor(30000);
+  // The icon auto-expires after 15 real/virtual seconds. Use short clock
+  // advances around the threshold so the test observes it before expiry.
+  let elapsed=0;
+  while (elapsed<=plan.active_after_seconds+30) {
+    const advance=elapsed+30<plan.active_after_seconds ? 30 : 3;
+    await page.clock.runFor(advance*1000);
+    elapsed+=advance;
     if (await trigger.count()) break;
     await page.evaluate(()=>document.dispatchEvent(new Event('pointerdown',{bubbles:true})));
   }
