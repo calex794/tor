@@ -145,8 +145,20 @@ def check(root: Path = ROOT) -> list[str]:
                 errors.append(f"cross-feature dependency: crates/{name} -> crates/{target}")
         if name in SPECIAL:
             forbidden = {"sqlx"} if name == "web" else {"axum", "sqlx"}
-            keys = {alias for alias, _ in _dependencies(data)}
-            for item in sorted(keys & forbidden):
+            scopes = [data]
+            scopes.extend(v for v in data.get("target", {}).values() if isinstance(v, dict))
+            prohibited = set()
+            for scope in scopes:
+                for section in DEPENDENCY_SECTIONS:
+                    for alias, spec in scope.get(section, {}).items():
+                        package = spec.get("package", alias) if isinstance(spec, dict) else alias
+                        # Only the web integration-test harness may use SQLx.
+                        # Runtime and build dependencies remain forbidden, including aliases.
+                        if name == "web" and package == "sqlx" and section == "dev-dependencies":
+                            continue
+                        if package in forbidden:
+                            prohibited.add(package)
+            for item in sorted(prohibited):
                 errors.append(f"crates/{name} must not depend on {item}")
         for source in folder.rglob("*.rs"):
             relative = source.relative_to(root).as_posix()
