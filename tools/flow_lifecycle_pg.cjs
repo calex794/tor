@@ -151,6 +151,7 @@ function selected(snapshot,live) {
     const exit=await deadline(server.done,25000,'drained server did not exit');
     assert.deepEqual(exit,{code:0,signal:null});
     const stopped=captured(server.before);
+    console.log('FLOW_LIFECYCLE_STOPPED_EPOCHS '+JSON.stringify({exit,epochs:stopped}));
     assert.ok(stopped.html.every(x=>x.retired));
     assert.ok(stopped.cards.every(x=>x.retired));
     assert.equal(number('SELECT coalesce(sum(html_requests),0)::bigint FROM ril_flow_observed_hourly WHERE surface_code=1'),htmlBefore+1,

@@ -143,3 +143,53 @@ async fn unavailable_collector_keeps_admin_history_and_rejects_callbacks() {
     drop(parked);
     f.cleanup().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable PostgreSQL18 tor_ci"]
+async fn managed_queue_eof_waits_for_http_drained_witness() {
+    let f = Fixture::new().await;
+    let accounts = accounts(&f).await;
+    let (runtime, mut worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+    worker.prepare().await.unwrap();
+    let epoch = latest(&f);
+    let issuer = runtime.issuer();
+    let app = runtime.clone().attach(Router::new());
+    let collector = worker.spawn_managed();
+    let probe = collector.probe();
+    assert!(issuer.issue(f.card()).is_some());
+    // The actual server drops its Router before sending the collector witness.
+    // Drop every sender for this worker, including the retained Runtime clone.
+    drop(issuer);
+    drop(runtime);
+    drop(app);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while probe.snapshot().ready {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("worker did not observe queue EOF");
+    assert_eq!(probe.snapshot().queued, 1);
+    assert_eq!(probe.snapshot().persisted, 1);
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "f",
+        "queue EOF is not proof that the HTTP owner supplied its stop witness"
+    );
+    assert!(
+        collector.shutdown_after_http_drained().await,
+        "managed worker must remain available to consume the later witness"
+    );
+    assert!(!probe.snapshot().ready);
+    assert_eq!(
+        sql(
+            &f.url,
+            &format!("SELECT retired FROM flow_observation_epochs WHERE epoch={epoch}")
+        ),
+        "t"
+    );
+    f.cleanup().await;
+}

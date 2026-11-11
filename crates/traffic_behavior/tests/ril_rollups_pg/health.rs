@@ -43,3 +43,6 @@ mod retention;
 
 #[path = "health/cancellation.rs"]
 mod cancellation;
+
+#[path = "health/registration.rs"]
+mod registration;
