@@ -4,6 +4,7 @@ on:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
   contents: write
+  actions: read
 concurrency:
   group: flow-completion-source-publication
   cancel-in-progress: false
@@ -14,42 +15,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: payload
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          path: tor
-          ref: 54d89a331a396c613dee85a57c84d4473a53e98b
+          ref: c5864e51df56ce52f3761b81ae996ecc1f15ac5b
           fetch-depth: 0
-      - name: Publish only verified source fixes to new QA branches
+      - name: Integrate only into new isolated QA branches
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flow-current"
           python3 - <<'PY'
-          import base64,hashlib,json,lzma,os,pathlib,subprocess
-          items=json.loads(pathlib.Path('payload/.qa/flow-completion-fixes-2.json').read_text())
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-fixed';root.mkdir()
-          def run(*args):return subprocess.check_output(['git','-C','tor',*args],text=True).strip()
+          import json,os,pathlib,subprocess
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-current'
+          def run(*args):
+              return subprocess.check_output(['git',*args],text=True).strip()
+          main='c5864e51df56ce52f3761b81ae996ecc1f15ac5b'
+          assert run('rev-parse','HEAD')==main
           run('config','user.name','FLOW QA')
           run('config','user.email','flow-qa@users.noreply.github.com')
-          refs=[]
-          for item in items:
-              patch=lzma.decompress(base64.b64decode(item['patch'],validate=True))
-              assert hashlib.sha256(patch).hexdigest()==item['sha256']
-              path=root/str(item['number']);path.write_bytes(patch)
-              assert not run('ls-remote','--heads','origin','refs/heads/'+item['branch'])
-              run('switch','-c',item['branch'],item['base'])
-              run('apply','--check',str(path));run('apply','--index',str(path))
-              assert run('write-tree')==item['tree']
-              run('diff','--check','--cached')
-              run('commit','-m',f"FLOW #{item['number']}: preserve anonymous observations and exact fixture cleanup")
-              run('push','origin','HEAD:refs/heads/'+item['branch'])
-              (root/(str(item['number'])+'-COMMIT')).write_text(run('rev-parse','HEAD'))
-              refs.append(item['branch'])
-          run('bundle','create',str(root/'fixes.bundle'),*refs)
+          run('branch','export-main',main)
+          refs=['export-main']; results=[]
+          for number,sha in [(812,'80e3c92fe3cdc8fc1ded1c7bf7f3edb17d822685'),(810,'f3616b4cdd3dc2389097b6c4c2a8f66a5b8910cf')]:
+              branch=f'qa/flow{number}-integrated-c5864e-20261111'
+              assert not run('ls-remote','--heads','origin','refs/heads/'+branch)
+              run('switch','-c',branch,sha)
+              attempt=subprocess.run(['git','merge','--no-ff',main,'-m',f'FLOW #{number}: integrate pinned main without dropping parallel acceptance'],capture_output=True,text=True)
+              (root/f'merge-{number}.txt').write_text(attempt.stdout+attempt.stderr)
+              if attempt.returncode:
+                  (root/f'conflicts-{number}.txt').write_text(run('diff','--name-only','--diff-filter=U'))
+                  run('merge','--abort')
+                  results.append({'number':number,'status':'conflict','base':sha})
+              else:
+                  run('diff','--check',sha,'HEAD')
+                  run('push','origin','HEAD:refs/heads/'+branch)
+                  results.append({'number':number,'status':'merged-in-qa','head':run('rev-parse','HEAD'),'tree':run('rev-parse','HEAD^{tree}'),'branch':branch})
+              refs.append(branch)
+          (root/'integration.json').write_text(json.dumps(results,indent=2))
+          run('bundle','create',str(root/'current.bundle'),*refs)
+          evidence=[]
+          for sha in ['416b9e943c221aa24301e7a8c4e267d082619c6c',main]:
+              payload=json.loads(subprocess.check_output(['gh','api',f'repos/calex794/tor/actions/runs?head_sha={sha}&per_page=100'],text=True))
+              for r in payload['workflow_runs']:
+                  jobs=json.loads(subprocess.check_output(['gh','api',f'repos/calex794/tor/actions/runs/{r["id"]}/jobs?per_page=100'],text=True))
+                  evidence.append({'sha':sha,'run':r['id'],'name':r['name'],'status':r['status'],'conclusion':r['conclusion'],'url':r['html_url'],'jobs':[{'name':j['name'],'id':j['id'],'status':j['status'],'conclusion':j['conclusion']} for j in jobs['jobs']]})
+          (root/'ci-evidence.json').write_text(json.dumps(evidence,indent=2))
+          print(json.dumps(results,indent=2))
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: flow-corrected-fixtures-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-fixed/
+          name: flow-current-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-current/
           retention-days: 2
