@@ -1,14 +1,14 @@
-name: FLOW isolated validation worktree
+name: FLOW canonical reading publication
 on:
   push:
-    branches: [qa/flow-worktree-export-20261111]
+    branches: [qa/flow05-canonical-publish-20261111]
 permissions:
   contents: write
 concurrency:
-  group: flow-completion-source-publication
+  group: flow05-canonical-publication
   cancel-in-progress: false
 jobs:
-  worktree:
+  publish:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -19,44 +19,45 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: tor
-          ref: 0f85903e2f2af1172c85c979cc70bf04e225c544
+          ref: 945e0224fa4f1b7b67be227a527be2e318c94be1
           fetch-depth: 0
-      - name: Apply exact verified tests and documentation patch
+      - name: Apply exact locally verified feature tree
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import base64,hashlib,lzma,pathlib
-          data=pathlib.Path('payload/.qa/flow810-final-evidence-63d55512.txt').read_text().strip()
+          data=''.join(pathlib.Path(f'payload/.qa/flow05-canonical-{i}.txt').read_text().strip() for i in range(2))
+          assert len(data)==26112
           patch=lzma.decompress(base64.b64decode(data,validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='63d55512c66a59ffe84ffc59374f7fff1362f9f947d5dd3f8cc49cb7669d53d3'
-          pathlib.Path('fixture.patch').write_bytes(patch)
+          assert hashlib.sha256(patch).hexdigest()=='7c7475c05df29ee2921985a20e0cd08d4f92584d9dc6e9693dd85af1d38748a4'
+          pathlib.Path('canonical.patch').write_bytes(patch)
           PY
           cd tor
-          test "$(git rev-parse HEAD)" = 0f85903e2f2af1172c85c979cc70bf04e225c544
-          test "$(git ls-remote --heads origin refs/heads/qa/flow810-final-evidence-20261111 | cut -f1)" = 0f85903e2f2af1172c85c979cc70bf04e225c544
-          git apply --check ../fixture.patch
-          git apply --index ../fixture.patch
+          test "$(git rev-parse HEAD)" = 945e0224fa4f1b7b67be227a527be2e318c94be1
+          test "$(git ls-remote --heads origin refs/heads/feat/flow-canonical-reading-20261111 | cut -f1)" = 945e0224fa4f1b7b67be227a527be2e318c94be1
+          git apply --check ../canonical.patch
+          git apply --index ../canonical.patch
           python3 - <<'PY'
           import subprocess
           paths=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
-          assert len(paths)==12
-          assert all(p.startswith(('crates/recommendations/tests/','crates/web/tests/','tools/','docs/contracts/')) for p in paths)
-          assert not any(p.startswith(('.github/','.qa/','migrations/')) for p in paths)
+          assert len(paths)==28
+          assert all(p.startswith(('crates/reading/','crates/web/','crates/route_intelligence/','tools/','docs/contracts/','tests/architecture/')) for p in paths)
+          assert not any(p.startswith(('.github/','.qa/','migrations/')) or p.endswith(('Cargo.toml','Cargo.lock')) for p in paths)
           PY
-          test "$(git write-tree)" = bc3c84268d76b5e4a99c0149031602bcc8ef762b
+          test "$(git write-tree)" = 8586dafd8ea1b71ddda58f5d674acbdaeaf8a0ff
           git diff --cached --check
           git config user.name 'FLOW QA'
           git config user.email 'flow-qa@users.noreply.github.com'
-          git commit -m 'FLOW #810: align current schema proof and erased identity evidence after #808'
-          git push origin HEAD:refs/heads/qa/flow810-final-evidence-20261111
+          git commit -m 'FLOW-05: bounded canonical reading report with real PostgreSQL HTTP and browser acceptance'
+          git push origin HEAD:refs/heads/feat/flow-canonical-reading-20261111
           mkdir -p "$RUNNER_TEMP/flow-publication"
           git rev-parse HEAD > "$RUNNER_TEMP/flow-publication/COMMIT"
           git rev-parse HEAD^{tree} > "$RUNNER_TEMP/flow-publication/TREE"
-          git branch exported-final HEAD
-          git bundle create "$RUNNER_TEMP/flow-publication/final.bundle" exported-final
+          git branch exported-canonical HEAD
+          git bundle create "$RUNNER_TEMP/flow-publication/canonical.bundle" exported-canonical
       - uses: actions/upload-artifact@v4
         with:
-          name: flow810-final-publication-${{ github.sha }}
+          name: flow05-canonical-publication-${{ github.sha }}
           path: ${{ runner.temp }}/flow-publication/
           retention-days: 2
