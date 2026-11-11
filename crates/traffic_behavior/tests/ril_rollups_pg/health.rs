@@ -15,8 +15,13 @@ fn event()->BehaviorEvent {BehaviorEvent{route:RouteCode::Books,status:StatusGro
 fn page()->FlowPageview {FlowPageview{surface:RouteSurface::BookDetail,acquisition_hint:AcquisitionChannel::DirectOrUnknown}}
 
 
+#[path = "health/batches.rs"]
 mod batches;
+#[path = "health/capability.rs"]
 mod capability;
+#[path = "health/epochs.rs"]
 mod epochs;
+#[path = "health/lifecycle.rs"]
 mod lifecycle;
+#[path = "health/retention.rs"]
 mod retention;
