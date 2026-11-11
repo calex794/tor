@@ -58,6 +58,7 @@ struct PolicyForm {
     csrf_token: String,
     enabled: Option<String>,
     probability_per_mille: i16,
+    experiment_enabled: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -84,7 +85,12 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Err(status) => return deny(status),
     };
     let repo = PgSurprises::new(state.accounts.pool().clone());
-    let (enabled, probability, items) = match repo.admin_overview(&digest).await {
+    let (enabled, probability, experiment_enabled, items) = match repo.admin_overview(&digest).await
+    {
+        Ok(value) => value,
+        Err(error) => return problem(error),
+    };
+    let summary = match repo.admin_experiment_summary(&digest).await {
         Ok(value) => value,
         Err(error) => return problem(error),
     };
@@ -98,6 +104,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
          <label><input type=\"checkbox\" name=\"enabled\" value=\"on\" {}> Включить выбор сюрпризов</label>\
          <label>Вероятность, промилле <input type=\"number\" min=\"0\" max=\"1000\" name=\"probability_per_mille\" value=\"{probability}\"></label>\
+         <label><input type=\"checkbox\" name=\"experiment_enabled\" value=\"on\" {}> Эксперимент 20% без подарков / 40% мягкий / 40% обычный (по умолчанию выключен)</label>\
          <button type=\"submit\">Сохранить настройки</button></form>\
          <h2>Новый сюрприз</h2><form method=\"post\" action=\"/admin/surprises/create\">\
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
@@ -110,6 +117,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          <label><input type=\"checkbox\" name=\"editorial\" value=\"on\"> Редакционное продвижение</label>\
          <button type=\"submit\">Создать черновик</button></form><h2>Содержимое</h2><ul>",
         if enabled { "checked" } else { "" },
+        if experiment_enabled { "checked" } else { "" },
     );
     for item in items {
         let title = pages::escape_html(&item.title);
@@ -144,7 +152,27 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         }
         body.push_str("</li>");
     }
-    body.push_str("</ul></div></section>");
+    body.push_str("</ul><h2>Эксперимент — служебные итоги за 7 завершённых суток UTC</h2>");
+    body.push_str("<p>Это решения и занятые слоты, не подтверждённые показы и не прирост чтения. Меньше 20 разных аккаунтов в группе — значения скрыты. Оценка эффекта на чтение пока не готова.</p>");
+    if summary.is_empty() {
+        body.push_str("<p>Недостаточно данных для безопасного агрегированного отчёта.</p>");
+    } else {
+        body.push_str("<table><thead><tr><th>Группа</th><th>Аккаунты</th><th>Дневные решения</th><th>План</th><th>Занятые слоты</th><th>Открытия</th></tr></thead><tbody>");
+        for entry in summary {
+            let _ = write!(
+                body,
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                pages::escape_html(&entry.arm),
+                entry.unique_accounts,
+                entry.evaluated_days,
+                entry.planned,
+                entry.reserved_slots,
+                entry.opens,
+            );
+        }
+        body.push_str("</tbody></table>");
+    }
+    body.push_str("</div></section>");
     private_response(
         pages::layout("Случайные открытия", "Редакционная панель сюрпризов", &body),
         &cookies,
@@ -170,6 +198,7 @@ async fn policy(
             &digest,
             form.enabled.as_deref() == Some("on"),
             form.probability_per_mille,
+            form.experiment_enabled.as_deref() == Some("on"),
         )
         .await
     {

@@ -1,7 +1,9 @@
 //! One server-owned chance per UTC day; every state-changing operation locks
 //! the live A user and the F preference head in a fixed order.
 use super::{PgSurprises, PlanState, SurpriseError};
-use crate::services::surprise_schedule::{decide, Decision, SurpriseSchedule};
+use crate::services::surprise_schedule::{
+    decide, experiment_arm, Decision, ExperimentArm, SurpriseSchedule,
+};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
@@ -24,10 +26,12 @@ impl PgSurprises {
         if active.is_none() {
             return Err(SurpriseError::Forbidden);
         }
-        let enabled: bool =
-            sqlx::query_scalar("SELECT enabled FROM surprise_runtime_policy WHERE singleton")
-                .fetch_one(&mut *tx)
-                .await?;
+        let (enabled, prob, experimental): (bool, i16, bool) = sqlx::query_as(
+            "SELECT enabled,probability_per_mille,experiment_enabled
+             FROM surprise_runtime_policy WHERE singleton",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         let disabled: bool = sqlx::query_scalar(
             "SELECT COALESCE((SELECT disabled FROM surprise_user_preferences WHERE user_id=$1),false)",
         )
@@ -37,11 +41,6 @@ impl PgSurprises {
         if !enabled || disabled {
             return Ok(PlanState::Off);
         }
-        let prob: i16 = sqlx::query_scalar(
-            "SELECT probability_per_mille FROM surprise_runtime_policy WHERE singleton",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
         let day: i64 = sqlx::query_scalar(
             "SELECT ((now() AT TIME ZONE 'UTC')::date - DATE '1970-01-01')::bigint",
         )
@@ -53,13 +52,21 @@ impl PgSurprises {
         digest.update(b"tor-surprise-user-v1");
         digest.update(user_id.to_be_bytes());
         let subject: [u8; 32] = digest.finalize().into();
+        // Account arm is pinned across days and tabs by a separate HMAC
+        // domain. Control users get a negative daily decision, not an icon.
+        let arm = experimental.then(|| experiment_arm(server_key, &subject));
+        let appearance_per_mille = match arm {
+            Some(ExperimentArm::Control) => 0_u16,
+            Some(ExperimentArm::Gentle) => (prob as u16) / 2,
+            Some(ExperimentArm::Standard) | None => prob as u16,
+        };
         let scheduled = decide(
             server_key,
             &subject,
             day,
             SurpriseSchedule {
                 enabled: true,
-                probability_per_mille: prob as u16,
+                probability_per_mille: appearance_per_mille,
             },
         )
         .map_err(|_| SurpriseError::Invalid)?;
@@ -75,8 +82,8 @@ impl PgSurprises {
         };
         sqlx::query(
             "INSERT INTO surprise_daily_decisions(
-                 user_id,utc_day,state,active_after_seconds,anchor_ticket,content_ticket)
-             VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,utc_day) DO NOTHING",
+                 user_id,utc_day,state,active_after_seconds,anchor_ticket,content_ticket,experiment_arm)
+             VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_id,utc_day) DO NOTHING",
         )
         .bind(user_id)
         .bind(day)
@@ -84,10 +91,11 @@ impl PgSurprises {
         .bind(seconds)
         .bind(anchor)
         .bind(content)
+        .bind(arm.map(ExperimentArm::as_str))
         .execute(&mut *tx)
         .await?;
         let row = sqlx::query(
-            "SELECT state,active_after_seconds FROM surprise_daily_decisions
+            "SELECT state,active_after_seconds,experiment_arm FROM surprise_daily_decisions
              WHERE user_id=$1 AND utc_day=$2",
         )
         .bind(user_id)
@@ -95,7 +103,10 @@ impl PgSurprises {
         .fetch_one(&mut *tx)
         .await?;
         let status: &str = row.try_get("state")?;
-        let selected = if status == "planned" {
+        let pinned_arm: Option<&str> = row.try_get("experiment_arm")?;
+        // Switching the pilot on cannot reuse a pre-pilot planned decision.
+        // An old decision is never re-rolled or counted as randomized.
+        let selected = if status == "planned" && (!experimental || pinned_arm.is_some()) {
             PlanState::Planned {
                 utc_day: day,
                 active_after_seconds: row.try_get("active_after_seconds")?,
@@ -175,6 +186,8 @@ impl PgSurprises {
         let changed = sqlx::query(
             "UPDATE surprise_daily_decisions SET state='claimed',claimed_at=now()
              WHERE user_id=$1 AND utc_day=$2 AND state='planned'
+               AND (NOT (SELECT experiment_enabled FROM surprise_runtime_policy WHERE singleton)
+                    OR experiment_arm IN ('gentle','standard'))
                AND active_after_seconds<=$3
                AND created_at<=now()-active_after_seconds*interval '1 second'",
         )
