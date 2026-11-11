@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 391] = [
+static ROUTES: [RouteRegistration; 395] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -401,6 +401,10 @@ static ROUTES: [RouteRegistration; 391] = [
     RouteRegistration::new("/api/v1/me/surprises/disable", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 388
     RouteRegistration::new("/assets/surprise.js", "GET", "/assets/", Exact, Static, System, Free), // 389
     RouteRegistration::new("/assets/surprise.css", "GET", "/assets/", Exact, Static, System, Free), // 390
+    RouteRegistration::new("/admin/surprises", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 391
+    RouteRegistration::new("/admin/surprises/policy", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 392
+    RouteRegistration::new("/admin/surprises/create", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 393
+    RouteRegistration::new("/admin/surprises/{id}/state", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 394
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

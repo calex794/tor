@@ -2752,6 +2752,34 @@
       "source": "crates/web/src/auth/surprise_http.rs",
       "handler": "styles",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/surprises",
+      "source": "crates/web/src/auth/surprise_admin.rs",
+      "handler": "page",
+      "policy": "admin_surprises"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/surprises/policy",
+      "source": "crates/web/src/auth/surprise_admin.rs",
+      "handler": "policy",
+      "policy": "admin_surprises"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/surprises/create",
+      "source": "crates/web/src/auth/surprise_admin.rs",
+      "handler": "create",
+      "policy": "admin_surprises"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/surprises/{id}/state",
+      "source": "crates/web/src/auth/surprise_admin.rs",
+      "handler": "set_state",
+      "policy": "admin_surprises"
     }
   ]
 }

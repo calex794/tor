@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09"}
 ADMIN_MAIL_HANDLERS = {
@@ -26,6 +26,12 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
+SURPRISE_ADMIN_HANDLERS = {
+    ("GET", "/admin/surprises", "page"),
+    ("POST", "/admin/surprises/policy", "policy"),
+    ("POST", "/admin/surprises/create", "create"),
+    ("POST", "/admin/surprises/{id}/state", "set_state"),
 }
 SUPPORT_ADMIN_HANDLERS = {
     ("GET", "/admin/support", "index"),
@@ -713,11 +719,32 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
+    audited_surprises = (
+        policy == "admin_surprises"
+        and entry["source"] == "crates/web/src/auth/surprise_admin.rs"
+        and admin_key in SURPRISE_ADMIN_HANDLERS
+    )
+    if audited_surprises:
+        evidence += "\\n" + functions.get("administrator", "")
+    if policy == "admin_surprises":
+        if not audited_surprises:
+            errors.append(f"{label}: surprise admin route is not reviewed")
+        if not ("session_actor(" in evidence
+                and "if !actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "administrator(&state, &headers)" in body):
+            errors.append(f"{label}: missing live surprise administrator guard")
+        if entry["method"] in WRITES and not (
+            "state.cookies.same_origin(&headers)" in body
+            and "state.cookies.valid_csrf(&headers" in body
+            and "PgSurprises::new" in body
+        ):
+            errors.append(f"{label}: missing origin/CSRF and actor-bound surprise mutation")
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
