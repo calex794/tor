@@ -10,4 +10,5 @@ pub use postgres::{PgRanking, RankingCommand, RankingCommit, RankingStoreError, 
 pub mod feedback;
 pub mod flow_funnel;
 pub mod visits;
+pub mod surprises;
 pub use feedback::PgRecommendations;
