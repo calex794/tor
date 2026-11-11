@@ -2,7 +2,7 @@
 //! barrier; only a materialized immutable RIL batch can advance its checkpoint.
 mod read;
 use crate::domain::html_health::{
-    HtmlCheckpoint, HtmlHealthError, HtmlIngressStopped, HTML_CLOCK_MARGIN_MS, HTML_HEALTH_GAP_MS,
+    HtmlCheckpoint, HtmlEpochRegistration, HtmlHealthError, HtmlIngressStopped, HTML_CLOCK_MARGIN_MS, HTML_HEALTH_GAP_MS,
     HTML_HEALTH_LEASE_MS,
 };
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -76,11 +76,10 @@ impl PgHtmlHealth {
         Ok(clock)
     }
     pub async fn start_epoch(&self) -> Result<(i64, i64), HtmlHealthError> {
-        self.insert_epoch(None, None, 0, 0, 0, 0).await
+        self.insert_epoch(None, None, None, (0, 0), (0, 0))
+            .await.map(|row| (row.epoch, row.started_ms))
     }
-    /// Owner service port: preserve the unacknowledged interval before a new
-    /// registration and all known counters not already acknowledged by a durable
-    /// note. Both the closed gap and new live epoch commit in one transaction.
+    /// Preserve the unacknowledged interval and known counters atomically.
     pub async fn start_epoch_after_gap(
         &self,
         from_ms: i64,
@@ -89,18 +88,9 @@ impl PgHtmlHealth {
         recorded_dropped: i64,
         recorded_failed: i64,
     ) -> Result<(i64, i64), HtmlHealthError> {
-        self.insert_epoch(
-            None,
-            Some(from_ms),
-            dropped,
-            failed,
-            recorded_dropped,
-            recorded_failed,
-        )
-        .await
+        self.insert_epoch(None, None, Some(from_ms), (dropped, failed), (recorded_dropped, recorded_failed))
+            .await.map(|row| (row.epoch, row.started_ms))
     }
-    /// Replace only the caller's known predecessor. Its open tail remains visible
-    /// until the same transaction closes it and creates the successor.
     pub async fn replace_epoch_after_gap(
         &self,
         predecessor: i64,
@@ -108,31 +98,38 @@ impl PgHtmlHealth {
         counters: (i64, i64),
         recorded: (i64, i64),
     ) -> Result<(i64, i64), HtmlHealthError> {
-        self.insert_epoch(
-            Some(predecessor),
-            Some(from_ms),
-            counters.0,
-            counters.1,
-            recorded.0,
-            recorded.1,
-        )
-        .await
+        self.insert_epoch(None, Some(predecessor), Some(from_ms), counters, recorded)
+            .await.map(|row| (row.epoch, row.started_ms))
+    }
+    /// Runtime registration key belongs to one worker attempt, never a reader.
+    /// Keep it until the result is known. A retry of a successful but unobserved
+    /// commit returns that epoch and its stored counter baseline without a new gap.
+    pub async fn register_epoch_after_gap(
+        &self,
+        registration: &str,
+        predecessor: Option<i64>,
+        from_ms: i64,
+        counters: (i64, i64),
+        recorded: (i64, i64),
+    ) -> Result<HtmlEpochRegistration, HtmlHealthError> {
+        if registration.len() != 32 || !registration.bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+            return Err(HtmlHealthError::Invalid);
+        }
+        self.insert_epoch(Some(registration), predecessor, Some(from_ms), counters, recorded).await
     }
     async fn insert_epoch(
         &self,
+        registration: Option<&str>,
         predecessor: Option<i64>,
         gap_from_ms: Option<i64>,
-        dropped: i64,
-        failed: i64,
-        recorded_dropped: i64,
-        recorded_failed: i64,
-    ) -> Result<(i64, i64), HtmlHealthError> {
-        if dropped < 0
-            || failed < 0
-            || recorded_dropped < 0
-            || recorded_failed < 0
-            || recorded_dropped > dropped
-            || recorded_failed > failed
+        counters: (i64, i64),
+        recorded: (i64, i64),
+    ) -> Result<HtmlEpochRegistration, HtmlHealthError> {
+        let (dropped, failed) = counters;
+        let (recorded_dropped, recorded_failed) = recorded;
+        if dropped < 0 || failed < 0 || recorded_dropped < 0 || recorded_failed < 0
+            || recorded_dropped > dropped || recorded_failed > failed
             || gap_from_ms.is_some_and(|from| from <= 0)
             || predecessor.is_some_and(|epoch| epoch <= 0)
             || predecessor.is_some() && gap_from_ms.is_none()
@@ -141,51 +138,44 @@ impl PgHtmlHealth {
         }
         let mut tx = self.pool.begin().await?;
         limits(&mut tx, false).await?;
+        if let Some(key) = registration {
+            // A response timeout may leave the first transaction committing.
+            // Serialize this key only; a collision can delay but never merge keys.
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,685))")
+                .bind(key).execute(&mut *tx).await?;
+            if let Some(row) = sqlx::query(
+                "SELECT epoch,started_ms,dropped,failed FROM ril_flow_health_epochs WHERE registration_key=$1"
+            ).bind(key).fetch_optional(&mut *tx).await? {
+                let value = registration_row(&row)?;
+                tx.commit().await?;
+                return Ok(value);
+            }
+        }
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
-                .fetch_one(&mut *tx)
-                .await?;
+                .fetch_one(&mut *tx).await?;
         if let Some(epoch) = predecessor {
             retire_in(&mut tx, epoch, now, dropped, failed).await?;
         }
         if let Some(from) = gap_from_ms {
-            if from > now {
-                return Err(HtmlHealthError::Invalid);
-            }
+            if from > now { return Err(HtmlHealthError::Invalid); }
             let from = from.max(now - 181 * 86_400_000);
             let gap: i64 = sqlx::query_scalar(
                 "INSERT INTO ril_flow_health_epochs \
                  (started_ms,confirmed_ms,lease_until_ms,retired,dropped,failed) \
-                 VALUES($1,$1,$2,true,$3,$4) RETURNING epoch",
-            )
-            .bind(from)
-            .bind(now)
-            .bind(dropped)
-            .bind(failed)
-            .fetch_one(&mut *tx)
-            .await?;
-            flags(
-                &mut tx,
-                gap,
-                from,
-                now,
-                dropped > recorded_dropped,
-                failed > recorded_failed,
-            )
-            .await?;
+                 VALUES($1,$1,$2,true,$3,$4) RETURNING epoch"
+            ).bind(from).bind(now).bind(dropped).bind(failed)
+                .fetch_one(&mut *tx).await?;
+            flags(&mut tx, gap, from, now,
+                dropped > recorded_dropped, failed > recorded_failed).await?;
         }
         let row = sqlx::query(
             "INSERT INTO ril_flow_health_epochs \
-             (started_ms,confirmed_ms,lease_until_ms,dropped,failed) \
-             VALUES($1,$1,$1+$2,$3,$4) RETURNING epoch,started_ms",
-        )
-        .bind(now)
-        .bind(HTML_HEALTH_LEASE_MS)
-        .bind(dropped)
-        .bind(failed)
-        .fetch_one(&mut *tx)
-        .await?;
-        let value = (row.try_get("epoch")?, row.try_get("started_ms")?);
+             (registration_key,started_ms,confirmed_ms,lease_until_ms,dropped,failed) \
+             VALUES($1,$2,$2,$2+$3,$4,$5) RETURNING epoch,started_ms,dropped,failed"
+        ).bind(registration).bind(now).bind(HTML_HEALTH_LEASE_MS).bind(dropped).bind(failed)
+            .fetch_one(&mut *tx).await?;
+        let value = registration_row(&row)?;
         tx.commit().await?;
         Ok(value)
     }
@@ -341,6 +331,14 @@ impl PgHtmlHealth {
         tx.commit().await?;
         Ok(())
     }
+}
+fn registration_row(row: &sqlx::postgres::PgRow) -> Result<HtmlEpochRegistration, HtmlHealthError> {
+    Ok(HtmlEpochRegistration {
+        epoch: row.try_get("epoch")?,
+        started_ms: row.try_get("started_ms")?,
+        dropped: row.try_get("dropped")?,
+        failed: row.try_get("failed")?,
+    })
 }
 async fn retire_in(
     tx: &mut Transaction<'_, Postgres>,

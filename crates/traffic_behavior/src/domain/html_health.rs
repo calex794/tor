@@ -30,6 +30,16 @@ pub struct HtmlCheckpoint {
     pub cut_ms: i64,
 }
 
+/// A committed registration and the counters it actually recorded. A retry
+/// must not baseline away losses that happened while its response was missing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HtmlEpochRegistration {
+    pub epoch: i64,
+    pub started_ms: i64,
+    pub dropped: i64,
+    pub failed: i64,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HtmlHealthPeriod {
     pub confirmed_hours: i32,

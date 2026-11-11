@@ -1,6 +1,7 @@
 -- Anonymous HTML collector health only. Epochs identify workers, never readers.
 CREATE TABLE ril_flow_health_epochs (
     epoch bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    registration_key text UNIQUE CHECK (registration_key IS NULL OR registration_key ~ '^[0-9a-f]{32}$'),
     started_ms bigint NOT NULL CHECK (started_ms > 0),
     confirmed_ms bigint NOT NULL,
     lease_until_ms bigint NOT NULL,

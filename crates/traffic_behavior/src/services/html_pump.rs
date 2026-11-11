@@ -5,11 +5,13 @@ use crate::{
     services::TrafficRecorder,
 };
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 pub(super) struct HtmlPump {
     store: PgHtmlHealth,
     epoch: Option<i64>,
     predecessor: Option<i64>,
+    registration: String,
     point: Option<HtmlCheckpoint>,
     drained: bool,
     batch: Option<String>,
@@ -24,6 +26,7 @@ impl HtmlPump {
             store,
             epoch: None,
             predecessor: None,
+            registration: Uuid::new_v4().simple().to_string(),
             point: None,
             drained: false,
             batch: None,
@@ -80,32 +83,17 @@ impl HtmlPump {
             // a conservative lower bound even if SQL or scheduling was delayed.
             let from = gap_lower_ms(clock, gap_started.elapsed());
             let dropped = recorder.flow_coverage_counts().1;
-            let next = match self.predecessor {
-                Some(epoch) => {
-                    self.store
-                        .replace_epoch_after_gap(
-                            epoch,
-                            from,
-                            (cap(dropped), cap(self.failures)),
-                            (cap(self.reported.0), cap(self.reported.1)),
-                        )
-                        .await?
-                }
-                None => {
-                    self.store
-                        .start_epoch_after_gap(
-                            from,
-                            cap(dropped),
-                            cap(self.failures),
-                            cap(self.reported.0),
-                            cap(self.reported.1),
-                        )
-                        .await?
-                }
-            };
-            self.epoch = Some(next.0);
+            let next = self.store.register_epoch_after_gap(
+                &self.registration, self.predecessor, from,
+                (cap(dropped), cap(self.failures)),
+                (cap(self.reported.0), cap(self.reported.1)),
+            ).await?;
+            self.epoch = Some(next.epoch);
             self.predecessor = None;
-            self.reported = (dropped, self.failures);
+            self.reported = (
+                u64::try_from(next.dropped).map_err(|_| HtmlHealthError::Unavailable)?,
+                u64::try_from(next.failed).map_err(|_| HtmlHealthError::Unavailable)?,
+            );
             self.gap_started = None;
         }
         if let Some(point) = self.point {
@@ -178,6 +166,7 @@ impl HtmlPump {
         recorder.close_flow_health();
         if let Some(epoch) = self.epoch.take() {
             self.predecessor = Some(epoch);
+            self.registration = Uuid::new_v4().simple().to_string();
         }
         self.point = None;
         self.drained = false;
@@ -250,26 +239,13 @@ mod gap_tests {
 
     #[test]
     fn a_late_barrier_must_match_the_entire_checkpoint() {
-        let current = HtmlCheckpoint {
-            epoch: 10,
-            generation: 4,
-            cut_ms: 50_000,
-        };
+        let current = HtmlCheckpoint { epoch: 10, generation: 4, cut_ms: 50_000 };
         assert!(!matches_checkpoint(Some(current), None));
         assert!(!matches_checkpoint(None, Some(current)));
         for old in [
-            HtmlCheckpoint {
-                epoch: 9,
-                ..current
-            },
-            HtmlCheckpoint {
-                generation: 3,
-                ..current
-            },
-            HtmlCheckpoint {
-                cut_ms: 49_999,
-                ..current
-            },
+            HtmlCheckpoint { epoch: 9, ..current },
+            HtmlCheckpoint { generation: 3, ..current },
+            HtmlCheckpoint { cut_ms: 49_999, ..current },
         ] {
             assert!(!matches_checkpoint(Some(current), Some(old)));
         }
