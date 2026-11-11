@@ -115,7 +115,7 @@ function blockedRequest(server,lockerPid,expected) {
   const matches=JSON.parse(sql("SELECT coalesce(json_agg(r),'[]'::json) FROM ("+
     "SELECT pid,extract(epoch FROM query_start)::text AS started FROM pg_stat_activity "+
     "WHERE application_name='"+server.name+"' AND state='active' AND wait_event_type='Lock' "+
-    "AND ltrim(query) LIKE 'SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books%' "+
+    "AND query ~ '^[[:space:]]*SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books' "+
     "AND query LIKE '%AND ($2::bigint = 0 OR id < $2)%' "+
     "AND "+lockerPid+"=ANY(pg_blocking_pids(pid))"+same+" ORDER BY pid)r"));
   assert.ok(matches.length<=1,'the owned newest-catalog request must have one SQL identity');
