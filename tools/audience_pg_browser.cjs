@@ -190,6 +190,7 @@ async function periodBoundaries(page, days) {
       DELETE FROM reader_book_positions WHERE book_id=${book};
       DELETE FROM reader_chapter_starts WHERE book_id=${book};
       DELETE FROM reader_chapter_completions WHERE book_id=${book};
+      DELETE FROM reader_saved_free_chapters WHERE user_id=${reader} AND chapter_id IN(SELECT id FROM chapters WHERE book_id=${book});
       DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id=${book});
       DELETE FROM book_members WHERE book_id=${book};
       DELETE FROM books WHERE id=${book};
