@@ -1,0 +1,22 @@
+{
+  "status": "UNCOMPILED_UNVERIFIED",
+  "scope": "Other files in this contract/integration checkpoint; excludes this inventory",
+  "files": [
+    {
+      "path": "recovery/flow-html/contract-fix.json",
+      "characters": 19233
+    },
+    {
+      "path": "recovery/flow-html/contract-fix/sources/docs/contracts/flow-html-health-v1.md",
+      "characters": 11743
+    },
+    {
+      "path": "recovery/flow-html/contract-fix/README.md",
+      "characters": 1014
+    },
+    {
+      "path": "recovery/flow-html/INTEGRATION.md",
+      "characters": 7158
+    }
+  ]
+}
