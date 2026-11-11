@@ -4,20 +4,39 @@ on:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
   contents: read
+  actions: read
 jobs:
   worktree:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Export referenced upstream sample without test data
+      - name: Export only failing sections from integrated acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pg-common"
-          docker run --rm --entrypoint cat postgres@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 /usr/share/postgresql/postgresql.conf.sample > "$RUNNER_TEMP/pg-common/postgresql.conf.sample"
-          sha256sum "$RUNNER_TEMP/pg-common/postgresql.conf.sample" > "$RUNNER_TEMP/pg-common/SHA256"
+          python3 - <<'PY'
+          import json,os,pathlib,re,subprocess
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-evidence';root.mkdir()
+          def get(path):
+              return subprocess.check_output(['gh','api','--allow-escape-sequences','repos/calex794/tor/'+path],timeout=90)
+          for run in [42926154008,42927088395,42927097347,42927097324]:
+              jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
+              (root/f'jobs-{run}.json').write_text(json.dumps(jobs,indent=2))
+              print(run,[(j['name'],j['status'],j['conclusion']) for j in jobs])
+              for job in jobs:
+                  if job['conclusion'] not in ('failure','timed_out','cancelled'):continue
+                  lines=get(f"actions/jobs/{job['id']}/logs").decode('utf-8-sig').splitlines()
+                  lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in lines]
+                  hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
+                  indices=set()
+                  for i in hits[-20:]:indices.update(range(max(0,i-10),min(len(lines),i+30)))
+                  text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices)) or '\n'.join(lines[-100:])
+                  (root/f"failure-{run}-{job['id']}.txt").write_text(text)
+                  print(job['name'],job['conclusion'],text[-16000:])
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-pg-common-${{ github.sha }}
-          path: ${{ runner.temp }}/pg-common/
-          retention-days: 1
+          name: flow-integration-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-evidence/
+          retention-days: 2
