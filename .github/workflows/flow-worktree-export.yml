@@ -4,49 +4,20 @@ on:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
   contents: read
-concurrency:
-  group: flow-completion-runtime-export
-  cancel-in-progress: false
 jobs:
   worktree:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Export upstream PostgreSQL runtime without data or credentials
+      - name: Export referenced upstream sample without test data
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/flow-runtime"
-          docker pull postgres:18
-          docker image inspect postgres:18 --format '{{index .RepoDigests 0}}' > "$RUNNER_TEMP/flow-runtime/PG_IMAGE"
-          docker run --rm --entrypoint bash -v "$RUNNER_TEMP/flow-runtime:/export" postgres:18 -ceu '
-            mkdir -p /export/pg/usr/lib/postgresql /export/pg/usr/share/postgresql /export/pg/compat-lib
-            cp -a /usr/lib/postgresql/18 /export/pg/usr/lib/postgresql/
-            cp -a /usr/share/postgresql/18 /export/pg/usr/share/postgresql/
-            for file in /usr/lib/postgresql/18/bin/* /usr/lib/postgresql/18/lib/*.so; do
-              ldd "$file" 2>/dev/null || true
-            done | awk "/=> \\// {print \$3}" | sort -u > /export/pg-libraries.txt
-            while read -r path; do cp -L "$path" /export/pg/compat-lib/; done < /export/pg-libraries.txt
-            /usr/lib/postgresql/18/bin/postgres --version > /export/PG_VERSION
-            tar -czf /export/postgres-runtime.tar.gz -C /export/pg .
-          '
-          sudo rm -r "$RUNNER_TEMP/flow-runtime/pg"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Export the exact test-only Playwright and headless Chromium
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/flow-node"
-          npm install --prefix "$RUNNER_TEMP/flow-node" --no-save playwright@1.56.1
-          "$RUNNER_TEMP/flow-node/node_modules/.bin/playwright" install --only-shell chromium
-          tar -czf "$RUNNER_TEMP/flow-runtime/node-modules.tar.gz" -C "$RUNNER_TEMP/flow-node" node_modules
-          tar -czf "$RUNNER_TEMP/flow-runtime/browsers.tar.gz" -C "$HOME/.cache" ms-playwright
-          cd "$RUNNER_TEMP/flow-runtime"
-          sha256sum *.tar.gz > SHA256SUMS
+          mkdir -p "$RUNNER_TEMP/pg-common"
+          docker run --rm --entrypoint cat postgres@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42 /usr/share/postgresql/postgresql.conf.sample > "$RUNNER_TEMP/pg-common/postgresql.conf.sample"
+          sha256sum "$RUNNER_TEMP/pg-common/postgresql.conf.sample" > "$RUNNER_TEMP/pg-common/SHA256"
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-disposable-runtime-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-runtime/
+          name: flow-pg-common-${{ github.sha }}
+          path: ${{ runner.temp }}/pg-common/
           retention-days: 1
