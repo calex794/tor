@@ -104,7 +104,10 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     // On public free chapters the relation-weighted shelf replaces REC's
     // generic grid. Other surfaces keep the existing observed REC cards.
     let shelf_book = if surface == Surface::ReaderEnd {
-        seed.zip(path.strip_prefix("/reader/").and_then(|id| book_id(id).ok()))
+        seed.zip(
+            path.strip_prefix("/reader/")
+                .and_then(|id| book_id(id).ok()),
+        )
     } else {
         None
     };
