@@ -89,7 +89,7 @@ fn next_source(weights: [i64; 3], debt: &mut [i64; 3]) -> Option<usize> {
     Some(selected)
 }
 
-fn order_pool(pool: &mut Vec<ShelfCandidate>, rotation: u64) {
+fn order_pool(pool: &mut [ShelfCandidate], rotation: u64) {
     pool.sort_by(|a, b| {
         b.score()
             .cmp(&a.score())
