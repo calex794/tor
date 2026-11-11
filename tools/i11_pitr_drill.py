@@ -104,6 +104,29 @@ def validate_report(raw: str) -> dict:
     return report
 
 
+def client_diagnostics(stderr: str) -> list[str]:
+    """Return SQL/connection failures with identifiers and possible secrets removed."""
+    results = []
+    for line in stderr[-32768:].splitlines():
+        if not re.match(r'^(?:psql: error:|ERROR:|FATAL:|PANIC:)', line):
+            continue
+        if re.search(r'(?i)(?:cipher|password\s*[=:]|secret|token)', line):
+            continue
+        # These lines originate only from the fixed, network-free fixture.
+        # Remove SQL identifiers, connection destinations and recovery keys.
+        line = re.sub(r'"[^"\r\n]*"|\x27[^\x27\r\n]*\x27', '[quoted]', line)
+        line = re.sub(r'[A-Za-z][A-Za-z0-9+.-]*://\S+', '[uri]', line)
+        line = re.sub(r'/[^\s]*', '[path]', line)
+        line = re.sub(r'\b[0-9a-fA-F]{32,}\b', '[redacted]', line)
+        line = re.sub(r'[^\x20-\x7e]', '?', line)[:360]
+        message = 'I11_PITR_CLIENT ' + line
+        if message not in results:
+            results.append(message)
+        if len(results) == 3:
+            break
+    return results
+
+
 def main() -> int:
     if len(sys.argv) != 1:
         print('REFUSE: no arguments accepted', file=sys.stderr)
@@ -141,6 +164,8 @@ def main() -> int:
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         if isinstance(error, subprocess.CalledProcessError):
             stderr = error.stderr or ''
+            for diagnostic in client_diagnostics(stderr):
+                print(diagnostic, file=sys.stderr)
             marker = re.search(r'^I11_PITR_FAILED line=([0-9]{1,4})$', stderr, re.M)
             if marker:
                 print('I11_PITR_FAILED line=' + marker.group(1), file=sys.stderr)
