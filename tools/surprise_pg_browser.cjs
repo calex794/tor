@@ -73,6 +73,28 @@ async function activateIcon(page, user, plan) {
     if (await trigger.count()) break;
     await page.evaluate(()=>document.dispatchEvent(new Event('pointerdown',{bubbles:true})));
   }
+  if (!(await trigger.count())) {
+    const context=await page.evaluate(()=>{
+      const main=document.querySelector('main'),bounds=main?.getBoundingClientRect();
+      const paragraphs=Array.from(main?.querySelectorAll('p')||[]);
+      return {url:location.pathname,visibility:document.visibilityState,
+        focused:document.hasFocus(),selection:String(window.getSelection()).length,
+        dialogs:Array.from(document.querySelectorAll('[role="dialog"]')).map(el=>({
+          hidden:!!el.closest('[hidden], [inert], details:not([open])'),
+          visible:el.getClientRects().length>0,display:getComputedStyle(el).display,
+        })),
+        main:{left:bounds?.left,right:bounds?.right},
+        visibleParagraphs:paragraphs.filter(el=>{
+          const r=el.getBoundingClientRect();
+          return r.top>65 && r.bottom<innerHeight-90 &&
+            !el.closest('form,nav,header,footer,.chapter-navigation,.support-widget');
+        }).length};
+    });
+    const saved=sql(`SELECT state FROM surprise_daily_decisions
+      WHERE user_id=${user} AND utc_day=${plan.utc_day}`);
+    console.error('TOR_SURPRISE_DIAGNOSTIC '+JSON.stringify({plan,context,saved}));
+    await page.screenshot({path:path.join(shots,'surprise-missing-icon.png')});
+  }
   await trigger.waitFor({state:'visible',timeout:10000});
   assert.equal(await trigger.count(),1,'only one visible icon per page');
   const geometry=await page.locator('.tor-surprise').evaluate(el=>{
@@ -182,6 +204,7 @@ async function openKeyboard(page,trigger,expectedTitle,book) {
     await desktop.clock.install();
     const plan=await planFor(desktop,`/reader/${ids.chapter}`);
     assert.ok((await desktop.locator('main').innerText()).includes('Тестовый материал главы'));
+    await desktop.locator('article#chapter-text p').first().scrollIntoViewIfNeeded();
     const sibling=await desktopContext.newPage();
     const plan2=await planFor(sibling,`/books/${ids.book}`);
     assert.equal(plan.utc_day,plan2.utc_day);
@@ -215,7 +238,7 @@ async function openKeyboard(page,trigger,expectedTitle,book) {
     ids.users.push(await register(mobile,mobileEmail));
     await mobile.clock.install();
     const mobilePlan=await planFor(mobile,`/reader/${ids.chapter}`);
-    await mobile.locator('main p').first().scrollIntoViewIfNeeded();
+    await mobile.locator('article#chapter-text p').first().scrollIntoViewIfNeeded();
     const mobileIcon=await activateIcon(mobile,ids.users[2],mobilePlan);
     assert.ok((await mobile.locator('.tor-surprise').getAttribute('class')).includes('--inline'),
       'narrow viewport must not overlay book text');
