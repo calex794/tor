@@ -72,7 +72,7 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
     }
 
     let result = f.store.reader_end_shelf(None, source, 200).await.unwrap();
-    let source_for = |book| {
+    let source_for = |book: i64| {
         result
             .items
             .iter()
