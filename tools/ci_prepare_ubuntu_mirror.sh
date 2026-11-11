@@ -33,7 +33,8 @@ flow_ci_dir="$(mktemp -d)"
 trap 'rm -f "$flow_ci_dir/metadata" "$flow_ci_dir/mirrors"; rmdir "$flow_ci_dir"' EXIT
 for flow_ci_suite in noble noble-updates noble-backports noble-security; do
   curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
-    --connect-timeout 3 --max-time 8 --max-filesize 1048576 --retry 0 \
+    --connect-timeout 10 --max-time 20 --max-filesize 1048576 \
+    --retry 2 --retry-delay 1 --retry-max-time 45 \
     --output "$flow_ci_dir/metadata" "$flow_ci_mirror"dists/"$flow_ci_suite"/InRelease
   gpgv --keyring "$flow_ci_keyring" "$flow_ci_dir/metadata"
   if ! awk -v expected="$flow_ci_suite" '$0=="Suite: " expected {found=1} END {exit !found}' "$flow_ci_dir/metadata"; then
