@@ -1,0 +1,232 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/domain/exposure.rs
+@@
+ pub struct ExposureGroup {
+@@
+     pub counts: Counts,
+ }
++/// Exact summary over every distinct nonempty current genre, before the bounded
++/// detail list. Overlapping genres are never added to the all-book total.
++#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
++pub struct GenreExposureSummary {
++    pub genres: i64,
++    pub low_observed: i64,
++    pub unknown: i64,
++}
+ #[derive(Clone, Debug)]
+ pub struct ExposureReport {
+@@
+     pub unknown_books: i64,
++    pub genres: GenreExposureSummary,
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/repositories/exposure/report.rs
+@@
+ use super::*;
++use crate::domain::exposure_health::ExposureHealth;
++use sqlx::{Postgres, Transaction};
+@@
+     pub async fn report_closed(
+@@
+         self.report_with_anchor(filter, true, None).await
+     }
++    /// Counts, all-genre classifications and their durable health share one MVCC
++    /// snapshot. A late callback/checkpoint cannot certify older counter values.
++    pub async fn report_closed_with_health(
++        &self,
++        filter: &ExposureFilter,
++    ) -> Result<(ExposureReport, ExposureHealth), ExposureError> {
++        validate(filter, None)?;
++        let mut tx = self.pool.begin().await?;
++        limits(&mut tx).await?;
++        let report = report_in(&mut tx, filter, true, None).await?;
++        let health = PgExposureHealth::report_in(&mut tx, filter.days, report.until_epoch).await?;
++        tx.commit().await?;
++        Ok((report, health))
++    }
+@@
+-        filter.validate()?;
+-        if filter.campaign.is_some() != book.is_some() || book.is_some_and(|id| id <= 0) {
+-            return Err(ExposureError::Invalid);
+-        }
++        validate(filter, book)?;
+         let mut tx = self.pool.begin().await?;
+-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+-            .execute(&mut *tx)
+-            .await?;
+-        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)").execute(&mut *tx).await?;
++        limits(&mut tx).await?;
++        let report = report_in(&mut tx, filter, closed, book).await?;
++        tx.commit().await?;
++        Ok(report)
++    }
++}
++fn validate(filter: &ExposureFilter, book: Option<i64>) -> Result<(), ExposureError> {
++    filter.validate()?;
++    if filter.campaign.is_some() != book.is_some() || book.is_some_and(|id| id <= 0) {
++        return Err(ExposureError::Invalid);
++    }
++    Ok(())
++}
++async fn limits(tx: &mut Transaction<'_, Postgres>) -> Result<(), ExposureError> {
++    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
++        .execute(&mut **tx).await?;
++    sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)").execute(&mut **tx).await?;
++    Ok(())
++}
++async fn report_in(
++    tx: &mut Transaction<'_, Postgres>,
++    filter: &ExposureFilter,
++    closed: bool,
++    book: Option<i64>,
++) -> Result<ExposureReport, ExposureError> {
+@@
+-            .fetch_one(&mut *tx)
++            .fetch_one(&mut **tx)
+@@
+-            .fetch_all(&mut *tx)
++            .fetch_all(&mut **tx)
+@@
+-            .fetch_all(&mut *tx)
++            .fetch_all(&mut **tx)
+@@
+-        let report = ExposureReport {
++        let genre_sql = format!(r#"{BASE}, genre_counts AS (
++            SELECT g.label,sum(opportunities) AS opportunities,sum(rendered) AS rendered,sum(views) AS views
++            FROM classified b CROSS JOIN LATERAL (
++                SELECT DISTINCT v AS label FROM unnest(b.genres) v WHERE btrim(v)<>''
++            ) g GROUP BY g.label
++        ), genre_classes AS (
++            SELECT CASE WHEN rendered<20 OR opportunities=0 OR rendered*100<opportunities*80 THEN 'unknown'
++              WHEN views<5 THEN 'low' ELSE 'observed' END AS class FROM genre_counts
++        ) SELECT count(*) AS genres,count(*) FILTER(WHERE class='low') AS low,
++          count(*) FILTER(WHERE class='unknown') AS unknown FROM genre_classes"#);
++        let genre = bind(&genre_sql, filter, closed, book).fetch_one(&mut **tx).await?;
++        Ok(ExposureReport {
+@@
+             unknown_books: total.try_get("unknown_books")?,
++            genres: GenreExposureSummary {
++                genres: genre.try_get("genres")?,
++                low_observed: genre.try_get("low")?,
++                unknown: genre.try_get("unknown")?,
++            },
+@@
+-        };
+-        tx.commit().await?;
+-        Ok(report)
+-    }
++        })
+ }
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/repositories/exposure/health/read.rs
+@@
+-        if !matches!(days, 1 | 7 | 30 | 90) || until_epoch <= 0 || until_epoch % 3600 != 0 {
+-            return Err(ExposureError::Invalid);
+-        }
+         let mut tx = self.pool.begin().await?;
+         limits(&mut tx, true).await?;
++        let report = Self::report_in(&mut tx, days, until_epoch).await?;
++        tx.commit().await?;
++        Ok(report)
++    }
++    pub(in crate::repositories::exposure) async fn report_in(
++        tx: &mut Transaction<'_, Postgres>,
++        days: i32,
++        until_epoch: i64,
++    ) -> Result<ExposureHealth, ExposureError> {
++        if !matches!(days, 1 | 7 | 30 | 90) || until_epoch <= 0 || until_epoch % 3600 != 0 {
++            return Err(ExposureError::Invalid);
++        }
+@@
+-            .bind(until_epoch).fetch_one(&mut *tx).await?;
++            .bind(until_epoch).fetch_one(&mut **tx).await?;
+@@
+-            .bind(days).bind(until_epoch).fetch_all(&mut *tx).await?;
++            .bind(days).bind(until_epoch).fetch_all(&mut **tx).await?;
+@@
+-        tx.commit().await?;
+         Ok(result)
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/services/flow_signals/types.rs
+@@
+     UnderexposedBooks,
++    UnderexposedGenres,
++    PublicPageLoss,
+@@
+-    pub const ALL: [Self; 11] = [
++    pub const ALL: [Self; 13] = [
+@@
+         Self::UnderexposedBooks,
++        Self::UnderexposedGenres,
++        Self::PublicPageLoss,
+@@
+             Self::UnderexposedBooks => "underexposed_books",
++            Self::UnderexposedGenres => "underexposed_genres",
++            Self::PublicPageLoss => "public_page_loss",
+@@
+     ObserverCoverage,
++    PublicPageLoss,
+@@
+             Self::ObserverCoverage => "observer_coverage",
++            Self::PublicPageLoss => "public_page_loss",
+@@
+             ObserverCoverage,
++            PublicPageLoss,
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/services/flow_signals/evaluate.rs
+@@
+     if e.current_units == 0 || e.current.is_none() {
+         return (Unknown, MissingMeasurement, 1);
+     }
++    // One verified lost target is actionable even if another target in the small
++    // current sample is unknown. Unknown plus zero never proves recovery.
++    if rule == Rule::PublicPageLoss && e.current.is_some_and(|v| v > 0) {
++        return (Active, PublicPageLoss, 2);
++    }
+@@
+-    if rule == Rule::UnderexposedBooks {
++    if matches!(rule, Rule::UnderexposedBooks | Rule::UnderexposedGenres) {
+@@
+     }
++    if rule == Rule::PublicPageLoss {
++        return (Healthy, WithinThreshold, 0);
++    }
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/repositories/flow_signals/report.rs
+@@
+-            FROM flow_signal_states WHERE days=$1 ORDER BY severity DESC,rule LIMIT 11")
++            FROM flow_signal_states WHERE days=$1 ORDER BY severity DESC,rule LIMIT 13")
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_signal_worker/exposure.rs
+@@
+-    repositories::exposure::{PgExposure, PgExposureHealth},
++    repositories::exposure::PgExposure,
+@@
+-    let report = PgExposure::new(accounts.pool().clone())
+-        .report_closed(&filter)
+-        .await?;
+-    let health = PgExposureHealth::new(accounts.pool().clone())
+-        .report(days, report.until_epoch)
+-        .await?;
+-    Ok((report, health))
++    PgExposure::new(accounts.pool().clone())
++        .report_closed_with_health(&filter)
++        .await
+@@
+-) -> (Evidence, Evidence) {
++) -> (Evidence, Evidence, Evidence) {
+@@
+-        return (Evidence::missing(true), Evidence::missing(true));
++        return (Evidence::missing(true), Evidence::missing(true), Evidence::missing(true));
+@@
+-    (base, low)
++    let genres = Evidence {
++        current: (report.genres.low_observed > 0
++            || report.genres.genres > 0 && report.genres.unknown == 0)
++            .then_some(report.genres.low_observed),
++        ..low
++    };
++    (base, low, genres)
+@@
+                 unknown_books: 2,
++                genres: Default::default(),
+@@
+-        let (views, low) = inputs(1, Some(&data), clean);
++        let (views, low, _) = inputs(1, Some(&data), clean);
+@@
+-        let (views, _) = inputs(1, Some(&data), clean);
++        let (views, _, _) = inputs(1, Some(&data), clean);
+*** End Patch

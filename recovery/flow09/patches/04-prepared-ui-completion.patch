@@ -1,0 +1,66 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/domain/exposure.rs
+@@
+-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
++#[derive(Clone, Debug, Default, Eq, PartialEq)]
+ pub struct GenreExposureSummary {
+@@
+     pub unknown: i64,
++    /// Up to 20 exact labels explaining the complete low count.
++    pub low_labels: Vec<String>,
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/recommendations/src/repositories/exposure/report.rs
+@@
+-            SELECT CASE WHEN rendered<20 OR opportunities=0 OR rendered*100<opportunities*80 THEN 'unknown'
++            SELECT label,CASE WHEN rendered<20 OR opportunities=0 OR rendered*100<opportunities*80 THEN 'unknown'
+@@
+-          count(*) FILTER(WHERE class='unknown') AS unknown FROM genre_classes"#);
++          count(*) FILTER(WHERE class='unknown') AS unknown,
++          ARRAY(SELECT label FROM genre_classes WHERE class='low' ORDER BY label COLLATE "C" LIMIT 20) AS low_labels
++          FROM genre_classes"#);
+@@
+                 unknown: genre.try_get("unknown")?,
++                low_labels: genre.try_get("low_labels")?,
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render/signals.rs
+@@
+-        write!(body,"<dl><dt>Текущий период</dt><dd data-metric=\"current\">{}</dd><dt>Предыдущий равный период</dt><dd data-metric=\"previous\">{}</dd><dt>Единиц с данными</dt><dd>{}/{} сейчас; {}/{} раньше</dd></dl><p>{}</p>",value(e.current),value(e.previous),e.current_units,e.expected_units,e.previous_units,e.expected_units,basis(signal.rule)).expect("String");
+-        if !signal.rule.is_quality() && signal.rule != Rule::UnderexposedBooks {
++        if signal.rule==Rule::PublicPageLoss {
++            write!(body,"<dl><dt>Потерь в текущей выборке</dt><dd data-metric=\"current\">{}</dd><dt>Страниц с известным результатом</dt><dd>{}/{}</dd></dl><p>{}</p>",value(e.current),e.current_units,e.expected_units,basis(signal.rule)).expect("String");
++        } else {
++            write!(body,"<dl><dt>Текущий период</dt><dd data-metric=\"current\">{}</dd><dt>Предыдущий равный период</dt><dd data-metric=\"previous\">{}</dd><dt>Единиц с данными</dt><dd>{}/{} сейчас; {}/{} раньше</dd></dl><p>{}</p>",value(e.current),value(e.previous),e.current_units,e.expected_units,e.previous_units,e.expected_units,basis(signal.rule)).expect("String");
++        }
++        if !signal.rule.is_quality() && !matches!(signal.rule,Rule::UnderexposedBooks|Rule::UnderexposedGenres|Rule::PublicPageLoss) {
+@@
+         Rule::UnderexposedBooks => "Книги с малой наблюдаемой экспозицией",
++        Rule::UnderexposedGenres => "Жанры с малой наблюдаемой экспозицией",
++        Rule::PublicPageLoss => "Потеря доступности публичных страниц",
+@@
+-        Reason::LowExposure=>"Есть книги с малым числом подтверждённых браузером показов; это не доказательство отсутствия интереса.",
++        Reason::LowExposure=>"Зафиксирована малая наблюдаемая экспозиция при достаточной выборке; это не доказательство отсутствия интереса.",
+         Reason::ObserverCoverage=>"Подтверждено менее 80% зарегистрированных выдач. Сравнение показов приостановлено; это не падение интереса.",
++        Reason::PublicPageLoss=>"Прежде отвечавшая 200 страница в текущей выборке дала другой HTTP-ответ при неизменной публичной доступности. Проверьте исходный отчёт и ответ сервера; права публикации автоматически не меняются.",
+@@
+         Rule::UnderexposedBooks=>"Считаются книги с ≥20 подтверждениями отрисовки, долей подтверждений ≥80% и <5 наблюдаемыми показами. Книги без этой выборки остаются неизвестными. Часы подтверждаются долговечным журналом зарегистрированных исполнителей; незавершённый хвост после сбоя не покрывается новым процессом.",
++        Rule::UnderexposedGenres=>"Считаются все непустые текущие жанры с ≥20 подтверждениями отрисовки, долей подтверждений ≥80% и <5 наблюдаемыми показами, до ограничения списка. Повтор метки у одной книги не умножает итог; жанры пересекаются. Жанры с недостаточной выборкой неизвестны: частичный ноль не закрывает сигнал. Часы и счётчики прочитаны одним снимком долговечного журнала.",
++        Rule::PublicPageLoss=>"Последняя проверка максимум четырёх текущих страниц через HEAD с сервера, не период аудитории и не весь каталог. Главная, каталог, одна доступная гостю книга и одна бесплатная глава. Сеть, смена публикации, первый неуспех или результат старше трёх минут неизвестны. Один подтверждённый отказ виден при неполной выборке; ноль закрывает сигнал только при полной известной текущей выборке.",
+@@
+-        Rule::ExposureQuality | Rule::ExposureChange | Rule::UnderexposedBooks => {
++        Rule::ExposureQuality | Rule::ExposureChange | Rule::UnderexposedBooks | Rule::UnderexposedGenres => {
+             format!("/admin/audience/exposure?days={days}")
+         }
++        Rule::PublicPageLoss => "/admin/audience/pages".into(),
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render/navigation.rs
+@@
+-    body.push_str("<a class=\"button button--quiet\" data-testid=\"audience-intents-link\" href=\"#audience-intents\">Библиотеки и подписки</a><a class=\"button button--quiet\" data-testid=\"audience-contextual-link\" href=\"/me/recommendations/contextual\">Контекстные рекомендации</a><a class=\"button button--quiet\" data-testid=\"audience-editorial-link\" href=\"/admin/promotion/editorial\">Редакционное продвижение</a></div></nav>");
++    body.push_str("<a class=\"button button--quiet\" data-testid=\"audience-pages-link\" href=\"/admin/audience/pages\">Доступность публичных страниц</a><a class=\"button button--quiet\" data-testid=\"audience-intents-link\" href=\"#audience-intents\">Библиотеки и подписки</a><a class=\"button button--quiet\" data-testid=\"audience-contextual-link\" href=\"/me/recommendations/contextual\">Контекстные рекомендации</a><a class=\"button button--quiet\" data-testid=\"audience-editorial-link\" href=\"/admin/promotion/editorial\">Редакционное продвижение</a></div></nav>");
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_exposure/render.rs
+@@
+-            if report.rows.is_empty(){body.push_str(r#"<p data-testid="exposure-empty">Нет книг для этой страницы и фильтров.</p>"#)}
++            write!(body,r#"<section class="book-section-card" data-testid="genre-summary"><h2>Все текущие непустые жанры: <span data-metric="genres">{}</span></h2><p>Мало наблюдаемых показов: <span data-metric="low-genres">{}</span>; недостаточно наблюдений: <span data-metric="unknown-genres">{}</span>. Итог включает все жанры выбранных книг до ограничения списка; пересекающиеся группы нельзя складывать.</p><p>Первые 20 жанров с малой наблюдаемой экспозицией:</p><ul>"#,report.genres.genres,report.genres.low_observed,report.genres.unknown).expect("String");
++            for label in &report.genres.low_labels {
++                let mut selected=q.clone();selected.group=Some(("genre".into(),label.clone()));selected.class=None;selected.after=0;
++                write!(body,r#"<li><a data-testid="genre-low" href="{}">{}</a></li>"#,e(&url(&selected,0)),e(label)).expect("String");
++            }
++            body.push_str("</ul></section>");
++            if report.rows.is_empty(){body.push_str(r#"<p data-testid="exposure-empty">Нет книг для этой страницы и фильтров.</p>"#)}
+*** End Patch

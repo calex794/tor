@@ -1,0 +1,99 @@
+{
+  "worktree": "/workspace/scratch/1e86e471c018/tor-flow09",
+  "branch": "feat/flow09-completion",
+  "base": "fb9b7c36a",
+  "head": "ea76afae8",
+  "imported": "f88ba10a5",
+  "pending": "flow09_pending_patch",
+  "status": "Applied initial core patches only; no compile or tests yet; no commit after ea76afae8",
+  "applied_files": [
+    "crates/recommendations/src/domain/exposure.rs",
+    "crates/recommendations/src/repositories/exposure/report.rs",
+    "crates/recommendations/src/repositories/exposure/health/read.rs",
+    "crates/recommendations/src/services/flow_signals/types.rs",
+    "crates/recommendations/src/services/flow_signals/evaluate.rs",
+    "crates/recommendations/src/repositories/flow_signals/report.rs",
+    "crates/web/src/flow_signal_worker/exposure.rs",
+    "migrations/202611294686_flow_public_page_signals.sql",
+    "crates/search/src/domain/public_pages.rs",
+    "crates/search/src/domain/mod.rs",
+    "crates/search/src/repositories/mod.rs",
+    "crates/search/src/services/mod.rs",
+    "crates/search/src/repositories/public_pages.rs",
+    "crates/search/src/repositories/public_pages/candidates.rs",
+    "crates/search/src/repositories/public_pages/save.rs",
+    "crates/search/src/repositories/public_pages/report.rs",
+    "crates/search/src/services/public_pages.rs",
+    "crates/web/src/flow_public_pages.rs",
+    "crates/web/src/lib.rs",
+    "crates/web/src/flow_runtime.rs"
+  ],
+  "remaining": [
+    "Pending patch includes immediately-after-HEAD eligibility recheck, public page Evidence + unit, signal worker13, admin route + renderer modules; verify render.rs mod signature before apply if context fails.",
+    "Signal UI13: names/basis/links/new reason PublicPageLoss; latest sample not equal audience periods; skip delta threshold on count rules.",
+    "Exposure UI complete genre summary (before LIMIT100), navigation link public pages.",
+    "Route /admin/audience/pages appended408;409pairs411bindings and tests/fixture update.",
+    "Migration686 fixtures in rec/signals pg and web/tests; rule count11->13.",
+    "Meaningful tests and browser as parent's scope; docs contracts and v2 update.",
+    "Parent H owner changes traffic observed_health_report + input tuple; root merge shared worker/render.",
+    "Review fixes pending: status/source origin mismatch must suppress historical last_success_at; validate slots1..4 in save; check if failed apply had any partial state (first read failed so should have none)."
+  ],
+  "remote_checkpoint_base": "85f47ab9dbfa1ec15562e6e0602c61d08a9582fd",
+  "required_signals_local_commit": "cc418415a",
+  "required_lifecycle_local_commit": "f88ba10a5",
+  "contents_provenance": "Exact authoring text preserved from tool inputs before environment loss; no filesystem readback or byte-equivalence claim after loss.",
+  "patches_prepared_after_environment_loss": [
+    "04-prepared-ui-completion.patch"
+  ],
+  "new_code_test_status": "NOT COMPILED; PostgreSQL, HTTP, browser, lint and repository-rules acceptance remain pending.",
+  "inventory": [
+    {
+      "path": "recovery/flow09/contents/migrations/202611294686_flow_public_page_signals.sql",
+      "characters": 3390
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/domain/public_pages.rs",
+      "characters": 3047
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/repositories/public_pages.rs",
+      "characters": 3265
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/repositories/public_pages/candidates.rs",
+      "characters": 2409
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/repositories/public_pages/save.rs",
+      "characters": 3690
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/repositories/public_pages/report.rs",
+      "characters": 2787
+    },
+    {
+      "path": "recovery/flow09/contents/crates/search/src/services/public_pages.rs",
+      "characters": 3457
+    },
+    {
+      "path": "recovery/flow09/contents/crates/web/src/flow_public_pages.rs",
+      "characters": 1332
+    },
+    {
+      "path": "recovery/flow09/patches/01-applied-core.patch",
+      "characters": 9074
+    },
+    {
+      "path": "recovery/flow09/patches/02-applied-wiring.patch",
+      "characters": 983
+    },
+    {
+      "path": "recovery/flow09/patches/03-pending-ui-worker.patch",
+      "characters": 9169
+    },
+    {
+      "path": "recovery/flow09/patches/04-prepared-ui-completion.patch",
+      "characters": 7395
+    }
+  ]
+}

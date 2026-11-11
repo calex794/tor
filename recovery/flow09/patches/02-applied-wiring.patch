@@ -1,0 +1,25 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/domain/mod.rs
+@@
+ pub mod seo_urls;
++pub mod public_pages;
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/repositories/mod.rs
+@@
+ pub mod showcases;
++pub mod public_pages;
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/services/mod.rs
+@@
+ pub mod seo_analytics;
++pub mod public_pages;
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/lib.rs
+@@
+ pub mod flow_runtime;
++pub mod flow_public_pages;
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_runtime.rs
+@@
+     let search = crate::seo_analytics_worker::start(accounts.clone());
++    let pages = crate::flow_public_pages::start(accounts.clone());
+@@
+-    let handles = [retention, contextual, search, signals, observations]
++    let handles = [retention, contextual, search, signals, observations, pages]
+*** End Patch

@@ -1,0 +1,136 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/services/public_pages.rs
+@@
+             if store.current(target).await? {
+-                self.client.head(format!("{}{path}", self.origin)).header("accept", "text/html")
+-                    .send().await.ok().map(|response| response.status().as_u16())
++                let response = self.client.head(format!("{}{path}", self.origin)).header("accept", "text/html")
++                    .send().await.ok().map(|response| response.status().as_u16());
++                if store.current(target).await? { response } else { None }
+*** Add File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_signal_worker/public_pages.rs
++use tor_recommendations::services::flow_signals::Evidence;
++use tor_search::domain::public_pages::PublicPageReport;
++
++pub(super) fn input(report: Option<&PublicPageReport>, enabled: bool) -> Evidence {
++    if !enabled { return Evidence::missing(false); }
++    let Some(report) = report else { return Evidence::missing(true); };
++    let expected = report.expected_targets();
++    let checked = report.checked_targets();
++    let lost = report.lost_targets();
++    Evidence {
++        enabled: true,
++        available: true,
++        current: (lost>0 || expected>0 && checked==expected).then_some(lost),
++        current_units: checked,
++        expected_units: expected.max(1),
++        ..Evidence::missing(true)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use tor_recommendations::services::flow_signals::{evaluate, Rule, Status};
++    use tor_search::domain::public_pages::{PageSlot, PageState, PublicPageRow};
++    #[test]
++    fn partial_zero_and_stale_are_unknown_but_one_verified_loss_can_alert() {
++        let mut report=PublicPageReport { measured_at:String::new(),checked_at:None,age_seconds:None,
++            rows:vec![PublicPageRow { slot:PageSlot::Home,path:Some("/".into()),state:PageState::Healthy,status:Some(200),last_success_at:None },
++                PublicPageRow { slot:PageSlot::Catalog,path:Some("/catalog".into()),state:PageState::Unknown,status:None,last_success_at:None }] };
++        assert_eq!(evaluate(Rule::PublicPageLoss,input(Some(&report),true)).unwrap().status,Status::Unknown);
++        report.rows[0].state=PageState::Lost;
++        assert_eq!(evaluate(Rule::PublicPageLoss,input(Some(&report),true)).unwrap().status,Status::Active);
++        report.rows[0].state=PageState::Unknown;
++        assert_eq!(input(Some(&report),true).current,None);
++        for row in &mut report.rows { row.state=PageState::Healthy; }
++        assert_eq!(evaluate(Rule::PublicPageLoss,input(Some(&report),true)).unwrap().status,Status::Healthy);
++        assert_eq!(evaluate(Rule::PublicPageLoss,input(Some(&report),false)).unwrap().status,Status::Disabled);
++    }
++}
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_signal_worker.rs
+@@
+ mod inputs;
++mod public_pages;
+@@
+-    let (html, read, google, yandex, exposure) = tokio::join!(
++    let (html, read, google, yandex, exposure, pages) = tokio::join!(
+@@
+         tokio::time::timeout_at(deadline, exposure::read(accounts, days)),
++        tokio::time::timeout_at(deadline, crate::flow_public_pages::report(accounts)),
+@@
+-    let (observations, underexposed) =
++    let (observations, underexposed, genres) =
+         exposure::inputs(days, exposure.as_ref(), probe.map(QueueProbe::snapshot));
++    let pages = pages.ok().and_then(Result::ok);
++    let pages = public_pages::input(pages.as_ref(), crate::flow_public_pages::enabled());
+@@
+             Rule::UnderexposedBooks => {
+@@
+             }
++            Rule::UnderexposedGenres => {
++                if observation_enabled { genres } else { Evidence::missing(false) }
++            }
++            Rule::PublicPageLoss => pages,
+*** Add File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/public_pages.rs
++//! Read-only current sample. GET does not launch checks or change their baseline.
++use super::{administrator, secure, AudienceState};
++use axum::{extract::State, http::{HeaderMap, StatusCode}, response::Response};
++use std::time::Duration;
++use tokio::time::{timeout_at, Instant};
++
++pub(super) async fn page(State(state): State<AudienceState>, headers: HeaderMap) -> Response {
++    let deadline = Instant::now()+Duration::from_millis(950);
++    match timeout_at(deadline, administrator(&state, &headers)).await {
++        Ok(Ok(())) => (),
++        Ok(Err(status)) => return secure(status),
++        Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
++    }
++    let enabled = crate::flow_public_pages::enabled();
++    let report = if enabled {
++        timeout_at(deadline, crate::flow_public_pages::report(&state.accounts)).await.ok().and_then(Result::ok)
++    } else { None };
++    let status = if report.is_some() || !enabled { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
++    secure((status, super::render::public_pages::page(report.as_ref(), enabled)))
++}
+*** Add File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render/public_pages.rs
++use crate::pages::{escape_html, layout};
++use axum::response::Html;
++use std::fmt::Write;
++use tor_search::domain::public_pages::{PageSlot, PageState, PublicPageReport};
++
++pub(crate) fn page(report: Option<&PublicPageReport>, enabled: bool) -> Html<String> {
++    let mut body = String::from("<section class=\"section\"><div class=\"container author-width\"><p class=\"eyebrow\">Администратору сайта</p><h1>Доступность публичных страниц</h1><p><a href=\"/admin/audience/signals\">Сигналы FLOW</a> · <a href=\"/admin/audience\">Аудитория</a></p><p>Текущая ограниченная выборка: главная, каталог, первая доступная гостю книга и первая опубликованная бесплатная глава. Проверка выполняет HEAD без входа с сервера сайта раз в минуту, не более двух запросов одновременно. Это не проверка всех страниц и не независимая внешняя точка наблюдения.</p><p>Потеря подтверждается, когда та же доступная страница после ответа 200 дала другой HTTP-ответ. Сетевая ошибка, изменение публикации, отсутствие предыдущего успеха или результат старше трёх минут остаются неизвестными. Законное скрытие, удаление и изменение доступа не считаются сбоем.</p>");
++    if !enabled {
++        body.push_str("<p data-testid=\"pages-disabled\">Источник отключён. Сохранённые результаты не подтверждают текущую доступность.</p>");
++    } else if let Some(report) = report {
++        write!(body,"<p>Время чтения: <time>{}</time>. Последняя завершённая проверка: <time data-testid=\"pages-last-check\">{}</time>. Возраст: {} сек.</p><div data-testid=\"pages-sample\">",escape_html(&report.measured_at),report.checked_at.as_deref().map(escape_html).unwrap_or_else(||"ещё не выполнена".into()),report.age_seconds.map(|s|s.to_string()).unwrap_or_else(||"нет измерения".into())).expect("String");
++        for row in &report.rows {
++            let title = match row.slot { PageSlot::Home=>"Главная",PageSlot::Catalog=>"Каталог",PageSlot::Book=>"Публичная книга",PageSlot::FreeChapter=>"Бесплатная глава" };
++            let (state,label) = match row.state { PageState::Healthy=>("healthy","Получен ответ 200"),PageState::Lost=>("lost","Подтверждена потеря доступности"),PageState::Unknown=>("unknown","Текущая доступность неизвестна"),PageState::NoTarget=>("no_target","Подходящей публичной страницы сейчас нет") };
++            write!(body,"<section class=\"book-section-card\" data-page-slot=\"{}\" data-state=\"{state}\"><h2>{title}</h2><p><strong>{label}</strong></p>",row.slot.code()).expect("String");
++            if let Some(path) = &row.path {
++                write!(body,"<p><a data-testid=\"public-page-target\" href=\"{}\">{}</a></p>",escape_html(path),escape_html(path)).expect("String");
++            }
++            if let Some(status) = row.status { write!(body,"<p>Последний HTTP-ответ: {status}.</p>").expect("String"); }
++            if let Some(at) = &row.last_success_at { write!(body,"<p>Последний подтверждённый ответ 200: <time>{}</time>.</p>",escape_html(at)).expect("String"); }
++            body.push_str("</section>");
++        }
++        body.push_str("</div>");
++    } else {
++        body.push_str("<p role=\"alert\" data-testid=\"pages-unavailable\">Источник временно недоступен. Успех не подставляется вместо отсутствующей проверки.</p>");
++    }
++    body.push_str("<p>Эти проверки не создают посещения, показы карточек или завершения чтения. Сигнал относится к последней проверке выборки, а не к периоду аудитории и не к индексации поисковиками.</p></div></section>");
++    layout("Доступность публичных страниц", "Закрытый отчёт ограниченной текущей выборки.", &body)
++}
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http.rs
+@@
+ mod signals;
++mod public_pages;
+@@
+         .route("/admin/audience/signals", get(signals::page))
++        .route("/admin/audience/pages", get(public_pages::page))
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render.rs
+@@
+ pub(super) mod signals;
++pub(super) mod public_pages;
+*** End Patch
