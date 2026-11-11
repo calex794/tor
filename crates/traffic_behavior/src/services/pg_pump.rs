@@ -1,8 +1,8 @@
 //! Optional PG-backed RIL-06 pump. Runs outside HTTP and never blocks responses.
 //! Enqueue uses a stable UUID across retries; PG claims survive process death.
-use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};
 use super::html_pump::HtmlPump;
-use crate::domain::html_health::{HtmlHealthError,HtmlIngressStopped};
+use crate::domain::html_health::{HtmlHealthError, HtmlIngressStopped};
+use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};
 use uuid::Uuid;
 
 use std::{
@@ -142,10 +142,14 @@ impl PgRollupPump {
     /// retried rather than counting the in-memory delta twice.
     pub async fn run_once(&mut self) {
         self.monitor.begin();
-        let failed = match tokio::time::timeout(std::time::Duration::from_secs(6), self.progress()).await {
-            Ok(failed) => failed,
-            Err(_) => { self.html.failure(&self.recorder); true }
-        };
+        let failed =
+            match tokio::time::timeout(std::time::Duration::from_secs(6), self.progress()).await {
+                Ok(failed) => failed,
+                Err(_) => {
+                    self.html.failure(&self.recorder);
+                    true
+                }
+            };
         self.monitor.end(failed);
     }
     async fn progress(&mut self) -> bool {
@@ -155,16 +159,27 @@ impl PgRollupPump {
         if self.pending.is_none() && !self.html.waiting() {
             let source = self.recorder.clone();
             let managed = healthy && self.html.has_point();
-            match tokio::task::spawn_blocking(move || if managed {source.drain_for_health()} else {source.drain_for_persistence()}).await {
-                Ok(Some(delta)) if !delta.is_empty() => {
-                    let id=Uuid::new_v4().to_string();
-                    if managed {self.html.drained(Some(id.clone()));}
-                    self.pending = Some(Pending {
-                        id,
-                        delta,
-                    });
+            match tokio::task::spawn_blocking(move || {
+                if managed {
+                    source.drain_for_health()
+                } else {
+                    source.drain_for_persistence()
                 }
-                Ok(Some(_)) => {if managed {self.html.drained(None);}}
+            })
+            .await
+            {
+                Ok(Some(delta)) if !delta.is_empty() => {
+                    let id = Uuid::new_v4().to_string();
+                    if managed {
+                        self.html.drained(Some(id.clone()));
+                    }
+                    self.pending = Some(Pending { id, delta });
+                }
+                Ok(Some(_)) => {
+                    if managed {
+                        self.html.drained(None);
+                    }
+                }
                 Ok(None) | Err(_) => failed = true,
             }
         }
@@ -197,8 +212,12 @@ impl PgRollupPump {
         if self.ticks.is_multiple_of(360) && self.repo.prune_expired().await.is_err() {
             failed = true;
         }
-        if self.ticks.is_multiple_of(360) && self.html.prune().await.is_err() {failed=true;}
-        if self.html.complete(&self.recorder,failed).await.is_err() {failed=true;}
+        if self.ticks.is_multiple_of(360) && self.html.prune().await.is_err() {
+            failed = true;
+        }
+        if self.html.complete(&self.recorder, failed).await.is_err() {
+            failed = true;
+        }
         failed
     }
 
@@ -252,7 +271,9 @@ impl PgRollupPump {
 }
 
 impl Drop for PgRollupPump {
-    fn drop(&mut self) { self.recorder.close_flow_health(); }
+    fn drop(&mut self) {
+        self.recorder.close_flow_health();
+    }
 }
 
 #[cfg(test)]

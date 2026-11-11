@@ -14,7 +14,7 @@ pub(super) struct HtmlPump {
     drained: bool,
     batch: Option<String>,
     failures: u64,
-    reported:(u64,u64),
+    reported: (u64, u64),
     gap_started: Option<Instant>,
 }
 impl HtmlPump {
@@ -28,7 +28,7 @@ impl HtmlPump {
             drained: false,
             batch: None,
             failures: 0,
-            reported:(0,0),
+            reported: (0, 0),
             gap_started: Some(recorder.flow_health_started()),
         }
     }
@@ -53,7 +53,8 @@ impl HtmlPump {
         recorder: &TrafficRecorder,
     ) -> Result<(), HtmlHealthError> {
         let started = Instant::now();
-        let result = tokio::time::timeout(Duration::from_millis(950), self.prepare_inner(recorder)).await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(950), self.prepare_inner(recorder)).await;
         match result {
             Ok(Ok(clock)) if recorder.activate_flow_health(clock, started) => Ok(()),
             Ok(Err(HtmlHealthError::Expired)) => {
@@ -67,29 +68,45 @@ impl HtmlPump {
             }
         }
     }
-    async fn prepare_inner(&mut self,recorder:&TrafficRecorder) -> Result<i64, HtmlHealthError> {
+    async fn prepare_inner(&mut self, recorder: &TrafficRecorder) -> Result<i64, HtmlHealthError> {
         if self.epoch.is_none() {
-            let clock = self.store.ready_clock().await?
+            let clock = self
+                .store
+                .ready_clock()
+                .await?
                 .ok_or(HtmlHealthError::Unavailable)?;
             let gap_started = self.gap_started.ok_or(HtmlHealthError::Unavailable)?;
             // The DB sample preceded this elapsed measurement. Subtraction is
             // a conservative lower bound even if SQL or scheduling was delayed.
             let from = gap_lower_ms(clock, gap_started.elapsed());
             let dropped = recorder.flow_coverage_counts().1;
-            let next=match self.predecessor {
-                Some(epoch)=>self.store.replace_epoch_after_gap(
-                    epoch,from,(cap(dropped),cap(self.failures)),
-                    (cap(self.reported.0),cap(self.reported.1)),
-                ).await?,
-                None=>self.store.start_epoch_after_gap(
-                    from,cap(dropped),cap(self.failures),
-                    cap(self.reported.0),cap(self.reported.1),
-                ).await?,
+            let next = match self.predecessor {
+                Some(epoch) => {
+                    self.store
+                        .replace_epoch_after_gap(
+                            epoch,
+                            from,
+                            (cap(dropped), cap(self.failures)),
+                            (cap(self.reported.0), cap(self.reported.1)),
+                        )
+                        .await?
+                }
+                None => {
+                    self.store
+                        .start_epoch_after_gap(
+                            from,
+                            cap(dropped),
+                            cap(self.failures),
+                            cap(self.reported.0),
+                            cap(self.reported.1),
+                        )
+                        .await?
+                }
             };
-            self.epoch=Some(next.0);
-            self.predecessor=None;
-            self.reported=(dropped,self.failures);
-            self.gap_started=None;
+            self.epoch = Some(next.0);
+            self.predecessor = None;
+            self.reported = (dropped, self.failures);
+            self.gap_started = None;
         }
         if let Some(point) = self.point {
             return self.store.renew(point).await;
@@ -112,9 +129,17 @@ impl HtmlPump {
             self.failures = self.failures.saturating_add(1);
         }
         let (_, dropped) = recorder.flow_coverage_counts();
-        if let Some(epoch)=self.epoch.filter(|_|self.reported!=(dropped,self.failures)) {
-            tokio::time::timeout(Duration::from_millis(950),self.store.note(epoch,cap(dropped),cap(self.failures))).await.map_err(|_|HtmlHealthError::Unavailable)??;
-            self.reported=(dropped,self.failures);
+        if let Some(epoch) = self
+            .epoch
+            .filter(|_| self.reported != (dropped, self.failures))
+        {
+            tokio::time::timeout(
+                Duration::from_millis(950),
+                self.store.note(epoch, cap(dropped), cap(self.failures)),
+            )
+            .await
+            .map_err(|_| HtmlHealthError::Unavailable)??;
+            self.reported = (dropped, self.failures);
         }
         let Some(point) = self.point.filter(|_| self.drained) else {
             return Ok(());
@@ -148,22 +173,29 @@ impl HtmlPump {
             }
         }
     }
-    fn stage_replacement(&mut self,recorder:&TrafficRecorder){
+    fn stage_replacement(&mut self, recorder: &TrafficRecorder) {
         self.gap_started.get_or_insert_with(Instant::now);
         recorder.close_flow_health();
-        if let Some(epoch)=self.epoch.take(){self.predecessor=Some(epoch);}
-        self.point=None;
-        self.drained=false;
-        self.batch=None;
+        if let Some(epoch) = self.epoch.take() {
+            self.predecessor = Some(epoch);
+        }
+        self.point = None;
+        self.drained = false;
+        self.batch = None;
     }
-    async fn retire(&mut self, recorder: &TrafficRecorder, witness: &HtmlIngressStopped) -> Result<(), HtmlHealthError> {
+    async fn retire(
+        &mut self,
+        recorder: &TrafficRecorder,
+        witness: &HtmlIngressStopped,
+    ) -> Result<(), HtmlHealthError> {
         self.gap_started.get_or_insert_with(Instant::now);
         recorder.close_flow_health();
         if let Some(epoch) = self.epoch.or(self.predecessor) {
             let (_, dropped) = recorder.flow_coverage_counts();
             tokio::time::timeout(
                 Duration::from_millis(950),
-                self.store.retire(epoch, cap(dropped), cap(self.failures), witness),
+                self.store
+                    .retire(epoch, cap(dropped), cap(self.failures), witness),
             )
             .await
             .map_err(|_| HtmlHealthError::Unavailable)??;

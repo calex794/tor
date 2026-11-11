@@ -1,12 +1,12 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
 mod flow_health;
-use flow_health::FlowGate;
 use crate::domain::{
     BehaviorEvent, BehaviorSketch, FlowPageview, FlowVisitWindows, PathReport, RollupDelta,
     SketchSnapshot, SqlCostEvent, VerifiedSubjectKey, MAX_SUBJECTS,
 };
 use crate::services::paths_worker::PathRecorder;
+use flow_health::FlowGate;
 use std::collections::{HashSet, VecDeque};
 use std::{
     sync::{
@@ -146,7 +146,9 @@ impl TrafficRecorder {
         let guard = has_flow.then(|| self.flow_gate.lock()).flatten();
         let observed_at = guard.as_ref().and_then(|guard| guard.observation_time());
         let unavailable = has_flow && observed_at.is_none();
-        if unavailable { self.flow_dropped.fetch_add(1, Ordering::Relaxed); }
+        if unavailable {
+            self.flow_dropped.fetch_add(1, Ordering::Relaxed);
+        }
         let flow = if unavailable { None } else { flow };
         // Timestamp and enqueue are fenced together against the pump barrier.
         let observed_hour = observed_at.and_then(crate::domain::observation_hour);
@@ -197,12 +199,18 @@ impl TrafficRecorder {
         response.recv_timeout(Duration::from_secs(2)).ok()
     }
 
-    pub(crate) fn manage_flow_health(&self) { self.flow_gate.manage(); }
-    pub(crate) fn flow_health_started(&self) -> Instant { self.flow_gate.created() }
+    pub(crate) fn manage_flow_health(&self) {
+        self.flow_gate.manage();
+    }
+    pub(crate) fn flow_health_started(&self) -> Instant {
+        self.flow_gate.created()
+    }
     pub(crate) fn activate_flow_health(&self, clock_ms: i64, started: Instant) -> bool {
         self.flow_gate.activate(clock_ms, started)
     }
-    pub(crate) fn close_flow_health(&self) { self.flow_gate.close(); }
+    pub(crate) fn close_flow_health(&self) {
+        self.flow_gate.close();
+    }
     pub(crate) fn drain_for_health(&self) -> Option<RollupDelta> {
         let guard = self.flow_gate.lock()?;
         guard.observation_time()?;

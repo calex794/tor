@@ -8,12 +8,18 @@ use crate::domain::html_health::{
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 impl From<sqlx::Error> for HtmlHealthError {
-    fn from(_: sqlx::Error) -> Self { Self::Unavailable }
+    fn from(_: sqlx::Error) -> Self {
+        Self::Unavailable
+    }
 }
 #[derive(Clone)]
-pub struct PgHtmlHealth { pool: PgPool }
+pub struct PgHtmlHealth {
+    pool: PgPool,
+}
 impl PgHtmlHealth {
-    pub fn new(pool: PgPool) -> Self { Self { pool } }
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
     /// A missing, unapplied capability is distinct from a broken installation.
     /// Run in the caller's snapshot so old counts cannot gain a newer proof.
     pub(crate) async fn capability_in(
@@ -63,7 +69,8 @@ impl PgHtmlHealth {
         )
         .fetch_one(&mut *tx)
         .await?;
-        let clock = row.try_get::<bool, _>("observed")?
+        let clock = row
+            .try_get::<bool, _>("observed")?
             .then_some(row.try_get("ms")?);
         tx.commit().await?;
         Ok(clock)
@@ -120,8 +127,12 @@ impl PgHtmlHealth {
         recorded_dropped: i64,
         recorded_failed: i64,
     ) -> Result<(i64, i64), HtmlHealthError> {
-        if dropped < 0 || failed < 0 || recorded_dropped < 0 || recorded_failed < 0
-            || recorded_dropped > dropped || recorded_failed > failed
+        if dropped < 0
+            || failed < 0
+            || recorded_dropped < 0
+            || recorded_failed < 0
+            || recorded_dropped > dropped
+            || recorded_failed > failed
             || gap_from_ms.is_some_and(|from| from <= 0)
             || predecessor.is_some_and(|epoch| epoch <= 0)
             || predecessor.is_some() && gap_from_ms.is_none()
@@ -130,11 +141,10 @@ impl PgHtmlHealth {
         }
         let mut tx = self.pool.begin().await?;
         limits(&mut tx, false).await?;
-        let now: i64 = sqlx::query_scalar(
-            "SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let now: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+                .fetch_one(&mut *tx)
+                .await?;
         if let Some(epoch) = predecessor {
             retire_in(&mut tx, epoch, now, dropped, failed).await?;
         }
@@ -185,7 +195,11 @@ impl PgHtmlHealth {
         let row = sqlx::query("WITH instant AS (SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms) UPDATE ril_flow_health_epochs e SET generation=generation+1,pending_ms=i.ms,lease_until_ms=i.ms+$2 FROM instant i WHERE epoch=$1 AND NOT retired AND lease_until_ms>=i.ms AND confirmed_ms>=i.ms-$3 RETURNING generation,pending_ms")
             .bind(epoch).bind(HTML_HEALTH_LEASE_MS).bind(HTML_HEALTH_GAP_MS)
             .fetch_optional(&mut *tx).await?.ok_or(HtmlHealthError::Expired)?;
-        let point = HtmlCheckpoint { epoch, generation: row.try_get("generation")?, cut_ms: row.try_get("pending_ms")? };
+        let point = HtmlCheckpoint {
+            epoch,
+            generation: row.try_get("generation")?,
+            cut_ms: row.try_get("pending_ms")?,
+        };
         tx.commit().await?;
         Ok(point)
     }
@@ -203,8 +217,20 @@ impl PgHtmlHealth {
     }
     /// `None` is the ordered acknowledgement of an empty drain. For a real batch,
     /// done state and immutable receipt are checked in the same fenced transaction.
-    pub async fn finish(&self, point: HtmlCheckpoint, batch: Option<&str>, dropped: i64, failed: i64) -> Result<bool, HtmlHealthError> {
-        if point.epoch<=0 || point.generation<=0 || point.cut_ms<=0 || dropped<0 || failed<0 || batch.is_some_and(|id| id.len()!=36) {
+    pub async fn finish(
+        &self,
+        point: HtmlCheckpoint,
+        batch: Option<&str>,
+        dropped: i64,
+        failed: i64,
+    ) -> Result<bool, HtmlHealthError> {
+        if point.epoch <= 0
+            || point.generation <= 0
+            || point.cut_ms <= 0
+            || dropped < 0
+            || failed < 0
+            || batch.is_some_and(|id| id.len() != 36)
+        {
             return Err(HtmlHealthError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
@@ -212,21 +238,35 @@ impl PgHtmlHealth {
         let row = sqlx::query("SELECT confirmed_ms,pending_ms,dropped,failed,floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms FROM ril_flow_health_epochs WHERE epoch=$1 AND generation=$2 AND NOT retired AND lease_until_ms>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint AND (pending_ms=$3 OR pending_ms IS NULL AND confirmed_ms>= $3-$5) AND $3-confirmed_ms BETWEEN 0 AND $4 AND $3>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-$4 FOR UPDATE")
             .bind(point.epoch).bind(point.generation).bind(point.cut_ms).bind(HTML_HEALTH_GAP_MS).bind(HTML_CLOCK_MARGIN_MS)
             .fetch_optional(&mut *tx).await?.ok_or(HtmlHealthError::Expired)?;
-        let from:i64=row.try_get("confirmed_ms")?;
-        if row.try_get::<Option<i64>,_>("pending_ms")?.is_none() {
+        let from: i64 = row.try_get("confirmed_ms")?;
+        if row.try_get::<Option<i64>, _>("pending_ms")?.is_none() {
             tx.commit().await?;
             return Ok(true);
         }
-        let discarded = if let Some(id)=batch {
+        let discarded = if let Some(id) = batch {
             let discarded: Option<i64>=sqlx::query_scalar("SELECT coalesce(r.discarded_events,0)::bigint FROM ril_flush_batches b LEFT JOIN ril_flow_observed_receipts r USING(batch_id) WHERE b.batch_id=$1 AND b.status='done' AND (r.batch_id IS NOT NULL OR (b.flow_observed_discarded=0 AND NOT EXISTS(SELECT 1 FROM ril_flush_flow_observed f WHERE f.batch_id=b.batch_id)))")
                 .bind(id).fetch_optional(&mut *tx).await?;
-            let Some(discarded)=discarded else {return Ok(false);};
-            discarded>0
-        } else {false};
-        let old_dropped:i64=row.try_get("dropped")?;
-        let old_failed:i64=row.try_get("failed")?;
-        if dropped<old_dropped || failed<old_failed {return Err(HtmlHealthError::Invalid);}
-        flags(&mut tx,point.epoch,from,row.try_get("now_ms")?,dropped>old_dropped || discarded,failed>old_failed).await?;
+            let Some(discarded) = discarded else {
+                return Ok(false);
+            };
+            discarded > 0
+        } else {
+            false
+        };
+        let old_dropped: i64 = row.try_get("dropped")?;
+        let old_failed: i64 = row.try_get("failed")?;
+        if dropped < old_dropped || failed < old_failed {
+            return Err(HtmlHealthError::Invalid);
+        }
+        flags(
+            &mut tx,
+            point.epoch,
+            from,
+            row.try_get("now_ms")?,
+            dropped > old_dropped || discarded,
+            failed > old_failed,
+        )
+        .await?;
         // The request clock is checked against the leased DB clock. The margin
         // prevents a later accepted observation from entering an acknowledged hour.
         sqlx::query("UPDATE ril_flow_health_epochs SET confirmed_ms=greatest(confirmed_ms,$2-$5),pending_ms=NULL,dropped=$3,failed=$4 WHERE epoch=$1")
@@ -238,36 +278,64 @@ impl PgHtmlHealth {
     /// Terminal stop only: the owner must have stopped accepting HTTP and drained
     /// in-flight middleware. Closing the recorder gate alone is not that witness.
     /// A returning collector uses replace_epoch_after_gap instead.
-    pub async fn retire(&self, epoch:i64, dropped:i64, failed:i64, _witness:&HtmlIngressStopped)->Result<(),HtmlHealthError>{
-        if epoch<=0 || dropped<0 || failed<0 {return Err(HtmlHealthError::Invalid);}
-        let mut tx=self.pool.begin().await?;
-        limits(&mut tx,false).await?;
-        let now:i64=sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
-            .fetch_one(&mut *tx).await?;
-        retire_in(&mut tx,epoch,now,dropped,failed).await?;
+    pub async fn retire(
+        &self,
+        epoch: i64,
+        dropped: i64,
+        failed: i64,
+        _witness: &HtmlIngressStopped,
+    ) -> Result<(), HtmlHealthError> {
+        if epoch <= 0 || dropped < 0 || failed < 0 {
+            return Err(HtmlHealthError::Invalid);
+        }
+        let mut tx = self.pool.begin().await?;
+        limits(&mut tx, false).await?;
+        let now: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint")
+                .fetch_one(&mut *tx)
+                .await?;
+        retire_in(&mut tx, epoch, now, dropped, failed).await?;
         tx.commit().await?;
         Ok(())
     }
     /// Known loss is durable even while a batch is still pending. This does not
     /// advance confirmed time, refresh the lease, or declare a recovery.
-    pub async fn note(&self,epoch:i64,dropped:i64,failed:i64)->Result<(),HtmlHealthError>{
-        let mut tx=self.pool.begin().await?;
-        limits(&mut tx,false).await?;
+    pub async fn note(&self, epoch: i64, dropped: i64, failed: i64) -> Result<(), HtmlHealthError> {
+        let mut tx = self.pool.begin().await?;
+        limits(&mut tx, false).await?;
         let row=sqlx::query("SELECT confirmed_ms,dropped,failed,floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms FROM ril_flow_health_epochs WHERE epoch=$1 AND NOT retired FOR UPDATE")
             .bind(epoch).fetch_optional(&mut *tx).await?.ok_or(HtmlHealthError::Expired)?;
-        let old_dropped:i64=row.try_get("dropped")?;
-        let old_failed:i64=row.try_get("failed")?;
-        if dropped<old_dropped || failed<old_failed {return Err(HtmlHealthError::Invalid);}
-        flags(&mut tx,epoch,row.try_get("confirmed_ms")?,row.try_get("now_ms")?,dropped>old_dropped,failed>old_failed).await?;
+        let old_dropped: i64 = row.try_get("dropped")?;
+        let old_failed: i64 = row.try_get("failed")?;
+        if dropped < old_dropped || failed < old_failed {
+            return Err(HtmlHealthError::Invalid);
+        }
+        flags(
+            &mut tx,
+            epoch,
+            row.try_get("confirmed_ms")?,
+            row.try_get("now_ms")?,
+            dropped > old_dropped,
+            failed > old_failed,
+        )
+        .await?;
         sqlx::query("UPDATE ril_flow_health_epochs SET dropped=$2,failed=$3 WHERE epoch=$1")
-            .bind(epoch).bind(dropped).bind(failed).execute(&mut *tx).await?;
+            .bind(epoch)
+            .bind(dropped)
+            .bind(failed)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
-    pub async fn prune(&self)->Result<(),HtmlHealthError>{
-        let mut tx=self.pool.begin().await?;
-        limits(&mut tx,false).await?;
-        let before:i64=sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()-interval '181 days')*1000)::bigint").fetch_one(&mut *tx).await?;
+    pub async fn prune(&self) -> Result<(), HtmlHealthError> {
+        let mut tx = self.pool.begin().await?;
+        limits(&mut tx, false).await?;
+        let before: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM clock_timestamp()-interval '181 days')*1000)::bigint",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         sqlx::query("DELETE FROM ril_flow_health_hourly WHERE (epoch,bucket_ms) IN(SELECT epoch,bucket_ms FROM ril_flow_health_hourly WHERE bucket_ms<$1 ORDER BY bucket_ms,epoch LIMIT 500 FOR UPDATE SKIP LOCKED)").bind(before).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM ril_flow_health_epochs WHERE epoch IN(SELECT epoch FROM ril_flow_health_epochs e WHERE retired AND lease_until_ms<$1 AND NOT EXISTS(SELECT 1 FROM ril_flow_health_hourly h WHERE h.epoch=e.epoch) ORDER BY lease_until_ms,epoch LIMIT 100 FOR UPDATE SKIP LOCKED)").bind(before).execute(&mut *tx).await?;
         tx.commit().await?;
@@ -275,36 +343,59 @@ impl PgHtmlHealth {
     }
 }
 async fn retire_in(
-    tx:&mut Transaction<'_,Postgres>,
-    epoch:i64,
-    now:i64,
-    dropped:i64,
-    failed:i64,
-)->Result<(),HtmlHealthError>{
+    tx: &mut Transaction<'_, Postgres>,
+    epoch: i64,
+    now: i64,
+    dropped: i64,
+    failed: i64,
+) -> Result<(), HtmlHealthError> {
     let row=sqlx::query("SELECT confirmed_ms,dropped,failed FROM ril_flow_health_epochs WHERE epoch=$1 AND NOT retired FOR UPDATE")
         .bind(epoch).fetch_optional(&mut **tx).await?;
-    if let Some(row)=row {
-        let old_dropped:i64=row.try_get("dropped")?;
-        let old_failed:i64=row.try_get("failed")?;
-        if dropped<old_dropped || failed<old_failed {return Err(HtmlHealthError::Invalid);}
-        flags(tx,epoch,row.try_get("confirmed_ms")?,now,dropped>old_dropped,failed>old_failed).await?;
+    if let Some(row) = row {
+        let old_dropped: i64 = row.try_get("dropped")?;
+        let old_failed: i64 = row.try_get("failed")?;
+        if dropped < old_dropped || failed < old_failed {
+            return Err(HtmlHealthError::Invalid);
+        }
+        flags(
+            tx,
+            epoch,
+            row.try_get("confirmed_ms")?,
+            now,
+            dropped > old_dropped,
+            failed > old_failed,
+        )
+        .await?;
         sqlx::query("UPDATE ril_flow_health_epochs SET retired=true,pending_ms=NULL,generation=generation+1,lease_until_ms=greatest(lease_until_ms,$2),dropped=$3,failed=$4 WHERE epoch=$1")
             .bind(epoch).bind(now).bind(dropped).bind(failed).execute(&mut **tx).await?;
     }
     Ok(())
 }
-async fn flags(tx:&mut Transaction<'_,Postgres>,epoch:i64,from:i64,through:i64,loss:bool,error:bool)->Result<(),HtmlHealthError>{
-    if !loss && !error {return Ok(());}
+async fn flags(
+    tx: &mut Transaction<'_, Postgres>,
+    epoch: i64,
+    from: i64,
+    through: i64,
+    loss: bool,
+    error: bool,
+) -> Result<(), HtmlHealthError> {
+    if !loss && !error {
+        return Ok(());
+    }
     // At most 181 days, even when a paused process returns much later.
-    let from=(from-HTML_CLOCK_MARGIN_MS).max(through-181*86_400_000);
-    let first=from.div_euclid(3_600_000)*3_600_000;
-    let last=(through+HTML_CLOCK_MARGIN_MS).div_euclid(3_600_000)*3_600_000;
+    let from = (from - HTML_CLOCK_MARGIN_MS).max(through - 181 * 86_400_000);
+    let first = from.div_euclid(3_600_000) * 3_600_000;
+    let last = (through + HTML_CLOCK_MARGIN_MS).div_euclid(3_600_000) * 3_600_000;
     sqlx::query("INSERT INTO ril_flow_health_hourly(epoch,bucket_ms,had_loss,had_error) SELECT $1,b,$4,$5 FROM generate_series($2::bigint,$3::bigint,3600000) b ON CONFLICT(epoch,bucket_ms) DO UPDATE SET had_loss=ril_flow_health_hourly.had_loss OR EXCLUDED.had_loss,had_error=ril_flow_health_hourly.had_error OR EXCLUDED.had_error")
         .bind(epoch).bind(first).bind(last).bind(loss).bind(error).execute(&mut **tx).await?;
     Ok(())
 }
-async fn limits(tx:&mut Transaction<'_,Postgres>,read:bool)->Result<(),HtmlHealthError>{
-    if read {sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").execute(&mut **tx).await?;}
+async fn limits(tx: &mut Transaction<'_, Postgres>, read: bool) -> Result<(), HtmlHealthError> {
+    if read {
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut **tx)
+            .await?;
+    }
     sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)").execute(&mut **tx).await?;
     Ok(())
 }

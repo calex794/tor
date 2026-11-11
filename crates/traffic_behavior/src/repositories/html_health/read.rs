@@ -1,18 +1,30 @@
 use super::*;
-use crate::domain::html_health::{HtmlHealthPeriod,HtmlHealthReport};
+use crate::domain::html_health::{HtmlHealthPeriod, HtmlHealthReport};
 impl PgHtmlHealth {
-    pub async fn report(&self,days:i32,until_epoch:i64)->Result<HtmlHealthReport,HtmlHealthError>{
-        let mut tx=self.pool.begin().await?;
-        limits(&mut tx,true).await?;
-        let report=Self::read_in(&mut tx,days,until_epoch).await?;
+    pub async fn report(
+        &self,
+        days: i32,
+        until_epoch: i64,
+    ) -> Result<HtmlHealthReport, HtmlHealthError> {
+        let mut tx = self.pool.begin().await?;
+        limits(&mut tx, true).await?;
+        let report = Self::read_in(&mut tx, days, until_epoch).await?;
         tx.commit().await?;
         Ok(report)
     }
-    pub(crate) async fn read_in(tx:&mut Transaction<'_,Postgres>,days:i32,until_epoch:i64)->Result<HtmlHealthReport,HtmlHealthError>{
-        if !matches!(days,1|7|30|90) || until_epoch<=0 || until_epoch%3600!=0 {return Err(HtmlHealthError::Invalid);}
+    pub(crate) async fn read_in(
+        tx: &mut Transaction<'_, Postgres>,
+        days: i32,
+        until_epoch: i64,
+    ) -> Result<HtmlHealthReport, HtmlHealthError> {
+        if !matches!(days, 1 | 7 | 30 | 90) || until_epoch <= 0 || until_epoch % 3600 != 0 {
+            return Err(HtmlHealthError::Invalid);
+        }
         let valid:bool=sqlx::query_scalar("SELECT $1<=extract(epoch FROM date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::bigint AND $1>=extract(epoch FROM now()-interval '3 hours')::bigint")
             .bind(until_epoch).fetch_one(&mut **tx).await?;
-        if !valid {return Err(HtmlHealthError::Invalid);}
+        if !valid {
+            return Err(HtmlHealthError::Invalid);
+        }
         let rows=sqlx::query(r#"WITH hours AS (
           SELECT b,CASE WHEN b>=($2::bigint-$1::bigint*86400)*1000 THEN 0 ELSE 1 END AS period
           FROM generate_series(($2::bigint-$1::bigint*172800)*1000,$2::bigint*1000-3600000,3600000) b
@@ -35,10 +47,20 @@ impl PgHtmlHealth {
           count(*) FILTER(WHERE loss)::integer AS loss_hours,count(*) FILTER(WHERE error)::integer AS error_hours
           FROM measured GROUP BY period ORDER BY period"#)
             .bind(days).bind(until_epoch).fetch_all(&mut **tx).await?;
-        if rows.len()!=2 {return Err(HtmlHealthError::Unavailable);}
-        let period=|row:&sqlx::postgres::PgRow|->Result<HtmlHealthPeriod,HtmlHealthError>{Ok(HtmlHealthPeriod{
-            confirmed_hours:row.try_get("confirmed_hours")?,loss_hours:row.try_get("loss_hours")?,error_hours:row.try_get("error_hours")?
-        })};
-        Ok(HtmlHealthReport{until_epoch,current:period(&rows[0])?,previous:period(&rows[1])?})
+        if rows.len() != 2 {
+            return Err(HtmlHealthError::Unavailable);
+        }
+        let period = |row: &sqlx::postgres::PgRow| -> Result<HtmlHealthPeriod, HtmlHealthError> {
+            Ok(HtmlHealthPeriod {
+                confirmed_hours: row.try_get("confirmed_hours")?,
+                loss_hours: row.try_get("loss_hours")?,
+                error_hours: row.try_get("error_hours")?,
+            })
+        };
+        Ok(HtmlHealthReport {
+            until_epoch,
+            current: period(&rows[0])?,
+            previous: period(&rows[1])?,
+        })
     }
 }

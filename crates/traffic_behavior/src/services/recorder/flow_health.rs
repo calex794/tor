@@ -166,8 +166,18 @@ mod tests {
         let latest = Duration::from_millis(1_000);
         // DB now may be anywhere in [3_600_000, 3_600_901) ms.
         // The intersection for a +/- 2s guarantee is [3_598_901, 3_602_000].
-        assert!(clock_accepts(Duration::from_millis(3_598_901), db, earliest, latest));
-        assert!(clock_accepts(Duration::from_millis(3_602_000), db, earliest, latest));
+        assert!(clock_accepts(
+            Duration::from_millis(3_598_901),
+            db,
+            earliest,
+            latest
+        ));
+        assert!(clock_accepts(
+            Duration::from_millis(3_602_000),
+            db,
+            earliest,
+            latest
+        ));
         assert!(!clock_accepts(
             Duration::from_millis(3_598_901) - Duration::from_nanos(1),
             db,
@@ -181,7 +191,12 @@ mod tests {
             latest,
         ));
         // The previous point estimate accepted this 2.9s positive skew.
-        assert!(!clock_accepts(Duration::from_millis(3_602_900), db, earliest, latest));
+        assert!(!clock_accepts(
+            Duration::from_millis(3_602_900),
+            db,
+            earliest,
+            latest
+        ));
         assert!(!clock_accepts(
             Duration::from_millis(3_601_900),
             db,
@@ -192,15 +207,50 @@ mod tests {
 
     #[test]
     fn positive_and_negative_offsets_and_the_rtt_limit_are_explicit() {
-        let db=10_000;
-        assert!(clock_accepts(Duration::from_millis(8_001),db,Duration::ZERO,Duration::ZERO));
-        assert!(!clock_accepts(Duration::from_millis(8_000),db,Duration::ZERO,Duration::ZERO));
-        assert!(clock_accepts(Duration::from_millis(12_000),db,Duration::ZERO,Duration::ZERO));
-        assert!(!clock_accepts(Duration::from_millis(12_000)+Duration::from_nanos(1),db,Duration::ZERO,Duration::ZERO));
+        let db = 10_000;
+        assert!(clock_accepts(
+            Duration::from_millis(8_001),
+            db,
+            Duration::ZERO,
+            Duration::ZERO
+        ));
+        assert!(!clock_accepts(
+            Duration::from_millis(8_000),
+            db,
+            Duration::ZERO,
+            Duration::ZERO
+        ));
+        assert!(clock_accepts(
+            Duration::from_millis(12_000),
+            db,
+            Duration::ZERO,
+            Duration::ZERO
+        ));
+        assert!(!clock_accepts(
+            Duration::from_millis(12_000) + Duration::from_nanos(1),
+            db,
+            Duration::ZERO,
+            Duration::ZERO
+        ));
         // 3999ms plus the 1ms DB-floor uncertainty leaves exactly one safe point.
-        assert!(clock_accepts(Duration::from_millis(12_000),db,Duration::ZERO,Duration::from_millis(3_999)));
-        assert!(!clock_accepts(Duration::from_millis(12_000),db,Duration::ZERO,Duration::from_millis(4_000)));
-        assert!(!clock_accepts(Duration::from_millis(12_000),db,Duration::ZERO,Duration::from_millis(4_001)));
+        assert!(clock_accepts(
+            Duration::from_millis(12_000),
+            db,
+            Duration::ZERO,
+            Duration::from_millis(3_999)
+        ));
+        assert!(!clock_accepts(
+            Duration::from_millis(12_000),
+            db,
+            Duration::ZERO,
+            Duration::from_millis(4_000)
+        ));
+        assert!(!clock_accepts(
+            Duration::from_millis(12_000),
+            db,
+            Duration::ZERO,
+            Duration::from_millis(4_001)
+        ));
     }
 
     #[test]

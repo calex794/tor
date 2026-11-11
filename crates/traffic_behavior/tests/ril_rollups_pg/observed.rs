@@ -73,8 +73,12 @@ impl Fixture {
                     sqlx::query(&format!("SET search_path={schema},public"))
                         .execute(&mut *connection)
                         .await?;
-                    sqlx::query("SET statement_timeout = '1s'").execute(&mut *connection).await?;
-                    sqlx::query("SET lock_timeout = '75ms'").execute(&mut *connection).await?;
+                    sqlx::query("SET statement_timeout = '1s'")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SET lock_timeout = '75ms'")
+                        .execute(&mut *connection)
+                        .await?;
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(connection)
                         .await?;
@@ -246,10 +250,8 @@ async fn every_period_is_exact_and_timezone_does_not_change_totals() {
         assert_eq!(local.current.recorded_hours, days as usize * 24);
     }
     // Real query at a fixed test-only anchor validates the repeated DST hour.
-    let query = include_str!("../../src/repositories/audience/observed.sql").replace(
-        "statement_timestamp()",
-        "TIMESTAMPTZ '2026-10-25T04:00:00Z'",
-    );
+    let query = include_str!("../../src/repositories/audience/observed.sql")
+        .replace("now()", "TIMESTAMPTZ '2026-10-25T04:00:00Z'");
     let rows = sqlx::query(&query)
         .bind(24_i32)
         .bind("Europe/Amsterdam")
