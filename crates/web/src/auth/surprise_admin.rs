@@ -85,7 +85,8 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Err(status) => return deny(status),
     };
     let repo = PgSurprises::new(state.accounts.pool().clone());
-    let (enabled, probability, experiment_enabled, items) = match repo.admin_overview(&digest).await {
+    let (enabled, probability, experiment_enabled, items) = match repo.admin_overview(&digest).await
+    {
         Ok(value) => value,
         Err(error) => return problem(error),
     };
