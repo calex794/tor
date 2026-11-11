@@ -120,7 +120,11 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
             body,
             "<li><b>{title}</b> ({kind}, {state}) — ID {} — книга {book} {}",
             item.id,
-            if item.editorial { "· Редакция" } else { "" }
+            if item.editorial {
+                "· Редакция"
+            } else {
+                ""
+            }
         );
         let next = match item.state.as_str() {
             "draft" => &["approved"][..],
@@ -152,8 +156,7 @@ async fn policy(
     headers: HeaderMap,
     Form(form): Form<PolicyForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -163,7 +166,11 @@ async fn policy(
     };
     let repo = PgSurprises::new(state.accounts.pool().clone());
     match repo
-        .admin_policy(&digest, form.enabled.as_deref() == Some("on"), form.probability_per_mille)
+        .admin_policy(
+            &digest,
+            form.enabled.as_deref() == Some("on"),
+            form.probability_per_mille,
+        )
         .await
     {
         Ok(()) => private_response(Redirect::to("/admin/surprises"), &[]),
@@ -176,8 +183,7 @@ async fn create(
     headers: HeaderMap,
     Form(form): Form<NewForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -205,8 +211,7 @@ async fn set_state(
     Path(id): Path<i64>,
     Form(form): Form<StateForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
