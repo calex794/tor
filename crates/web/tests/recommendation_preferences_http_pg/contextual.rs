@@ -72,13 +72,10 @@ impl Drop for Lock {
 async fn contextual_admin_has_live_role_csrf_cas_readonly_and_outage_recovery() {
     let h = Harness::new(false).await;
     let snapshot = optional_snapshot(&h.url, h.actor.id);
-    assert!(
-        h.sql("SELECT count(*) FROM account_roles WHERE role='administrator' AND is_active")
-            .parse::<i64>()
-            .unwrap()
-            > 0,
-        "existing independent fixture administrator required"
-    );
+    // This test owns its only temporary role. It also works on the empty
+    // standalone REC database; no administrator from another suite is required.
+    let administrators_before =
+        h.sql("SELECT count(*) FROM account_roles WHERE role='administrator' AND is_active");
     for path in [PAGE, API] {
         private(&h.get(&h.actor, path).await, StatusCode::FORBIDDEN);
         private(
@@ -207,4 +204,9 @@ async fn contextual_admin_has_live_role_csrf_cas_readonly_and_outage_recovery() 
     h.sql("UPDATE rec_runtime_policy SET active_generation=NULL,previous_generation=NULL,rollout_percent=0,hold=true,revision=revision+1 WHERE singleton");
     h.sql(&format!("DELETE FROM rec_generations WHERE id='{id}'; DELETE FROM account_roles WHERE user_id={} AND role='administrator'",h.actor.id));
     h.cleanup();
+    assert_eq!(
+        h.sql("SELECT count(*) FROM account_roles WHERE role='administrator' AND is_active"),
+        administrators_before,
+        "contextual fixture must not leak an administrator into later role tests"
+    );
 }
