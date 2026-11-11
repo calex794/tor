@@ -178,8 +178,11 @@ async fn d_06_multi_wallet_three_round_finance_contention() {
                     assert_eq!(repeat.purchase_id, first.purchase_id);
                     assert!(repeat.replayed);
                 }
-                let (balance_after_replays, purchase_facts_after_replays, refund_postings_after_replays):
-                    (i64, i64, i64) = sqlx::query_as(
+                let (balance_after_replays, purchase_facts_after_replays, refund_postings_after_replays): (
+                    i64,
+                    i64,
+                    i64,
+                ) = sqlx::query_as(
                         "SELECT w.balance_minor,
                            (SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id=$1),
                            (SELECT COUNT(*) FROM finance_direct_refund_postings WHERE purchase_id=$2)
