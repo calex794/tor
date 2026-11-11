@@ -336,7 +336,7 @@ mod tests {
                 tor_contracts::exposure::ExposureSurface::ReaderEnd
             );
             assert!(card.editorial.is_none());
-            Some("bounded-proof".into())
+            Some("A".repeat(43))
         }
     }
 
@@ -364,7 +364,7 @@ mod tests {
         assert!(!preview.contains("data-flow-proof"));
         assert!(!preview.contains("<script>reader"));
         let delivered = shelf_panel_observed(&feed, Some(&ProofIssuer));
-        assert!(delivered.contains("data-flow-proof=\"bounded-proof\""));
+        assert!(delivered.contains(&format!("data-flow-proof=\"{}\"", "A".repeat(43))));
         assert!(delivered.contains("data-flow-link"));
     }
 
