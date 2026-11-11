@@ -50,7 +50,11 @@ pub(crate) fn page(query: &CanonicalQuery, report: Option<&CanonicalRankReport>)
         }
     }
     body.push_str("<section class=\"book-section-card\"><h2>Границы рейтинга</h2><p>Источник — сохранившиеся записи чтения C с совпадающими подтверждениями. Следующие главы и повторные завершения не добавляют новую пару «аккаунт–книга». Нуль обозначает отсутствие таких сохранившихся записей, а не отсутствие всех читателей.</p><p>Учитываются доступные сейчас публичные книги без возрастных ограничений с текущими жанрами и тегами. Библиотеки и подписки отражают нынешнее состояние. Пересекающиеся группы нельзя складывать. Рейтинг не меняет порядок публичного каталога и рекомендаций.</p><p>Сравнение двух периодов доступно при 10 и более парах в каждом. Показы и причинный эффект продвижения этим рейтингом не измеряются.</p></section></div></section>");
-    layout("Топ-20 по подтверждённому чтению", "Описательный рейтинг первых завершений глав по книгам и группам", &body)
+    layout(
+        "Топ-20 по подтверждённому чтению",
+        "Описательный рейтинг первых завершений глав по книгам и группам",
+        &body,
+    )
 }
 
 #[cfg(test)]
@@ -68,11 +72,21 @@ mod tests {
             measured_at_utc: "2026-11-11T10:10:00Z".into(),
             current_from_utc: "2026-11-04T10:10:00Z".into(),
             previous_from_utc: "2026-10-28T10:10:00Z".into(),
-            totals: CanonicalCounts { books: 25, current_pairs: 20, ..Default::default() },
+            totals: CanonicalCounts {
+                books: 25,
+                current_pairs: 20,
+                ..Default::default()
+            },
             rows: vec![CanonicalRankRow {
-                book_id: Some(99), label: Some("<script>hidden</script>".into()),
-                counts: CanonicalCounts { books: 1, current_pairs: 9, ..Default::default() },
-                small_current_sample: true, small_previous_sample: true,
+                book_id: Some(99),
+                label: Some("<script>hidden</script>".into()),
+                counts: CanonicalCounts {
+                    books: 1,
+                    current_pairs: 9,
+                    ..Default::default()
+                },
+                small_current_sample: true,
+                small_previous_sample: true,
             }],
         };
         let html = page(&q, Some(&report)).0;

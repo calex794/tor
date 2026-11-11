@@ -75,7 +75,11 @@ pub(super) async fn page(
             _ => None,
         };
         return secure((
-            if report.is_some() { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE },
+            if report.is_some() {
+                StatusCode::OK
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
             super::render::canonical::ranked_page(&query, report.as_ref()),
         ));
     }
@@ -101,13 +105,19 @@ mod tests {
     #[test]
     fn ranking_uses_the_whole_filter_and_cannot_accept_a_page_cursor() {
         for raw in [
-            "view=unknown", "view=top20&after_id=1",
-            "view=top20&kind=tags&after_label=a", "view=top20&view=all",
+            "view=unknown",
+            "view=top20&after_id=1",
+            "view=top20&kind=tags&after_label=a",
+            "view=top20&view=all",
         ] {
             let uri = format!("/admin/audience/reading?{raw}").parse().unwrap();
-            assert!(Query::<ReadingQuery>::try_from_uri(&uri)
-                .map_err(|_| AudienceError::Invalid)
-                .and_then(|Query(q)| q.validated()).is_err(), "{raw}");
+            assert!(
+                Query::<ReadingQuery>::try_from_uri(&uri)
+                    .map_err(|_| AudienceError::Invalid)
+                    .and_then(|Query(q)| q.validated())
+                    .is_err(),
+                "{raw}"
+            );
         }
         for (raw, ranked) in [
             ("days=7&after_id=20", false),

@@ -5,11 +5,11 @@ use crate::pages::{escape_html as e, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_contracts::exposure::ExposureSurface;
+use tor_reading::services::audience::ClosedBookEvidenceReport;
 use tor_recommendations::domain::exposure::{
     Counts, ExposureFilter, ExposureReport, ObservationClass,
 };
 use tor_recommendations::domain::exposure_health::ExposureHealth;
-use tor_reading::services::audience::ClosedBookEvidenceReport;
 
 pub(super) fn page(
     q: &ExposureFilter,

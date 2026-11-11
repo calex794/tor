@@ -1,9 +1,9 @@
 //! C-owned retained facts; aggregate metadata only, never a reader history.
 mod ranking;
-pub(crate) use ranking::page as ranked_page;
 use super::{evidence::encode, time};
 use crate::pages::{escape_html, layout};
 use axum::response::Html;
+pub(crate) use ranking::page as ranked_page;
 use std::fmt::Write;
 use tor_reading::services::audience::canonical::{
     CanonicalCounts, CanonicalQuery, CanonicalReport,
@@ -91,8 +91,12 @@ fn filters(body: &mut String, q: &CanonicalQuery, ranked: bool) {
         ("all", "Все строки по страницам", !ranked),
         ("top20", "Топ-20 по подтверждениям", ranked),
     ] {
-        write!(body, r#"<option value="{key}"{}>{label}</option>"#,
-            if selected { " selected" } else { "" }).expect("String");
+        write!(
+            body,
+            r#"<option value="{key}"{}>{label}</option>"#,
+            if selected { " selected" } else { "" }
+        )
+        .expect("String");
     }
     body.push_str(r#"</select></div><div><label for="canonical-kind">Группировать по</label><select id="canonical-kind" name="kind">"#);
     for (key, label) in [("books", "Книги"), ("genres", "Жанры"), ("tags", "Теги")] {

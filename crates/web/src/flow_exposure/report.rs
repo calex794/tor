@@ -181,11 +181,19 @@ pub(super) async fn page(
         if let Some((ref report, _)) = report {
             let ids: Vec<i64> = report.rows.iter().map(|book| book.id).collect();
             let source = PgAudience::new(state.accounts.pool().clone());
-            timeout_at(deadline, source.closed_book_evidence(
-                filter.days, report.until_epoch, &ids,
-            )).await.ok().and_then(Result::ok)
-        } else { None }
-    } else { None };
+            timeout_at(
+                deadline,
+                source.closed_book_evidence(filter.days, report.until_epoch, &ids),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     secure((
         if report.is_some() {
             StatusCode::OK

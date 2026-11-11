@@ -229,3 +229,6 @@ async fn calendar_and_closed_views_keep_health_and_campaign_scopes_distinct() {
     .await;
     f.cleanup();
 }
+
+#[path = "catalog_interest_http_pg.rs"]
+mod catalog_interest;
