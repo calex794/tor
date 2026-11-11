@@ -25,9 +25,7 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
         .fetch_one(&mut connection)
         .await?;
     let build = tokio::spawn(async move {
-        let result = through(spec.version)
-            .run_direct(&mut connection)
-            .await;
+        let result = through(spec.version).run_direct(&mut connection).await;
         (result, connection)
     });
 
