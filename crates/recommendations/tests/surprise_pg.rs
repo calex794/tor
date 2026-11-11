@@ -271,15 +271,16 @@ async fn surprise_admin_requires_live_role_and_audits_bounded_editorial_changes(
     let (enabled, chance, items) = f.store.admin_overview(&digest).await.unwrap();
     assert!(enabled);
     assert_eq!(chance, 350);
-    assert!(items.iter().any(|row| row.id == id && row.state == "approved"));
+    assert!(items
+        .iter()
+        .any(|row| row.id == id && row.state == "approved"));
 
-    let events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM surprise_admin_events WHERE actor_user_id=$1",
-    )
-    .bind(f.actor)
-    .fetch_one(&f.app)
-    .await
-    .unwrap();
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM surprise_admin_events WHERE actor_user_id=$1")
+            .bind(f.actor)
+            .fetch_one(&f.app)
+            .await
+            .unwrap();
     assert_eq!(events, 3, "one creation, approval and policy change");
 
     sqlx::query(
