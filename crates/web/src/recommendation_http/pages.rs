@@ -327,4 +327,54 @@ mod tests {
         assert!(!result.contains("data-rec-ticket"));
         assert!(!result.contains("<script"));
     }
+
+    struct ProofIssuer;
+    impl tor_contracts::exposure::ObservationIssuer for ProofIssuer {
+        fn issue(&self, card: tor_contracts::exposure::CardObservation) -> Option<String> {
+            assert_eq!(
+                card.surface,
+                tor_contracts::exposure::ExposureSurface::ReaderEnd
+            );
+            assert!(card.editorial.is_none());
+            Some("bounded-proof".into())
+        }
+    }
+
+    #[test]
+    fn reader_shelf_is_escaped_and_only_live_delivery_mints_observation() {
+        let feed = Feed {
+            items: vec![FeedItem {
+                book_id: "12".into(),
+                title: "<script>reader</script>".into(),
+                reason: "similar_by_content".into(),
+                source: "teammate".into(),
+                algorithm_version: "reader_end_shelf_504010_v1",
+                ticket: None,
+                feedback_revision: None,
+            }],
+            generation_id: None,
+            next_cursor: None,
+            personalized: false,
+        };
+        let preview = shelf_panel_observed(&feed, None);
+        assert!(preview.contains("data-rec-source=\"teammate\""));
+        assert!(preview.contains("href=\"/books/12\""));
+        assert!(preview.contains("/covers/12/card.webp"));
+        assert!(preview.contains("&lt;script&gt;reader&lt;/script&gt;"));
+        assert!(!preview.contains("data-flow-proof"));
+        assert!(!preview.contains("<script>reader"));
+        let delivered = shelf_panel_observed(&feed, Some(&ProofIssuer));
+        assert!(delivered.contains("data-flow-proof=\"bounded-proof\""));
+        assert!(delivered.contains("data-flow-link"));
+    }
+
+    #[test]
+    fn free_reader_shelf_stays_after_navigation_and_before_discussion() {
+        let html = include_str!("../../templates/reader.html");
+        let nav = html.rfind("<!--CHAPTER_NAVIGATION-->").unwrap();
+        let shelf = html.find("<!--READER_END_SHELF-->").unwrap();
+        let discussion = html.find("<!--FREE_CHAPTER_COMMENTS-->").unwrap();
+        assert!(nav < shelf && shelf < discussion);
+        assert!(html.contains("<!--EDITORIAL_PROMOTION-->"));
+    }
 }
