@@ -1,6 +1,6 @@
 //! S023 owner-only queue endpoints. No S3 key or object URL leaves this module.
 use axum::{
-    extract::{DefaultBodyLimit, Json, Path, State},
+    extract::{DefaultBodyLimit, Extension, Json, Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
@@ -150,6 +150,7 @@ fn status_response(job_id: i64, status: ChapterImportStatus, book_id: i64) -> St
 async fn enqueue(
     State(state): State<QueueState>,
     Path(book_id): Path<i64>,
+    trace: Option<Extension<crate::observability::TraceId>>,
     headers: HeaderMap,
     Json(input): Json<QueueInput>,
 ) -> axum::response::Response {
@@ -329,9 +330,9 @@ async fn enqueue(
         return fail(code, message);
     }
 
-    let job_id = match state
+    let (job_id, newly_created) = match state
         .jobs
-        .enqueue_verified(
+        .enqueue_verified_traced(
             actor_id,
             book_id,
             &input.command_key,
@@ -341,10 +342,11 @@ async fn enqueue(
             bytes.len() as i64,
             &approved,
             chapters.len() as i32,
+            trace.as_ref().map(|Extension(id)| id.0),
         )
         .await
     {
-        Ok(job_id) => job_id,
+        Ok(outcome) => outcome,
         // Do not delete this deterministic S3 key on an uncertain database
         // outcome: another identical concurrent request may already have
         // committed the job and its worker may be reading the same object.
@@ -368,14 +370,20 @@ async fn enqueue(
             );
         }
     };
-    private_response(
+    let mut response = private_response(
         Json(QueueResponse {
             job_id,
             status: "queued".to_owned(),
             status_url: format!("/me/books/{book_id}/chapters/import-jobs/{job_id}"),
         }),
         &[],
-    )
+    );
+    if newly_created && trace.is_some() {
+        response
+            .extensions_mut()
+            .insert(crate::observability::CorrelatedJobEnqueued);
+    }
+    response
 }
 
 async fn latest(

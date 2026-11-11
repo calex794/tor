@@ -80,6 +80,38 @@ impl PgImportJobs {
         fingerprint: &[u8; 32],
         count: i32,
     ) -> Result<i64, ImportJobsError> {
+        self.enqueue_verified_traced(
+            actor,
+            book,
+            command_key,
+            key,
+            filename,
+            hash,
+            size,
+            fingerprint,
+            count,
+            None,
+        )
+        .await
+        .map(|(id, _)| id)
+    }
+
+    /// Keep the first HTTP parent for the durable command, across retries,
+    /// duplicate requests and worker restarts. Never rewrite it on a replay.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn enqueue_verified_traced(
+        &self,
+        actor: i64,
+        book: i64,
+        command_key: &str,
+        key: &str,
+        filename: &str,
+        hash: &[u8; 32],
+        size: i64,
+        fingerprint: &[u8; 32],
+        count: i32,
+        parent_trace_id: Option<u128>,
+    ) -> Result<(i64, bool), ImportJobsError> {
         let lower = filename.to_ascii_lowercase();
         if actor <= 0
             || book <= 0
@@ -105,8 +137,9 @@ impl PgImportJobs {
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO chapter_import_jobs
              (book_id,actor_user_id,command_key,source_key,source_filename,
-              source_sha256,source_bytes,approved_fingerprint,expected_chapter_count)
-             SELECT b.id,$2,$3,$4,$5,$6,$7,$8,$9
+              source_sha256,source_bytes,approved_fingerprint,expected_chapter_count,
+              parent_trace_id)
+             SELECT b.id,$2,$3,$4,$5,$6,$7,$8,$9,$10
                FROM books b WHERE b.id=$1 AND b.owner_user_id=$2
                AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
              ON CONFLICT (actor_user_id,command_key) DO NOTHING
@@ -121,6 +154,7 @@ impl PgImportJobs {
         .bind(size)
         .bind(fingerprint.as_slice())
         .bind(count)
+        .bind(parent_trace_id.map(|id| id.to_be_bytes().to_vec()))
         .fetch_optional(&self.pool)
         .await
         .map_err(|error| match error {
@@ -130,7 +164,7 @@ impl PgImportJobs {
             _ => ImportJobsError::Unavailable,
         })?;
         if let Some(id) = inserted {
-            return Ok(id);
+            return Ok((id, true));
         }
         self.existing_for_command(
             actor,
@@ -143,6 +177,7 @@ impl PgImportJobs {
             count,
         )
         .await?
+        .map(|id| (id, false))
         .ok_or(ImportJobsError::Missing)
     }
 
@@ -170,13 +205,25 @@ impl PgImportJobs {
              FROM candidate WHERE j.id=candidate.id
              RETURNING j.id,j.book_id,j.actor_user_id,j.command_key,j.source_key,
                j.source_filename,j.source_sha256,j.source_bytes,
-               j.approved_fingerprint,j.expected_chapter_count,j.attempts,j.lease_epoch",
+               j.approved_fingerprint,j.expected_chapter_count,j.attempts,j.lease_epoch,
+               j.parent_trace_id",
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| ImportJobsError::Unavailable)?;
         row.map(|row| {
+            let parent: Option<Vec<u8>> = row
+                .try_get("parent_trace_id")
+                .map_err(|_| ImportJobsError::Unavailable)?;
+            let parent_trace_id = parent
+                .map(|bytes| {
+                    <[u8; 16]>::try_from(bytes)
+                        .map(u128::from_be_bytes)
+                        .map_err(|_| ImportJobsError::Unavailable)
+                })
+                .transpose()?;
             Ok(ChapterImportClaim {
+                parent_trace_id,
                 job_id: row
                     .try_get("id")
                     .map_err(|_| ImportJobsError::Unavailable)?,

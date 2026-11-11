@@ -127,8 +127,18 @@ async fn observe(
             .collect(),
         uncaptured_spans: measurement.uncaptured,
     });
-    let trace =
-        crate::observability::finish_trace(trace_id, passport.route_family, status, elapsed, sqlx);
+    let correlated_job = response
+        .extensions()
+        .get::<crate::observability::CorrelatedJobEnqueued>()
+        .is_some();
+    let trace = crate::observability::finish_trace(
+        trace_id,
+        passport.route_family,
+        status,
+        elapsed,
+        sqlx,
+        correlated_job,
+    );
     response.headers_mut().insert(
         HeaderName::from_static("x-request-id"),
         HeaderValue::from_str(&format!("{:032x}", trace_id.0)).expect("hexadecimal request ID"),
