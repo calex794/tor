@@ -373,37 +373,76 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         "completed and cancelled source objects are cleaned up"
     );
 
-    // S059: a separate reviewed batch enters the same durable PostgreSQL
-    // queue with a server-generated parent. A replay MUST preserve its first
-    // parent, even when the command is retried with a different request trace.
-    const PARENT: u128 = 0x1234_5678_9abc_def0_1234_5678_9abc_def0;
+    // A real authorized HTTP POST carries a server-issued RIL trace ID into
+    // the durable PostgreSQL command. Ignore a forged x-request-id from the
+    // client and prove the response parent equals the claimed job's parent.
     let causal_text = "Глава 2: Трасса\nСодержимое для проверки";
     let causal_chapters = parse_text("trace.md", causal_text).unwrap();
     let causal_fingerprint = fingerprint(book_id, &causal_chapters);
     let causal_hash: [u8; 32] = Sha256::digest(causal_text.as_bytes()).into();
     let causal_command = generate_session_token();
     let source_key = format!("staging/chapters/{owner}/{book_id}/{causal_command}");
-    store
-        .put_verified(&source_key, causal_text.as_bytes(), &causal_hash)
-        .await
-        .unwrap();
-    let jobs = PgImportJobs::new(pool.clone());
-    let (causal_job, new_job) = jobs
-        .enqueue_verified_traced(
-            owner,
-            book_id,
-            &causal_command,
-            &source_key,
-            "trace.md",
-            &causal_hash,
-            causal_text.len() as i64,
-            &causal_fingerprint,
-            1,
-            Some(PARENT),
+    let causal_payload = json!({
+        "filename": "trace.md",
+        "text": causal_text,
+        "csrf_token": csrf,
+        "command_key": causal_command,
+        "fingerprint": fingerprint_hex(&causal_fingerprint),
+    });
+    let http_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(&queue_path)
+                .method("POST")
+                .header(header::COOKIE, &owner_cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-request-id", "CLIENT-FORGED-TRACE")
+                .body(Body::from(causal_payload.to_string()))
+                .unwrap(),
         )
         .await
         .unwrap();
-    assert!(new_job);
+    assert_eq!(http_response.status(), StatusCode::OK);
+    let issued = http_response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(issued, "CLIENT-FORGED-TRACE");
+    let parent = u128::from_str_radix(&issued, 16).unwrap();
+    assert_eq!(
+        http_response
+            .extensions()
+            .get::<tor_observability::services::trace::RequestTrace>()
+            .unwrap()
+            .trace_id,
+        parent
+    );
+    let causal_response: Value = serde_json::from_slice(
+        &to_bytes(http_response.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let causal_job = causal_response["job_id"].as_i64().unwrap();
+    let jobs = PgImportJobs::new(pool.clone());
+    let http_replay = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(causal_payload),
+    )
+    .await;
+    assert_eq!(http_replay.0, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_str::<Value>(&http_replay.1).unwrap()["job_id"],
+        causal_job
+    );
     let (replayed_job, new_job) = jobs
         .enqueue_verified_traced(
             owner,
@@ -415,7 +454,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             causal_text.len() as i64,
             &causal_fingerprint,
             1,
-            Some(PARENT + 1),
+            Some(parent + 1),
         )
         .await
         .unwrap();
@@ -423,7 +462,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     assert_eq!(replayed_job, causal_job);
     let claimed = jobs.claim_next().await.unwrap().unwrap();
     assert_eq!(claimed.job_id, causal_job);
-    assert_eq!(claimed.parent_trace_id, Some(PARENT));
+    assert_eq!(claimed.parent_trace_id, Some(parent));
     assert_eq!(claimed.attempts, 1);
     assert!(jobs
         .fail_if_current(causal_job, claimed.epoch, false, "test_probe")
@@ -450,7 +489,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             causal_text.len() as i64,
             &causal_fingerprint,
             1,
-            Some(PARENT),
+            Some(parent),
         )
         .await
         .unwrap();
