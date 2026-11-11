@@ -125,9 +125,7 @@ async fn claim(
         .get("x-csrf-token")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, posted_csrf)
-    {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, posted_csrf) {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -157,9 +155,7 @@ async fn open(
         .get("x-csrf-token")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, posted_csrf)
-    {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, posted_csrf) {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -193,9 +189,7 @@ async fn disable(State(state): State<AuthState>, headers: HeaderMap) -> Response
         .get("x-csrf-token")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, posted_csrf)
-    {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, posted_csrf) {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
