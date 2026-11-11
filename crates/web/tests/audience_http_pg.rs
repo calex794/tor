@@ -301,6 +301,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_starts WHERE user_id={reader} AND chapter_id={chapter}")), "1");
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}")), "1");
     let source = pg(&url, &format!("SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}"));
+    intent::choices(&app, (&cookies[0], &reader_cookie, &csrf), book).await;
     // A real administrative hold hides content without rewriting past C facts.
     pg(
         &url,
@@ -378,6 +379,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
          DELETE FROM reader_book_positions WHERE book_id={book};
          DELETE FROM reader_chapter_starts WHERE book_id={book};
          DELETE FROM reader_chapter_completions WHERE book_id={book};
+         DELETE FROM reader_saved_free_chapters WHERE user_id={reader} AND chapter_id IN(SELECT id FROM chapters WHERE book_id={book});
          DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id={book});
          DELETE FROM book_members WHERE book_id={book};
          DELETE FROM books WHERE id={book};
@@ -386,3 +388,6 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
         ),
     );
 }
+
+#[path = "audience_http_pg/intent.rs"]
+mod intent;

@@ -1,6 +1,7 @@
 //! Exercise the production entry point: turning off AUTH must not stop erasure.
 use super::pg;
 use std::{
+    collections::BTreeSet,
     net::TcpListener,
     process::{Child, Command, Stdio},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -36,6 +37,33 @@ fn retained(url: &str, actor: i64) -> String {
     )
 }
 
+// UTC account-day rows describe dates, not a fixed number of recent visits.
+// Between 00:10 and 00:40 UTC the two live visits straddle midnight.
+fn account_day_counts(anchor_seconds: i64) -> (usize, usize) {
+    let recent: BTreeSet<_> = [40 * 60, 10 * 60]
+        .into_iter()
+        .map(|age| (anchor_seconds - age).div_euclid(86_400))
+        .collect();
+    let mut all = recent.clone();
+    all.insert((anchor_seconds - 31 * 86_400).div_euclid(86_400));
+    (all.len(), recent.len())
+}
+
+#[test]
+fn account_day_fixture_covers_both_sides_of_utc_midnight() {
+    for (seconds, expected) in [
+        (0, (2, 1)),
+        (599, (2, 1)),
+        (600, (3, 2)),
+        (2_399, (3, 2)),
+        (2_400, (2, 1)),
+        (86_399, (2, 1)),
+    ] {
+        assert_eq!(account_day_counts(seconds), expected);
+        assert_eq!(account_day_counts(20_000 * 86_400 + seconds), expected);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
@@ -54,6 +82,12 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
     )
     .parse()
     .unwrap();
+    // Capture one database clock for both fixture timestamps and expected UTC dates.
+    let anchor: i64 = pg(&url, "SELECT floor(extract(epoch FROM now()))::bigint")
+        .parse()
+        .unwrap();
+    let (seeded_days, retained_days) = account_day_counts(anchor);
+    let expected_retained = format!("2|2|{retained_days}|0");
     // Backdated rows model an already opted-in installation after a restart.
     // The test itself never calls maintain(), starts a helper worker or offers
     // a fresh visit: only the real binary may expire this data.
@@ -63,7 +97,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             "INSERT INTO rec_subjects(user_id,enabled,enabled_at,flow_epoch,flow_enabled_at)
              VALUES({actor},true,now()-interval '40 days',gen_random_uuid(),now()-interval '40 days');
              WITH seeded AS MATERIALIZED (
-               SELECT s.subject_id,s.flow_epoch,gen_random_uuid() AS id,now()-age AS at
+               SELECT s.subject_id,s.flow_epoch,gen_random_uuid() AS id,to_timestamp({anchor})-age AS at
                FROM rec_subjects s CROSS JOIN (
                  VALUES(interval '31 days'),(interval '40 minutes'),(interval '10 minutes')
                ) AS ages(age) WHERE s.user_id={actor}
@@ -80,14 +114,14 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
                SELECT subject_id,flow_epoch,now()-interval '40 minutes' FROM rec_subjects WHERE user_id={actor}"
         ),
     );
-    assert_eq!(retained(&url, actor), "3|3|2|1");
+    assert_eq!(retained(&url, actor), format!("3|3|{seeded_days}|1"));
     let expired_book = funnel::seed(&url, actor).await;
     let preference_probe = preferences::seed(&url, actor, expired_book).await;
     retirement::seed(&url, actor, expired_book);
-    let rollup = "SELECT COALESCE(sum(visits),0) FROM flow_visit_daily
-                  WHERE cohort_day=((now()-interval '31 days') AT TIME ZONE 'UTC')::date
-                    AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4";
-    let before_rollup: i64 = pg(&url, rollup).parse().unwrap();
+    let rollup = format!("SELECT COALESCE(sum(visits),0) FROM flow_visit_daily
+                  WHERE cohort_day=((to_timestamp({anchor})-interval '31 days') AT TIME ZONE 'UTC')::date
+                    AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4");
+    let before_rollup: i64 = pg(&url, &rollup).parse().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
@@ -126,7 +160,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .send()
             .await
             .is_ok_and(|response| response.status().is_success())
-            && retained(&url, actor) == "2|2|1|0"
+            && retained(&url, actor) == expected_retained
             && funnel::expired(&url, actor)
             && preferences::expired(&url, actor, &preference_probe)
             && retirement::expired(&url, actor)
@@ -139,7 +173,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert_eq!(pg(&url, rollup).parse::<i64>().unwrap(), before_rollup + 1);
+    assert_eq!(pg(&url, &rollup).parse::<i64>().unwrap(), before_rollup + 1);
     assert_eq!(
         pg(
             &url,
@@ -161,7 +195,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .status()
             .is_success());
     }
-    assert_eq!(retained(&url, actor), "2|2|1|0");
+    assert_eq!(retained(&url, actor), expected_retained);
     funnel::assert_preserved(&url, actor, expired_book);
     preferences::assert_preserved(&url, actor, &preference_probe);
     retirement::assert_preserved(&url, actor, expired_book);
