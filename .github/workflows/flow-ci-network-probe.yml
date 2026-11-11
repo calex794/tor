@@ -1,49 +1,47 @@
-name: FLOW CI network diagnostics (not acceptance)
+name: FLOW CI mirror install validation (not application acceptance)
 on:
   push:
     branches: ['wip/flow-ci-network-probe-20261111-1428']
 permissions:
   contents: read
 jobs:
-  dns-and-signed-ubuntu-metadata:
+  apt-and-chromium-with-full-dependencies:
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
-      - name: Read-only DNS and Ubuntu signature probes
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check helper and preserve Ubuntu sources and trust root
         shell: bash
         run: |
-          set -u
-          flow_probe_failed=0
-          for flow_probe_host in github.com registry.npmjs.org azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com mirrors.edge.kernel.org; do
-            printf 'DNS host=%s\n' "$flow_probe_host"
-            if timeout 4s getent ahosts "$flow_probe_host"; then
-              printf 'DNS result=resolved\n'
-            else
-              printf 'DNS result=failed\n'
-              flow_probe_failed=1
-            fi
-          done
-          flow_probe_file="$(mktemp)"
-          trap 'rm -f "$flow_probe_file"' EXIT
-          for flow_probe_url in \
-            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease \
-            https://security.ubuntu.com/ubuntu/dists/noble-security/InRelease \
-            https://mirrors.edge.kernel.org/ubuntu/dists/noble/InRelease; do
-            printf 'SIGNED_METADATA url=%s\n' "$flow_probe_url"
-            if curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
-              --connect-timeout 3 --max-time 8 --max-filesize 1048576 --retry 0 \
-              --output "$flow_probe_file" --write-out 'HTTP status=%{http_code} remote_ip=%{remote_ip}\n' \
-              "$flow_probe_url"; then
-              if gpgv --keyring /usr/share/keyrings/ubuntu-archive-keyring.gpg "$flow_probe_file"; then
-                printf 'SIGNED_METADATA result=ubuntu_signature_verified\n'
-              else
-                printf 'SIGNED_METADATA result=signature_unverified\n'
-                flow_probe_failed=1
-              fi
-            else
-              printf 'SIGNED_METADATA result=download_failed\n'
-              flow_probe_failed=1
-            fi
-          done
-          printf 'DIAGNOSTIC_ONLY application_acceptance=not_tested\n'
-          exit "$flow_probe_failed"
+          bash -n tools/ci_prepare_ubuntu_mirror.sh
+          flow_ci_sources_before="$(sha256sum /etc/apt/sources.list.d/ubuntu.sources /usr/share/keyrings/ubuntu-archive-keyring.gpg)"
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          test "$flow_ci_sources_before" = "$(sha256sum /etc/apt/sources.list.d/ubuntu.sources /usr/share/keyrings/ubuntu-archive-keyring.gpg)"
+          flow_ci_mirrors_before="$(sha256sum /etc/apt/apt-mirrors.txt)"
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          test "$flow_ci_mirrors_before" = "$(sha256sum /etc/apt/apt-mirrors.txt)"
+      - name: Install unchanged Playwright version with all Chromium dependencies
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Launch headless shell and full Chromium
+        run: |
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const { chromium } = require('playwright');
+          (async () => {
+            for (const options of [{}, { channel: 'chromium' }]) {
+              const browser = await chromium.launch({ headless: true, ...options });
+              try {
+                const page = await browser.newPage();
+                await page.setContent('<p lang="ru">Проверка браузера</p>');
+                assert.equal(await page.locator('p').textContent(), 'Проверка браузера');
+                console.log('Browser launch passed:', options.channel || 'chromium-headless-shell');
+              } finally {
+                await browser.close();
+              }
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          JS

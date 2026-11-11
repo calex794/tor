@@ -1,19 +1,28 @@
-# FLOW CI network diagnostic
+# FLOW CI network and install diagnostic
 
-This branch is an isolated read-only diagnostic for repeated APT/DNS failures in
-Integration CI runs 43033220748, 43033674756 and 43033924354 on 2026-11-11.
+Initial read-only probe:
+https://github.com/calex794/tor/actions/runs/43038921078/job/130585159742
 
-It does not install packages, modify APT sources or DNS configuration, check out
-application source, access a database, deploy, read repository secrets, or change
-the standard acceptance workflows. Only this exact WIP branch triggers the job.
+On that Ubuntu 24.04 runner, GitHub, npm and kernel.org DNS resolved; all three
+stock Ubuntu mirror hostnames timed out. Kernel.org returned HTTP 200 for Noble
+InRelease and gpgv verified the stock Ubuntu archive signing key. This is evidence
+from one runner, not a claim about all networks or a global service outage.
 
-The job checks DNS for public package sources and controls, then downloads bounded
-public Ubuntu InRelease metadata over HTTPS and verifies it with the stock runner's
-Ubuntu archive keyring. A mirror will not be adopted merely because DNS resolves:
-its signed metadata and the actual package-install path must be proved first.
+This branch now validates a candidate CI-only helper. Only this exact WIP branch
+triggers the diagnostic workflow. The normal acceptance workflows are unchanged.
 
-Any failed probe makes the diagnostic job fail after all bounded probes complete.
-A successful diagnostic run is not application, browser, migration or CI acceptance.
-The main branch and PR #825/#826 remain subject to their full existing gates.
+The helper retains the existing mirrorlist when any stock Ubuntu host resolves.
+Only when all three bounded DNS probes fail does it verify HTTPS InRelease for
+noble, noble-updates, noble-backports and noble-security with the installed Ubuntu
+archive keyring, check each Suite, then prepend Kernel.org with TAB priority:0.
+The other mirrors, ubuntu.sources, suites, components and signing keys remain.
+APT keeps its normal signature, hash and freshness checks; no fixed IP or custom
+DNS resolver is introduced.
 
-Base main: 149e695eefd22465568378c0d15d9ba465bedfac.
+Validation checks shell syntax, unchanged sources/keyring and idempotence, then
+installs Playwright 1.56.1 with all Chromium system dependencies and fonts. It
+launches both the headless shell and full Chromium. Any failure is a real failure.
+This remains dependency/install validation; application, database, browser journey
+and full Integration CI acceptance still require their ordinary jobs.
+
+No production credentials, VPS, database or deployment are involved.
