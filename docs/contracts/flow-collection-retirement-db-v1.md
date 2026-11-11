@@ -18,10 +18,11 @@ PG/HTTP/browser проверок на нём. Ни ранее испытанны
 | --- | --- |
 | 190 / 202611158256 | Принятые независимые явные предпочтения P1 |
 | 191 / 202611163274 | Только таблица invalidation и функции, без attached barriers |
-| 192 / 202611168903 | Атомарные fences, empty C ports, DELETE hooks и batch API |
+| 192 / 202611163827 | Принятая FLOW-02/04: обезличенные просмотры по исходному UTC-часу, #808 |
+| 193 / 202611168903 | Атомарные fences, empty C ports, DELETE hooks и batch API |
 
-Старые 190 файлов и SQLx checksum не изменяются. 191 нужна изолированным
-историческим тестам текущего read-only report SQL; она не считается отдельной
+Старые 190 файлов и SQLx checksum не изменяются. 191 и 192 нужны изолированным
+историческим тестам текущего read-only report SQL; эта подготовка не считается отдельной
 production приёмкой. Штатный runner применяет весь набор, повторно — без действий.
 
 Сохраняются без изменения P1 choices, feedback epoch, revisions, command keys,
@@ -198,7 +199,7 @@ Release gate отдельно требует остановить все ста�
 
 Владелец disposable DB — tor_migrator; runtime — tor_app. Upgrade harness
 проверяет имена и роли до записи, actual190 ledger/checksums, 191 без hooks,
-ожидание in-flight старого writer, 192 twice. App DML re-grant не обходит fence.
+ожидание in-flight старого writer, 193 twice. App DML re-grant не обходит fence.
 Только этот disposable upgrade тест выдаёт TEMP для проверки temp-shadow;
 production grants не расширяются.
 
@@ -207,13 +208,16 @@ busy batch, row-lock timeout, rollback/restart, два workers и числово
 actual DELETE fan-out проверяются отдельно. Пограничный day-180 marker не теряется.
 Mixed batch повторяется без double count, canonical/P1/чужой consumer сверяются точно.
 
-Startup bootstrap создаёт actual190 fixtures и применяет192 twice, но не удаляет их.
+Startup bootstrap создаёт actual190 fixtures и применяет193 twice, но не удаляет их.
 Сам бинарник с AUTH=0 и всеми legacy flags=1 обязан начать HTTP и P1 cleanup
 при busy batch, затем bounded drain; поздний настоящий C command остаётся
 каноническим и не получает retired receipts.
 
 Исходная P1 installed proof сохраняет собственную реальную границу189→190:
-положительные старые consent assertions не выполняются под192.
-Legacy191 report/browser suite не доказывает current erasure или startup.
+положительные старые consent assertions не выполняются под193.
+Legacy192 report/browser suite не доказывает current erasure или startup.
 Current UI unknown proof читает фактические drained fixtures отдельного upgrade
 target: ci:retirement:linked, ci:retirement:untouched, ci:retirement:queued.
+
+После интеграции #808 полная схема содержит 193 миграции; историческая база до барьера — 192.
+Installed-upgrade proof сохраняет ровно 37 контрольных обезличенных просмотров после bounded drain.

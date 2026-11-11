@@ -18,7 +18,7 @@ module.exports = function installedRetirementFixture(sql) {
     SELECT id,source_identity,title,genres,tags,admin_hold FROM books
     WHERE source_identity IN('ci:retirement:linked','ci:retirement:untouched',
       'ci:retirement:queued')) b`));
-  assert.equal(books.length, 3, 'use fixtures created before the installed 192 barrier');
+  assert.equal(books.length, 3, 'use fixtures created before the installed 193 barrier');
   const byKey = Object.fromEntries(books.map(book => [book.source_identity.split(':').at(-1), book]));
   const actor = Number(sql("SELECT id FROM users WHERE email_normalized='retirement-main@ci.invalid'"));
   assert.ok(Number.isSafeInteger(actor) && actor > 0);

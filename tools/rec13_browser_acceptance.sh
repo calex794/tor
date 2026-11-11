@@ -37,7 +37,7 @@ else
   node_path="$root/node/node_modules"
 fi
 ci_rec_step_done "playwright_setup"
-: "${LEGACY_ANALYTICS_DATABASE_URL:?explicit legacy 191 database required}"
+: "${LEGACY_ANALYTICS_DATABASE_URL:?explicit legacy 192 database required}"
 : "${COLLECTION_RETIREMENT_APP_DATABASE_URL:?installed 190 to current upgrade database required}"
 pid=''
 stop_server() {
@@ -99,27 +99,27 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_PREFERENCES_PROOF_IMAGES=1 node tools/recommendation_preferences_pg_browser.cjs
 ci_rec_step_done "recommendation_preferences_browser_acceptance"
 stop_server
-# Historical collector/report arithmetic remains executable in its own 191 database.
+# Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.
-start_server "$LEGACY_ANALYTICS_DATABASE_URL" legacy191
+start_server "$LEGACY_ANALYTICS_DATABASE_URL" legacy192
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_sources_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_sources_browser_acceptance"
+ci_rec_step_done "legacy192_audience_sources_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_books_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_books_browser_acceptance"
+ci_rec_step_done "legacy192_audience_books_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_groups_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_groups_browser_acceptance"
+ci_rec_step_done "legacy192_audience_groups_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_returns_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_returns_browser_acceptance"
+ci_rec_step_done "legacy192_audience_returns_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_book_returns_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_book_returns_browser_acceptance"
+ci_rec_step_done "legacy192_audience_book_returns_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$LEGACY_ANALYTICS_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/audience_group_returns_pg_browser.cjs
-ci_rec_step_done "legacy191_audience_group_returns_browser_acceptance"
+ci_rec_step_done "legacy192_audience_group_returns_browser_acceptance"
 stop_server
 # This database was genuinely upgraded from accepted 190 and drained by the bounded port.
 start_server "$COLLECTION_RETIREMENT_APP_DATABASE_URL" installed-upgrade

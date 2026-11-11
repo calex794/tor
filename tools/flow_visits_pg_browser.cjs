@@ -1,6 +1,6 @@
 'use strict';
 // FLOW-02 retirement: native navigation stays usable, historical reports stay labeled.
-// Current migration-192 HTML creates no visits or behavioral identities.
+// Current migration-193 HTML creates no visits or behavioral identities.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -89,11 +89,9 @@ async function assertReport(page, days) {
       const exact = scalar(`SELECT count(DISTINCT subject_id) FROM flow_visit_account_days
         WHERE bucket_date>=${start} AND bucket_date<${until}`);
       const measured = sql(`SELECT EXISTS(SELECT 1 FROM flow_visit_account_days
-          WHERE bucket_date>=${start} AND bucket_date<${until})
-        OR EXISTS(SELECT 1 FROM flow_visit_daily WHERE cohort_day>=${start} AND cohort_day<${until})
-        OR EXISTS(SELECT 1 FROM flow_visits WHERE (started_at AT TIME ZONE 'UTC')::date>=${start}
-          AND (started_at AT TIME ZONE 'UTC')::date<${until})`) === 't';
-      // A retained measured zero is distinct from no measurement at all.
+          WHERE bucket_date>=${start} AND bucket_date<${until})`) === 't';
+      // An anonymous daily total does not reconstruct erased account-day evidence.
+      // Only retained source rows can prove an exact DISTINCT for this period.
       assert.equal(distinct.trim(), measured ? String(exact) : 'Нет измерения');
     }
   }
@@ -212,7 +210,7 @@ async function assertReport(page, days) {
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('FLOW visits browser PASS: current192 barrier, no analytics identity or visits, native navigation across browsers, retired consent410, all periods/ACL/privacy, 390/1440');
+    console.log('FLOW visits browser PASS: current193 barrier, no analytics identity or visits, native navigation across browsers, retired consent410, all periods/ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) {

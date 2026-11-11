@@ -1,5 +1,5 @@
 'use strict';
-// Current migration-192 fixture guards and exact optional-store snapshots.
+// Current migration-193 fixture guards and exact optional-store snapshots.
 // Installed legacy data is exercised only by the separate migration harness.
 const assert = require('node:assert/strict');
 const {randomBytes} = require('node:crypto');

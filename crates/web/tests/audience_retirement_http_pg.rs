@@ -1,4 +1,4 @@
-//! Current private reports read evidence from a genuine accepted-190 to 192 upgrade.
+//! Current private reports read evidence from a genuine accepted-190 to 193 upgrade.
 //! This test never inserts retired raw facts or disables the installed barrier.
 #![forbid(unsafe_code)]
 

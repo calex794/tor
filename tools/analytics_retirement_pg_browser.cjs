@@ -184,7 +184,7 @@ async function denied(page, status) {
     await denied(page,403);
     assert.deepEqual(errors,[]);
     assert.deepEqual(requests,[]);
-    console.log('Installed analytics retirement browser PASS: actual 190->192 evidence, per-period unknown/reason, untouched values, groups/detail, live visibility and role revocation, private401/403, no raw/C/P1 mutation, 390/1440');
+    console.log('Installed analytics retirement browser PASS: actual 190->193 evidence, per-period unknown/reason, untouched values, groups/detail, live visibility and role revocation, private401/403, no raw/C/P1 mutation, 390/1440');
   } finally {
     if (browser) await browser.close();
     for (const book of fixture.books) {

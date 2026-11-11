@@ -76,8 +76,8 @@ module.exports = function retiredAudience({sql, scalar, base}) {
     assert.equal(value, 0, 'ordinary navigation/C commands must not resume optional analytics');
   }
   function legacyBoundary() {
-    // This suite proves legacy report arithmetic on the explicit 191 baseline.
-    // Current 192 cleanup is exercised independently against the upgraded database.
+    // This suite proves legacy report arithmetic on the explicit 192 baseline.
+    // Current 193 cleanup is exercised independently against the upgraded database.
     assert.equal(require('./legacy_analytics_fixture.cjs')(),
       process.env.LEGACY_ANALYTICS_DATABASE_URL);
   }
