@@ -1,0 +1,27 @@
+{
+  "status": "UNCOMPILED_UNVERIFIED",
+  "apply_after": "08fd158bc46146bac586c4b8ffccc138e4fab836 fixes.json",
+  "required_local_base": "cc418415a813c527237a54b71426c9a4c69abf9b plus original H authoring edits",
+  "reason": "An already declared exact-batch ACK invariant: status=done alone cannot prove persistence of FLOW rows or discarded observations.",
+  "changes": [
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "SELECT coalesce(r.discarded_events,0)::bigint FROM ril_flush_batches b LEFT JOIN ril_flow_observed_receipts r USING(batch_id) WHERE b.batch_id=$1 AND b.status='done'",
+      "after": "SELECT coalesce(r.discarded_events,0)::bigint FROM ril_flush_batches b LEFT JOIN ril_flow_observed_receipts r USING(batch_id) WHERE b.batch_id=$1 AND b.status='done' AND (r.batch_id IS NOT NULL OR (b.flow_observed_discarded=0 AND NOT EXISTS(SELECT 1 FROM ril_flush_flow_observed f WHERE f.batch_id=b.batch_id)))"
+    },
+    {
+      "path": "crates/traffic_behavior/tests/ril_rollups_pg/health.rs",
+      "operation": "append",
+      "content": "\n\n#[tokio::test]\n#[ignore=\"requires fresh isolated PostgreSQL with HTML health migration\"]\nasync fn html_done_flow_batch_needs_its_receipt_but_a_technical_batch_does_not() {\n    let f=Fixture::new().await;\n    let health=PgHtmlHealth::new(f.app.clone());\n    let ril=PgRilRollups::new(f.app.clone());\n    let (epoch,clock)=health.start_epoch().await.unwrap();\n    sqlx::query(\"UPDATE ril_flow_health_epochs SET started_ms=$2-10000,confirmed_ms=$2-10000 WHERE epoch=$1\")\n        .bind(epoch).bind(clock).execute(&f.app).await.unwrap();\n    let point=health.begin(epoch).await.unwrap();\n    let mut flow=RollupDelta::default();\n    flow.record_observed_flow(page(),Some(f.hour().await));\n    let flow_id=Uuid::new_v4().to_string();\n    ril.enqueue(&flow_id,&flow).await.unwrap();\n    // The isolated LIKE fixture deliberately lacks production triggers. This\n    // tests the owner's acknowledgement port against a mixed/invalid old write.\n    sqlx::query(\"UPDATE ril_flush_batches SET status='done' WHERE batch_id=$1\")\n        .bind(&flow_id).execute(&f.app).await.unwrap();\n    assert!(!health.finish(point,Some(&flow_id),0,0).await.unwrap(),\n        \"done without the FLOW receipt is not evidence of observed-row persistence\");\n    assert_eq!(sqlx::query_scalar::<_,i64>(\"SELECT confirmed_ms FROM ril_flow_health_epochs WHERE epoch=$1\")\n        .bind(epoch).fetch_one(&f.app).await.unwrap(),clock-10000);\n    sqlx::query(\"UPDATE ril_flush_batches SET status='pending' WHERE batch_id=$1\")\n        .bind(&flow_id).execute(&f.app).await.unwrap();\n    let claim=ril.claim_next().await.unwrap().unwrap();\n    assert_eq!(claim.id,flow_id);\n    assert!(ril.materialize(&claim).await.unwrap());\n    assert!(health.finish(point,Some(&flow_id),0,0).await.unwrap());\n    let technical_point=health.begin(epoch).await.unwrap();\n    let mut technical=RollupDelta::default();\n    technical.record(event(),None);\n    let technical_id=Uuid::new_v4().to_string();\n    ril.enqueue(&technical_id,&technical).await.unwrap();\n    let claim=ril.claim_next().await.unwrap().unwrap();\n    assert_eq!(claim.id,technical_id);\n    assert!(ril.materialize(&claim).await.unwrap());\n    let has_receipt:bool=sqlx::query_scalar(\"SELECT EXISTS(SELECT 1 FROM ril_flow_observed_receipts WHERE batch_id=$1)\")\n        .bind(&technical_id).fetch_one(&f.app).await.unwrap();\n    assert!(!has_receipt,\"a purely technical RIL batch legitimately has no FLOW receipt\");\n    assert!(health.finish(technical_point,Some(&technical_id),0,0).await.unwrap());\n    let discard_point=health.begin(epoch).await.unwrap();\n    let mut discarded=RollupDelta::default();\n    discarded.record_observed_flow(page(),None);\n    let discarded_id=Uuid::new_v4().to_string();\n    ril.enqueue(&discarded_id,&discarded).await.unwrap();\n    sqlx::query(\"UPDATE ril_flush_batches SET status='done' WHERE batch_id=$1\")\n        .bind(&discarded_id).execute(&f.app).await.unwrap();\n    assert!(!health.finish(discard_point,Some(&discarded_id),0,0).await.unwrap(),\n        \"discard-only FLOW batches also need the immutable receipt\");\n    f.finish().await;\n}\n"
+    }
+  ],
+  "tests": [
+    "FLOW staged rows + done status + missing receipt: finish false and confirmed time unchanged.",
+    "Normal owner materialization of that batch: receipt present and finish true.",
+    "Purely technical materialized batch without any FLOW receipt: finish true.",
+    "Discard-only FLOW batch + done status + missing receipt: finish false."
+  ],
+  "limits": "No full base reconstruction; source anchors and tests must be compiled and run after workspace recovery."
+}
