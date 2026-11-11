@@ -1,6 +1,6 @@
 //! Exact migrated C tables, real SELECT-only role, no analytics or consent tables.
 #[path = "canonical/fixture.rs"]
-mod fixture;
+pub(super) mod fixture;
 use fixture::Fixture;
 use sqlx::Row;
 use tor_reading::{
