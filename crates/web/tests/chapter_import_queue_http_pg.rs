@@ -25,7 +25,10 @@ use tor_books::{
         chapter_file_import::{fingerprint, parse_text},
     },
 };
-use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
+use tor_imports::{
+    repositories::postgres::PgImportJobs,
+    services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError},
+};
 use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
 use tower::ServiceExt;
 
@@ -367,6 +370,81 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         "completed and cancelled source objects are cleaned up"
     );
 
+    // S059: a separate reviewed batch enters the same durable PostgreSQL
+    // queue with a server-generated parent. A replay MUST preserve its first
+    // parent, even when the command is retried with a different request trace.
+    const PARENT: u128 = 0x1234_5678_9abc_def0_1234_5678_9abc_def0;
+    let causal_text = "Глава 2: Трасса\nСодержимое для проверки";
+    let causal_chapters = parse_text("trace.md", causal_text).unwrap();
+    let causal_fingerprint = fingerprint(book_id, &causal_chapters);
+    let causal_hash: [u8; 32] = Sha256::digest(causal_text.as_bytes()).into();
+    let causal_command = generate_session_token();
+    let source_key = format!("staging/chapters/{owner}/{book_id}/{causal_command}");
+    store
+        .put_verified(&source_key, causal_text.as_bytes(), &causal_hash)
+        .await
+        .unwrap();
+    let jobs = PgImportJobs::new(pool.clone());
+    let (causal_job, new_job) = jobs
+        .enqueue_verified_traced(
+            owner,
+            book_id,
+            &causal_command,
+            &source_key,
+            "trace.md",
+            &causal_hash,
+            causal_text.len() as i64,
+            &causal_fingerprint,
+            1,
+            Some(PARENT),
+        )
+        .await
+        .unwrap();
+    assert!(new_job);
+    let (replayed_job, new_job) = jobs
+        .enqueue_verified_traced(
+            owner,
+            book_id,
+            &causal_command,
+            &source_key,
+            "trace.md",
+            &causal_hash,
+            causal_text.len() as i64,
+            &causal_fingerprint,
+            1,
+            Some(PARENT + 1),
+        )
+        .await
+        .unwrap();
+    assert!(!new_job, "replay must not be a newly linked root");
+    assert_eq!(replayed_job, causal_job);
+    let linked: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1",
+    )
+    .bind(causal_job)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(linked, Some(PARENT.to_be_bytes().to_vec()));
+    assert_eq!(
+        worker.run_one().await.unwrap(),
+        ChapterImportWorkerResult::Completed,
+        "real claim must decode the stored parent before running the worker",
+    );
+    let linked_after_restart: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1",
+    )
+    .bind(causal_job)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(linked_after_restart, linked);
+    assert!(store.0.lock().await.is_empty());
+    assert_eq!(
+        authoring.list_owned_chapters(owner, book_id).await.unwrap().len(),
+        2
+    );
+
     // Publishing a book must close the queued import route before any S3 PUT,
     // even if the caller is still the authenticated owner.
     authoring.release_book(owner, book_id).await.unwrap();
@@ -402,7 +480,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        1,
+        2,
         "rejected published-book import must not add chapters"
     );
     pool.close().await;
