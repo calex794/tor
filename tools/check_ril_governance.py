@@ -422,10 +422,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/funnel", "funnel::page")
     )
+    audience_canonical = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/reading", "canonical::page")
+    )
     audience_child = (
         "books" if audience_books else "groups" if audience_groups
         else "returns" if audience_returns else "visits" if audience_visits
-        else "funnel" if audience_funnel else None
+        else "funnel" if audience_funnel else "canonical" if audience_canonical else None
     )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
@@ -710,6 +715,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/returns", "returns::page"),
             ("GET", "/admin/audience/visits", "visits::page"),
             ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1512,6 +1518,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/returns", "returns::page"),
             ("GET", "/admin/audience/visits", "visits::page"),
             ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1788,6 +1795,7 @@ def check(root: Path = ROOT) -> list[str]:
                         ("GET", "/admin/audience/returns", "returns::page"),
                         ("GET", "/admin/audience/visits", "visits::page"),
                         ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))
