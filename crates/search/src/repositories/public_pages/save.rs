@@ -6,10 +6,17 @@ impl PgPublicPages {
         lease: &PageProbeLease,
         results: &[PageProbeResult],
     ) -> Result<(), PageProbeError> {
-        if lease.targets.len()!=4 || results.len()!=4
-            || lease.targets.iter().zip(PageSlot::ALL).any(|(target,slot)|target.slot!=slot)
-            || results.iter().zip(&lease.targets).any(|(r,t)|
-            r.target!=*t || r.status.is_some_and(|code| !(100..=599).contains(&code))) {
+        if lease.targets.len() != 4
+            || results.len() != 4
+            || lease
+                .targets
+                .iter()
+                .zip(PageSlot::ALL)
+                .any(|(target, slot)| target.slot != slot)
+            || results.iter().zip(&lease.targets).any(|(r, t)| {
+                r.target != *t || r.status.is_some_and(|code| !(100..=599).contains(&code))
+            })
+        {
             return Err(PageProbeError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -21,17 +28,25 @@ impl PgPublicPages {
         // Brief SHARE locks hold current B/C revisions stable until snapshot commit.
         // These locks are acquired only after all network operations have finished.
         let live = candidates::read(&mut tx, true).await?;
-        let old = sqlx::query("SELECT *,checked_at BETWEEN now()-interval '180 seconds' AND now() AS fresh
-            FROM flow_public_page_results ORDER BY slot LIMIT 4")
-            .fetch_all(&mut *tx).await.map_err(unavailable)?;
+        let old = sqlx::query(
+            "SELECT *,checked_at BETWEEN now()-interval '180 seconds' AND now() AS fresh
+            FROM flow_public_page_results ORDER BY slot LIMIT 4",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(unavailable)?;
         for candidate in live {
             let result = results.iter().find(|r| r.target == candidate);
-            let status = result.and_then(|r| r.status).filter(|_| candidate.path().is_some());
-            let previous = old.iter().find(|r| target(r).as_ref()==Ok(&candidate));
-            let continuing = previous_origin.as_deref()==Some(&lease.origin)
-                && previous.is_some_and(|r| r.try_get::<bool,_>("fresh").unwrap_or(false));
-            let baseline = status==Some(200) || continuing && previous.is_some_and(|r|
-                r.try_get::<bool,_>("baseline_known").unwrap_or(false));
+            let status = result
+                .and_then(|r| r.status)
+                .filter(|_| candidate.path().is_some());
+            let previous = old.iter().find(|r| target(r).as_ref() == Ok(&candidate));
+            let continuing = previous_origin.as_deref() == Some(&lease.origin)
+                && previous.is_some_and(|r| r.try_get::<bool, _>("fresh").unwrap_or(false));
+            let baseline = status == Some(200)
+                || continuing
+                    && previous
+                        .is_some_and(|r| r.try_get::<bool, _>("baseline_known").unwrap_or(false));
             sqlx::query("INSERT INTO flow_public_page_results(slot,book_id,chapter_id,book_revision,
                 chapter_revision,publication_revision,version_id,http_status,baseline_known,last_success_at,checked_at)
                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,
@@ -49,7 +64,9 @@ impl PgPublicPages {
         let changed=sqlx::query("UPDATE flow_public_page_probe SET finished_at=now(),finished_origin=origin,lease_until=NULL
             WHERE singleton AND epoch=$1 AND lease_until>=clock_timestamp()")
             .bind(lease.epoch).execute(&mut *tx).await.map_err(unavailable)?.rows_affected();
-        if changed!=1 { return Err(PageProbeError::Stale); }
+        if changed != 1 {
+            return Err(PageProbeError::Stale);
+        }
         tx.commit().await.map_err(unavailable)?;
         Ok(())
     }
