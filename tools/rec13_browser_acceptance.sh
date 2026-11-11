@@ -104,9 +104,12 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
   TOR_PREFERENCES_PROOF_IMAGES=1 node tools/recommendation_preferences_pg_browser.cjs
 ci_rec_step_done "recommendation_preferences_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
+  node tools/contextual_recommendations_pg_browser.cjs
+ci_rec_step_done "contextual_recommendations_browser_acceptance"
 stop_server
-# The full optional gift UI runs only against disposable tor_ci. Never enable
-# the feature on the regular CI server, a legacy fixture or any live installation.
+# Isolated surprise UI: enabled only for a disposable tor_ci Chromium receipt.
 start_server "$TEST_DATABASE_URL" surprises 1
 NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
   TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \

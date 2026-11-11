@@ -20,6 +20,8 @@ pub async fn assert_schema(pool: &PgPool) {
                  WHERE version=202611168903 AND success)
                AND to_regclass('public.rec_analytics_invalidations') IS NOT NULL
                AND to_regprocedure('public.rec_retire_analytics_batch(integer)') IS NOT NULL
+               AND to_regprocedure('public.rec_contextual_policy_guard()') IS NOT NULL
+               AND EXISTS(SELECT 1 FROM public._sqlx_migrations WHERE version=202611198437 AND success)
                AND EXISTS(SELECT 1 FROM pg_trigger
                  WHERE tgrelid='public.rec_subjects'::regclass
                    AND tgname='retired_collection_write_fence')
@@ -32,7 +34,7 @@ pub async fn assert_schema(pool: &PgPool) {
     // These tests require the certified retirement baseline, not an exact
     // global migration count: independent additive F/G migrations follow it.
     assert!(
-        count >= 193 && last >= 202611168903 && successful,
+        count >= 194 && last >= 202611198437 && successful,
         "current schema must retain the installed retirement baseline"
     );
     assert!(

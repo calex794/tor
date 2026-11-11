@@ -1,4 +1,4 @@
-//! Bounded catalogue new releases. No analytics subject, history or generation input.
+//! Safe catalogue fallback plus a separately versioned optional metadata/manual model.
 use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::domain::feedback::{Feed, FeedItem, MAX_ITEMS};
@@ -30,6 +30,18 @@ impl PgRecommendations {
                 .await?;
             if !allowed {
                 return Err(FeedbackError::NotFound);
+            }
+        }
+        // Only an explicit visible page context can select the metadata/manual model.
+        // Optional model storage contention must not block ordinary catalogue discovery.
+        if let Some(seed) = seed {
+            if let Ok(Ok(Some(feed))) = tokio::time::timeout(
+                std::time::Duration::from_millis(400),
+                self.contextual_feed(actor, seed, limit),
+            )
+            .await
+            {
+                return Ok(feed);
             }
         }
         // The actor is used only for current discovery rights and explicit

@@ -245,7 +245,7 @@ async function assertReport(page,days) {
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('FLOW funnel browser PASS: native REC/catalog/search/direct navigation, real C start/completion/save/follow, current193 barrier, no new identity or optional totals, retired410, admin ACL/privacy, 390/1440');
+    console.log('FLOW funnel browser PASS: native REC/catalog/search/direct navigation, real C start/completion/save/follow, current194 barrier, no new identity or optional totals, retired410, admin ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) sql(`DELETE FROM rec_subjects WHERE user_id IN(${users.join(',')});
