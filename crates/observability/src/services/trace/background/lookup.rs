@@ -63,7 +63,8 @@ pub fn decode_reply(bytes: &[u8], parent: u128) -> Option<BackgroundPage> {
         return None;
     }
     let mut items = Vec::with_capacity(count);
-    for chunk in bytes[13..].chunks_exact(8 + FRAME_SIZE) {
+    // The exact reply length was checked before iterating.
+    for chunk in bytes[13..].chunks(8 + FRAME_SIZE) {
         let at = i64::from_be_bytes(chunk[..8].try_into().ok()?);
         let trace = BackgroundTrace::decode(&chunk[8..])?;
         if trace.parent_trace_id != parent {

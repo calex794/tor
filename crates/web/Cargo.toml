@@ -47,6 +47,7 @@ zeroize = "1"
 
 [dev-dependencies]
 hex = "0.4"
+sqlx.workspace = true
 tower = { version = "0.5", features = ["util"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
