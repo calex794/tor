@@ -1,3 +1,4 @@
+pub mod public_pages;
 pub mod catalog;
 pub mod catalog_window;
 pub mod seo_analytics;

@@ -11,3 +11,4 @@ pub mod surprise_schedule;
 pub mod visits;
 
 pub mod contextual;
+pub mod flow_signals;

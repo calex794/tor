@@ -14,6 +14,15 @@ pub fn digest(proof: &str) -> Result<[u8; 32], ExposureError> {
     }
     Ok(Sha256::digest(bytes).into())
 }
+
+/// Independent idempotency key for one worker registration attempt.
+pub fn worker_registration_key() -> Result<String, ExposureError> {
+    let mut bytes = [0u8; 16];
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| ExposureError::Unavailable)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
 pub fn issue(card: CardObservation) -> Result<(String, IssuedObservation), ExposureError> {
     if !card.valid() {
         return Err(ExposureError::Invalid);

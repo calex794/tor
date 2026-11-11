@@ -1,6 +1,6 @@
 WITH anchor AS MATERIALIZED (
-    SELECT statement_timestamp() AS at,
-           (date_trunc('hour',statement_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS until_at
+    SELECT now() AS at,
+           (date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS until_at
 ), hours AS (
     SELECT generate_series(a.until_at-($1::integer*2*interval '1 hour'),
         a.until_at-interval '1 hour',interval '1 hour') AS bucket FROM anchor a

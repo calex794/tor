@@ -10,19 +10,26 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tor_accounts::repositories::PgAccounts;
 use tor_contracts::exposure::{CardObservation, EditorialObservationGuard, ObservationIssuer};
 use tor_recommendations::{
-    domain::exposure::IssuedObservation, repositories::exposure::PgExposure,
+    domain::exposure::IssuedObservation,
+    repositories::exposure::{PgExposure, PgExposureHealth},
 };
 mod bootstrap;
 mod client;
+mod control;
+mod gate;
 mod ingest;
+pub use control::ObservationCollector;
+use gate::Gate;
+pub use gate::QueueProbe;
 mod render;
 mod report;
 mod worker;
-pub use bootstrap::start;
+pub use bootstrap::{start, start_managed};
 pub use worker::Worker;
 
 #[derive(Default)]
@@ -31,9 +38,11 @@ struct Counters {
     dropped: AtomicU64,
     persisted: AtomicU64,
     failed: AtomicU64,
+    settled: AtomicU64,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct QueueSnapshot {
+    pub ready: bool,
     pub queued: u64,
     pub dropped: u64,
     pub persisted: u64,
@@ -42,6 +51,7 @@ pub struct QueueSnapshot {
 impl Counters {
     fn snapshot(&self) -> QueueSnapshot {
         QueueSnapshot {
+            ready: false,
             queued: self.queued.load(Ordering::Relaxed),
             dropped: self.dropped.load(Ordering::Relaxed),
             persisted: self.persisted.load(Ordering::Relaxed),
@@ -52,17 +62,28 @@ impl Counters {
 struct Issuer {
     sender: mpsc::Sender<IssuedObservation>,
     counters: Arc<Counters>,
+    gate: Arc<Gate>,
 }
 impl ObservationIssuer for Issuer {
     fn issue(&self, card: CardObservation) -> Option<String> {
+        if self.gate.epoch().is_none() {
+            self.counters.dropped.fetch_add(1, Ordering::Release);
+            return None;
+        }
         let (proof, item) = tor_recommendations::services::exposure::issue(card).ok()?;
-        match self.sender.try_send(item) {
-            Ok(()) => {
-                self.counters.queued.fetch_add(1, Ordering::Relaxed);
+        match self.sender.try_reserve() {
+            Ok(permit) => {
+                if self.gate.epoch().is_none() {
+                    self.counters.dropped.fetch_add(1, Ordering::Release);
+                    return None;
+                }
+                // The queue target includes a producer paused before send.
+                self.counters.queued.fetch_add(1, Ordering::Release);
+                permit.send(item);
                 Some(proof)
             }
             Err(_) => {
-                self.counters.dropped.fetch_add(1, Ordering::Relaxed);
+                self.counters.dropped.fetch_add(1, Ordering::Release);
                 None
             }
         }
@@ -76,6 +97,7 @@ pub struct Runtime {
     issuer: Arc<dyn ObservationIssuer>,
     counters: Arc<Counters>,
     guard: Option<Arc<dyn EditorialObservationGuard>>,
+    gate: Arc<Gate>,
 }
 impl Runtime {
     /// Construction does not spawn tasks. Start the returned worker once in main/tests.
@@ -88,9 +110,12 @@ impl Runtime {
         let store = PgExposure::new(accounts.pool().clone());
         let (sender, receiver) = mpsc::channel(1024);
         let counters = Arc::new(Counters::default());
+        let gate = Arc::new(Gate::default());
+        let health = PgExposureHealth::new(accounts.pool().clone());
         let issuer = Arc::new(Issuer {
             sender,
             counters: counters.clone(),
+            gate: gate.clone(),
         });
         (
             Self {
@@ -100,11 +125,19 @@ impl Runtime {
                 issuer,
                 counters: counters.clone(),
                 guard,
+                gate: gate.clone(),
             },
             Worker {
                 store,
                 receiver,
                 counters,
+                gate,
+                health,
+                constructed: Instant::now(),
+                epoch: None,
+                registration: None,
+                replace: true,
+                pending: None,
             },
         )
     }
@@ -112,10 +145,22 @@ impl Runtime {
         self.issuer.clone()
     }
     pub fn queue_snapshot(&self) -> QueueSnapshot {
-        self.counters.snapshot()
+        self.probe().snapshot()
+    }
+    pub fn probe(&self) -> QueueProbe {
+        QueueProbe {
+            counters: self.counters.clone(),
+            gate: self.gate.clone(),
+        }
     }
     pub fn attach(self, app: Router) -> Router {
         let issuer = self.issuer();
+        self.attach_routes(app)
+            .layer(middleware::from_fn(client::append_script))
+            .layer(Extension(issuer))
+    }
+    /// Historical reports survive an intentionally disabled or unavailable collector.
+    pub fn attach_routes(self, app: Router) -> Router {
         app.merge(crate::ril::instrument_additional(
             Router::new()
                 .route(
@@ -126,8 +171,6 @@ impl Runtime {
                 .route("/admin/audience/exposure", get(report::page))
                 .with_state(self),
         ))
-        .layer(middleware::from_fn(client::append_script))
-        .layer(Extension(issuer))
     }
 }
 

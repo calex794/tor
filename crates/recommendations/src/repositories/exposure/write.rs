@@ -4,11 +4,26 @@ use crate::{repositories::feedback::discovery::ACTOR_DISCOVERY_CTE, services::ex
 impl PgExposure {
     /// Bounded queue consumer only. Successful enqueue is not an opportunity until this commits.
     pub async fn register(&self, proofs: &[IssuedObservation]) -> Result<i64, ExposureError> {
+        self.register_inner(proofs, None).await
+    }
+    pub async fn register_in_epoch(
+        &self,
+        proofs: &[IssuedObservation],
+        epoch: i64,
+    ) -> Result<i64, ExposureError> {
+        self.register_inner(proofs, Some(epoch)).await
+    }
+    async fn register_inner(
+        &self,
+        proofs: &[IssuedObservation],
+        epoch: Option<i64>,
+    ) -> Result<i64, ExposureError> {
         if proofs.is_empty() || proofs.len() > 64 || proofs.iter().any(|p| !p.card.valid()) {
             return Err(ExposureError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT set_config('statement_timeout','500ms',true),set_config('lock_timeout','50ms',true)").execute(&mut *tx).await?;
+        epoch_fence(&mut tx, epoch, true).await?;
         let live: i64 = sqlx::query_scalar(
             "SELECT live_proofs FROM flow_observation_state WHERE singleton FOR UPDATE",
         )
@@ -54,6 +69,7 @@ impl PgExposure {
             .bind(registered)
             .execute(&mut *tx)
             .await?;
+        epoch_fence(&mut tx, epoch, false).await?;
         tx.commit().await?;
         Ok(registered)
     }
@@ -81,10 +97,29 @@ impl PgExposure {
         context: &ProofContext,
         actor: Option<i64>,
     ) -> Result<ObservationReceipt, ExposureError> {
+        self.record_inner(event, context, actor, None).await
+    }
+    pub async fn record_in_epoch(
+        &self,
+        event: &ObservationEvent,
+        context: &ProofContext,
+        actor: Option<i64>,
+        epoch: i64,
+    ) -> Result<ObservationReceipt, ExposureError> {
+        self.record_inner(event, context, actor, Some(epoch)).await
+    }
+    async fn record_inner(
+        &self,
+        event: &ObservationEvent,
+        context: &ProofContext,
+        actor: Option<i64>,
+        epoch: Option<i64>,
+    ) -> Result<ObservationReceipt, ExposureError> {
         event.validate()?;
         let hash = digest(&event.proof)?;
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT set_config('statement_timeout','500ms',true),set_config('lock_timeout','50ms',true)").execute(&mut *tx).await?;
+        epoch_fence(&mut tx, epoch, true).await?;
         let row=sqlx::query("SELECT *,expires_at>clock_timestamp() AS fresh,issued_at<=clock_timestamp()-interval '1 second' AS old_enough FROM flow_observation_proofs WHERE digest=$1 FOR UPDATE")
             .bind(hash.as_slice()).fetch_optional(&mut *tx).await?.ok_or(ExposureError::Missing)?;
         if !row.try_get::<bool, _>("fresh")? {
@@ -116,6 +151,7 @@ impl PgExposure {
             .bind(hash.as_slice()).bind(event.kind==EventKind::View).bind(event.kind==EventKind::Click).execute(&mut *tx).await?;
         sqlx::query("UPDATE flow_observation_hourly h SET rendered=h.rendered+$2,views=h.views+$3,clicks=h.clicks+$4,replayed=h.replayed+$5 FROM flow_observation_proofs p WHERE p.digest=$1 AND (h.bucket,h.book_id,h.surface,h.campaign_id,h.slot)=(p.bucket,p.book_id,p.surface,p.campaign_id,p.slot)")
             .bind(hash.as_slice()).bind(render_delta).bind(view_delta).bind(click_delta).bind(i64::from(replay)).execute(&mut *tx).await?;
+        epoch_fence(&mut tx, epoch, false).await?;
         tx.commit().await?;
         Ok(if replay {
             ObservationReceipt::Replay
@@ -152,4 +188,30 @@ impl PgExposure {
         tx.commit().await?;
         Ok(removed as u64)
     }
+}
+
+// Production registration/callbacks hold a shared epoch fence for their bounded
+// transaction. A stale worker is unavailable (503), not an expired proof (410).
+async fn epoch_fence(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    epoch: Option<i64>,
+    lock: bool,
+) -> Result<(), ExposureError> {
+    let Some(epoch) = epoch else {
+        return Ok(());
+    };
+    let sql = if lock {
+        "SELECT epoch FROM flow_observation_epochs WHERE epoch=$1 AND NOT retired AND lease_until_ms>floor(extract(epoch FROM clock_timestamp())*1000)::bigint AND confirmed_ms>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-120000 FOR SHARE"
+    } else {
+        "SELECT epoch FROM flow_observation_epochs WHERE epoch=$1 AND NOT retired AND lease_until_ms>floor(extract(epoch FROM clock_timestamp())*1000)::bigint AND confirmed_ms>=floor(extract(epoch FROM clock_timestamp())*1000)::bigint-120000"
+    };
+    if sqlx::query_scalar::<_, i64>(sql)
+        .bind(epoch)
+        .fetch_optional(&mut **tx)
+        .await?
+        .is_none()
+    {
+        return Err(ExposureError::Unavailable);
+    }
+    Ok(())
 }

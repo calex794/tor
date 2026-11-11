@@ -154,14 +154,26 @@ pub struct ExposureGroup {
     pub books: i64,
     pub counts: Counts,
 }
+/// Complete nonempty genre classifications before any bounded detail list.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GenreExposureSummary {
+    pub genres: i64,
+    pub low_observed: i64,
+    pub unknown: i64,
+    /// The first twenty labels explain the complete low count without an unbounded response.
+    pub low_labels: Vec<String>,
+}
 #[derive(Clone, Debug)]
 pub struct ExposureReport {
     pub checked_at_epoch: i64,
+    /// Exclusive UTC boundary used by every current and previous count.
+    pub until_epoch: i64,
     pub books: i64,
     pub current: Counts,
     pub previous: Counts,
     pub low_observed_books: i64,
     pub unknown_books: i64,
+    pub genres: GenreExposureSummary,
     pub rows: Vec<ExposureBook>,
     pub next: Option<i64>,
     pub groups: Vec<ExposureGroup>,

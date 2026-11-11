@@ -62,7 +62,10 @@ impl Fixture {
         let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci");
         assert!(
             url.starts_with("postgresql://tor_app:")
-                && url.contains("@127.0.0.1:5432/")
+                && url.contains(&format!(
+                    "@127.0.0.1:{}/",
+                    std::env::var("FLOW_TEST_PG_PORT").unwrap_or_else(|_| "5432".into())
+                ))
                 && url.ends_with("/tor_ci")
         );
         let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -91,7 +94,8 @@ impl Fixture {
             false,
             ORIGIN.into(),
         );
-        let (runtime, worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+        let (runtime, mut worker) = Runtime::new(accounts, ORIGIN.into(), false, None);
+        worker.prepare().await.unwrap();
         let issuer = runtime.issuer();
         let app = runtime.clone().attach(app);
         let worker = tokio::spawn(worker.run());
@@ -462,6 +466,7 @@ async fn editorial_guard_receives_only_issued_context_and_registration_queue_nev
     });
     let (runtime, worker) =
         Runtime::new(accounts.clone(), ORIGIN.into(), false, Some(guard.clone()));
+    worker.prepare().await.unwrap();
     let issuer = runtime.issuer();
     let app = runtime.attach(Router::new());
     let handle = tokio::spawn(worker.run());

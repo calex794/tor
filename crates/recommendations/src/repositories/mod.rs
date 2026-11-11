@@ -13,3 +13,4 @@ pub mod flow_funnel;
 pub mod surprises;
 pub mod visits;
 pub use feedback::PgRecommendations;
+pub mod flow_signals;
