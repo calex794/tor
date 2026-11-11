@@ -1,6 +1,6 @@
 //! Real PostgreSQL acceptance on disposable tor_ci only. No production writes.
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use tor_recommendations::repositories::surprises::{PgSurprises, PlanState, SurpriseError};
+use tor_recommendations::repositories::surprises::{PgSurprises, PlanState};
 
 struct Fixture {
     app: PgPool,
