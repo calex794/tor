@@ -41,8 +41,7 @@ impl Worker {
                 Some(tor_recommendations::services::exposure::worker_registration_key()?);
         }
         let clock = self.health.clock_ms().await?;
-        let age = i64::try_from(self.constructed.elapsed().as_millis()).unwrap_or(i64::MAX);
-        let gap = clock.saturating_sub(age).max(0);
+        let gap = startup_gap(clock, self.constructed.elapsed());
         let started = Instant::now();
         let lease = self
             .health
@@ -230,5 +229,36 @@ impl Drop for Worker {
     fn drop(&mut self) {
         // Abort/panic stops readiness immediately, but cannot certify a DB tail.
         self.gate.disable();
+    }
+}
+
+fn startup_gap(clock_ms: i64, age: Duration) -> i64 {
+    // DB clock is floored to milliseconds. Ceil monotonic age and keep one
+    // additional millisecond so a startup loss cannot slip across a UTC hour.
+    let age_ms = age.as_nanos().div_ceil(1_000_000).saturating_add(1);
+    let age_ms = i64::try_from(age_ms).unwrap_or(i64::MAX);
+    clock_ms.saturating_sub(age_ms).max(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_gap_keeps_submillisecond_losses_in_the_previous_issued_hour() {
+        let hour_ms = 3_600_000;
+        let lookback_ms = 902_000;
+        let sampled_ms = hour_ms + lookback_ms;
+        for age in [
+            Duration::ZERO,
+            Duration::from_nanos(900_000),
+            Duration::from_millis(1),
+            Duration::from_nanos(1_000_001),
+        ] {
+            let first_affected = startup_gap(sampled_ms, age) - lookback_ms;
+            assert!(first_affected < hour_ms);
+            assert_eq!(first_affected.div_euclid(hour_ms), 0);
+        }
+        assert_eq!(startup_gap(1, Duration::MAX), 0);
     }
 }
