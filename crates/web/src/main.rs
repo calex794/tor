@@ -262,6 +262,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None;
     let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
+    let mut html_collector = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -287,7 +288,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
-            tor_web::start_ril_pg_background(&catalog);
+            html_collector = Some(tor_web::flow_runtime::HtmlCollector::start(&catalog));
             let reader = PgReader::new(pool.clone());
             reader.probe().await?;
             if cover_worker_enabled {
@@ -569,31 +570,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let contextual_builder =
         tor_web::recommendation_worker::start_contextual(pending_security_retention.clone());
     let seo_import = tor_web::seo_analytics_worker::start(pending_security_retention.clone());
+    let mut backgrounds = tor_web::flow_signal_worker::start(pending_security_retention.clone());
     let (app, observations) =
-        tor_web::flow_exposure::start(app, pending_security_retention.clone()).await;
+        tor_web::flow_exposure::start_managed(app, pending_security_retention.clone()).await;
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
-    let serve_result = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await;
-    if let Some(handle) = account_retention {
-        handle.abort();
-        let _ = handle.await;
-    }
-    if let Some(handle) = contextual_builder {
-        handle.abort();
-        let _ = handle.await;
-    }
-    if let Some(handle) = seo_import {
-        handle.abort();
-        let _ = handle.await;
-    }
-    if let Some(handle) = observations {
-        handle.abort();
-        let _ = handle.await;
-    }
-    serve_result?;
+    backgrounds.extend([account_retention, contextual_builder, seo_import].into_iter().flatten());
+    tor_web::flow_runtime::serve(listener, app, html_collector, observations, backgrounds).await?;
     Ok(())
 }

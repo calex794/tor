@@ -55,13 +55,17 @@ pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::Path
 }
 
 pub(crate) fn start_pg_background(repo: PgRilRollups) {
+    pg_pump(repo).spawn_background();
+}
+
+pub(crate) fn pg_pump(repo: PgRilRollups) -> PgRollupPump {
     let recorder = TRAFFIC
         .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
         .clone();
     // The monitor is installed before the first 10-second cycle; a stopped
     // or hung task eventually becomes stale even if no jobs were queued.
     let monitor = RIL_PUMP_MONITOR.get_or_init(PgPumpMonitor::default).clone();
-    PgRollupPump::with_monitor(repo, recorder, monitor).spawn_background();
+    PgRollupPump::with_monitor(repo, recorder, monitor)
 }
 
 pub(crate) fn instrument(router: Router) -> Router {
