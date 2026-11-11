@@ -1,5 +1,12 @@
 # TOR HTTP v1 — выполнение OpenAPI, ошибок, сериализации и совместимости (PREF-07)
 
+**REC contextual additive revision 2026-11-11.v3:** new admin-only
+`GET/POST /api/v1/admin/recommendations/contextual` and equivalent native forms
+control only `metadata_manual_v1`. Existing legacy control/collection URLs retain
+private 410. New build/activate/hold/cancel/rollback commands use policy CAS:
+a stale revision is 409, not replay of an earlier receipt. Response versions and
+bounds are specified in [the model contract](rec-contextual-model-v1.md).
+
 **REC/FLOW semantic revision 2026-11-11.v2:** [договор перехода](flow-rec-runtime-retirement-v2.md) явно расширяет response enum значением `catalog` и заменяет прежний успех retired collection/control endpoints на private 410 `COLLECTION_RETIRED`. Существующие URL сохраняются; старый сбор не поддерживается ради совместимости. Это согласованное изменение целевой модели, не обещание совместимости для исчерпывающего старого enum. Остальные API не меняются.
 
 **Машинно-читаемое ядро:** [openapi-v1.json](openapi-v1.json) (OpenAPI 3.1.0, 40 HTTP-операций). **Подробные канонические соглашения:** [api-v1.md](../roadmap/api-v1.md), [paid S3](paid-delivery-v1.md), [права](../roadmap/access-authorization-contract.md), [реклама](finance-ad-exact-v1.md), [возвраты](refunds-payouts-v1.md), [файлы](import-storage-v1.md), [сигналы](events-analytics-v1.md). Это CONTRACT документации; Rust реализацию/SQLx-модели требуется создать и доказать, OpenAPI файл **не запускает сервер**.

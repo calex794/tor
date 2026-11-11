@@ -119,3 +119,19 @@ pub async fn assert_ledger(pool: &PgPool, before: &HashMap<i64, Vec<u8>>) -> Tes
     }
     Ok(())
 }
+
+/// Exact current manifest and checksums, including independent additive work.
+pub async fn assert_current_ledger(pool: &PgPool) -> TestResult {
+    let installed: Vec<(i64, Vec<u8>, bool)> =
+        sqlx::query_as("SELECT version,checksum,success FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await?;
+    assert_eq!(installed.len(), MIGRATOR.iter().count());
+    assert!(MIGRATOR.version_exists(202611198437));
+    for ((version, checksum, success), expected) in installed.iter().zip(MIGRATOR.iter()) {
+        assert!(*success);
+        assert_eq!(*version, expected.version);
+        assert_eq!(checksum.as_slice(), expected.checksum.as_ref());
+    }
+    Ok(())
+}

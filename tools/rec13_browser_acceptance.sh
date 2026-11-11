@@ -98,6 +98,10 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
   TOR_PREFERENCES_PROOF_IMAGES=1 node tools/recommendation_preferences_pg_browser.cjs
 ci_rec_step_done "recommendation_preferences_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
+  node tools/contextual_recommendations_pg_browser.cjs
+ci_rec_step_done "contextual_recommendations_browser_acceptance"
 stop_server
 # Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.

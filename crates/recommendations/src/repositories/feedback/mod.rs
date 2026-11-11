@@ -4,6 +4,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 mod assignments;
 mod consent;
+mod contextual;
 mod conversions;
 mod discovery;
 mod flow_consent;

@@ -7,6 +7,8 @@ mod boundaries;
 mod budget;
 #[path = "collection_retirement_installed_upgrade_pg/concurrency.rs"]
 mod concurrency;
+#[path = "collection_retirement_installed_upgrade_pg/contextual.rs"]
+mod contextual;
 #[path = "collection_retirement_installed_upgrade_pg/fixtures.rs"]
 mod fixtures;
 #[path = "collection_retirement_installed_upgrade_pg/harness.rs"]
@@ -105,6 +107,10 @@ async fn installed_retirement_preserves_business_and_erases_with_bounded_evidenc
     concurrency::sorted_locks_and_parent_deletes(&app, &fixture).await?;
     ril::mixed_batches(&app, &fixture).await?;
     budget::bounded_rollback_workers_and_retention(&owner, &app, &fixture).await?;
+    assert_eq!(fixture.canonical(&owner).await?, canonical);
+    assert_eq!(fixture.preferences(&owner).await?, preferences);
+    ril::observed_is_preserved(&owner).await?;
+    contextual::upgrade(&owner, &app).await?;
     assert_eq!(fixture.canonical(&owner).await?, canonical);
     assert_eq!(fixture.preferences(&owner).await?, preferences);
     ril::observed_is_preserved(&owner).await?;

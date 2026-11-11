@@ -204,7 +204,7 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user}`),3);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('REC13 browser PASS: native contextual links on five surfaces, search/catalog and mobile real C completions, current193 barrier, 150 private410 old-client payloads/zero writes, explicit hide/restore, no-JS links');
+    console.log('REC13 browser PASS: native contextual links on five surfaces, search/catalog and mobile real C completions, current194 barrier, 150 private410 old-client payloads/zero writes, explicit hide/restore, no-JS links');
   } finally {
     if (browser) await browser.close();
     // Fixtures live only in tor_ci; preserve unrelated data and immutable events.

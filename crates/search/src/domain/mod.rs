@@ -1,4 +1,5 @@
 pub mod seo;
+pub mod seo_analytics;
 pub mod seo_urls;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchBook {

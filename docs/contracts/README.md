@@ -27,3 +27,7 @@
 - [FLOW-05 explicit library/follow snapshots](flow-explicit-choices-v1.md): current product choices, surviving cohorts, not historical additions or conversion.
 
 - [FLOW-05 canonical book reading](flow-canonical-book-reading-v1.md): retained C first-completion pairs, current choices and honest scope.
+
+- [REC contextual metadata/manual model v1](rec-contextual-model-v1.md): FLOW/REC P2b2 versioned builds and explicit activation; no individual collection.
+
+- [FLOW-07 external search snapshots](flow-search-analytics-v1.md): fixed-provider imports, durable leases, independent totals, coverage and admin reports; provider activation remains explicit.

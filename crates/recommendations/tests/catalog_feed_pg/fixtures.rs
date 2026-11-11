@@ -27,18 +27,24 @@ impl Fixture {
             .unwrap();
         }
         let mut books = Vec::new();
+        let mut setup = pool.begin().await.unwrap();
+        sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *setup)
+            .await
+            .unwrap();
         for index in 0..5 {
             let book = sqlx::query_scalar(
-                "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
-                 VALUES($1,'ru',$2,'public','basic') RETURNING id",
+                "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+                 SELECT coalesce(max(id),0)+1,$1,'ru',$2,'public','basic' FROM books RETURNING id",
             )
             .bind(format!("ci:catalog-feed:{name}:{stamp}:{index}"))
             .bind(format!("Catalogue book {index}"))
-            .fetch_one(&pool)
+            .fetch_one(&mut *setup)
             .await
             .unwrap();
             books.push(book);
         }
+        setup.commit().await.unwrap();
         Self {
             store: PgRecommendations::new(pool.clone()),
             pool,

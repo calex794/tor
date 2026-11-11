@@ -45,6 +45,7 @@ mod layer_reader_pages;
 mod recommendation_http;
 pub mod recommendation_worker;
 mod referral_book_http;
+pub mod seo_analytics_worker;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,

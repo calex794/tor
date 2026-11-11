@@ -1,5 +1,7 @@
 //! Real PostgreSQL evidence for the book-side facts consumed by SEO.
 //! The production read adapter and sitemap projection are separate SEO-02/06 tasks.
+#[path = "seo_pg/analytics.rs"]
+mod analytics;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use tor_search::domain::seo::{
     SeoBookFacts, SeoBookView, SeoMode, SeoPage, SeoReason, SeoSite, SeoVisibility,

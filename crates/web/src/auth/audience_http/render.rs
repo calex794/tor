@@ -12,6 +12,7 @@ mod observed;
 mod quality;
 mod retirement;
 pub(super) mod returns;
+pub(super) mod seo;
 mod sources;
 pub(super) mod visits;
 
@@ -28,6 +29,7 @@ fn start(days: i32, zone: &str) -> String {
          <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/admin/audience/seo?days={days}\">SEO</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\

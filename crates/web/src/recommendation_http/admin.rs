@@ -1,4 +1,5 @@
 //! Retired analytics controls still require the original live administrator and CSRF gates.
+pub(super) mod contextual;
 use super::{api, pages, Runtime};
 use crate::{auth_cookies::deny, pages as html};
 use axum::{
@@ -185,7 +186,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
          Сейчас показываются новые доступные книги с учётом ваших явных скрытий.</p>\
          <p><a href=\"/admin/audience\">Исторические отчёты аудитории</a></p>\
          <h2>Явные настройки книг</h2><p>Категории и ручные связи книг остаются обычными настройками. \
-         Новый список книг проверяет текущие права доступа; ручные связи не определяют порядок этого списка.</p><ul>",
+         Новинки каталога остаются резервной выдачей. Контекстная модель жанров, тегов и ручных связей включается отдельно.</p><ul>",
     );
     for (id, title) in books {
         let _ = write!(
@@ -194,7 +195,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
             html::escape_html(&title),
         );
     }
-    body.push_str("</ul></div></section>");
+    body.push_str("</ul><p><a data-testid=\"contextual-manage-link\" href=\"/me/recommendations/contextual\">\u{41a}\u{43e}\u{43d}\u{442}\u{435}\u{43a}\u{441}\u{442}\u{43d}\u{430}\u{44f} \u{43c}\u{43e}\u{434}\u{435}\u{43b}\u{44c} \u{440}\u{435}\u{43a}\u{43e}\u{43c}\u{435}\u{43d}\u{434}\u{430}\u{446}\u{438}\u{439}</a></p></div></section>");
     pages::secure_page(
         html::layout("Настройки рекомендаций", "Явные настройки книг", &body),
         &[],
