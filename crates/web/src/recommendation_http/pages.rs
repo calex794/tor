@@ -82,7 +82,6 @@ pub(super) fn panel(feed: &Feed, csrf: &str) -> String {
     out
 }
 
-
 /// Free-chapter promotional shelf shares the site's existing public Book cover
 /// and card routes; it does not mint a paid entitlement or track a user.
 pub(super) fn shelf_panel(feed: &Feed) -> String {
@@ -93,7 +92,9 @@ pub(super) fn shelf_panel(feed: &Feed) -> String {
         "<section class=\"section reader-end-shelf\" data-rec-panel aria-label=\"Рекомендации после главы\"><div class=\"container\"><h2>Что почитать дальше</h2><div class=\"home-shelf__track\" aria-label=\"Подборка других книг\">"
     );
     for item in &feed.items {
-        let Ok(id) = book_id(&item.book_id) else { continue };
+        let Ok(id) = book_id(&item.book_id) else {
+            continue;
+        };
         let title = html::escape_html(&item.title);
         let relation = match item.source.as_str() {
             "author" => "Ещё у автора",
