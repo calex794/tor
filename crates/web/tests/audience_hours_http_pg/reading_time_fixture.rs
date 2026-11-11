@@ -22,7 +22,9 @@ const ORIGIN: &str = "http://127.0.0.1:3120";
 fn check_url(raw: &str, role: &str) {
     let url = reqwest::Url::parse(raw).unwrap();
     let port: u16 = std::env::var("FLOW_TEST_PG_PORT")
-        .unwrap_or_else(|_| "5432".into()).parse().unwrap();
+        .unwrap_or_else(|_| "5432".into())
+        .parse()
+        .unwrap();
     assert!(port > 0);
     assert_eq!(url.scheme(), "postgresql");
     assert_eq!(url.host_str(), Some("127.0.0.1"));
@@ -34,12 +36,19 @@ fn check_url(raw: &str, role: &str) {
 fn command(url: &str) -> Command {
     let mut cmd = Command::new("psql");
     cmd.args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url])
-        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000");
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c lock_timeout=2000",
+        );
     cmd
 }
 fn sql(url: &str, statement: &str) -> String {
     let output = command(url).args(["-c", statement]).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 pub struct Fixture {
@@ -60,20 +69,35 @@ impl Fixture {
         // Validate both authorities before the first connection or write.
         check_url(&url, "tor_app");
         check_url(&owner, "tor_migrator");
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let schema = format!("flow_reading_time_http_{stamp}");
         let base = PgCatalog::connect(&url).await.unwrap();
         let accounts = PgAccounts::from_pool(base.pool());
         let token = generate_session_token();
-        let actor = accounts.register_with_session(
-            &format!("reading-time-{stamp}@example.invalid"),
-            "Clock-only fixture", "$argon2id$test", &session_token_digest(&token),
-            NonZeroU32::new(3600).unwrap(),
-        ).await.unwrap();
+        let actor = accounts
+            .register_with_session(
+                &format!("reading-time-{stamp}@example.invalid"),
+                "Clock-only fixture",
+                "$argon2id$test",
+                &session_token_digest(&token),
+                NonZeroU32::new(3600).unwrap(),
+            )
+            .await
+            .unwrap();
         base.close_for_test().await;
-        let mut setup = format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO tor_app;");
-        for table in ["reader_chapter_starts", "reader_chapter_completions", "outbox_events"] {
-            setup.push_str(&format!("CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL);"));
+        let mut setup =
+            format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO tor_app;");
+        for table in [
+            "reader_chapter_starts",
+            "reader_chapter_completions",
+            "outbox_events",
+        ] {
+            setup.push_str(&format!(
+                "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL);"
+            ));
         }
         setup.push_str(&format!(
             "REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM tor_app;
@@ -82,19 +106,41 @@ impl Fixture {
         sql(&owner, &setup);
         let mut scoped = reqwest::Url::parse(&url).unwrap();
         // Explicit pg_catalog position makes only our test clock override visible.
-        scoped.query_pairs_mut().append_pair("options", &format!("-c search_path={schema},pg_catalog,public"));
+        scoped.query_pairs_mut().append_pair(
+            "options",
+            &format!("-c search_path={schema},pg_catalog,public"),
+        );
         let catalog = PgCatalog::connect(scoped.as_str()).await.unwrap();
         let accounts = PgAccounts::from_pool(catalog.pool());
         let app = tor_web::router_with_postgres_reading_auth(
-            catalog.clone(), PgReader::new(catalog.pool()), accounts.clone(), false, ORIGIN.into(),
+            catalog.clone(),
+            PgReader::new(catalog.pool()),
+            accounts.clone(),
+            false,
+            ORIGIN.into(),
         );
-        let f = Self {app, accounts, catalog, cookie: format!("tor-dev-session={token}"),
-            token, actor, schema, url, owner};
+        let f = Self {
+            app,
+            accounts,
+            catalog,
+            cookie: format!("tor-dev-session={token}"),
+            token,
+            actor,
+            schema,
+            url,
+            owner,
+        };
         f.clock(FALL);
         f
     }
     pub fn scope(&self, statement: &str) -> String {
-        sql(&self.owner, &format!("SET search_path={},pg_catalog,public; {statement}", self.schema))
+        sql(
+            &self.owner,
+            &format!(
+                "SET search_path={},pg_catalog,public; {statement}",
+                self.schema
+            ),
+        )
     }
     pub fn clock(&self, value: &str) {
         assert!(["2026-10-25T04:37:00Z", "2026-03-30T00:37:00Z"].contains(&value));
@@ -106,10 +152,13 @@ impl Fixture {
         ));
     }
     pub fn role(&self, enabled: bool) {
-        sql(&self.url, &format!(
+        sql(
+            &self.url,
+            &format!(
             "INSERT INTO account_roles(user_id,role,is_active) VALUES({},'administrator',{enabled})
              ON CONFLICT(user_id,role) DO UPDATE SET is_active=EXCLUDED.is_active", self.actor
-        ));
+        ),
+        );
     }
     pub fn seed(&self) {
         for (chapter, started, completed) in [
@@ -132,9 +181,19 @@ impl Fixture {
         }
     }
     pub fn proof(&self, chapter: i64, completed: bool) {
-        let (table,event,authority) = if completed {
-            ("reader_chapter_completions","ChapterCompletedV1","C-verified-free-position")
-        } else {("reader_chapter_starts","ChapterStartedV1","C-verified-free-start")};
+        let (table, event, authority) = if completed {
+            (
+                "reader_chapter_completions",
+                "ChapterCompletedV1",
+                "C-verified-free-position",
+            )
+        } else {
+            (
+                "reader_chapter_starts",
+                "ChapterStartedV1",
+                "C-verified-free-start",
+            )
+        };
         self.scope(&format!(
             "INSERT INTO outbox_events(id,event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,payload,required_consumers)
              SELECT source_event_id,'{event}',1,'chapter',chapter_id,
@@ -144,49 +203,105 @@ impl Fixture {
         ));
     }
     pub fn fingerprint(&self) -> String {
-        self.scope("SELECT md5(jsonb_build_array(
+        self.scope(
+            "SELECT md5(jsonb_build_array(
             (SELECT jsonb_agg(to_jsonb(t) ORDER BY chapter_id) FROM reader_chapter_starts t),
             (SELECT jsonb_agg(to_jsonb(t) ORDER BY chapter_id) FROM reader_chapter_completions t),
-            (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM outbox_events t))::text)")
+            (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM outbox_events t))::text)",
+        )
     }
     pub async fn get(&self, path: &str, cookie: &str, expected: StatusCode) -> String {
-        let response=self.app.clone().oneshot(Request::builder().uri(path)
-            .header(header::COOKIE,cookie).body(Body::empty()).unwrap()).await.unwrap();
-        assert_eq!(response.status(),expected,"{path}");
-        assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");
-        assert_eq!(response.headers()["x-robots-tag"],"noindex, nofollow");
-        assert!(response.headers()["content-security-policy"].to_str().unwrap().contains("script-src 'none'"));
-        String::from_utf8(to_bytes(response.into_body(),256*1024).await.unwrap().to_vec()).unwrap()
+        let response = self
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{path}");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()["x-robots-tag"], "noindex, nofollow");
+        assert!(response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("script-src 'none'"));
+        String::from_utf8(
+            to_bytes(response.into_body(), 256 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap()
     }
     pub fn lock(&self) -> Lock {
-        let mut child=command(&self.owner).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
-        let mut input=child.stdin.take().unwrap();
-        writeln!(input,"BEGIN; LOCK TABLE {}.outbox_events IN ACCESS EXCLUSIVE MODE; SELECT 'locked';",self.schema).unwrap();
+        let mut child = command(&self.owner)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        writeln!(
+            input,
+            "BEGIN; LOCK TABLE {}.outbox_events IN ACCESS EXCLUSIVE MODE; SELECT 'locked';",
+            self.schema
+        )
+        .unwrap();
         input.flush().unwrap();
-        let mut ready=String::new();
-        BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();
-        assert_eq!(ready.trim(),"locked");
-        Lock{child,input}
+        let mut ready = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut ready)
+            .unwrap();
+        assert_eq!(ready.trim(), "locked");
+        Lock { child, input }
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        sql(&self.owner,&format!("DROP SCHEMA {} CASCADE;",self.schema));
-        sql(&self.url,&format!("DELETE FROM account_roles WHERE user_id={};DELETE FROM users WHERE id={};",self.actor,self.actor));
+        sql(
+            &self.owner,
+            &format!("DROP SCHEMA {} CASCADE;", self.schema),
+        );
+        sql(
+            &self.url,
+            &format!(
+                "DELETE FROM account_roles WHERE user_id={};DELETE FROM users WHERE id={};",
+                self.actor, self.actor
+            ),
+        );
     }
 }
-pub struct Lock {child:Child,input:ChildStdin}
+pub struct Lock {
+    child: Child,
+    input: ChildStdin,
+}
 impl Drop for Lock {
     fn drop(&mut self) {
-        let _=writeln!(self.input,"ROLLBACK;\n\\q");
-        let _=self.input.flush();
-        let _=self.child.wait();
+        let _ = writeln!(self.input, "ROLLBACK;\n\\q");
+        let _ = self.input.flush();
+        let _ = self.child.wait();
     }
 }
-pub fn section<'a>(html:&'a str, marker:&str)-> &'a str {
-    html.split(marker).nth(1).expect(marker).split("</section>").next().unwrap()
+pub fn section<'a>(html: &'a str, marker: &str) -> &'a str {
+    html.split(marker)
+        .nth(1)
+        .expect(marker)
+        .split("</section>")
+        .next()
+        .unwrap()
 }
-pub fn metric<'a>(html:&'a str,key:&str)-> &'a str {
-    html.split(&format!("data-metric=\"{key}\"")).nth(1).unwrap()
-        .split('>').nth(1).unwrap().split('<').next().unwrap()
+pub fn metric<'a>(html: &'a str, key: &str) -> &'a str {
+    html.split(&format!("data-metric=\"{key}\""))
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .nth(1)
+        .unwrap()
+        .split('<')
+        .next()
+        .unwrap()
 }

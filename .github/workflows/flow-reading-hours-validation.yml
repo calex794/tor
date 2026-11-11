@@ -1,4 +1,4 @@
-name: FLOW reading hour ports validation
+name: FLOW reading hour ports and native UI validation
 on:
   push:
     branches: ['wip/flow-reading-hours-*']
@@ -10,7 +10,7 @@ concurrency:
 jobs:
   rust-and-disposable-postgres:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:18
@@ -91,6 +91,7 @@ jobs:
             GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
           SQL
       - name: Apply all current migrations and replay
+        id: migrations
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -100,7 +101,27 @@ jobs:
           cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
       - name: Required reading-time and existing hour HTTP cases
         run: cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1 --nocapture
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Chromium and browser dependencies
+        run: |
+          bash tools/ci_prepare_ubuntu_mirror.sh
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps --only-shell chromium
+      - name: Build actual web server
+        run: cargo build -p tor-web
+      - name: Actual reading-time native browser and C writer
+        env:
+          TOR_BROWSER_PROOF_IMAGES: '1'
+          TOR_READING_TIME_SHOTS: ${{ runner.temp }}/reading-time-shots
+          TOR_READING_TIME_LOG_PREFIX: ${{ runner.temp }}/server-reading-time
+        run: |
+          export NODE_PATH="$PWD/node_modules"
+          export APP_URL="$TEST_DATABASE_URL"
+          bash tools/flow_reading_time_browser_acceptance.sh
       - name: Strict owner and web Clippy
+        if: ${{ !cancelled() && steps.migrations.outcome == 'success' }}
         run: |
           cargo clippy -p tor-reading -p tor-web --all-targets -- -D warnings
       - name: Require the checked-in source to match formatting
@@ -111,6 +132,15 @@ jobs:
             git diff --name-only -- '*.rs'
             exit 1
           fi
+      - name: Native browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reading-time-native-browser
+          path: |
+            ${{ runner.temp }}/reading-time-shots
+            ${{ runner.temp }}/server-reading-time-*.log
+          if-no-files-found: ignore
       - name: Disposable PostgreSQL diagnostics
         if: always()
         run: docker logs ${{ job.services.postgres.id }} 2>&1 | tail -n 400

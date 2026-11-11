@@ -153,18 +153,19 @@ async fn page(
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
     // Carry extractor errors through authorization, and secure error responses too.
-    let (days, zone, reading_hours) = match query
-        .map_err(|_| StatusCode::BAD_REQUEST)
-        .and_then(|Query(query)| {
-            let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
-                query.time_zone.as_deref().unwrap_or("UTC"),
-            )
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-            Ok((query.days()?, zone, query.reading_hours()?))
-        }) {
-        Ok(selection) => selection,
-        Err(status) => return secure(status),
-    };
+    let (days, zone, reading_hours) =
+        match query
+            .map_err(|_| StatusCode::BAD_REQUEST)
+            .and_then(|Query(query)| {
+                let zone = tor_traffic_behavior::services::observed_audience::validate_zone(
+                    query.time_zone.as_deref().unwrap_or("UTC"),
+                )
+                .map_err(|_| StatusCode::BAD_REQUEST)?;
+                Ok((query.days()?, zone, query.reading_hours()?))
+            }) {
+            Ok(selection) => selection,
+            Err(status) => return secure(status),
+        };
     if reading_hours {
         return reading_hours::page(&state, days, zone, deadline).await;
     }
@@ -251,7 +252,6 @@ mod tests {
             assert_eq!(result, Err(StatusCode::BAD_REQUEST), "{raw}");
         }
     }
-
 
     #[test]
     fn time_view_is_explicit_and_unknown_values_are_rejected() {

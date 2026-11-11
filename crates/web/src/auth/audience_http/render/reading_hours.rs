@@ -8,7 +8,11 @@ use tor_reading::services::audience::time::{
 
 const WEEKDAYS: [&str; 7] = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-pub(super) fn page(days: i32, zone: &str, report: Option<&ReadingTimeReport>) -> Html<String> {
+pub(in crate::auth::audience_http) fn page(
+    days: i32,
+    zone: &str,
+    report: Option<&ReadingTimeReport>,
+) -> Html<String> {
     let navigation = crate::flow_navigation::links(days);
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\"><p class=\"eyebrow\">Администратору сайта</p><h1>Подтверждённое чтение по времени</h1>{navigation}"
@@ -40,12 +44,18 @@ pub(super) fn page(days: i32, zone: &str, report: Option<&ReadingTimeReport>) ->
         _ => body.push_str("<p data-testid=\"reading-time-comparison-unknown\">Сравнение не рассчитано: один из периодов содержит неизвестное подтверждение.</p>"),
     }
     profile(
-        &mut body, "hour", "Часы суток",
-        &report.current.by_hour, &report.previous.by_hour,
+        &mut body,
+        "hour",
+        "Часы суток",
+        &report.current.by_hour,
+        &report.previous.by_hour,
     );
     profile(
-        &mut body, "weekday", "Дни недели",
-        &report.current.by_weekday, &report.previous.by_weekday,
+        &mut body,
+        "weekday",
+        "Дни недели",
+        &report.current.by_weekday,
+        &report.previous.by_weekday,
     );
     details(&mut body, "current", "Текущий период", &report.current);
     details(&mut body, "previous", "Предыдущий период", &report.previous);
@@ -54,7 +64,11 @@ pub(super) fn page(days: i32, zone: &str, report: Option<&ReadingTimeReport>) ->
 
 fn finish(mut body: String) -> Html<String> {
     body.push_str("<p><a href=\"/me\">Вернуться в личный кабинет</a></p></div></section>");
-    layout("Чтение по времени", "Закрытая сводка подтверждённых записей чтения по времени.", &body)
+    layout(
+        "Чтение по времени",
+        "Закрытая сводка подтверждённых записей чтения по времени.",
+        &body,
+    )
 }
 
 fn number(value: Option<i64>) -> String {
@@ -79,23 +93,44 @@ fn period(body: &mut String, key: &str, title: &str, value: &ReadingTimePeriod) 
 }
 
 fn cell(body: &mut String, key: &str, value: &ReadingTimeCell) {
-    write!(body,"<td data-period=\"{key}\" data-utc-hours=\"{}\">",value.utc_hours).expect("String");
+    write!(
+        body,
+        "<td data-period=\"{key}\" data-utc-hours=\"{}\">",
+        value.utc_hours
+    )
+    .expect("String");
     if value.utc_hours == 0 {
-        body.push_str("<span data-testid=\"reading-time-no-slot\">Не входит в выбранный период</span>");
+        body.push_str(
+            "<span data-testid=\"reading-time-no-slot\">Не входит в выбранный период</span>",
+        );
     } else {
-        counts(body,value.counts.as_ref());
-        write!(body,"<br><small>Часов UTC: {}</small>",value.utc_hours).expect("String");
+        counts(body, value.counts.as_ref());
+        write!(body, "<br><small>Часов UTC: {}</small>", value.utc_hours).expect("String");
     }
     body.push_str("</td>");
 }
 
-fn profile(body: &mut String, key: &str, title: &str, current: &[ReadingTimeCell], previous: &[ReadingTimeCell]) {
+fn profile(
+    body: &mut String,
+    key: &str,
+    title: &str,
+    current: &[ReadingTimeCell],
+    previous: &[ReadingTimeCell],
+) {
     write!(body,"<section class=\"book-section-card\"><h2>{title}</h2><p>Начала / завершения глав суммируются за весь выбранный период. Число часов UTC показывает, сколько часов попало в местную группу; это не среднее и не длительность чтения.</p><div class=\"audience-hours-scroll\" tabindex=\"0\" role=\"region\" aria-label=\"{title}\"><table class=\"audience-hours-table\" data-testid=\"reading-time-{key}-profile\"><thead><tr><th scope=\"col\">{title}</th><th scope=\"col\">Текущий: начала / завершения</th><th scope=\"col\">Предыдущий: начала / завершения</th></tr></thead><tbody>").expect("String");
-    for (index,(current,previous)) in current.iter().zip(previous).enumerate() {
-        let label = if key == "hour" {format!("{index:02}:00")} else {WEEKDAYS[index].to_owned()};
-        write!(body,"<tr data-reading-{key}=\"{index}\"><th scope=\"row\">{label}</th>").expect("String");
-        cell(body,"current",current);
-        cell(body,"previous",previous);
+    for (index, (current, previous)) in current.iter().zip(previous).enumerate() {
+        let label = if key == "hour" {
+            format!("{index:02}:00")
+        } else {
+            WEEKDAYS[index].to_owned()
+        };
+        write!(
+            body,
+            "<tr data-reading-{key}=\"{index}\"><th scope=\"row\">{label}</th>"
+        )
+        .expect("String");
+        cell(body, "current", current);
+        cell(body, "previous", previous);
         body.push_str("</tr>");
     }
     body.push_str("</tbody></table></div></section>");
@@ -103,10 +138,14 @@ fn profile(body: &mut String, key: &str, title: &str, current: &[ReadingTimeCell
 
 fn details(body: &mut String, key: &str, title: &str, value: &ReadingTimePeriod) {
     write!(body,"<details class=\"book-section-card\" data-testid=\"reading-time-{key}-details\"><summary>{title}: последние 168 закрытых часов</summary><p>Общие числа и распределения выше включают весь период. Повторяющийся местный час при смене времени остаётся отдельными строками с разными UTC и сдвигами.</p><div class=\"audience-hours-scroll\" tabindex=\"0\" role=\"region\" aria-label=\"{title}: часы\"><table class=\"audience-hours-table\" data-testid=\"reading-time-{key}-hours\"><thead><tr><th scope=\"col\">Местное начало часа</th><th scope=\"col\">Сдвиг к UTC</th><th scope=\"col\">Начала / завершения глав</th></tr></thead><tbody>").expect("String");
-    for hour in value.hours.iter().skip(value.hours.len().saturating_sub(168)) {
+    for hour in value
+        .hours
+        .iter()
+        .skip(value.hours.len().saturating_sub(168))
+    {
         write!(body,"<tr data-reading-epoch=\"{}\" data-local-hour=\"{}\" data-weekday=\"{}\" data-offset-minutes=\"{}\"><th scope=\"row\">{}</th><td>{:+} мин</td><td>",
             hour.epoch,hour.local_hour,hour.weekday,hour.offset_minutes,escape_html(&hour.local_label),hour.offset_minutes).expect("String");
-        counts(body,hour.counts.as_ref());
+        counts(body, hour.counts.as_ref());
         body.push_str("</td></tr>");
     }
     body.push_str("</tbody></table></div></details>");
@@ -118,19 +157,39 @@ mod tests {
 
     #[test]
     fn retained_zero_unknown_and_absent_local_slot_are_distinct() {
-        let mut html=String::new();
-        counts(&mut html,Some(&ReadingTimeCounts{starts:0,chapter_completions:0}));
+        let mut html = String::new();
+        counts(
+            &mut html,
+            Some(&ReadingTimeCounts {
+                starts: 0,
+                chapter_completions: 0,
+            }),
+        );
         assert!(html.contains("data-metric=\"chapter-starts\">0</span>"));
         html.clear();
-        counts(&mut html,None);
+        counts(&mut html, None);
         assert!(html.contains("Неизвестно"));
         assert!(!html.contains(">0<"));
         html.clear();
-        cell(&mut html,"current",&ReadingTimeCell{utc_hours:0,counts:None});
+        cell(
+            &mut html,
+            "current",
+            &ReadingTimeCell {
+                utc_hours: 0,
+                counts: None,
+            },
+        );
         assert!(html.contains("reading-time-no-slot"));
         assert!(!html.contains("data-metric="));
         html.clear();
-        cell(&mut html,"current",&ReadingTimeCell{utc_hours:2,counts:None});
+        cell(
+            &mut html,
+            "current",
+            &ReadingTimeCell {
+                utc_hours: 2,
+                counts: None,
+            },
+        );
         assert!(html.contains("data-utc-hours=\"2\""));
         assert!(html.contains("Неизвестно"));
         assert!(!html.contains("reading-time-no-slot"));
@@ -138,7 +197,7 @@ mod tests {
 
     #[test]
     fn unavailable_source_keeps_native_selection_without_numeric_fallback() {
-        let html=page(90,"Europe/Amsterdam",None).0;
+        let html = page(90, "Europe/Amsterdam", None).0;
         assert!(html.contains("value=\"reading_hours\" selected"));
         assert!(html.contains("value=\"90\" selected"));
         assert!(html.contains("value=\"Europe/Amsterdam\" selected"));

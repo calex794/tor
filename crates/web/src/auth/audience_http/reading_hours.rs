@@ -20,5 +20,8 @@ pub(super) async fn page(
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    secure((status, super::render::reading_hours::page(days, zone, report.as_ref())))
+    secure((
+        status,
+        super::render::reading_hours::page(days, zone, report.as_ref()),
+    ))
 }

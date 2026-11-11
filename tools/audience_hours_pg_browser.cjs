@@ -265,6 +265,11 @@ function publicCounts(from) {
     await adminPage.goto(base+'/me');
     assert.equal(await adminPage.locator('a[href="/admin/audience"]').count(),0);
     assert.deepEqual(errors,[]);
+    execFileSync('bash',['tools/flow_reading_time_browser_acceptance.sh'],{
+      stdio:'inherit',
+      env:{...process.env,APP_URL:db,TOR_READING_TIME_SHOTS:shots,
+        TOR_READING_TIME_LOG_PREFIX:path.join(path.dirname(shots),'server-reading-time')},
+    });
     console.log('FLOW hourly browser PASS: real HTML/RIL capture, excluded API/404/bot, unfinished hour excluded, 1/7 legacy and 1/7/30/90 observation periods, timezones, unknown/zero, retired identity, live admin revocation, 390/1440 px');
   } finally {
     if (browser) await browser.close();
