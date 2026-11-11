@@ -421,6 +421,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/promotion/editorial"), "POST") => Some(406),
         (Some("/admin/audience/signals"), "GET") => Some(407),
         (Some("/admin/audience/pages"), "GET") => Some(408),
+        (Some("/me/recommendations/shelf-preview"), "GET") => Some(409),
         _ => None,
     };
     index
