@@ -20,7 +20,8 @@ impl PgSurprises {
              WHERE d.user_id=$1 AND d.utc_day=$2
                AND d.state IN ('claimed','opened')
                AND d.claimed_at>now()-interval '30 minutes'
-               AND COALESCE(p.disabled,false)=false AND policy.enabled",
+               AND COALESCE(p.disabled,false)=false AND policy.enabled
+               AND (NOT policy.experiment_enabled OR d.experiment_arm IN ('gentle','standard'))",
         )
         .bind(user_id)
         .bind(utc_day)

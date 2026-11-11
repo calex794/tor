@@ -14,6 +14,18 @@ pub struct AdminSurprise {
     pub editorial: bool,
 }
 
+/// Operational counts only: no raw page, click, impression, purchase or read log.
+/// An arm is absent until 20 distinct accounts are measured in the period.
+#[derive(Debug)]
+pub struct ExperimentSummary {
+    pub arm: String,
+    pub unique_accounts: i64,
+    pub evaluated_days: i64,
+    pub planned: i64,
+    pub reserved_slots: i64,
+    pub opens: i64,
+}
+
 pub struct NewSurprise<'a> {
     pub kind: &'a str,
     pub title: &'a str,
@@ -55,11 +67,12 @@ impl PgSurprises {
     pub async fn admin_overview(
         &self,
         digest: &[u8; 32],
-    ) -> Result<(bool, i16, Vec<AdminSurprise>), SurpriseError> {
+    ) -> Result<(bool, i16, bool, Vec<AdminSurprise>), SurpriseError> {
         let mut tx = self.pool.begin().await?;
         live_admin(&mut tx, digest).await?;
-        let (enabled, probability): (bool, i16) = sqlx::query_as(
-            "SELECT enabled,probability_per_mille FROM surprise_runtime_policy WHERE singleton",
+        let (enabled, probability, experiment_enabled): (bool, i16, bool) = sqlx::query_as(
+            "SELECT enabled,probability_per_mille,experiment_enabled
+             FROM surprise_runtime_policy WHERE singleton",
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -83,7 +96,53 @@ impl PgSurprises {
                 })
             })
             .collect::<Result<_, sqlx::Error>>()?;
-        Ok((enabled, probability, content))
+        Ok((enabled, probability, experiment_enabled, content))
+    }
+
+    /// Last 7 complete UTC days, only arm totals and privacy-suppressed
+    /// cohorts. These operational counters are NOT real icon impressions
+    /// and cannot establish a causal effect on reading.
+    pub async fn admin_experiment_summary(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<Vec<ExperimentSummary>, SurpriseError> {
+        let mut tx = self.pool.begin().await?;
+        live_admin(&mut tx, digest).await?;
+        sqlx::query("SET LOCAL statement_timeout='750ms'")
+            .execute(&mut *tx)
+            .await?;
+        let rows = sqlx::query(
+            "SELECT experiment_arm,
+                    count(DISTINCT user_id)::bigint AS unique_accounts,
+                    count(*)::bigint AS evaluated_days,
+                    count(*) FILTER(WHERE state='planned')::bigint AS planned,
+                    count(*) FILTER(WHERE state IN ('claimed','opened','dismissed'))::bigint AS reserved_slots,
+                    count(*) FILTER(WHERE state='opened')::bigint AS opens
+             FROM surprise_daily_decisions
+             WHERE experiment_arm IN ('control','gentle','standard')
+               AND utc_day >= ((now() AT TIME ZONE 'UTC')::date-DATE '1970-01-01')::bigint-7
+               AND utc_day < ((now() AT TIME ZONE 'UTC')::date-DATE '1970-01-01')::bigint
+             GROUP BY experiment_arm
+             HAVING count(DISTINCT user_id)>=20
+             ORDER BY experiment_arm",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let items = rows
+            .into_iter()
+            .map(|row| {
+                Ok(ExperimentSummary {
+                    arm: row.try_get("experiment_arm")?,
+                    unique_accounts: row.try_get("unique_accounts")?,
+                    evaluated_days: row.try_get("evaluated_days")?,
+                    planned: row.try_get("planned")?,
+                    reserved_slots: row.try_get("reserved_slots")?,
+                    opens: row.try_get("opens")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        tx.commit().await?;
+        Ok(items)
     }
 
     pub async fn admin_create(
@@ -180,6 +239,7 @@ impl PgSurprises {
         digest: &[u8; 32],
         enabled: bool,
         probability: i16,
+        experiment_enabled: bool,
     ) -> Result<(), SurpriseError> {
         if !(0..=1000).contains(&probability) {
             return Err(SurpriseError::Invalid);
@@ -188,20 +248,22 @@ impl PgSurprises {
         let actor = live_admin(&mut tx, digest).await?;
         sqlx::query(
             "UPDATE surprise_runtime_policy
-             SET enabled=$1,probability_per_mille=$2,
+             SET enabled=$1,probability_per_mille=$2,experiment_enabled=$3,
                  revision=revision+1,updated_at=now() WHERE singleton",
         )
         .bind(enabled)
         .bind(probability)
+        .bind(experiment_enabled)
         .execute(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO surprise_admin_events(actor_user_id,action,details)
-             VALUES($1,'set_policy',jsonb_build_object('enabled',$2::boolean,'probability',$3::smallint))",
+             VALUES($1,'set_policy',jsonb_build_object('enabled',$2::boolean,'probability',$3::smallint,'experiment_enabled',$4::boolean))",
         )
         .bind(actor)
         .bind(enabled)
         .bind(probability)
+        .bind(experiment_enabled)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
