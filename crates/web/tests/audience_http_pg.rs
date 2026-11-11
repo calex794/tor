@@ -303,6 +303,7 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     let source = pg(&url, &format!("SELECT source_event_id FROM reader_chapter_completions WHERE user_id={reader} AND chapter_id={chapter}"));
     intent::choices(&app, (&cookies[0], &reader_cookie, &csrf), book).await;
     canonical::check(&app, &url, &cookies, book, stamp, &source).await;
+    seo::check(&app, &url, &cookies, book, stamp).await;
     // A real administrative hold hides content without rewriting past C facts.
     pg(
         &url,
@@ -360,6 +361,9 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     let revoked = call(&app, "GET", "/admin/audience/reading", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
     private(&revoked);
+    let revoked = call(&app, "GET", "/admin/audience/seo", &cookies[0], "", "").await;
+    assert_eq!(revoked.status(), StatusCode::FORBIDDEN);
+    private(&revoked);
     pg(&url, &format!("UPDATE account_roles SET is_active=true WHERE user_id={admin} AND role='administrator'"));
     accounts
         .revoke_session(&session_token_digest(&tokens[0]))
@@ -370,6 +374,9 @@ async fn audience_admin_live_authority_real_c_progress_replay_and_database_failu
     private(&revoked);
 
     let revoked = call(&app, "GET", "/admin/audience/reading", &cookies[0], "", "").await;
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    private(&revoked);
+    let revoked = call(&app, "GET", "/admin/audience/seo", &cookies[0], "", "").await;
     assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     private(&revoked);
 
@@ -402,3 +409,6 @@ mod intent;
 
 #[path = "audience_http_pg/canonical.rs"]
 mod canonical;
+
+#[path = "audience_http_pg/seo.rs"]
+mod seo;

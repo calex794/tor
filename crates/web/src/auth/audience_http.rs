@@ -6,6 +6,7 @@ mod funnel;
 mod groups;
 mod render;
 mod returns;
+mod seo;
 mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -71,6 +72,11 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         tor_reading::repositories::flow_capture::PgFlowCapture::new(accounts.pool().clone());
     Router::new()
         .route("/admin/audience", get(page))
+        .route("/admin/audience/seo", get(seo::page))
+        .route(
+            "/admin/audience/seo/refresh",
+            axum::routing::post(seo::refresh).layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
         .route("/admin/audience/books", get(books::page))
         .route("/admin/audience/reading", get(canonical::page))
         .route("/admin/audience/groups", get(groups::page))
