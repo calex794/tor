@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+pub mod background;
 pub const MAX_TRACES: usize = 128;
 pub const MAX_SQL_SPANS: usize = 8;
 

@@ -100,6 +100,25 @@ impl TracePublisher {
         }
     }
 
+    /// Try to submit a numeric child attempt through the existing bounded queue.
+    /// Business processing never waits for IPC, SQLite, or a disconnected writer.
+    pub fn try_publish_background(&self, trace: &super::trace::background::BackgroundTrace) -> bool {
+        let Some(tx) = &self.queue else {
+            return false;
+        };
+        let Some(frame) = trace.encode() else {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        };
+        match tx.try_send(frame.to_vec()) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
     pub fn counts(&self) -> PublisherCounts {
         PublisherCounts {
             sent: self.counts.sent.load(Ordering::Relaxed),
