@@ -2,6 +2,8 @@
 //! Synthetic dates prove the report contract; production has no group collector.
 #[path = "audience_group_returns_pg/fixtures.rs"]
 mod fixtures;
+#[path = "support/legacy_analytics.rs"]
+mod legacy;
 
 use fixtures::Fixture;
 use tor_reading::{
@@ -40,7 +42,7 @@ fn metric_values(period: &BookReadingReturnsPeriod) -> [[i64; 4]; 2] {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn flow_group_book_returns_current_membership_exact_days_and_read_only() {
     let fixture = Fixture::new().await;
     let store = PgReadingReturns::new(fixture.app.clone());

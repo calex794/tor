@@ -11,6 +11,9 @@ use tor_recommendations::{
     },
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 #[path = "flow_funnel_pg/attribution.rs"]
 mod attribution;
 #[path = "flow_funnel_pg/discovery.rs"]

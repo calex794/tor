@@ -1,20 +1,39 @@
-//! Exercise the production entry point: turning off AUTH must not stop erasure.
-use super::pg;
+//! Actual AUTH=0 binary on a real installed190 -> 193 database, never a helper drain.
 use std::{
+    io::{BufRead, BufReader, Write},
     net::TcpListener,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tor_books::repositories::PgCatalog;
-#[path = "startup_funnel.rs"]
-mod funnel;
 #[path = "startup_preferences.rs"]
 mod preferences;
 #[path = "startup_retirement.rs"]
 mod retirement;
 
-struct Server(Child);
+fn pg(url: &str, sql: &str) -> String {
+    let output = Command::new("psql")
+        .args([
+            "--no-psqlrc",
+            "--set=ON_ERROR_STOP=1",
+            "--tuples-only",
+            "--no-align",
+            "--quiet",
+        ])
+        .arg("--dbname")
+        .arg(url)
+        .arg("--command")
+        .arg(sql)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "fixture SQL failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
 
+struct Server(Child);
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -22,84 +41,106 @@ impl Drop for Server {
     }
 }
 
-fn retained(url: &str, actor: i64) -> String {
-    pg(
-        url,
-        &format!(
-            "SELECT concat_ws('|',
-               (SELECT count(*) FROM flow_visits WHERE subject_id=s.subject_id),
-               (SELECT count(*) FROM flow_visit_receipts WHERE subject_id=s.subject_id),
-               (SELECT count(*) FROM flow_visit_account_days WHERE subject_id=s.subject_id),
-               (SELECT count(*) FROM flow_visit_continuations WHERE subject_id=s.subject_id))
-             FROM rec_subjects s WHERE user_id={actor}"
-        ),
-    )
+struct BusyRetirement {
+    child: Child,
+    stdin: Option<ChildStdin>,
+}
+impl BusyRetirement {
+    fn hold(url: &str) -> Self {
+        let mut child = Command::new("psql")
+            .args([
+                "--no-psqlrc",
+                "--set=ON_ERROR_STOP=1",
+                "--tuples-only",
+                "--no-align",
+                "--quiet",
+            ])
+            .arg("--dbname")
+            .arg(url)
+            .env(
+                "PGOPTIONS",
+                "-c statement_timeout=5000 -c idle_in_transaction_session_timeout=30000",
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        writeln!(
+            stdin,
+            "BEGIN; SELECT pg_advisory_xact_lock(20261116,8903); SELECT 'HELD';"
+        )
+        .unwrap();
+        stdin.flush().unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap());
+        loop {
+            let mut line = String::new();
+            assert!(
+                reader.read_line(&mut line).unwrap() > 0,
+                "retirement gate holder exited"
+            );
+            if line.trim() == "HELD" {
+                break;
+            }
+        }
+        Self {
+            child,
+            stdin: Some(stdin),
+        }
+    }
+}
+impl Drop for BusyRetirement {
+    fn drop(&mut self) {
+        if let Some(mut stdin) = self.stdin.take() {
+            let _ = writeln!(stdin, "ROLLBACK;\n\\q");
+            let _ = stdin.flush();
+        }
+        let _ = self.child.wait();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires installed193 disposable tor_ci_collection_retirement_startup"]
 async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
-    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let url = std::env::var("COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL").unwrap();
+    let parsed = reqwest::Url::parse(&url).unwrap();
+    assert!(matches!(parsed.scheme(), "postgres" | "postgresql"));
+    assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+    assert_eq!(parsed.port(), Some(5432));
+    assert_eq!(parsed.username(), "tor_app");
+    assert_eq!(parsed.path(), "/tor_ci_collection_retirement_startup");
+    assert!(parsed.query().is_none() && parsed.fragment().is_none());
+    assert_eq!(
+        pg(&url, "SELECT current_database()||'|'||current_user"),
+        "tor_ci_collection_retirement_startup|tor_app"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            "SELECT concat_ws('|',count(*),max(version),bool_and(success)) FROM _sqlx_migrations"
+        ),
+        "193|202611168903|t"
+    );
+    let legacy = retirement::Probe::load(&url);
+    let canonical = legacy.canonical(&url);
+    let choices = legacy.preferences(&url);
+    let before_raw = retirement::raw(&url);
+    assert!(
+        !retirement::drained(&url),
+        "bootstrap must leave real pre-barrier raw data"
+    );
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let actor: i64 = pg(
-        &url,
-        &format!(
-            "INSERT INTO users(email_normalized,display_name,password_hash)
-             VALUES('flow-startup-{stamp}@tor-ci.example','FLOW startup','$argon2id$test')
-             RETURNING id"
-        ),
-    )
-    .parse()
-    .unwrap();
-    // Backdated rows model an already opted-in installation after a restart.
-    // The test itself never calls maintain(), starts a helper worker or offers
-    // a fresh visit: only the real binary may expire this data.
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO rec_subjects(user_id,enabled,enabled_at,flow_epoch,flow_enabled_at)
-             VALUES({actor},true,now()-interval '40 days',gen_random_uuid(),now()-interval '40 days');
-             WITH seeded AS MATERIALIZED (
-               SELECT s.subject_id,s.flow_epoch,gen_random_uuid() AS id,now()-age AS at
-               FROM rec_subjects s CROSS JOIN (
-                 VALUES(interval '31 days'),(interval '40 minutes'),(interval '10 minutes')
-               ) AS ages(age) WHERE s.user_id={actor}
-             ) INSERT INTO flow_visits(id,subject_id,flow_epoch,started_at,last_at,
-                 first_event_id,last_event_id,landing_surface,last_surface,acquisition_hint,pageviews)
-               SELECT id,subject_id,flow_epoch,at,at,id,id,4,4,1,1 FROM seeded;
-             INSERT INTO flow_visit_receipts(event_id,subject_id,flow_epoch,observed_at,surface,acquisition_hint)
-               SELECT id,v.subject_id,v.flow_epoch,started_at,4,1 FROM flow_visits v
-               JOIN rec_subjects s ON s.subject_id=v.subject_id WHERE s.user_id={actor};
-             INSERT INTO flow_visit_account_days(subject_id,flow_epoch,bucket_date)
-               SELECT DISTINCT v.subject_id,v.flow_epoch,(started_at AT TIME ZONE 'UTC')::date
-               FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id WHERE s.user_id={actor};
-             INSERT INTO flow_visit_continuations(subject_id,flow_epoch,last_at)
-               SELECT subject_id,flow_epoch,now()-interval '40 minutes' FROM rec_subjects WHERE user_id={actor}"
-        ),
-    );
-    // UTC date buckets change across midnight. The 40m/10m synthetic visits
-    // may straddle midnight even though the exact visit/receipt count is 3.
-    // Derive the expected day count from authoritative source rows, not a
-    // wall-clock-dependent fixed literal.
-    let expected_days = pg(
-        &url,
-        &format!(
-            "SELECT count(DISTINCT (v.started_at AT TIME ZONE 'UTC')::date)
-             FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id
-             WHERE s.user_id={actor}"
-        ),
-    );
-    assert_eq!(retained(&url, actor), format!("3|3|{expected_days}|1"));
-    let expired_book = funnel::seed(&url, actor).await;
-    let preference_probe = preferences::seed(&url, actor, expired_book).await;
-    retirement::seed(&url, actor, expired_book);
-    let rollup = "SELECT COALESCE(sum(visits),0) FROM flow_visit_daily
-                  WHERE cohort_day=((now()-interval '31 days') AT TIME ZONE 'UTC')::date
-                    AND acquisition_hint=1 AND landing_surface=4 AND last_surface=4";
-    let before_rollup: i64 = pg(&url, rollup).parse().unwrap();
+    let actor: i64 = pg(&url, &format!(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('retirement-startup-{stamp}@ci.invalid','Current preference reader','$argon2id$test')
+         RETURNING id"
+    )).parse().unwrap();
+    let preference_probe = preferences::seed(&url, actor, legacy.book).await;
+    let busy = BusyRetirement::hold(&url);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
@@ -122,7 +163,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
-            .expect("production tor-web binary"),
+            .expect("production tor-web"),
     );
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -138,32 +179,43 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .send()
             .await
             .is_ok_and(|response| response.status().is_success())
-            && retained(&url, actor) == "2|2|1|0"
-            && funnel::expired(&url, actor)
             && preferences::expired(&url, actor, &preference_probe)
-            && retirement::expired(&url, actor)
         {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "startup did not expire FLOW data"
+            "HTTP or independent P1 cleanup blocked behind retirement"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert_eq!(pg(&url, rollup).parse::<i64>().unwrap(), before_rollup + 1);
     assert_eq!(
-        pg(
-            &url,
-            &format!(
-                "SELECT count(*) FILTER(WHERE v.finalized_at IS NOT NULL)
-             FROM flow_visits v JOIN rec_subjects s ON s.subject_id=v.subject_id
-             WHERE s.user_id={actor}"
-            )
-        ),
-        "1",
-        "idle unexpired visit was finalized, fresh activity stayed mutable"
+        retirement::raw(&url),
+        before_raw,
+        "a busy erasure never reports a completed drain"
     );
+    assert_eq!(legacy.canonical(&url), canonical);
+    assert_eq!(legacy.preferences(&url), choices);
+    preferences::assert_preserved(&url, actor, &preference_probe);
+    drop(busy);
+    let deadline = Instant::now() + Duration::from_secs(25);
+    loop {
+        assert!(
+            server.0.try_wait().unwrap().is_none(),
+            "server exited during bounded cleanup"
+        );
+        if retirement::drained(&url) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "real supervisor failed to resume the bounded erasure"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    retirement::assert_aggregates(&url, &legacy);
+    assert_eq!(legacy.canonical(&url), canonical);
+    assert_eq!(legacy.preferences(&url), choices);
     for _ in 0..3 {
         assert!(client
             .get(format!("{origin}/"))
@@ -173,16 +225,26 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             .status()
             .is_success());
     }
-    assert_eq!(retained(&url, actor), "2|2|1|0");
-    funnel::assert_preserved(&url, actor, expired_book);
-    preferences::assert_preserved(&url, actor, &preference_probe);
-    retirement::assert_preserved(&url, actor, expired_book);
-    retirement::assert_no_new_consumption(&url, actor, expired_book).await;
+    let late = legacy.accept_late_c(&url).await;
+    // A second real preference expiry is a witness that another supervisor
+    // iteration ran after this canonical command. The test invokes no worker.
+    preferences::arm_next_pass(&url, actor, legacy.book, &preference_probe).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !preferences::next_pass_done(&url, actor, legacy.book, &preference_probe) {
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert!(
+            Instant::now() < deadline,
+            "next always-on retention pass did not run"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    legacy.assert_late_c(&url, &late);
+    assert_eq!(legacy.canonical(&url), canonical);
+    assert!(retirement::drained(&url));
+    retirement::assert_aggregates(&url, &legacy);
+    preferences::assert_live_unchanged(&url, actor, &preference_probe);
+    assert_eq!(legacy.preferences(&url), choices);
     drop(server);
     preferences::cleanup(&url, &preference_probe);
     pg(&url, &format!("DELETE FROM users WHERE id={actor}"));
-    pg(
-        &url,
-        &format!("UPDATE books SET admin_hold=true WHERE id={expired_book}"),
-    );
 }

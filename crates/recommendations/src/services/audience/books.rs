@@ -71,6 +71,8 @@ pub(super) fn normalize_label(value: Option<String>) -> Result<Option<String>, D
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BookDiscoveryMetrics {
+    /// Erased source evidence makes only the affected metrics unknown.
+    pub evidence_invalidated: bool,
     /// Catalog/search links issued in responses, not observed impressions.
     pub issued: Option<i64>,
     /// Client-observed recommendation impressions only.
@@ -85,7 +87,9 @@ pub struct BookDiscoveryMetrics {
 
 impl BookDiscoveryMetrics {
     pub fn observation(&self) -> BookDiscoveryObservation {
-        if self.starts.is_some_and(|value| value > 0) {
+        if self.evidence_invalidated {
+            BookDiscoveryObservation::UnknownEvidence
+        } else if self.starts.is_some_and(|value| value > 0) {
             BookDiscoveryObservation::WithStarts
         } else if [self.issued, self.impressions, self.clicks, self.book_opens]
             .into_iter()
@@ -101,6 +105,7 @@ impl BookDiscoveryMetrics {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookDiscoveryObservation {
+    UnknownEvidence,
     NoObservations,
     ObservedWithoutStarts,
     WithStarts,
@@ -108,6 +113,8 @@ pub enum BookDiscoveryObservation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BookDiscoveryCounts {
+    /// Separate from no observations, even when erased counters were zero.
+    pub unknown_evidence: i64,
     pub no_observations: i64,
     pub observed_without_starts: i64,
     pub with_starts: i64,
@@ -213,6 +220,11 @@ mod tests {
         );
         value.starts = Some(1);
         assert_eq!(value.observation(), BookDiscoveryObservation::WithStarts);
+        value.evidence_invalidated = true;
+        assert_eq!(
+            value.observation(),
+            BookDiscoveryObservation::UnknownEvidence
+        );
     }
 
     #[test]

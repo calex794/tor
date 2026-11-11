@@ -1,7 +1,7 @@
 'use strict';
 // Native recommendations, real C progress and independent choices after runtime retirement.
 const {chromium} = require('playwright');
-const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent} = require('./collection_retirement_fixtures.cjs')(sql);
+const {assertCurrentSchema,optionalSnapshot,assertNoControls,retiredConsent} = require('./collection_retirement_fixtures.cjs')(sql);
 const preview = require('./ci_browser_preview.cjs');
 const {benchmarkOrganicActivation} = require('./rec13_organic_load.cjs');
 const {execFileSync} = require('node:child_process');
@@ -59,6 +59,7 @@ async function completeFreeChapter(page, chapter, version) {
   const books=[];
   let browser;
   try {
+    assertCurrentSchema();
     for (let n=0;n<3;n++) {
       const book=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
         VALUES('ci:rec13:browser:${run}:${n}','ru','Browser recommendation ${n}','public','basic') RETURNING id`);
@@ -78,10 +79,10 @@ async function completeFreeChapter(page, chapter, version) {
     const desktop=await browser.newContext({viewport:{width:1440,height:900}});
     const page=await desktop.newPage();
     const errors=[],unexpectedAnalytics=[];
-    let explicitLegacyLoad=false;
+    let explicitCompatibilityLoad=false;
     page.on('pageerror',error=>errors.push(error.message));
     page.on('request',request=>{
-      if (!explicitLegacyLoad && /\/api\/v1\/(?:recommendations\/(?:impressions|activate)|discovery\/activate)$/.test(new URL(request.url()).pathname)) {
+      if (!explicitCompatibilityLoad && /\/api\/v1\/(?:recommendations\/(?:impressions|activate)|discovery\/activate)$/.test(new URL(request.url()).pathname)) {
         unexpectedAnalytics.push(new URL(request.url()).pathname);
       }
     });
@@ -97,9 +98,6 @@ async function completeFreeChapter(page, chapter, version) {
     await retiredConsent(page,'/me/recommendations/consent',true);
     assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${user}`),0);
 
-    // Explicit old-installation fixture. Every subsequent native route must
-    // ignore its enabled flag while preserving the exact stored legacy state.
-    legacyScope(user);
     let before=optionalSnapshot(user);
     for (const [index,target] of [[0,'/catalog?q=Browser%20recommendation%200'],[1,'/catalog?sort=newest']]) {
       assert.equal((await page.goto(base+target)).status(),200);
@@ -114,13 +112,13 @@ async function completeFreeChapter(page, chapter, version) {
     }
 
     // The retained 150-request/25rps gate now proves private410 and zero writes
-    // for genuine cached tokens. Its fixture rows are explicitly labeled.
-    explicitLegacyLoad=true;
+    // for syntactically valid old-client tokens, without seeding retired raw rows.
+    explicitCompatibilityLoad=true;
     const organicLoadStarted=process.hrtime.bigint();
     try {
       await benchmarkOrganicActivation({page,sql,user,book:books[0],base,db});
     } finally {
-      explicitLegacyLoad=false;
+      explicitCompatibilityLoad=false;
       const elapsedSeconds=Number(process.hrtime.bigint()-organicLoadStarted)/1e9;
       console.log(`CI_REC13_STEP_SECONDS stage=organic_post_load seconds=${elapsedSeconds.toFixed(3)}`);
     }
@@ -206,7 +204,7 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user}`),3);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('REC13 browser PASS: native contextual links on five surfaces, search/catalog and mobile real C completions, legacy scope inert, 150 private410 cached commands/zero writes, explicit hide/restore, no-JS links');
+    console.log('REC13 browser PASS: native contextual links on five surfaces, search/catalog and mobile real C completions, current193 barrier, 150 private410 old-client payloads/zero writes, explicit hide/restore, no-JS links');
   } finally {
     if (browser) await browser.close();
     // Fixtures live only in tor_ci; preserve unrelated data and immutable events.

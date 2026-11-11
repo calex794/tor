@@ -48,9 +48,9 @@ pub(super) fn section(body: &mut String, report: &DiscoveryReport) {
          Старые открытия из рекомендаций могли не измеряться. \
          Ноль показывается только при наличии измеренных данных. \
          Неизвестный источник не является отдельным каналом перехода.</p>\
-         <p>Новый сбор для этой сводки прекращён. Недавние сведения могут убираться \
-         после обновления итогов; обезличенные исторические итоги сохраняются \
-         в пределах действующего срока хранения.</p></details></section>",
+         <p>Новый сбор для этой сводки прекращён. Прежние индивидуальные записи удаляются; \
+         связанные исторические показатели становятся неизвестными. Незатронутые итоги \
+         сохраняются в пределах действующего срока хранения.</p></details></section>",
     );
 }
 
@@ -71,7 +71,7 @@ fn health(body: &mut String, report: &DiscoveryReport) {
     }
     body.push_str("<p>Эта отметка относится к прежней модели и не подтверждает текущий сбор.</p>");
     if health.rec_dirty || health.organic_dirty {
-        body.push_str("<p>Оставшиеся записи ожидают пересчёта исторических итогов.</p>");
+        body.push_str("<p>Оставшиеся индивидуальные записи ожидают удаления. Связанные итоги могут стать неизвестными.</p>");
     }
     body.push_str("</section>");
 }
@@ -130,7 +130,11 @@ fn channel_card(body: &mut String, channel: &DiscoveryChannel) {
         )
         .expect("String");
     }
-    body.push_str("</dl></article>");
+    body.push_str("</dl>");
+    if channel.evidence_invalidated {
+        super::evidence::invalidated(body);
+    }
+    body.push_str("</article>");
 }
 
 #[cfg(test)]
@@ -148,6 +152,7 @@ mod tests {
                 book_opens: None,
                 starts: Some(2),
                 completions: Some(1),
+                evidence_invalidated: false,
             },
         );
         assert!(html.contains("data-metric=\"clicks\">0</dd>"));
@@ -168,11 +173,31 @@ mod tests {
                 book_opens: None,
                 starts: Some(3),
                 completions: None,
+                evidence_invalidated: false,
             },
         );
         assert_eq!(html.matches("Не измеряется").count(), 2);
         assert!(html.contains("data-metric=\"starts\">3</dd>"));
         assert!(html.contains("data-metric=\"completions\">Нет данных</dd>"));
+    }
+
+    #[test]
+    fn deleted_evidence_is_unknown_with_reason_and_never_zero() {
+        let mut html = String::new();
+        channel_card(
+            &mut html,
+            &DiscoveryChannel {
+                source: DiscoverySource::Recommendations,
+                clicks: None,
+                book_opens: None,
+                starts: None,
+                completions: None,
+                evidence_invalidated: true,
+            },
+        );
+        assert_eq!(html.matches(">Нет данных</dd>").count(), 4);
+        assert!(html.contains("data-evidence=\"invalidated\""));
+        assert!(!html.contains(">0</dd>"));
     }
 
     #[test]

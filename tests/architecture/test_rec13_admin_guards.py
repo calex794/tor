@@ -72,8 +72,16 @@ class RecAdminGuardTests(unittest.TestCase):
             self.assertNotIn('var("' + retired + '")', runtime + worker + returns)
         self.assertNotIn(".tick_feedback(", worker + cleanup)
         self.assertNotIn(".advance_generation(", worker + cleanup)
-        self.assertIn(".maintain_retired()", cleanup)
+        self.assertIn(".retire_analytics_batch(256)", cleanup)
         self.assertIn(".prune_preferences()", cleanup)
+        # Current schema closes collection with a bounded I port. The P2a
+        # finalizers/recomputers may remain in legacy repository tests only.
+        for forbidden in (".maintain_retired()", ".refresh_quality(",
+                          ".refresh_organic_quality(", "initialize_retired_returns",
+                          "maintain_retired_returns", ".tick_collection(",
+                          ".tick_book_collection(", ".start_collection(",
+                          ".start_book_collection("):
+            self.assertNotIn(forbidden, worker + returns + cleanup)
 
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()

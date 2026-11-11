@@ -1,6 +1,7 @@
 //! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
 mod books;
+mod canonical;
 mod funnel;
 mod groups;
 mod render;
@@ -71,6 +72,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/books", get(books::page))
+        .route("/admin/audience/reading", get(canonical::page))
         .route("/admin/audience/groups", get(groups::page))
         .route("/admin/audience/returns", get(returns::page))
         .route("/admin/audience/visits", get(visits::page))
@@ -140,8 +142,9 @@ async fn page(
         Err(status) => return secure(status),
     };
     let hours_supported = matches!(days, 1 | 7);
-    let (reading, sources, observed, hours) = tokio::join!(
+    let (reading, intents, sources, observed, hours) = tokio::join!(
         timeout_at(deadline, state.store.report(days)),
+        timeout_at(deadline, state.store.intent_report(days)),
         timeout_at(deadline, state.discovery.report(days)),
         timeout_at(deadline, state.traffic.observed_report(days, zone)),
         async {
@@ -153,16 +156,19 @@ async fn page(
         },
     );
     if matches!(reading, Ok(Err(AudienceError::Invalid)))
+        || matches!(intents, Ok(Err(AudienceError::Invalid)))
         || matches!(sources, Ok(Err(DiscoveryError::Invalid)))
         || matches!(hours, Some(Err(FlowHourlyError::Invalid)))
     {
         return secure(StatusCode::BAD_REQUEST);
     }
     let reading = reading.ok().and_then(Result::ok);
+    let intents = intents.ok().and_then(Result::ok);
     let sources = sources.ok().and_then(Result::ok);
     let hours = hours.and_then(Result::ok);
     let observed = observed.ok().and_then(Result::ok);
     let status = if reading.is_some()
+        && intents.is_some()
         && sources.is_some()
         && observed.is_some()
         && (!hours_supported || hours.is_some())
@@ -175,7 +181,7 @@ async fn page(
         status,
         render::page(
             days,
-            reading.as_ref(),
+            (reading.as_ref(), intents.as_ref()),
             sources.as_ref(),
             hours.as_ref(),
             crate::ril::flow_capture_counters(),

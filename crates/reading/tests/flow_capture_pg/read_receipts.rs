@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn per_command_read_proof_cannot_backfill_disabled_canonical_events() {
     let pool = pool(2).await;
     let reader = actor(&pool, "command-gate").await;
@@ -78,7 +78,7 @@ async fn per_command_read_proof_cannot_backfill_disabled_canonical_events() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn optional_read_receipt_failure_preserves_canonical_progress_and_outbox() {
     let pool = pool(2).await;
     let reader = actor(&pool, "read-outage").await;

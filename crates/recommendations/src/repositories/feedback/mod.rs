@@ -13,6 +13,7 @@ mod observations;
 mod organic;
 mod preference_retention;
 mod preferences;
+mod retirement;
 mod serving;
 mod sources;
 mod status;

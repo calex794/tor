@@ -50,6 +50,13 @@ pub(super) fn metrics(body: &mut String, metrics: &BookDiscoveryMetrics) {
         .expect("String");
     }
     body.push_str("</dl>");
+    if metrics.evidence_invalidated {
+        invalidated(body);
+    }
+}
+
+pub(super) fn invalidated(body: &mut String) {
+    body.push_str("<p data-evidence=\"invalidated\">Часть прежних данных удалена. Связанные исторические показатели теперь неизвестны и не заменяются нулями. Доступные измерения показаны отдельно.</p>");
 }
 
 pub(super) fn comparison(
@@ -80,6 +87,9 @@ pub(super) fn comparison(
 
 pub(super) fn observation(value: BookDiscoveryObservation) -> (&'static str, &'static str) {
     match value {
+        BookDiscoveryObservation::UnknownEvidence => {
+            ("unknown-evidence", "Исторические данные неполны")
+        }
         BookDiscoveryObservation::NoObservations => {
             ("no-observations", "Нет сохранённых наблюдений")
         }
@@ -113,6 +123,11 @@ pub(super) fn counts(body: &mut String, counts: &BookDiscoveryCounts) {
         "<h4>Состояние книг в сохранённой выборке</h4><dl data-measurement=\"legacy-consented\">",
     );
     for (key, label, value) in [
+        (
+            "unknown-evidence",
+            "Исторические данные неполны",
+            counts.unknown_evidence,
+        ),
         (
             "no-observations",
             "Нет сохранённых наблюдений",
@@ -150,7 +165,45 @@ pub(super) fn health(body: &mut String, prefix: &str, health: &DiscoveryHealth) 
     }
     body.push_str("<p>Эта отметка относится к прежней модели и не подтверждает текущий сбор.</p>");
     if health.rec_dirty || health.organic_dirty {
-        body.push_str("<p>Оставшиеся записи ожидают пересчёта исторических итогов.</p>");
+        body.push_str("<p>Оставшиеся индивидуальные записи ожидают удаления. Связанные итоги могут стать неизвестными.</p>");
     }
     body.push_str("</section>");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_book_keeps_independent_zero_and_omits_unknown_delta() {
+        let current = BookDiscoveryMetrics {
+            issued: Some(0),
+            impressions: None,
+            clicks: None,
+            book_opens: None,
+            starts: None,
+            evidence_invalidated: true,
+        };
+        let previous = BookDiscoveryMetrics {
+            issued: Some(2),
+            impressions: Some(3),
+            clicks: Some(2),
+            book_opens: Some(1),
+            starts: Some(1),
+            evidence_invalidated: false,
+        };
+        let mut html = String::new();
+        metrics(&mut html, &current);
+        comparison(&mut html, "book", &current, &previous);
+        assert!(html.contains("data-evidence=\"invalidated\""));
+        assert!(html.contains("data-metric=\"issued\">0</dd>"));
+        assert!(html.contains("data-metric=\"starts\">Нет данных</dd>"));
+        assert!(html.contains("data-change=\"issued\">-2</dd>"));
+        assert!(html.contains("data-change=\"starts\">Нет сравнения</dd>"));
+        assert!(!html.contains("data-change=\"starts\">-1</dd>"));
+        assert_eq!(
+            observation(BookDiscoveryObservation::UnknownEvidence),
+            ("unknown-evidence", "Исторические данные неполны")
+        );
+    }
 }

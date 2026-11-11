@@ -20,11 +20,10 @@ pub struct Fixture {
 
 impl Fixture {
     pub async fn new(name: &str) -> Self {
-        let app_url = std::env::var("TEST_DATABASE_URL").expect("disposable app URL");
-        let owner_url = std::env::var("MIGRATOR_URL").expect("disposable migrator URL");
-        assert!(app_url.ends_with("/tor_ci") && app_url.contains("127.0.0.1:5432"));
-        assert!(owner_url.ends_with("/tor_ci") && owner_url.contains("127.0.0.1:5432"));
+        let app_url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+        let owner_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let owner = PgPool::connect(&owner_url).await.unwrap();
+        legacy_analytics::assert_schema(&owner).await;
         let schema = format!("flow_funnel_{name}");
         sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
             .execute(&owner)

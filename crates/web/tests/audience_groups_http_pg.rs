@@ -1,6 +1,8 @@
 //! FLOW-05: private group comparison and exact detail round-trips.
 //! Daily rows are explicit report fixtures; actual collection is covered by Chromium.
 #![forbid(unsafe_code)]
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 
 use axum::{
     body::{to_bytes, Body},
@@ -23,7 +25,7 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 fn client(url: &str) -> Command {
-    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
     let mut command = Command::new("psql");
     command
         .env(
@@ -255,9 +257,9 @@ fn same_period(left: &str, right: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires explicit legacy analytics baseline 191"]
 async fn groups_http_exact_details_complete_periods_and_live_admin() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    let url = legacy_analytics::url();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());

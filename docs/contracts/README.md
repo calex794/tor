@@ -23,3 +23,7 @@
 Оригинал продукта: [Notion v0.2](https://app.notion.com/p/40432a84beec81c49bbad75e88ff6989). Истинный статус функций: [Notion](https://app.notion.com/p/970f1eab10e041489e285725a697b513).
 
 - [FLOW observation-hour counts v1](flow-observation-hours-v1.md): anonymous RIL event-hour projection, periods/timezones and evidence boundaries.
+
+- [FLOW-05 explicit library/follow snapshots](flow-explicit-choices-v1.md): current product choices, surviving cohorts, not historical additions or conversion.
+
+- [FLOW-05 canonical book reading](flow-canonical-book-reading-v1.md): retained C first-completion pairs, current choices and honest scope.

@@ -13,6 +13,9 @@ use tor_recommendations::{
     },
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 const DAILY_BOOK: i64 = 9_063_000_001;
 const SESSION: [u8; 32] = [63; 32];
 const COUNTS: [[i64; 4]; 4] = [
@@ -25,15 +28,21 @@ const COUNTS: [[i64; 4]; 4] = [
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
-    let app_url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
-    let migrator_url = std::env::var("MIGRATOR_URL").expect("CI schema owner required");
-    assert!(app_url.ends_with("/tor_ci") && migrator_url.ends_with("/tor_ci"));
+    let app_url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+    let migrator_url = legacy_analytics::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
     let database = PgPool::connect(&migrator_url).await.unwrap();
+    legacy_analytics::assert_schema(&database).await;
     let identity: (String, String) = sqlx::query_as("SELECT current_database(),current_user")
         .fetch_one(&database)
         .await
         .unwrap();
-    assert_eq!(identity, ("tor_ci".to_owned(), "tor_migrator".to_owned()));
+    assert_eq!(
+        identity,
+        (
+            "tor_ci_legacy_analytics".to_owned(),
+            "tor_migrator".to_owned()
+        )
+    );
     // Clone actual migrated schemas into an isolated empty namespace. Other
     // suites may have retained daily facts in public; never erase their data.
     sqlx::query("DROP SCHEMA IF EXISTS flow_source_empty CASCADE")
@@ -47,6 +56,7 @@ async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
     for table in [
         "rec_quality_daily",
         "organic_discovery_quality_daily",
+        "rec_analytics_invalidations",
         "rec_dirty_buckets",
         "organic_discovery_dirty",
         "rec_worker_health",
@@ -113,9 +123,10 @@ async fn flow_source_missing_measurements_are_distinct_from_measured_zero() {
 }
 
 async fn pool() -> PgPool {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
-    assert!(url.ends_with("/tor_ci"), "never use production");
-    PgPool::connect(&url).await.unwrap()
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+    let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
+    pool
 }
 
 async fn clear_daily_fixture(pool: &PgPool) {

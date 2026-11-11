@@ -1,11 +1,5 @@
-//! Cached and forged attribution tickets are inert even for old enabled scopes.
+//! Valid old-client payloads and forged navigation cannot create new attribution.
 use super::*;
-use tor_accounts::services::security::session_token_digest;
-use tor_recommendations::{
-    domain::feedback::{Feed, FeedItem, OrganicSource, Surface, ALGORITHM},
-    repositories::PgRecommendations,
-};
-
 async fn assert_retired(response: Response) {
     assert_eq!(response.status(), StatusCode::GONE);
     private(&response);
@@ -15,7 +9,7 @@ async fn assert_retired(response: Response) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn old_tickets_and_forged_navigation_cannot_restart_individual_attribution() {
+async fn valid_ticket_payloads_and_forged_navigation_cannot_restart_individual_attribution() {
     let h = setup().await;
     let (browser, reader) = registration(
         &h.app,
@@ -30,57 +24,12 @@ async fn old_tickets_and_forged_navigation_cannot_restart_individual_attribution
     )
     .await;
     let item = book(&h.url, &format!("FLOW-proof-search-{}", h.stamp));
-    let catalog = PgCatalog::connect(&h.url).await.unwrap();
-    let store = PgRecommendations::new(catalog.pool().clone());
-
-    // Only this explicit fixture uses the retained legacy repository ports.
-    // It models already issued, session-bound tickets before runtime retirement.
-    legacy_scope(&h.url, reader);
-    let digest = session_token_digest(&browser.cookies["tor-dev-session"]);
-    // Use the historical candidate shape. Today's catalogue feed deliberately
-    // has source=catalog and cannot be passed to the retired assignment schema.
-    let feed = Feed {
-        items: vec![FeedItem {
-            book_id: item.0.to_string(),
-            title: "Historical FLOW candidate".to_owned(),
-            source: "content".to_owned(),
-            reason: "similar_by_content".to_owned(),
-            algorithm_version: ALGORITHM,
-            ticket: None,
-            feedback_revision: None,
-        }],
-        generation_id: None,
-        next_cursor: None,
-        personalized: false,
-    };
-    let old_feed = store
-        .issue_tickets(reader, &digest, Surface::Home, feed)
-        .await
-        .unwrap();
-    let book_id = item.0.to_string();
-    let rec_ticket = old_feed
-        .items
-        .iter()
-        .find(|entry| entry.book_id == book_id)
-        .unwrap()
-        .ticket
-        .as_ref()
-        .unwrap()
-        .clone();
-    let organic = store
-        .issue_organic_tickets(reader, &digest, OrganicSource::Catalog, &[item.0])
-        .await
-        .unwrap();
-    assert_eq!(organic.len(), 1);
-    let stale_ticket = organic[0].1.clone();
-    pg(
-        &h.url,
-        &format!(
-            "UPDATE organic_discovery_touches
-        SET created_at=created_at-interval '16 minutes',expires_at=expires_at-interval '16 minutes'
-        WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id={reader})"
-        ),
-    );
+    assert_current_schema(&h.url);
+    // Opaque, syntactically valid payloads from an old client. They are never
+    // persisted as issued tickets on the current schema. Actual pre-barrier
+    // assignments and their erasure are covered by the installed upgrade test.
+    let rec_ticket = generate_session_token();
+    let organic_ticket = generate_session_token();
     let before = optional_snapshot(&h.url, reader);
     let other_before = optional_snapshot(&h.url, other_id);
 
@@ -129,7 +78,7 @@ async fn old_tickets_and_forged_navigation_cannot_restart_individual_attribution
     let forged_ticket = "A".repeat(43);
     for (endpoint, ticket) in [
         ("/api/v1/recommendations/activate", rec_ticket.as_str()),
-        ("/api/v1/discovery/activate", stale_ticket.as_str()),
+        ("/api/v1/discovery/activate", organic_ticket.as_str()),
         ("/api/v1/recommendations/activate", forged_ticket.as_str()),
     ] {
         for actor in [&browser, &other] {
@@ -197,7 +146,7 @@ async fn old_tickets_and_forged_navigation_cannot_restart_individual_attribution
     assert_eq!(
         optional_snapshot(&h.url, reader),
         before,
-        "old opaque tickets must not be viewed, clicked, opened, delivered or refreshed"
+        "valid opaque payloads cannot be viewed, clicked, opened, delivered or retained"
     );
     assert_eq!(
         optional_snapshot(&h.url, other_id),
