@@ -128,6 +128,13 @@ async fn surprise_plan_is_default_off_replay_safe_and_capped_between_tabs() {
         .unwrap();
     assert_eq!(count, 0, "feature OFF cannot write decision history");
     f.enable().await;
+    sqlx::query(
+        "INSERT INTO surprise_content(kind,title,body,state)
+         VALUES('joke','Сюрприз','Редакционная шутка','approved')",
+    )
+    .execute(&f.app)
+    .await
+    .unwrap();
     let plan = f.store.plan(f.actor, &key).await.unwrap();
     let PlanState::Planned {
         utc_day,
@@ -161,20 +168,6 @@ async fn surprise_plan_is_default_off_replay_safe_and_capped_between_tabs() {
 async fn surprise_open_rechecks_public_basic_book_and_disable() {
     let f = Fixture::new("visibility").await;
     f.enable().await;
-    let key = [0xaf; 32];
-    let plan = f.store.plan(f.actor, &key).await.unwrap();
-    let PlanState::Planned { utc_day, .. } = plan else {
-        panic!("selected plan required");
-    };
-    sqlx::query(
-        "UPDATE surprise_daily_decisions SET created_at=now()-interval '30 minutes'
-         WHERE user_id=$1",
-    )
-    .bind(f.actor)
-    .execute(&f.app)
-    .await
-    .unwrap();
-    assert!(f.store.claim(f.actor, utc_day, 1200).await.unwrap());
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
          VALUES($1,'ru','Surprise public book','public','basic') RETURNING id",
@@ -191,6 +184,20 @@ async fn surprise_open_rechecks_public_basic_book_and_disable() {
     .execute(&f.app)
     .await
     .unwrap();
+    let key = [0xaf; 32];
+    let plan = f.store.plan(f.actor, &key).await.unwrap();
+    let PlanState::Planned { utc_day, .. } = plan else {
+        panic!("selected plan required");
+    };
+    sqlx::query(
+        "UPDATE surprise_daily_decisions SET created_at=now()-interval '30 minutes'
+         WHERE user_id=$1",
+    )
+    .bind(f.actor)
+    .execute(&f.app)
+    .await
+    .unwrap();
+    assert!(f.store.claim(f.actor, utc_day, 1200).await.unwrap());
     let item = f.store.open(f.actor, utc_day).await.unwrap().unwrap();
     assert_eq!(item.book_id, Some(book));
     assert!(item.editorial);
