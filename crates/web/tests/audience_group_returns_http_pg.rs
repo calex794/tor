@@ -1,6 +1,8 @@
 //! FLOW: complete current genre/tag book observations through the private HTTP path.
 //! Temporal analytics are explicit legacy fixtures; Chromium proves C progress adds no capture.
 #![forbid(unsafe_code)]
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 
 use axum::{
     body::{to_bytes, Body},
@@ -25,7 +27,7 @@ use tower::ServiceExt;
 const TODAY: &str = "(now() AT TIME ZONE 'UTC')::date";
 
 fn client(url: &str) -> Command {
-    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
     let mut command = Command::new("psql");
     command
         .env(
@@ -392,9 +394,9 @@ fn create_book(fixtures: &mut Fixtures, stamp: u128, key: &str, genres: &str, ta
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires explicit legacy analytics baseline 191"]
 async fn group_returns_http_exact_periods_complete_sums_current_metadata_and_private_access() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    let url = legacy_analytics::url();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());

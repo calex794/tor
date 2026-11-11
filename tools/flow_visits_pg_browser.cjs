@@ -1,6 +1,6 @@
 'use strict';
 // FLOW-02 retirement: native navigation stays usable, historical reports stay labeled.
-// Historical visit measurements are explicit fixtures; current HTML creates none.
+// Current migration-193 HTML creates no visits or behavioral identities.
 const {chromium} = require('playwright');
 const {execFileSync} = require('node:child_process');
 const {randomBytes} = require('node:crypto');
@@ -19,7 +19,7 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
 }
 fs.mkdirSync(shots, {recursive:true});
 const ordinaryUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent,historicalVisits} =
+const {assertCurrentSchema,optionalSnapshot,assertNoControls,retiredConsent} =
   require('./collection_retirement_fixtures.cjs')(sql);
 const preview = require('./ci_browser_preview.cjs');
 
@@ -89,11 +89,9 @@ async function assertReport(page, days) {
       const exact = scalar(`SELECT count(DISTINCT subject_id) FROM flow_visit_account_days
         WHERE bucket_date>=${start} AND bucket_date<${until}`);
       const measured = sql(`SELECT EXISTS(SELECT 1 FROM flow_visit_account_days
-          WHERE bucket_date>=${start} AND bucket_date<${until})
-        OR EXISTS(SELECT 1 FROM flow_visit_daily WHERE cohort_day>=${start} AND cohort_day<${until})
-        OR EXISTS(SELECT 1 FROM flow_visits WHERE (started_at AT TIME ZONE 'UTC')::date>=${start}
-          AND (started_at AT TIME ZONE 'UTC')::date<${until})`) === 't';
-      // A retained measured zero is distinct from no measurement at all.
+          WHERE bucket_date>=${start} AND bucket_date<${until})`) === 't';
+      // An anonymous daily total does not reconstruct erased account-day evidence.
+      // Only retained source rows can prove an exact DISTINCT for this period.
       assert.equal(distinct.trim(), measured ? String(exact) : 'Нет измерения');
     }
   }
@@ -105,6 +103,7 @@ async function assertReport(page, days) {
   const users = [];
   let browser, book, chapter;
   try {
+    assertCurrentSchema();
     book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
       VALUES('ci:flow:visits:browser:${run}','ru','FLOW-VISITS-PRIVATE-${run}','public','basic') RETURNING id`);
     chapter = scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
@@ -138,11 +137,8 @@ async function assertReport(page, days) {
     assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${reader}`),0,
       'retired requests cannot introduce an analytics subject');
 
-    // Separate old-installation fixtures: never added by navigation helpers.
-    const scope = legacyScope(reader);
-    historicalVisits(reader);
     const before = optionalSnapshot(reader);
-    assert.equal(ownPages(reader),2);
+    assert.equal(ownPages(reader),0);
     for (const target of [`/books/${book}`,'/catalog?sort=newest',`/reader/${chapter}`,
       `/read/${chapter}`,'/me/library','/']) {
       assert.equal((await readerPage.goto(base+target)).status(),200,target);
@@ -187,7 +183,7 @@ async function assertReport(page, days) {
       assert.equal(await adminPage.locator('[data-measurement="legacy-consented"]').count(),2);
       await assertReport(adminPage,days);
       const html = await adminPage.content();
-      for (const forbidden of [readerEmail,scope.subject,scope.epoch,`FLOW-VISITS-PRIVATE-${run}`,'FLOW readable fixture']) {
+      for (const forbidden of [readerEmail,`FLOW-VISITS-PRIVATE-${run}`,'FLOW readable fixture']) {
         assert.equal(html.includes(forbidden),false,'private identity/content leaked');
       }
     }
@@ -205,7 +201,7 @@ async function assertReport(page, days) {
       await retiredConsent(readerPage,endpoint,true);
     }
     assert.deepEqual(optionalSnapshot(reader),before,
-      'all HTML, reports, browser restarts and cached commands leave historical scope unchanged');
+      'all HTML, reports, browser restarts and old client commands leave optional stores empty');
     for (const cookie of await readerContext.cookies()) {
       assert.ok(['tor-dev-session','tor-dev-csrf'].includes(cookie.name),'unexpected cookie '+cookie.name);
     }
@@ -214,7 +210,7 @@ async function assertReport(page, days) {
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('FLOW visits browser PASS: old enabled scope inert, native navigation across browsers, exact historical fixture preserved, retired consent410, all periods/ACL/privacy, 390/1440');
+    console.log('FLOW visits browser PASS: current193 barrier, no analytics identity or visits, native navigation across browsers, retired consent410, all periods/ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) {

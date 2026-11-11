@@ -1,6 +1,8 @@
 //! Retained source aggregates stay historical while ordinary navigation and C reading continue.
 //! Positive report rows below are explicit old-model fixtures, never evidence of new capture.
 #![forbid(unsafe_code)]
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -28,7 +30,7 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn pg(url: &str, sql: &str) -> String {
-    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
     let output = Command::new("psql")
         .env(
             "PGOPTIONS",
@@ -268,7 +270,7 @@ async fn retired_command(app: &Router, auth: (&str, &str), path: &str, payload: 
 
 // Sync psql must not block the driver that rolls back a rejected C transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires explicit legacy analytics baseline 191"]
 async fn audience_sources_http_retained_history_real_reading_and_retired_capture() {
     for name in [
         "TOR_RECOMMENDATIONS_ENABLED",
@@ -278,7 +280,7 @@ async fn audience_sources_http_retained_history_real_reading_and_retired_capture
     ] {
         std::env::set_var(name, "1");
     }
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    let url = legacy_analytics::url();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());

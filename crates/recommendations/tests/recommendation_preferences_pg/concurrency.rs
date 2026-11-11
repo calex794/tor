@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn two_adapters_serialize_replay_cas_and_cross_kind_commands() {
+async fn two_adapters_serialize_explicit_replay_and_cas() {
     let (pool, store, actor, book) = fixture("concurrency").await;
     let other = PgRecommendations::new(pool.clone());
     let hide = new_ticket().unwrap();
@@ -33,18 +33,7 @@ async fn two_adapters_serialize_replay_cas_and_cross_kind_commands() {
     assert_eq!(counts(&pool, actor).await, (1, 1, 2, 0));
     assert_eq!(preference(&pool, actor, book).await.unwrap().1, 2);
 
-    let shared = new_ticket().unwrap();
-    let (consent, feedback) = tokio::join!(
-        store.set_consent(actor, false, 0, &shared),
-        other.set_feedback(actor, book, Choice::NotInterested, 2, &shared)
-    );
-    assert!(
-        consent.is_ok() && feedback == Err(FeedbackError::IdempotencyConflict)
-            || feedback.is_ok() && consent == Err(FeedbackError::IdempotencyConflict),
-        "different command kinds must share one atomic namespace"
-    );
-    assert_eq!(counts(&pool, actor).await.2, 3);
-    assert!(!store.consent(actor).await.unwrap().enabled);
+    assert_eq!(counts(&pool, actor).await.3, 0);
 }
 
 #[tokio::test]

@@ -1,5 +1,7 @@
 //! FLOW: real C writers, consent erasure, exact UTC returns and bounded history.
-//! Only the disposable migrated tor_ci database is accepted.
+//! Retained collector regression: only the explicit legacy 191 database is accepted.
+#[path = "support/legacy_analytics.rs"]
+mod legacy;
 use sqlx::PgPool;
 use tor_reading::{
     repositories::{
@@ -81,11 +83,11 @@ async fn purchase(pool: &PgPool, actor: i64, book: Book) -> i64 {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn flow_returns_confirmed_progress_privacy_and_exact_utc_cohorts() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL URL");
-    assert!(url.ends_with("/tor_ci"), "never test a permanent database");
+    let url = legacy::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy::assert_schema(&pool).await;
     let coverage_before: i64 =
         sqlx::query_scalar("SELECT COALESCE(max(id),0) FROM reader_return_coverage")
             .fetch_one(&pool)
@@ -556,14 +558,17 @@ async fn failure_and_consent_race(
 ) {
     // Fault injection is test-only DDL. Real C operations continue to use the
     // restricted application role; never grant it schema creation privileges.
-    let owner_url = std::env::var("MIGRATOR_URL").expect("disposable CI schema owner");
-    assert!(owner_url.ends_with("/tor_ci") && owner_url.contains("@127.0.0.1:"));
+    let owner_url = legacy::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
     let owner = PgPool::connect(&owner_url).await.unwrap();
     let identity: (String, String) = sqlx::query_as("SELECT current_database(),current_user")
         .fetch_one(&owner)
         .await
         .unwrap();
-    assert_eq!(identity, ("tor_ci".into(), "tor_migrator".into()));
+    assert_eq!(
+        identity,
+        ("tor_ci_legacy_analytics".into(), "tor_migrator".into())
+    );
+    legacy::assert_schema(&owner).await;
     let a = actor(pool, "fault").await;
     actors.push(a);
     consent(pool, a, true).await;

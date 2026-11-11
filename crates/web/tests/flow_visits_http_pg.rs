@@ -1,5 +1,5 @@
-//! Retired FLOW-02 collection: old flags/scopes cannot re-enable HTTP tracking.
-//! Historical visit facts are explicit fixtures; actual HTML remains usable.
+//! Current retired FLOW-02: old flags cannot re-enable HTTP tracking.
+//! Existing-installation evidence is exercised by the separate migration harness.
 #![forbid(unsafe_code)]
 use axum::{
     body::{to_bytes, Body},
@@ -15,15 +15,12 @@ use std::{
 use tor_accounts::{repositories::PgAccounts, services::security::generate_session_token};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
-use tor_recommendations::{
-    repositories::{visits::PgFlowVisits, PgRecommendations},
-    services::visits::{FlowVisitsReport, VisitObservation},
-};
+use tor_recommendations::{repositories::visits::PgFlowVisits, services::visits::FlowVisitsReport};
 use tower::ServiceExt;
 
 #[path = "support/collection_retirement.rs"]
 mod retirement;
-use retirement::{legacy_scope, optional_snapshot};
+use retirement::{assert_current_schema, optional_snapshot};
 
 #[path = "flow_visits_http_pg/outage.rs"]
 mod outage;
@@ -270,7 +267,6 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let store = PgRecommendations::new(pool.clone());
     let visits = PgFlowVisits::new(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
         catalog.clone(),
@@ -385,27 +381,10 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
         "retired endpoints cannot create a previously absent subject"
     );
 
-    // Explicit legacy installation fixture, separate from every HTTP request.
-    legacy_scope(&url, reader);
-    pg(
-        &url,
-        &format!("INSERT INTO rec_subjects(user_id,enabled,revision) VALUES({moderator},false,9)"),
-    );
+    assert_current_schema(&url);
     let disabled_scope = optional_snapshot(&url, moderator);
-    let scope = store.flow_scope(reader).await.unwrap().unwrap();
-    let historical = VisitObservation::new(
-        scope.clone(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64,
-        1,
-        0,
-    )
-    .unwrap();
-    assert!(visits.observe(&historical).await.unwrap());
     let baseline = optional_snapshot(&url, reader);
-    assert_eq!(own_pages(&url, reader), 1);
+    assert_eq!(own_pages(&url, reader), 0);
 
     for path in [
         "/".to_owned(),
@@ -472,7 +451,7 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
     assert_eq!(
         optional_snapshot(&url, moderator),
         disabled_scope,
-        "an existing off scope is not automatically enabled"
+        "an unrelated account is not automatically enrolled"
     );
     assert_eq!(
         reader_browser
@@ -514,7 +493,7 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
     assert_eq!(
         optional_snapshot(&url, reader),
         baseline,
-        "legacy consent rows, timestamps and historical measurements stay unchanged in P2a"
+        "retired requests and current HTML cannot introduce an analytics subject or observation"
     );
     for days in [1, 7, 30, 90] {
         let report = visits.report(days).await.unwrap();
@@ -533,8 +512,6 @@ async fn retired_flow_keeps_navigation_historical_reports_and_live_admin_guards(
             "FLOW-SECRET-QUERY",
             "FLOW readable fixture",
             &admin_email,
-            &scope.subject_id,
-            &scope.epoch,
         ] {
             assert!(
                 !html.contains(forbidden),

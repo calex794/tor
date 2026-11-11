@@ -87,7 +87,7 @@ async fn locked_visit_storage_does_not_block_reading_and_report_fails_explicitly
         &url,
         &format!("INSERT INTO account_roles(user_id,role) VALUES({admin},'administrator')"),
     );
-    legacy_scope(&url, reader);
+    assert_current_schema(&url);
     let baseline = optional_snapshot(&url, reader);
     let initial = admin_browser.get(&app, "/admin/audience/visits").await;
     assert_eq!(initial.status(), StatusCode::OK);

@@ -93,8 +93,7 @@ async fn retired_funnel_keeps_actual_paid_layer_entitlements() {
         &format!("flow-paid-outsider-{stamp}@tor-ci.example"),
     )
     .await;
-    legacy_scope(&url, buyer);
-    legacy_scope(&url, outsider);
+    assert_current_schema(&url);
     let buyer_before = optional_snapshot(&url, buyer);
     let outsider_before = optional_snapshot(&url, outsider);
     pg(&url, &format!("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({buyer},400,'RUB')"));

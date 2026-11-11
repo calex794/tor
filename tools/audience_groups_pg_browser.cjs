@@ -9,14 +9,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const preview = require('./ci_browser_preview.cjs');
 
-const db = process.env.APP_URL || '';
+const db = require('./legacy_analytics_fixture.cjs')();
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
 const shots = process.env.TOR_AUDIENCE_SHOTS || '/tmp/audience-browser-shots';
 const parsed = new URL(db);
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
-    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci'
+    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci_legacy_analytics'
     || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
-  throw new Error('Group-report acceptance requires disposable loopback tor_ci');
+  throw new Error('Group-report acceptance requires disposable loopback legacy analytics baseline 191');
 }
 fs.mkdirSync(shots, {recursive:true});
 const metrics = ['issued', 'impressions', 'clicks', 'book-opens', 'starts'];
@@ -197,7 +197,7 @@ async function detail(page, kind, label, days) {
     await readerPage.goto(base+`/books/${direct.book}`); await read(readerPage,direct);
     await navigate(readerPage,unread,'catalog');
     await readerPage.goto(base+'/me'); await readerPage.waitForLoadState('networkidle');
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     const zero = create('zero','Книга без наблюдений '+run,[genreA],[tagA]);
     await adminPage.goto(base+'/me');
@@ -262,7 +262,7 @@ async function detail(page, kind, label, days) {
     // Untouched book remains visible without any invented measured zero.
     await adminPage.goto(base+'/admin/audience/books?genre='+encodeURIComponent(genreA)+'&days=7');
     assert.ok(Object.values(await values(adminPage.locator(`[data-book-id='${zero.book}'] [data-period='current']`))).every(value=>value===null));
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     assert.equal(retired.scopeSnapshot(users),scope,'ordinary activity does not mutate old scopes');
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${users[0]} AND role='administrator'`);
