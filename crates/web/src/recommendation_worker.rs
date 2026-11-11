@@ -7,7 +7,6 @@ use tor_accounts::repositories::PgAccounts;
 use tor_recommendations::repositories::{surprises::PgSurprises, PgRecommendations};
 
 /// Called once by the process entry point, never while constructing an HTTP router.
-/// An administrator must explicitly create a building generation or experiment.
 /// Retention runs even when gifts and experiments are disabled.
 pub fn start_contextual(accounts: Option<PgAccounts>) -> Option<tokio::task::JoinHandle<()>> {
     let pool = accounts?.pool().clone();
@@ -26,7 +25,19 @@ pub fn start_contextual(accounts: Option<PgAccounts>) -> Option<tokio::task::Joi
                 {
                     Ok(Ok(true)) => {}
                     Ok(Ok(false)) => eprintln!("TOR_SURPRISE_RETENTION_BACKLOG"),
-                    _ => eprintln!("TOR_SURPRISE_MAINTENANCE_UNAVAILABLE"),
+                    _ => {
+                        eprintln!("TOR_SURPRISE_MAINTENANCE_UNAVAILABLE");
+                        if !matches!(
+                            tokio::time::timeout(
+                                Duration::from_millis(2000),
+                                surprises.recover_expired_experiment(),
+                            )
+                            .await,
+                            Ok(Ok(()))
+                        ) {
+                            eprintln!("TOR_SURPRISE_RETENTION_UNAVAILABLE");
+                        }
+                    }
                 }
                 checked = Some(Instant::now());
             }

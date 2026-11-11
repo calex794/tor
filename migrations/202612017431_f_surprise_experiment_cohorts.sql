@@ -22,6 +22,19 @@ CREATE TABLE surprise_experiment_runs (
 CREATE UNIQUE INDEX surprise_one_running_experiment ON surprise_experiment_runs((true))
     WHERE state='running';
 
+-- Captures use KEY SHARE: heartbeat updates must not block valid reading.
+-- Every sealing path upgrades to the exclusive fence before freezing totals.
+CREATE FUNCTION surprise_experiment_seal_fence() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.state='running' AND NEW.state<>'running' THEN
+        PERFORM id FROM surprise_experiment_runs WHERE id=OLD.id FOR UPDATE;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER surprise_experiment_seal_fence BEFORE UPDATE OF state
+    ON surprise_experiment_runs FOR EACH ROW
+    EXECUTE FUNCTION surprise_experiment_seal_fence();
+
 CREATE TABLE surprise_experiment_participants (
     id bigserial PRIMARY KEY,
     run_id bigint NOT NULL REFERENCES surprise_experiment_runs(id),
@@ -125,7 +138,7 @@ BEGIN
       WHERE policy.singleton AND policy.enabled AND policy.experiment_enabled
         AND e.id=p_run AND e.state='running' AND clock_timestamp()<e.ends_at
         AND e.last_checked_at>=clock_timestamp()-interval '2 minutes'
-        AND e.faults_start=surprise_capture_faults() FOR SHARE OF e;
+        AND e.faults_start=surprise_capture_faults() FOR KEY SHARE OF e;
     IF NOT FOUND THEN RETURN; END IF;
     IF EXISTS(SELECT 1 FROM surprise_daily_decisions d WHERE d.user_id=p_user
        AND d.utc_day=p_day AND d.experiment_run_id IS DISTINCT FROM r.id) THEN RETURN; END IF;

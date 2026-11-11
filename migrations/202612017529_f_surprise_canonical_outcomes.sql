@@ -17,7 +17,11 @@ BEGIN
         SELECT e.id INTO active_id FROM surprise_experiment_runs e
           JOIN surprise_runtime_policy policy ON policy.experiment_run_id=e.id
           WHERE policy.singleton AND policy.enabled AND policy.experiment_enabled
-            AND e.state='running' AND at_time<e.ends_at FOR SHARE OF e;
+            AND e.state='running' AND at_time<e.ends_at
+            AND EXISTS(SELECT 1 FROM surprise_experiment_participants x
+              WHERE x.run_id=e.id AND x.user_id=NEW.user_id
+                AND at_time>=x.enrolled_at AND at_time<x.enrolled_at+interval '192 hours')
+          FOR KEY SHARE OF e;
         IF active_id IS NOT NULL THEN
             SELECT x.* INTO p FROM surprise_experiment_participants x
               WHERE x.run_id=active_id AND x.user_id=NEW.user_id
@@ -81,17 +85,20 @@ CREATE CONSTRAINT TRIGGER surprise_verified_completion
     FOR EACH ROW EXECUTE FUNCTION surprise_capture_read_outcome();
 
 CREATE FUNCTION surprise_capture_disable() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE old_timeout text;
+DECLARE old_timeout text; active_id bigint;
 BEGIN
     IF NOT NEW.disabled THEN RETURN NEW; END IF;
     old_timeout:=current_setting('lock_timeout');
     BEGIN
         PERFORM set_config('lock_timeout','25ms',true);
-        UPDATE surprise_experiment_participants p SET disabled=true
-          FROM surprise_experiment_runs e
-          WHERE p.run_id=e.id AND p.user_id=NEW.user_id AND e.state='running'
-            AND clock_timestamp()<e.ends_at
-            AND clock_timestamp()<p.enrolled_at+interval '192 hours';
+        SELECT e.id INTO active_id FROM surprise_experiment_runs e
+          WHERE e.state='running' AND clock_timestamp()<e.ends_at
+          FOR KEY SHARE OF e;
+        IF active_id IS NOT NULL THEN
+            UPDATE surprise_experiment_participants p SET disabled=true
+              WHERE p.run_id=active_id AND p.user_id=NEW.user_id
+                AND clock_timestamp()<p.enrolled_at+interval '192 hours';
+        END IF;
         PERFORM set_config('lock_timeout',old_timeout,true);
     EXCEPTION WHEN OTHERS THEN
         PERFORM nextval('surprise_capture_fault_seq');

@@ -10,6 +10,9 @@ use tor_accounts::{
 use tor_reading::{repositories::PgReadingSync, services::progress::ReadingPlace};
 use tor_recommendations::repositories::surprises::PgSurprises;
 
+#[path = "safety.rs"]
+mod safety;
+
 pub const BODY: &str = "This is the first paragraph of a disposable test chapter.\n\nThe end.";
 
 #[derive(Clone, Copy)]
