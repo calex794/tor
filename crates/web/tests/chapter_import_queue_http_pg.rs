@@ -418,30 +418,32 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .unwrap();
     assert!(!new_job, "replay must not be a newly linked root");
     assert_eq!(replayed_job, causal_job);
-    let linked: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1",
-    )
-    .bind(causal_job)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let linked: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1")
+            .bind(causal_job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(linked, Some(PARENT.to_be_bytes().to_vec()));
     assert_eq!(
         worker.run_one().await.unwrap(),
         ChapterImportWorkerResult::Completed,
         "real claim must decode the stored parent before running the worker",
     );
-    let linked_after_restart: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1",
-    )
-    .bind(causal_job)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let linked_after_restart: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT parent_trace_id FROM chapter_import_jobs WHERE id=$1")
+            .bind(causal_job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(linked_after_restart, linked);
     assert!(store.0.lock().await.is_empty());
     assert_eq!(
-        authoring.list_owned_chapters(owner, book_id).await.unwrap().len(),
+        authoring
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .len(),
         2
     );
 
