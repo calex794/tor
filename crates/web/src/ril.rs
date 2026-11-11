@@ -132,7 +132,12 @@ async fn observe(
         .get::<crate::observability::CorrelatedJobEnqueued>()
         .is_some();
     let trace = crate::observability::finish_trace(
-        trace_id, passport.route_family, status, elapsed, sqlx, correlated_job,
+        trace_id,
+        passport.route_family,
+        status,
+        elapsed,
+        sqlx,
+        correlated_job,
     );
     response.headers_mut().insert(
         HeaderName::from_static("x-request-id"),

@@ -104,8 +104,8 @@ mod unix_store {
         }
         if let Some(id) = background_lookup::parse_query(&body) {
             let page = store.background_for_parent(id)?;
-            let response = background_lookup::encode_reply(&page)
-                .ok_or("invalid background lookup result")?;
+            let response =
+                background_lookup::encode_reply(&page).ok_or("invalid background lookup result")?;
             stream.write_all(&(response.len() as u32).to_be_bytes())?;
             stream.write_all(&response)?;
             return Ok(());

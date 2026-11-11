@@ -80,9 +80,20 @@ impl PgImportJobs {
         fingerprint: &[u8; 32],
         count: i32,
     ) -> Result<i64, ImportJobsError> {
-        self.enqueue_verified_traced(actor, book, command_key, key, filename, hash, size, fingerprint, count, None)
-            .await
-            .map(|(id, _)| id)
+        self.enqueue_verified_traced(
+            actor,
+            book,
+            command_key,
+            key,
+            filename,
+            hash,
+            size,
+            fingerprint,
+            count,
+            None,
+        )
+        .await
+        .map(|(id, _)| id)
     }
 
     /// Keep the first HTTP parent for the durable command, across retries,

@@ -131,7 +131,10 @@ mod tests {
         assert_eq!(decode_reply(&frame, 16), Some(value));
         assert!(decode_reply(&frame, 17).is_none());
         let empty = BackgroundPage::default();
-        assert_eq!(decode_reply(&encode_reply(&empty).unwrap(), 16), Some(empty));
+        assert_eq!(
+            decode_reply(&encode_reply(&empty).unwrap(), 16),
+            Some(empty)
+        );
     }
 
     #[test]

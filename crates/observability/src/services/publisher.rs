@@ -102,7 +102,10 @@ impl TracePublisher {
 
     /// Try to submit a numeric child attempt through the existing bounded queue.
     /// Business processing never waits for IPC, SQLite, or a disconnected writer.
-    pub fn try_publish_background(&self, trace: &super::trace::background::BackgroundTrace) -> bool {
+    pub fn try_publish_background(
+        &self,
+        trace: &super::trace::background::BackgroundTrace,
+    ) -> bool {
         let Some(tx) = &self.queue else {
             return false;
         };

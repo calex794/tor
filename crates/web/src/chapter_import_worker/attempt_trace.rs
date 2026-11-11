@@ -35,7 +35,10 @@ impl AttemptTrace {
         if (1..=4).contains(&self.phase) {
             let index = usize::from(self.phase - 1);
             self.phase_us[index] = self.phase_us[index].saturating_add(
-                self.phase_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+                self.phase_started
+                    .elapsed()
+                    .as_micros()
+                    .min(u64::MAX as u128) as u64,
             );
         }
     }
@@ -112,7 +115,9 @@ mod tests {
             phase: trace.phase,
             duration_us: trace.started.elapsed().as_micros().min(u64::MAX as u128) as u64,
             phase_us: trace.phase_us,
-        }.encode().is_some());
+        }
+        .encode()
+        .is_some());
         trace.finish(&Ok(ChapterImportWorkerResult::Stale));
         assert_eq!(trace.outcome, Outcome::Stale);
         trace.finish(&Err("job_update_unavailable"));

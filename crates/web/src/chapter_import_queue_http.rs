@@ -379,7 +379,9 @@ async fn enqueue(
         &[],
     );
     if newly_created && trace.is_some() {
-        response.extensions_mut().insert(crate::observability::CorrelatedJobEnqueued);
+        response
+            .extensions_mut()
+            .insert(crate::observability::CorrelatedJobEnqueued);
     }
     response
 }

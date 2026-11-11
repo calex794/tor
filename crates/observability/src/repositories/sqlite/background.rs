@@ -159,7 +159,10 @@ mod tests {
         assert_eq!(store.search(SearchFilter::default()).unwrap().archived, 0);
         drop(store);
         let mut store = TraceStore::open(&file.0, policy).unwrap();
-        assert_eq!(store.background_for_parent(16).unwrap().items[0].1, child(32));
+        assert_eq!(
+            store.background_for_parent(16).unwrap().items[0].1,
+            child(32)
+        );
         let root = RequestTrace {
             trace_id: 16,
             route: RouteGroup::Other,
@@ -182,7 +185,10 @@ mod tests {
         let mut changed = child(32);
         changed.outcome = Outcome::Failed;
         assert!(store.append_background(&changed, 102).is_err());
-        assert_eq!(store.background_for_parent(16).unwrap().items[0].1, child(32));
+        assert_eq!(
+            store.background_for_parent(16).unwrap().items[0].1,
+            child(32)
+        );
     }
 
     #[test]
@@ -195,7 +201,9 @@ mod tests {
         };
         let mut store = TraceStore::open(&file.0, policy).unwrap();
         for id in 32..35 {
-            store.append_background(&child(id), 100 + id as i64).unwrap();
+            store
+                .append_background(&child(id), 100 + id as i64)
+                .unwrap();
         }
         let page = store.background_for_parent(16).unwrap();
         assert_eq!(page.matches, 2);

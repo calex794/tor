@@ -428,18 +428,23 @@ mod tests {
             assert_eq!(background_lookup::parse_query(&query), Some(0xabcdef));
             let page = BackgroundPage {
                 matches: 1,
-                items: vec![(1_900_000_001, BackgroundTrace {
-                    parent_trace_id: 0xabcdef,
-                    trace_id: 0xfedcba,
-                    attempt: 2,
-                    outcome: Outcome::Retried,
-                    phase: 3,
-                    duration_us: 400_000,
-                    phase_us: [10_000, 20_000, 340_000, 0],
-                })],
+                items: vec![(
+                    1_900_000_001,
+                    BackgroundTrace {
+                        parent_trace_id: 0xabcdef,
+                        trace_id: 0xfedcba,
+                        attempt: 2,
+                        outcome: Outcome::Retried,
+                        phase: 3,
+                        duration_us: 400_000,
+                        phase_us: [10_000, 20_000, 340_000, 0],
+                    },
+                )],
             };
             let reply = background_lookup::encode_reply(&page).unwrap();
-            child_peer.write_all(&(reply.len() as u32).to_be_bytes()).unwrap();
+            child_peer
+                .write_all(&(reply.len() as u32).to_be_bytes())
+                .unwrap();
             child_peer.write_all(&reply).unwrap();
         });
         let secret = "a".repeat(48);
