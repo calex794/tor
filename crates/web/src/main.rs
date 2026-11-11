@@ -568,6 +568,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
     let contextual_builder =
         tor_web::recommendation_worker::start_contextual(pending_security_retention.clone());
+    let seo_import = tor_web::seo_analytics_worker::start(pending_security_retention.clone());
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
     let serve_result = axum::serve(
@@ -580,6 +581,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let _ = handle.await;
     }
     if let Some(handle) = contextual_builder {
+        handle.abort();
+        let _ = handle.await;
+    }
+    if let Some(handle) = seo_import {
         handle.abort();
         let _ = handle.await;
     }

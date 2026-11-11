@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 396);
+    assert_eq!(unique.len(), 398);
 }
 
 #[test]
@@ -576,4 +576,25 @@ fn contextual_model_controls_are_exact_admin_routes_not_reader_events() {
         assert!(!classify(Some(path), "DELETE").route_known);
     }
     assert!(!classify(Some("/api/v1/recommendations/contextual"), "POST").route_known);
+}
+
+#[test]
+fn search_analytics_has_only_two_exact_private_routes() {
+    for (path, method, cost) in [
+        ("/admin/audience/seo", "GET", CostClass::ExpensiveRead),
+        ("/admin/audience/seo/refresh", "POST", CostClass::Write),
+    ] {
+        let p = classify(Some(path), method);
+        assert!(p.route_known);
+        assert_eq!(p.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(p.route_match_kind, RouteMatchKind::Exact);
+        assert_eq!(p.cost_class, cost);
+    }
+    for (path, method) in [
+        ("/admin/audience/seo", "POST"),
+        ("/admin/audience/seo/refresh", "GET"),
+        ("/admin/audience/seo/export", "GET"),
+    ] {
+        assert!(!classify(Some(path), method).route_known);
+    }
 }

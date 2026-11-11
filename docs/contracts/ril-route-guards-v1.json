@@ -2787,6 +2787,20 @@
       "source": "crates/web/src/recommendation_http/mod.rs",
       "handler": "admin::contextual::form",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/seo",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "seo::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/audience/seo/refresh",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "seo::refresh",
+      "policy": "administrator"
     }
   ]
 }
