@@ -9,14 +9,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const preview = require('./ci_browser_preview.cjs');
 
-const db = process.env.APP_URL || '';
+const db = require('./legacy_analytics_fixture.cjs')();
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
 const shots = process.env.TOR_AUDIENCE_SHOTS || '/tmp/audience-browser-shots';
 const parsed = new URL(db);
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
-    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci'
+    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci_legacy_analytics'
     || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
-  throw new Error('Source acceptance requires disposable loopback tor_ci');
+  throw new Error('Source acceptance requires disposable loopback legacy analytics baseline 191');
 }
 fs.mkdirSync(shots, {recursive:true});
 const sources = ['catalog', 'search', 'recommendations', 'unattributed'];
@@ -171,7 +171,7 @@ async function calendarPeriods(page, days) {
     legacyTokens.push(await retired.rejectedLegacyCommands(readerPage));
     await retired.settings(directPage);
     legacyTokens.push(await retired.rejectedLegacyCommands(directPage));
-    await retired.settled();
+    retired.legacyBoundary();
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
     const before = await numbers(adminPage);
     const previous = await numbers(adminPage,'previous');
@@ -208,7 +208,7 @@ async function calendarPeriods(page, days) {
     // Let actual retention housekeeping run after canonical C commands.
     await readerPage.goto(base+'/me');
     await directPage.goto(base+'/me');
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     const mixed = fixture('mixed').book;
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${users[1]} AND book_id=${mixed}`), 2,
@@ -256,7 +256,7 @@ async function calendarPeriods(page, days) {
     await read(readerPage,fixture('after-retirement'));
     await readerPage.goto(base+'/catalog?sort=newest');
     assert.equal(await readerPage.locator('[data-organic-ticket],[data-rec-ticket]').count(),0);
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'));
     assert.deepEqual(await numbers(adminPage),historical,'later reading also leaves history unchanged');

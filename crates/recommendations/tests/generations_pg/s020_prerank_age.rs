@@ -5,14 +5,9 @@ use super::*;
 #[tokio::test]
 #[ignore = "requires disposable isolated PostgreSQL /tor_ci"]
 async fn s020_age_filter_precedes_catalog_limit_despite_retained_generation() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PostgreSQL");
-    assert!(url.ends_with("/tor_ci"), "never touch production");
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
-    let database: String = sqlx::query_scalar("SELECT current_database()")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(database, "tor_ci");
+    legacy_analytics::assert_schema(&pool).await;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

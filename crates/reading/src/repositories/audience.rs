@@ -1,5 +1,8 @@
 //! Read-only C aggregate for the independently authorized site administrator.
 //! Canonical facts remain owned by C; no REC identity, profile or event is created.
+mod canonical;
+mod intent;
+
 use crate::services::audience::{
     validate_period, AudienceCounts, AudienceError, AudiencePeriod, AudienceReport,
 };

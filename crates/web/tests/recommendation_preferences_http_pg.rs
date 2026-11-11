@@ -8,7 +8,7 @@ use axum::{http::StatusCode, response::Response};
 use fixtures::*;
 #[path = "support/collection_retirement.rs"]
 mod retirement;
-use retirement::{legacy_scope, optional_snapshot};
+use retirement::{assert_current_schema, optional_snapshot};
 use serde_json::{json, Value};
 use tor_accounts::services::security::generate_session_token;
 
@@ -157,12 +157,12 @@ async fn explicit_choice_without_subject_has_real_replay_cas_and_actor_isolation
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
-async fn explicit_choice_survives_legacy_scope_and_retired_client_commands() {
+async fn explicit_choice_survives_database_retirement_and_old_client_commands() {
     let h = Harness::new(true).await;
     let actor = &h.actor;
     let auth = (ORIGIN, actor.csrf.as_str());
-    // Explicit old-installation fixture; production has no opt-in operation.
-    legacy_scope(&h.url, actor.id);
+    assert_current_schema(&h.url);
+    h.assert_no_analytics_subject(actor);
     let scope = optional_snapshot(&h.url, actor.id);
     let hide_key = generate_session_token();
     let hide = choice(h.book, true, 0);

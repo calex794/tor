@@ -8,13 +8,14 @@ pub struct Book {
 }
 
 pub async fn pool(max: u32) -> PgPool {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL URL");
-    assert!(url.ends_with("/tor_ci"), "never use a permanent database");
-    PgPoolOptions::new()
+    let url = legacy::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+    let pool = PgPoolOptions::new()
         .max_connections(max)
         .connect(&url)
         .await
-        .unwrap()
+        .unwrap();
+    legacy::assert_schema(&pool).await;
+    pool
 }
 
 pub async fn actor(pool: &PgPool, name: &str) -> i64 {

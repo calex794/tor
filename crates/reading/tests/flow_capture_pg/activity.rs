@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn positive_progress_only_independent_of_old_return_markers_and_scope_rotation() {
     let pool = pool(4).await;
     let reader = actor(&pool, "positive").await;
@@ -191,7 +191,7 @@ async fn positive_progress_only_independent_of_old_return_markers_and_scope_rota
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn direct_paid_archived_and_verified_s3_paths_keep_their_existing_acl() {
     let pool = pool(4).await;
     let reader = actor(&pool, "paid").await;

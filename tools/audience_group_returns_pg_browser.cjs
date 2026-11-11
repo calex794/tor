@@ -8,14 +8,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const db = process.env.APP_URL || '';
+const db = require('./legacy_analytics_fixture.cjs')();
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
 const shots = process.env.TOR_AUDIENCE_SHOTS || '/tmp/audience-browser-shots';
 const parsed = new URL(db);
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
-    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci'
+    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci_legacy_analytics'
     || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
-  throw new Error('Group-return acceptance requires disposable loopback tor_ci');
+  throw new Error('Group-return acceptance requires disposable loopback legacy analytics baseline 191');
 }
 fs.mkdirSync(shots, {recursive:true});
 const legacy = require('./audience_retirement_fixtures.cjs')({sql,scalar,base});

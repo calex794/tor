@@ -1,4 +1,4 @@
-//! FLOW-03: exercise actual C writers and optional capture in disposable PG.
+//! Legacy FLOW-03 capture regressions on the explicit pre-retirement 191 schema.
 //! Run serially because the outage cases deliberately lock the capture tables.
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tor_reading::{
@@ -20,3 +20,6 @@ mod fixtures;
 #[path = "flow_capture_pg/read_receipts.rs"]
 mod read_receipts;
 use fixtures::*;
+
+#[path = "support/legacy_analytics.rs"]
+mod legacy;

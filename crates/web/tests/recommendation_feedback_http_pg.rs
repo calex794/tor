@@ -22,7 +22,7 @@ use tor_reading::repositories::PgReader;
 mod command_checks;
 #[path = "support/collection_retirement.rs"]
 mod retirement;
-use retirement::{legacy_scope, optional_snapshot};
+use retirement::{assert_current_schema, optional_snapshot};
 use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
@@ -372,9 +372,7 @@ async fn rec13_retirement_preserves_business_settings_reading_preferences_and_gu
         ),
         "0"
     );
-    // Explicit legacy installation fixtures; production never creates these.
-    legacy_scope(&url, user);
-    legacy_scope(&url, other);
+    assert_current_schema(&url);
     let before = optional_snapshot(&url, user);
     let other_before = optional_snapshot(&url, other);
     command_checks::cached_clients(&app, &cookie, &other_cookie, &csrf, other).await;

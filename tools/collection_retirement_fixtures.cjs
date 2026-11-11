@@ -1,16 +1,16 @@
 'use strict';
-// Explicit historical tor_ci fixtures and exact optional-store snapshots.
-// These helpers never run inside a reading/navigation command.
+// Current migration-193 fixture guards and exact optional-store snapshots.
+// Installed legacy data is exercised only by the separate migration harness.
 const assert = require('node:assert/strict');
 const {randomBytes} = require('node:crypto');
 
 module.exports = function retirementFixtures(sql) {
-  function legacyScope(user) {
-    assert.ok(Number.isSafeInteger(user) && user>0);
-    sql(`INSERT INTO rec_subjects(user_id,enabled,enabled_at,revision,flow_epoch,flow_enabled_at)
-      VALUES(${user},true,now()-interval '1 day',7,gen_random_uuid(),now()-interval '1 day')`);
-    return JSON.parse(sql(`SELECT json_build_object('subject',subject_id,'epoch',flow_epoch,'revision',revision)
-      FROM rec_subjects WHERE user_id=${user}`));
+  function assertCurrentSchema() {
+    assert.equal(sql(`SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
+      WHERE version=202611168903 AND success)
+      AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='rec_subjects'::regclass
+        AND tgname='retired_collection_write_fence' AND tgenabled='O')`),'t',
+      'browser acceptance requires the current database retirement barrier');
   }
   function optionalSnapshot(user) {
     assert.ok(Number.isSafeInteger(user) && user>0);
@@ -59,33 +59,5 @@ module.exports = function retirementFixtures(sql) {
     assert.match(response.headers()['x-robots-tag'],/nofollow/);
     assert.equal((await response.json()).error.code,'COLLECTION_RETIRED');
   }
-  function historicalVisits(user) {
-    // Two old page observations, never represented as current browser activity.
-    sql(`BEGIN;
-      WITH seed AS (
-        SELECT subject_id,flow_epoch,gen_random_uuid() AS first_id,gen_random_uuid() AS last_id
-        FROM rec_subjects WHERE user_id=${user}
-      ), visit AS (
-        INSERT INTO flow_visits(subject_id,flow_epoch,started_at,last_at,first_event_id,last_event_id,
-          landing_surface,last_surface,acquisition_hint,pageviews)
-        SELECT subject_id,flow_epoch,now()-interval '2 minutes',now()-interval '1 minute',
-          first_id,last_id,1,2,0,2 FROM seed RETURNING *
-      )
-      INSERT INTO flow_visit_receipts(event_id,subject_id,flow_epoch,observed_at,surface,acquisition_hint)
-        SELECT first_event_id,subject_id,flow_epoch,started_at,1,0 FROM visit
-        UNION ALL SELECT last_event_id,subject_id,flow_epoch,last_at,2,0 FROM visit;
-      INSERT INTO flow_visit_account_days(subject_id,flow_epoch,bucket_date)
-        SELECT DISTINCT subject_id,flow_epoch,(observed_at AT TIME ZONE 'UTC')::date
-        FROM flow_visit_receipts WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=${user});
-      COMMIT`);
-  }
-  function historicalFunnel(book) {
-    assert.ok(Number.isSafeInteger(book) && book>0);
-    sql(`INSERT INTO flow_book_daily(cohort_day,book_id,acquisition_hint,discovery_kind,
-      cohorts,detail_opens,reader_opens,starts,completions,saves,follows,new_readers,
-      d7_anchors,d7_returned,d7_unknown)
-      SELECT (now() AT TIME ZONE 'UTC')::date-days,${book},0,2,
-        3,3,2,2,1,1,1,2,2,1,1 FROM (VALUES(40),(100)) old(days)`);
-  }
-  return {legacyScope,optionalSnapshot,assertNoControls,retiredConsent,historicalVisits,historicalFunnel};
+  return {assertCurrentSchema,optionalSnapshot,assertNoControls,retiredConsent};
 };

@@ -20,8 +20,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   assert(Number.isSafeInteger(user) && user > 0);
   assert(Number.isSafeInteger(book) && book > 0);
 
-  // The browser is genuinely authenticated. Its enabled legacy scope was
-  // inserted as an explicit old-installation fixture, not through a live opt-in.
+  // The browser is genuinely authenticated without an analytics subject.
   // Use an authenticated page with a deliberate same-origin connect policy.
   // Catalogue HTML keeps its strict CSP after the analytics scripts are retired.
   const response = await page.goto(base + '/me/recommendations');
@@ -31,22 +30,16 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   const csrf = cookies.find(c => c.name === 'tor-dev-csrf')?.value;
   assert.match(session || '', /^[A-Za-z0-9_-]{43}$/);
   assert.match(csrf || '', /^[A-Za-z0-9_-]{43}$/);
-  const subject = sql('SELECT subject_id::text FROM rec_subjects WHERE user_id=' + user + ' AND enabled');
-  assert.match(subject, /^[0-9a-f-]{36}$/i);
+  assert.equal(sql('SELECT count(*) FROM rec_subjects WHERE user_id=' + user), '0');
   assert.equal(sql('SELECT count(*) FROM rec_public_books WHERE id=' + book), '1');
 
-  // Explicit old-installation ticket fixture in tor_ci. These rows are not
-  // evidence of current production issuance; every real request below must410.
-  const sessionDigest = digest(session);
+  // Valid opaque old-client payloads are not represented as issued tickets.
+  // Pre-barrier stored assignments belong to the installed migration test.
   const tickets = Array.from({length:COUNT}, () => randomBytes(32).toString('base64url'));
   const hashes = tickets.map(digest);
-  const values = hashes.map(h => "('" + subject + "'::uuid,decode('" +
-    sessionDigest + "','hex'),decode('" + h + "','hex')," + book + ",'catalog',1)");
-  sql('INSERT INTO organic_discovery_touches ' +
-      '(subject_id,session_digest,ticket_digest,book_id,source,position) VALUES ' +
-      values.join(','));
 
-  const {optionalSnapshot}=require('./collection_retirement_fixtures.cjs')(sql);
+  const {assertCurrentSchema,optionalSnapshot}=require('./collection_retirement_fixtures.cjs')(sql);
+  assertCurrentSchema();
   const historical=optionalSnapshot(user);
 
   // Browser-origin fetch sends its real cookie, Origin and CSRF. Constant
@@ -201,7 +194,7 @@ async function benchmarkOrganicActivation({page, sql, user, book, base, db}) {
   }
   assert.equal(ok, COUNT, 'all real-session legacy commands must return private410: ' + JSON.stringify([...statuses]));
   assert.equal(credited, 0, 'a retired command must never persist a click');
-  assert.deepEqual(optionalSnapshot(user),historical,'legacy scope, tickets and optional stores changed');
+  assert.deepEqual(optionalSnapshot(user),historical,'retired client payloads introduced an analytics subject or optional store');
   assert(actualRps >= 20, 'auth POST throughput below 20 req/s: ' + metric);
   assert(p95 <= P95_BUDGET_MS, 'auth POST p95 exceeds 750ms: ' + metric);
 }

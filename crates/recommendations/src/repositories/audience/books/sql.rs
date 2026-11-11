@@ -16,6 +16,16 @@ WITH anchor AS (
       AND ($3::text IS NULL OR $3=ANY(tags))
       AND (NOT $4::boolean OR cardinality(genres)=0)
       AND (NOT $5::boolean OR cardinality(tags)=0)
+), invalidated AS (
+    SELECT i.book_id,
+           CASE WHEN i.bucket_date>=a.until_day-$1::int THEN 0 ELSE 1 END AS ordinal,
+           bool_or(i.source IN ('catalog','search')) AS issued_incomplete,
+           bool_or(i.source='recommendations') AS impressions_incomplete,
+           bool_or(i.source<>'unattributed') AS navigation_incomplete,
+           true AS evidence_invalidated
+    FROM rec_analytics_invalidations i JOIN eligible b ON b.id=i.book_id CROSS JOIN anchor a
+    WHERE i.bucket_date>=a.until_day-$1::int*2 AND i.bucket_date<a.until_day
+    GROUP BY i.book_id,2
 ), facts AS (
     SELECT q.book_id,
            CASE WHEN q.bucket_date>=a.until_day-$1::int THEN 0 ELSE 1 END AS ordinal,
@@ -43,22 +53,36 @@ WITH anchor AS (
     FROM facts GROUP BY book_id,ordinal
 ), per_book AS MATERIALIZED (
     SELECT b.id AS book_id,b.title,b.genres,b.tags,p.ordinal,
-           s.issued,s.impressions,s.clicks,s.book_opens,s.starts,
-           COALESCE(s.opens_incomplete,false) AS opens_incomplete,
+           CASE WHEN NOT COALESCE(i.issued_incomplete,false) THEN s.issued END AS issued,
+           CASE WHEN NOT COALESCE(i.impressions_incomplete,false) THEN s.impressions END AS impressions,
+           CASE WHEN NOT COALESCE(i.navigation_incomplete,false) THEN s.clicks END AS clicks,
+           CASE WHEN NOT COALESCE(i.navigation_incomplete,false) THEN s.book_opens END AS book_opens,
+           CASE WHEN NOT COALESCE(i.evidence_invalidated,false) THEN s.starts END AS starts,
+           COALESCE(i.issued_incomplete,false) AS issued_incomplete,
+           COALESCE(i.impressions_incomplete,false) AS impressions_incomplete,
+           COALESCE(i.navigation_incomplete,false) AS navigation_incomplete,
+           COALESCE(s.opens_incomplete,false) OR COALESCE(i.navigation_incomplete,false) AS opens_incomplete,
+           COALESCE(i.evidence_invalidated,false) AS evidence_invalidated,
            GREATEST(COALESCE(s.issued,0),COALESCE(s.impressions,0),
                     COALESCE(s.clicks,0),COALESCE(s.book_opens,0))>0 AS observed
     FROM eligible b CROSS JOIN periods p
     LEFT JOIN sums s ON s.book_id=b.id AND s.ordinal=p.ordinal
+    LEFT JOIN invalidated i ON i.book_id=b.id AND i.ordinal=p.ordinal
 ), totals AS (
-    SELECT p.ordinal,sum(b.issued)::bigint AS issued,
-           sum(b.impressions)::bigint AS impressions,sum(b.clicks)::bigint AS clicks,
+    SELECT p.ordinal,
+           CASE WHEN bool_or(b.issued_incomplete) THEN NULL ELSE sum(b.issued)::bigint END AS issued,
+           CASE WHEN bool_or(b.impressions_incomplete) THEN NULL ELSE sum(b.impressions)::bigint END AS impressions,
+           CASE WHEN bool_or(b.navigation_incomplete) THEN NULL ELSE sum(b.clicks)::bigint END AS clicks,
            CASE WHEN bool_or(b.opens_incomplete) THEN NULL
                 ELSE sum(b.book_opens)::bigint END AS book_opens,
-           sum(b.starts)::bigint AS starts,count(b.book_id) AS matched_books,
+           CASE WHEN bool_or(b.evidence_invalidated) THEN NULL ELSE sum(b.starts)::bigint END AS starts,
+           COALESCE(bool_or(b.evidence_invalidated),false) AS evidence_invalidated,
+           count(b.book_id) AS matched_books,
+           count(*) FILTER (WHERE b.evidence_invalidated) AS unknown_evidence,
            count(*) FILTER (WHERE b.book_id IS NOT NULL AND NOT b.observed
-                            AND COALESCE(b.starts,0)=0) AS no_observations,
-           count(*) FILTER (WHERE b.observed AND COALESCE(b.starts,0)=0) AS observed_without_starts,
-           count(*) FILTER (WHERE b.starts>0) AS with_starts
+                            AND NOT b.evidence_invalidated AND COALESCE(b.starts,0)=0) AS no_observations,
+           count(*) FILTER (WHERE NOT b.evidence_invalidated AND b.observed AND COALESCE(b.starts,0)=0) AS observed_without_starts,
+           count(*) FILTER (WHERE NOT b.evidence_invalidated AND b.starts>0) AS with_starts
     FROM periods p LEFT JOIN per_book b ON b.ordinal=p.ordinal GROUP BY p.ordinal
 )
 "#;
@@ -70,13 +94,13 @@ selected AS (
 ), result AS (
     SELECT t.ordinal,true AS is_total,NULL::bigint AS book_id,NULL::text AS title,
            NULL::text[] AS genres,NULL::text[] AS tags,
-           t.issued,t.impressions,t.clicks,t.book_opens,t.starts,t.matched_books,
-           t.no_observations,t.observed_without_starts,t.with_starts
+           t.evidence_invalidated,t.issued,t.impressions,t.clicks,t.book_opens,t.starts,t.matched_books,
+           t.unknown_evidence,t.no_observations,t.observed_without_starts,t.with_starts
     FROM totals t
     UNION ALL
     SELECT b.ordinal,false,b.book_id,b.title,b.genres,b.tags,
-           b.issued,b.impressions,b.clicks,b.book_opens,b.starts,
-           NULL::bigint,NULL::bigint,NULL::bigint,NULL::bigint
+           b.evidence_invalidated,b.issued,b.impressions,b.clicks,b.book_opens,b.starts,
+           NULL::bigint,NULL::bigint,NULL::bigint,NULL::bigint,NULL::bigint
     FROM per_book b JOIN selected s ON s.id=b.book_id
 ), health AS (
     SELECT (SELECT last_success FROM rec_worker_health WHERE singleton) AS last_success,

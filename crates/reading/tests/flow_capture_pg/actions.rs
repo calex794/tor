@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn exact_book_actions_replay_concurrency_free_pins_and_readd() {
     let pool = pool(4).await;
     let reader = actor(&pool, "actions").await;
@@ -131,7 +131,7 @@ async fn exact_book_actions_replay_concurrency_free_pins_and_readd() {
 }
 
 #[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL tor_ci"]
+#[ignore = "requires explicit disposable tor_ci_legacy_analytics at migration 191"]
 async fn default_off_local_guc_isolation_timestamp_and_transaction_rollback() {
     // Exactly one backend proves SET LOCAL cannot survive pool reuse.
     let pool = pool(1).await;

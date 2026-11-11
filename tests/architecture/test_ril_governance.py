@@ -172,6 +172,16 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("retired collection route must terminate in private 410 without analytics work")
 
+    def test_canonical_reading_cannot_skip_live_authority(self):
+        self.mutate("crates/web/src/auth/audience_http/canonical.rs",
+                    "administrator(&state, &headers)", "unverified(&state, &headers)")
+        self.assert_detected("FLOW canonical must reject failed authorization before reading")
+
+    def test_canonical_reading_cannot_ignore_authority_failure(self):
+        self.mutate("crates/web/src/auth/audience_http/canonical.rs",
+                    "Ok(Err(status)) => return secure(status)", "Ok(Err(_)) => {}")
+        self.assert_detected("FLOW canonical must reject failed authorization before reading")
+
     def test_audience_books_cannot_skip_parent_authorization(self):
         self.mutate(
             "crates/web/src/auth/audience_http/books.rs",

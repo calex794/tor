@@ -1,17 +1,19 @@
-//! Explicit old-installation fixtures; never called by a browser/progress helper.
-//! These are optional historical stores, not the account's reading position or choices.
+//! Current-schema no-write proof; legacy installations belong to the upgrade harness.
 use super::pg;
 use serde_json::Value;
 
-pub(super) fn legacy_scope(url: &str, actor: i64) {
-    pg(
-        url,
-        &format!(
-            "INSERT INTO rec_subjects
-               (user_id,enabled,enabled_at,revision,flow_epoch,flow_enabled_at)
-             VALUES({actor},true,now()-interval '1 day',7,
-               gen_random_uuid(),now()-interval '1 day')"
+pub(super) fn assert_current_schema(url: &str) {
+    assert_eq!(
+        pg(
+            url,
+            "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
+           WHERE version=202611168903 AND success)
+         AND EXISTS(SELECT 1 FROM pg_trigger
+           WHERE tgrelid='rec_subjects'::regclass
+             AND tgname='retired_collection_write_fence' AND tgenabled='O')",
         ),
+        "t",
+        "HTTP acceptance must exercise the current database barrier"
     );
 }
 

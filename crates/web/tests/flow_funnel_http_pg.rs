@@ -1,5 +1,5 @@
 //! Retired FLOW-03: genuine C reading/library/follow commands remain functional.
-//! Historical report totals are explicit fixtures; live commands create no optional proof.
+//! Current schema 192: live commands create no optional identity or proof.
 #![forbid(unsafe_code)]
 use axum::{
     body::{to_bytes, Body},
@@ -24,7 +24,7 @@ use tower::ServiceExt;
 
 #[path = "support/collection_retirement.rs"]
 mod retirement;
-use retirement::{legacy_scope, optional_snapshot};
+use retirement::{assert_current_schema, optional_snapshot};
 
 #[path = "flow_funnel_http_pg/fixtures.rs"]
 mod fixtures;
@@ -66,8 +66,8 @@ async fn setup() -> Harness {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
+    assert_current_schema(&url);
     let funnel = PgFlowFunnel::new(pool.clone());
-    funnel.initialize(false).await.unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -148,21 +148,6 @@ async fn progress(
         )
         .await;
     assert_eq!(response.status(), expected, "{}", text(response).await);
-}
-
-fn seed_historical_daily(url: &str, book: i64) {
-    // Anonymous legacy report fixture, separate from actual C business commands.
-    // Both cohorts are mature and within the historical 180-day bound.
-    pg(
-        url,
-        &format!(
-            "INSERT INTO flow_book_daily(cohort_day,book_id,acquisition_hint,discovery_kind,
-          cohorts,detail_opens,reader_opens,starts,completions,saves,follows,new_readers,
-          d7_anchors,d7_returned,d7_unknown)
-         SELECT (now() AT TIME ZONE 'UTC')::date-days,{book},0,2,
-          3,3,2,2,1,1,1,2,2,1,1 FROM (VALUES(40),(100)) old(days)"
-        ),
-    );
 }
 
 fn metrics(counts: &FlowFunnelCounts) -> [(&'static str, i64); 12] {
@@ -248,9 +233,7 @@ async fn reading_library_and_follows_survive_retirement_without_linked_collectio
     );
     let first = book(&h.url, &format!("FUNNEL-PRIVATE-{}", h.stamp));
     let viewed = book(&h.url, "FLOW GET-only book");
-    // Explicit fixtures from an old installation; no live command creates them.
-    legacy_scope(&h.url, reader);
-    seed_historical_daily(&h.url, first.0);
+    assert_current_schema(&h.url);
     let before = optional_snapshot(&h.url, reader);
     for (browser, status) in [
         (&Browser::default(), StatusCode::UNAUTHORIZED),

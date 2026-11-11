@@ -22,13 +22,6 @@ module.exports = function retiredAudience({sql, scalar, base}) {
     assert.ok(token, 'ordinary account forms issue a CSRF cookie');
     return token;
   }
-  async function waitFor(check, label) {
-    for (let attempt=0; attempt<150; attempt++) {
-      if (await check()) return;
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-    throw new Error('not observed: '+label);
-  }
   function oldScopes(users) {
     sql(`INSERT INTO rec_subjects(user_id,enabled,enabled_at,flow_epoch,flow_enabled_at)
       SELECT id,true,now()-interval '1 day',gen_random_uuid(),now()-interval '1 day'
@@ -82,13 +75,11 @@ module.exports = function retiredAudience({sql, scalar, base}) {
          AND d.consumer IN('recommendation-feedback-v1','flow-read-attribution-v1','flow-read-activity-v1'))`);
     assert.equal(value, 0, 'ordinary navigation/C commands must not resume optional analytics');
   }
-  async function settled() {
-    const after = sql('SELECT clock_timestamp()::text');
-    await waitFor(() => sql(`SELECT EXISTS(SELECT 1 FROM flow_book_worker_health
-      WHERE last_tick>='${after}'::timestamptz AND NOT last_collecting)
-      AND NOT EXISTS(SELECT 1 FROM rec_dirty_buckets)
-      AND NOT EXISTS(SELECT 1 FROM organic_discovery_dirty)`) === 't',
-    'a real retirement housekeeping tick after the canonical C commands');
+  function legacyBoundary() {
+    // This suite proves legacy report arithmetic on the explicit 192 baseline.
+    // Current 193 cleanup is exercised independently against the upgraded database.
+    assert.equal(require('./legacy_analytics_fixture.cjs')(),
+      process.env.LEGACY_ANALYTICS_DATABASE_URL);
   }
   async function marked(page, sections) {
     const retired = page.getByTestId('collection-retired');
@@ -157,6 +148,6 @@ module.exports = function retiredAudience({sql, scalar, base}) {
     }
     return ticket;
   }
-  return {oldScopes, scopeSnapshot, history, noCapture, settled, marked, settings,
+  return {oldScopes, scopeSnapshot, history, noCapture, legacyBoundary, marked, settings,
     navigate, rejectedLegacyCommands};
 };
