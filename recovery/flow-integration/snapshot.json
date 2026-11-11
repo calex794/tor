@@ -1,0 +1,119 @@
+{
+  "captured_at": "2026-11-11T14:11:28Z",
+  "repository": "calex794/tor",
+  "status": "INCOMPLETE — execution environment unavailable",
+  "authorization": {
+    "ordinary_reviewed_merges_after_full_ci_and_postmerge": true,
+    "production_deployment": false,
+    "production_database_access": false,
+    "external_messages": false
+  },
+  "main": {
+    "sha": "149e695eefd22465568378c0d15d9ba465bedfac",
+    "pr": 822,
+    "postmerge_run": 43033674756,
+    "postmerge_status": "pending at capture"
+  },
+  "published": [
+    {
+      "pr": 819,
+      "head": "df04fecc069509b0524bf5f8e50e9f9ea30e0f8e",
+      "merge": "41ee330a0f77cac686b1b60d81119c93910ce902",
+      "status": "accepted",
+      "integration_run": 43028280795,
+      "rec_run": 43028281070,
+      "postmerge_run": 43031120361,
+      "postmerge": "17/17 SUCCESS"
+    },
+    {
+      "pr": 822,
+      "head": "5086eaf38b10639dbcbe4cdd06659fbc1a6435d5",
+      "merge": "149e695eefd22465568378c0d15d9ba465bedfac",
+      "integration_run": 43028414648,
+      "postmerge_run": 43033674756,
+      "status": "merged; postmerge pending",
+      "live_provider_acceptance": false
+    },
+    {
+      "pr": 825,
+      "branch": "feat/flow-observations-20261111",
+      "head": "ea8fa1b54de36a350aca0d114df13a34d4721b20",
+      "tree": "10073b8ad93063981b910884da881df84b49fc0d",
+      "base": "main",
+      "integration_run": 43033220748,
+      "rec_run": 43033220574,
+      "rec": "SUCCESS",
+      "status": "draft; integration pending; browser installation DNS failures"
+    },
+    {
+      "pr": 826,
+      "branch": "feat/flow-editorial-20261111",
+      "head": "85f47ab9dbfa1ec15562e6e0602c61d08a9582fd",
+      "tree": "d48d045a3bf293066771e4bac2207b2eddd66ef2",
+      "base": "feat/flow-observations-20261111",
+      "integration_run": 43033924354,
+      "rec_run": 43033924283,
+      "rec": "SUCCESS",
+      "status": "draft; integration pending"
+    }
+  ],
+  "local_unpublished": {
+    "root": "/workspace/scratch/1e86e471c018",
+    "integrated_worktree": "/workspace/scratch/1e86e471c018/tor-final",
+    "branch": "feat/flow-final-integration",
+    "last_head_prefix": "bc72b1eb8",
+    "missing_full_base_commits": [
+      "dd8afaece6e50233c508854489811a0d6d2b9ef7",
+      "c5c5cc5d546c06e5d96fe10f8439b88da2bf04a3",
+      "cc418415a813c527237a54b71426c9a4c69abf9b"
+    ],
+    "root_cherry_pick_prefixes": [
+      "0518b3144",
+      "83b0d3f4a",
+      "fb9b7c36a"
+    ],
+    "root_lifecycle_navigation_docs": "f88ba10a5",
+    "bootstrap_off_history": "b108688ba",
+    "bootstrap_off_source": "d68f97edf500744d6bff3c51f2299ca0e64caa1e",
+    "unavailable_source_warning": "The full local signals/base series is not saved by these recovery branches. Authoring recipes are not a byte-equivalent replacement for the inaccessible working tree.",
+    "reserved_migrations": {
+      "signals": "202611294683",
+      "exposure_health": "202611294684",
+      "html_health": "202611294685",
+      "public_page_health": "202611294686"
+    },
+    "canonical_route_count_before_new_page_monitor": {
+      "pairs": 408,
+      "bindings": 410,
+      "last_route": 407
+    },
+    "new_page_monitor_reserved_route": 408
+  },
+  "recovery": [
+    {
+      "scope": "H health authoring source",
+      "branch": "wip/flow-html-recovery-20261111",
+      "commit": "9d4e2d9f5324712a846a3e1f36ab86f5d17707d0",
+      "tree": "9bc80b599a1cb4d4129e028b562e04a99cbaf67d",
+      "path": "recovery/flow-html",
+      "verified_blobs": 15
+    },
+    {
+      "scope": "FLOW09 genres/public pages authoring source",
+      "branch": "wip/flow09-recovery-20261111",
+      "commit": "c504492b4746ebbce9dac79020ff6f5afcaa69d5",
+      "tree": "8998ada129f810b3e5ebe3e68895b15ed31d208b",
+      "path": "recovery/flow09",
+      "verified_blobs": 14
+    }
+  ],
+  "acceptance_limits": {
+    "formal_FLOW": "1/9 unchanged",
+    "fast": "5/10 unchanged",
+    "TOR": "41/60 unchanged",
+    "final_combined_local_fresh_pg_201": "PASS before final bootstrap-off/CI-map changes and before unfinished H/FLOW09",
+    "final_architecture_suite": "result unknown after environment loss",
+    "editorial_architecture_suite": "415/415 PASS on published tree d48d045a3bf293066771e4bac2207b2eddd66ef2",
+    "new_html_health_and_flow09": "uncompiled/unverified final recovery revisions; not accepted"
+  }
+}
