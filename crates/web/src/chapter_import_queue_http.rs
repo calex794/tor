@@ -330,7 +330,9 @@ async fn enqueue(
         return fail(code, message);
     }
 
-    let jobs = state.jobs.with_origin_trace_id(trace.map(|Extension(id)| id.0));
+    let jobs = state
+        .jobs
+        .with_origin_trace_id(trace.map(|Extension(id)| id.0));
     let job_id = match jobs
         .enqueue_verified(
             actor_id,

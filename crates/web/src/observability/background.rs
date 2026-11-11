@@ -58,8 +58,8 @@ impl ImportSpan {
             if (1..=4).contains(&record.phase) {
                 let elapsed = now.duration_since(self.phase_started).as_micros();
                 let index = usize::from(record.phase - 1);
-                record.phase_us[index] = record.phase_us[index]
-                    .saturating_add(elapsed.min(u64::MAX as u128) as u64);
+                record.phase_us[index] =
+                    record.phase_us[index].saturating_add(elapsed.min(u64::MAX as u128) as u64);
             }
         }
         self.phase_started = now;

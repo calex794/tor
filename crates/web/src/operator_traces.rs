@@ -10,8 +10,6 @@ use tor_observability::services::lookup::LookupResult;
 
 #[cfg(unix)]
 mod background;
-#[cfg(test)]
-mod tests;
 
 fn equal_secret(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() || a.len() < 32 || a.len() > 256 {
@@ -217,3 +215,6 @@ pub(crate) async fn page(headers: HeaderMap, uri: Uri) -> Response {
     let socket = std::env::var_os("TOR_TRACE_STORE_SOCKET").map(PathBuf::from);
     respond(headers, uri.query(), secret.as_deref(), socket).await
 }
+
+#[cfg(test)]
+mod tests;

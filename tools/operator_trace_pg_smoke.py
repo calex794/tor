@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from operator_trace_background_acceptance import run as run_background_acceptance
 
 BASE = "http://127.0.0.1:3094"
 SAMPLES = 40
@@ -203,6 +204,7 @@ def main():
                        check=True, timeout=60)
         for phase, values in [("normal", normal), ("writer_down", down)]:
             require(percentile(values, .95) < P95_BUDGET_MS, phase + " p95 exceeded CI budget")
+        background = run_background_acceptance(output, database, password)
         report = {
             "scenario": "S059", "sha": os.environ.get("GITHUB_SHA"),
             "dataset_added_books": 1000, "samples_per_phase": SAMPLES,
@@ -212,8 +214,10 @@ def main():
             "injected_http_ms": slow_ms, "injected_sqlx_us": row[3],
             "trace_id": slow_id, "restart_preserved_trace": True,
             "delivery_recovered": True,
-            "scope": "HTTP handler and SQLx; asynchronous trace archive delivery. "
-                     "No claim of background business-task timing or production SLO.",
+            "background_import": background,
+            "scope": "HTTP handler and SQLx; isolated archive delivery and durably correlated "
+                     "chapter-import attempts with a controlled source-store fixture. "
+                     "No claim of other business workers, real S3 in this fixture or production SLO.",
         }
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps(report))
