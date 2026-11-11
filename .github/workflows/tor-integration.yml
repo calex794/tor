@@ -765,6 +765,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
+          bash tools/ci_prepare_ubuntu_mirror.sh
           npx playwright install --with-deps --only-shell chromium
       - name: Browse chapter, TOC, mobile layout and locked URLs
         run: |
@@ -843,6 +844,7 @@ jobs:
       - name: Install headless browser
         run: |
           npm install --no-save playwright@1.56.1
+          bash tools/ci_prepare_ubuntu_mirror.sh
           npx playwright install --with-deps --only-shell chromium
       - name: Browser layout checks and screenshots
         run: |
@@ -988,6 +990,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
+          bash tools/ci_prepare_ubuntu_mirror.sh
           npx playwright install --with-deps --only-shell chromium
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
