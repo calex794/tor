@@ -116,14 +116,25 @@ impl PgRecommendations {
         let mut metadata = BTreeMap::new();
         for row in rows {
             let kind: i32 = row.try_get("kind")?;
-            let Ok(index) = usize::try_from(kind) else { continue };
-            if index >= pools.len() { continue; }
+            let Ok(index) = usize::try_from(kind) else {
+                continue;
+            };
+            if index >= pools.len() {
+                continue;
+            }
             let id: i64 = row.try_get("id")?;
-            if id <= 0 { continue; }
-            metadata.insert(id, (
-                row.try_get::<String,_>("title")?,
-                actor.map(|_| row.try_get::<i64,_>("revision")).transpose()?,
-            ));
+            if id <= 0 {
+                continue;
+            }
+            metadata.insert(
+                id,
+                (
+                    row.try_get::<String, _>("title")?,
+                    actor
+                        .map(|_| row.try_get::<i64, _>("revision"))
+                        .transpose()?,
+                ),
+            );
             pools[index].push(ShelfCandidate {
                 book_id: id,
                 relevance: row.try_get("relevance")?,
@@ -133,23 +144,26 @@ impl PgRecommendations {
         // Chapter is an existing server-verified source, never an anonymous
         // identifier or a persistent tracking key.
         let cards = select_shelf(source_book, pools, 5, chapter as u64);
-        let items = cards.into_iter().filter_map(|card| {
-            let (title, revision) = metadata.get(&card.book_id)?.clone();
-            let source = match card.source {
-                crate::services::reader_end_shelf::ShelfSource::Author => "author",
-                crate::services::reader_end_shelf::ShelfSource::Teammate => "teammate",
-                crate::services::reader_end_shelf::ShelfSource::Site => "site",
-            };
-            Some(FeedItem {
-                book_id: card.book_id.to_string(),
-                title,
-                source: source.to_owned(),
-                reason: "similar_by_content".to_owned(),
-                algorithm_version: "reader_end_shelf_504010_v1",
-                ticket: None,
-                feedback_revision: revision,
+        let items = cards
+            .into_iter()
+            .filter_map(|card| {
+                let (title, revision) = metadata.get(&card.book_id)?.clone();
+                let source = match card.source {
+                    crate::services::reader_end_shelf::ShelfSource::Author => "author",
+                    crate::services::reader_end_shelf::ShelfSource::Teammate => "teammate",
+                    crate::services::reader_end_shelf::ShelfSource::Site => "site",
+                };
+                Some(FeedItem {
+                    book_id: card.book_id.to_string(),
+                    title,
+                    source: source.to_owned(),
+                    reason: "similar_by_content".to_owned(),
+                    algorithm_version: "reader_end_shelf_504010_v1",
+                    ticket: None,
+                    feedback_revision: revision,
+                })
             })
-        }).collect();
+            .collect();
         Ok(Feed {
             items,
             generation_id: None,
