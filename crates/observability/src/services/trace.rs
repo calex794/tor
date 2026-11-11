@@ -60,6 +60,13 @@ impl TraceBuffer {
         if !trace.should_keep() {
             return false;
         }
+        self.record_correlated(trace);
+        true
+    }
+
+    /// A durable background command forces retention of its HTTP parent root,
+    /// without changing the 128-item ring, SQLx dimensions or output format.
+    pub fn record_correlated(&self, trace: RequestTrace) {
         let mut recent = self
             .recent
             .lock()
@@ -69,7 +76,6 @@ impl TraceBuffer {
             self.evicted.fetch_add(1, Ordering::Relaxed);
         }
         recent.push_back(trace);
-        true
     }
 
     /// Operator-only in-process diagnostics; no public HTTP route.
