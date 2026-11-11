@@ -11,7 +11,10 @@ use axum::{
 use base64::Engine;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -40,11 +43,14 @@ async fn http(
                 .header(header::COOKIE, cookie)
                 .header(header::ORIGIN, origin)
                 .header("x-csrf-token", csrf)
-                .header(header::CONTENT_TYPE, if json_body {
-                    "application/json"
-                } else {
-                    "application/x-www-form-urlencoded"
-                })
+                .header(
+                    header::CONTENT_TYPE,
+                    if json_body {
+                        "application/json"
+                    } else {
+                        "application/x-www-form-urlencoded"
+                    },
+                )
                 .body(Body::from(body.to_owned()))
                 .unwrap(),
         )
@@ -60,10 +66,7 @@ fn private(response: &Response, code: StatusCode) {
 }
 
 async fn parse(response: Response) -> Value {
-    serde_json::from_slice(
-        &to_bytes(response.into_body(), 512 * 1024).await.unwrap()
-    )
-    .unwrap()
+    serde_json::from_slice(&to_bytes(response.into_body(), 512 * 1024).await.unwrap()).unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -85,7 +88,10 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let token = generate_session_token();
     let csrf = generate_session_token();
     let user = accounts
@@ -107,8 +113,17 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         ORIGIN.into(),
     );
     // The runtime opt-in is independent of the schema kill switch.
-    let response = http(&app, "GET", "/api/v1/me/surprises/plan", &cookie,
-        ORIGIN, &csrf, "", true).await;
+    let response = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        true,
+    )
+    .await;
     private(&response, StatusCode::NOT_FOUND);
     std::env::set_var("TOR_SURPRISE_HTTP_ENABLED", "1");
 
@@ -116,17 +131,46 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "UPDATE surprise_runtime_policy
          SET enabled=false,probability_per_mille=350 WHERE singleton",
     )
-    .execute(&pool).await.unwrap();
-    let response = http(&app, "GET", "/api/v1/me/surprises/plan", &cookie,
-        ORIGIN, &csrf, "", true).await;
+    .execute(&pool)
+    .await
+    .unwrap();
+    let response = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        true,
+    )
+    .await;
     private(&response, StatusCode::OK);
     assert_eq!(parse(response).await["state"], "off");
 
-    let stranger = http(&app, "GET", "/admin/surprises", &cookie,
-        ORIGIN, &csrf, "", false).await;
+    let stranger = http(
+        &app,
+        "GET",
+        "/admin/surprises",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        false,
+    )
+    .await;
     private(&stranger, StatusCode::FORBIDDEN);
-    let guest = http(&app, "GET", "/api/v1/me/surprises/plan", "",
-        ORIGIN, &csrf, "", true).await;
+    let guest = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        "",
+        ORIGIN,
+        &csrf,
+        "",
+        true,
+    )
+    .await;
     private(&guest, StatusCode::UNAUTHORIZED);
 
     sqlx::query(
@@ -134,38 +178,85 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
          VALUES($1,'administrator',true)
          ON CONFLICT(user_id,role) DO UPDATE SET is_active=true",
     )
-    .bind(user).execute(&pool).await.unwrap();
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let title = format!("surprise-http-{nonce}");
     let create = format!(
         "csrf_token={csrf}&kind=joke&title={title}&body=Safe+editorial+joke&book_id=&editorial=on"
     );
-    let wrong = http(&app, "POST", "/admin/surprises/create", &cookie,
-        "https://other.example", &csrf, &create, false).await;
-    private(&wrong, StatusCode::FORBIDDEN);
-    let created = http(&app, "POST", "/admin/surprises/create", &cookie,
-        ORIGIN, &csrf, &create, false).await;
-    private(&created, StatusCode::SEE_OTHER);
-    let item_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM surprise_content WHERE title=$1 AND state='draft'",
+    let wrong = http(
+        &app,
+        "POST",
+        "/admin/surprises/create",
+        &cookie,
+        "https://other.example",
+        &csrf,
+        &create,
+        false,
     )
-    .bind(&title).fetch_one(&pool).await.unwrap();
+    .await;
+    private(&wrong, StatusCode::FORBIDDEN);
+    let created = http(
+        &app,
+        "POST",
+        "/admin/surprises/create",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &create,
+        false,
+    )
+    .await;
+    private(&created, StatusCode::SEE_OTHER);
+    let item_id: i64 =
+        sqlx::query_scalar("SELECT id FROM surprise_content WHERE title=$1 AND state='draft'")
+            .bind(&title)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     let approval = format!("csrf_token={csrf}&state=approved");
-    let approved = http(&app, "POST",
-        &format!("/admin/surprises/{item_id}/state"), &cookie,
-        ORIGIN, &csrf, &approval, false).await;
+    let approved = http(
+        &app,
+        "POST",
+        &format!("/admin/surprises/{item_id}/state"),
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &approval,
+        false,
+    )
+    .await;
     private(&approved, StatusCode::SEE_OTHER);
 
-    let control = format!(
-        "csrf_token={csrf}&enabled=on&probability_per_mille=1000"
-    );
-    let enabled = http(&app, "POST", "/admin/surprises/policy", &cookie,
-        ORIGIN, &csrf, &control, false).await;
+    let control = format!("csrf_token={csrf}&enabled=on&probability_per_mille=1000");
+    let enabled = http(
+        &app,
+        "POST",
+        "/admin/surprises/policy",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &control,
+        false,
+    )
+    .await;
     private(&enabled, StatusCode::SEE_OTHER);
 
-    let response = http(&app, "GET", "/api/v1/me/surprises/plan", &cookie,
-        ORIGIN, &csrf, "", true).await;
+    let response = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        true,
+    )
+    .await;
     private(&response, StatusCode::OK);
     let plan = parse(response).await;
     assert_eq!(plan["state"], "planned");
@@ -175,11 +266,29 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     assert!((120..=1200).contains(&seconds));
 
     let attempted = json!({"utc_day":day,"active_seconds":1200}).to_string();
-    let bad_csrf = http(&app, "POST", "/api/v1/me/surprises/claim", &cookie,
-        ORIGIN, "not-a-valid-token", &attempted, true).await;
+    let bad_csrf = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/claim",
+        &cookie,
+        ORIGIN,
+        "not-a-valid-token",
+        &attempted,
+        true,
+    )
+    .await;
     private(&bad_csrf, StatusCode::FORBIDDEN);
-    let early = http(&app, "POST", "/api/v1/me/surprises/claim", &cookie,
-        ORIGIN, &csrf, &attempted, true).await;
+    let early = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/claim",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &attempted,
+        true,
+    )
+    .await;
     private(&early, StatusCode::OK);
     assert_eq!(parse(early).await["accepted"], false);
 
@@ -190,19 +299,50 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
          SET created_at=now()-interval '30 minutes'
          WHERE user_id=$1 AND utc_day=$2",
     )
-    .bind(user).bind(day).execute(&pool).await.unwrap();
-    let claimed = http(&app, "POST", "/api/v1/me/surprises/claim", &cookie,
-        ORIGIN, &csrf, &attempted, true).await;
+    .bind(user)
+    .bind(day)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let claimed = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/claim",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &attempted,
+        true,
+    )
+    .await;
     private(&claimed, StatusCode::OK);
     assert_eq!(parse(claimed).await["accepted"], true);
-    let repeated = http(&app, "POST", "/api/v1/me/surprises/claim", &cookie,
-        ORIGIN, &csrf, &attempted, true).await;
+    let repeated = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/claim",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &attempted,
+        true,
+    )
+    .await;
     private(&repeated, StatusCode::OK);
     assert_eq!(parse(repeated).await["accepted"], false);
 
     let open = json!({"utc_day":day}).to_string();
-    let response = http(&app, "POST", "/api/v1/me/surprises/open", &cookie,
-        ORIGIN, &csrf, &open, true).await;
+    let response = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/open",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &open,
+        true,
+    )
+    .await;
     private(&response, StatusCode::OK);
     let gift = parse(response).await;
     assert_eq!(gift["id"], item_id);
@@ -210,14 +350,41 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     assert_eq!(gift["editorial"], true);
     assert!(gift["book_id"].is_null());
 
-    let disabled = http(&app, "POST", "/api/v1/me/surprises/disable", &cookie,
-        ORIGIN, &csrf, "{}", true).await;
+    let disabled = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/disable",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "{}",
+        true,
+    )
+    .await;
     private(&disabled, StatusCode::NO_CONTENT);
-    let response = http(&app, "POST", "/api/v1/me/surprises/open", &cookie,
-        ORIGIN, &csrf, &open, true).await;
+    let response = http(
+        &app,
+        "POST",
+        "/api/v1/me/surprises/open",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        &open,
+        true,
+    )
+    .await;
     private(&response, StatusCode::NOT_FOUND);
-    let response = http(&app, "GET", "/api/v1/me/surprises/plan", &cookie,
-        ORIGIN, &csrf, "", true).await;
+    let response = http(
+        &app,
+        "GET",
+        "/api/v1/me/surprises/plan",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        true,
+    )
+    .await;
     private(&response, StatusCode::OK);
     assert_eq!(parse(response).await["state"], "off");
 
@@ -225,9 +392,21 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
         "UPDATE account_roles SET is_active=false
          WHERE user_id=$1 AND role='administrator'",
     )
-    .bind(user).execute(&pool).await.unwrap();
-    let revoked = http(&app, "GET", "/admin/surprises", &cookie,
-        ORIGIN, &csrf, "", false).await;
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let revoked = http(
+        &app,
+        "GET",
+        "/admin/surprises",
+        &cookie,
+        ORIGIN,
+        &csrf,
+        "",
+        false,
+    )
+    .await;
     private(&revoked, StatusCode::FORBIDDEN);
 
     clean(&pool, user, item_id).await;
@@ -235,13 +414,27 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
 
 async fn clean(pool: &PgPool, actor: i64, item_id: i64) {
     sqlx::query("UPDATE surprise_runtime_policy SET enabled=false WHERE singleton")
-        .execute(pool).await.unwrap();
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM surprise_admin_events WHERE actor_user_id=$1")
-        .bind(actor).execute(pool).await.unwrap();
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM surprise_content WHERE id=$1")
-        .bind(item_id).execute(pool).await.unwrap();
+        .bind(item_id)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
-        .bind(actor).execute(pool).await.unwrap();
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE id=$1")
-        .bind(actor).execute(pool).await.unwrap();
+        .bind(actor)
+        .execute(pool)
+        .await
+        .unwrap();
 }
