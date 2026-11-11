@@ -127,3 +127,15 @@ NODE_PATH="$node_path" APP_URL="$COLLECTION_RETIREMENT_APP_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/analytics_retirement_pg_browser.cjs
 ci_rec_step_done "installed_retirement_browser_acceptance"
 stop_server
+
+# Isolated F-SURPRISE acceptance is the only browser run with its runtime gate
+# enabled. Never enable this flag for legacy/retirement runs or any VPS.
+export TOR_SURPRISE_HTTP_ENABLED=1
+export TOR_SURPRISE_HMAC_KEY="$(node -e "process.stdout.write(Buffer.alloc(32, 67).toString('base64url'))")"
+start_server "$TEST_DATABASE_URL" surprises
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_SURPRISE_BASE=http://127.0.0.1:3108 TOR_SURPRISE_SHOTS="$root/shots" \
+  node tools/surprise_browser.cjs
+ci_rec_step_done "surprise_browser_acceptance"
+stop_server
+unset TOR_SURPRISE_HTTP_ENABLED TOR_SURPRISE_HMAC_KEY
