@@ -105,9 +105,21 @@ async function heldBooksLock() {
     return {pid,async release(){child.stdin.end("ROLLBACK;\n\\q\n");const exit=await done;assert.equal(exit.code,0,errors);}};
   } catch(error){child.kill('SIGKILL');await done;throw error;}
 }
-function blocked(server,pid) {
-  return number("SELECT count(*) FROM pg_stat_activity WHERE application_name='"+server.name+
-    "' AND "+pid+"=ANY(pg_blocking_pids(pid))");
+function blockedRequest(server,lockerPid,expected) {
+  let same='';
+  if(expected) {
+    assert.ok(Number.isSafeInteger(expected.pid)&&expected.pid>0);
+    assert.match(expected.started,/^[0-9]+(?:\.[0-9]+)?$/);
+    same=" AND pid="+expected.pid+" AND extract(epoch FROM query_start)::text='"+expected.started+"'";
+  }
+  const matches=JSON.parse(sql("SELECT coalesce(json_agg(r),'[]'::json) FROM ("+
+    "SELECT pid,extract(epoch FROM query_start)::text AS started FROM pg_stat_activity "+
+    "WHERE application_name='"+server.name+"' AND state='active' AND wait_event_type='Lock' "+
+    "AND ltrim(query) LIKE 'SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books%' "+
+    "AND query LIKE '%AND ($2::bigint = 0 OR id < $2)%' "+
+    "AND "+lockerPid+"=ANY(pg_blocking_pids(pid))"+same+" ORDER BY pid)r"));
+  assert.ok(matches.length<=1,'the owned newest-catalog request must have one SQL identity');
+  return matches[0]||false;
 }
 function selected(snapshot,live) {
   for(const field of ['html','cards']) {
@@ -132,16 +144,17 @@ function selected(snapshot,live) {
     let completed=false;
     const request=get(server.base,'/catalog?sort=newest');
     request.then(()=>completed=true,()=>completed=true);
-    await until(()=>blocked(server,lock.pid)>0,'actual HTTP query blocked by the owned transaction',1000);
+    const pendingQuery=await until(()=>blockedRequest(server,lock.pid),'actual newest-catalog HTTP query blocked by the owned transaction',1000);
     assert.equal(completed,false);
     server.child.kill('SIGTERM');
     await until(()=>refusing(server.listen),'listener stopped accepting after SIGTERM',1000);
-    assert.ok(blocked(server,lock.pid)>0,'request must still be in flight after the listener closed');
+    assert.ok(blockedRequest(server,lock.pid,pendingQuery),'the same HTTP query must still be in flight after the listener closed');
+    assert.equal(completed,false,'the HTTP response must still be pending after the listener closed');
     const waiting=selected(captured(server.before),live);
     assert.ok(waiting.html.every(x=>!x.retired),'H retired before HTTP drained');
     assert.ok(waiting.cards.every(x=>!x.retired),'F retired before HTTP drained');
     assert.equal(server.child.exitCode,null);
-    console.log('FLOW_LIFECYCLE_BEFORE_DRAIN '+JSON.stringify({listenerClosed:true,httpSqlBlocked:true,
+    console.log('FLOW_LIFECYCLE_BEFORE_DRAIN '+JSON.stringify({listenerClosed:true,httpSqlBlocked:true,requestPid:pendingQuery.pid,requestStarted:pendingQuery.started,
       htmlRetired:waiting.html.map(x=>x.retired),cardsRetired:waiting.cards.map(x=>x.retired)}));
     await lock.release();lock=null;
     const response=await request;
@@ -156,8 +169,10 @@ function selected(snapshot,live) {
     assert.ok(stopped.cards.every(x=>x.retired));
     assert.equal(number('SELECT coalesce(sum(html_requests),0)::bigint FROM ril_flow_observed_hourly WHERE surface_code=1'),htmlBefore+1,
       'the final successful in-flight HTML response must be persisted once');
-    assert.equal(number('SELECT coalesce(sum(issued),0)::bigint FROM flow_observation_hourly WHERE book_id='+book),1,
+    assert.equal(number('SELECT coalesce(sum(opportunities),0)::bigint FROM flow_observation_hourly WHERE book_id='+book),1,
       'the final server-issued card must settle before F retires');
+    assert.equal(number('SELECT count(*) FROM flow_observation_proofs WHERE book_id='+book),1,
+      'the final server-issued proof must be registered once');
     console.log('FLOW_LIFECYCLE_AFTER_DRAIN '+JSON.stringify({status:response.status,exit,
       htmlRetired:stopped.html.map(x=>x.retired),cardsRetired:stopped.cards.map(x=>x.retired)}));
     server=null;

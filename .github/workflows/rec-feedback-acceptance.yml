@@ -209,7 +209,7 @@ jobs:
           cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
-        run: TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
+        run: bash tools/rec13_browser_acceptance.sh
       # The full-workspace Rust/Clippy and architecture baselines are already
       # mandatory in integration/demo and Repository rules; do not rebuild them
       # a second time merely to collect the REC-13 browser evidence.
