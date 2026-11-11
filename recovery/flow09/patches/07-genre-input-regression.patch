@@ -1,0 +1,26 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/flow_signal_worker/exposure.rs
+@@
+     #[test]
++    fn genre_zero_requires_all_genres_known_and_complete_current_health() {
++        let mut data=measured();
++        let clean=Some(QueueSnapshot { ready:true,queued:0,persisted:0,dropped:0,failed:0 });
++        data.0.genres.genres=103;
++        data.0.genres.unknown=1;
++        assert_eq!(inputs(1,Some(&data),clean).2.current,None);
++        assert_eq!(evaluate(Rule::UnderexposedGenres,inputs(1,Some(&data),clean).2).unwrap().status,Status::Unknown);
++        data.0.genres.low_observed=1;
++        assert_eq!(evaluate(Rule::UnderexposedGenres,inputs(1,Some(&data),clean).2).unwrap().status,Status::Active);
++        data.0.genres.low_observed=0;
++        assert_eq!(inputs(1,Some(&data),clean).2.current,None,"unknown genre cannot prove recovery");
++        data.0.genres.unknown=0;
++        assert_eq!(evaluate(Rule::UnderexposedGenres,inputs(1,Some(&data),clean).2).unwrap().status,Status::Healthy);
++        data.1.current.confirmed_hours=23;
++        assert_eq!(evaluate(Rule::UnderexposedGenres,inputs(1,Some(&data),clean).2).unwrap().status,Status::Unknown);
++        data.1.current.confirmed_hours=24;
++        data.0.genres.genres=0;
++        assert_eq!(inputs(1,Some(&data),clean).2.current,None);
++    }
++    #[test]
+     fn clean_restart_does_not_certify_old_hours_and_all_unknown_books_are_not_zero() {
+*** End Patch

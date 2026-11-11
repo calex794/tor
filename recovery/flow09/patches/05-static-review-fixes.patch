@@ -1,0 +1,34 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/repositories/public_pages/save.rs
+@@
+-        if lease.targets.len()!=4 || results.len()!=4 || results.iter().zip(&lease.targets).any(|(r,t)|
++        if lease.targets.len()!=4 || results.len()!=4
++            || lease.targets.iter().zip(PageSlot::ALL).any(|(target,slot)|target.slot!=slot)
++            || results.iter().zip(&lease.targets).any(|(r,t)|
+@@
+-        let old = sqlx::query("SELECT *,checked_at>=now()-interval '180 seconds' AS fresh
++        let old = sqlx::query("SELECT *,checked_at BETWEEN now()-interval '180 seconds' AND now() AS fresh
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/search/src/repositories/public_pages/report.rs
+@@
+-            greatest(0,floor(extract(epoch FROM now()-finished_at)))::bigint AS age,
++            floor(extract(epoch FROM now()-finished_at))::bigint AS age,
+@@
+-            finished_origin=$1 AS same_origin FROM flow_public_page_probe WHERE singleton")
+-            .bind(origin).fetch_one(&mut *tx).await.map_err(unavailable)?;
++            finished_origin=$1 AS same_origin,
++            finished_at BETWEEN now()-($2::bigint*interval '1 second') AND now() AS in_window
++            FROM flow_public_page_probe WHERE singleton")
++            .bind(origin).bind(PROBE_FRESH_SECONDS).fetch_one(&mut *tx).await.map_err(unavailable)?;
+@@
+-        let age_seconds: Option<i64> = if checked_at.is_some() { clock.try_get("age").map_err(unavailable)? } else { None };
+-        let fresh = age_seconds.is_some_and(|age| age<=PROBE_FRESH_SECONDS)
+-            && clock.try_get::<Option<bool>,_>("same_origin").map_err(unavailable)?.unwrap_or(false);
++        let age_seconds: Option<i64> = if checked_at.is_some() { clock.try_get("age").map_err(unavailable)? } else { None };
++        let age_seconds = age_seconds.filter(|age| *age>=0);
++        let same_origin = clock.try_get::<Option<bool>,_>("same_origin").map_err(unavailable)?.unwrap_or(false);
++        let fresh = clock.try_get::<Option<bool>,_>("in_window").map_err(unavailable)?.unwrap_or(false) && same_origin;
+@@
+-            let last_success_at = saved.map(|row| row.try_get("last_success")).transpose().map_err(unavailable)?.flatten();
++            let last_success_at = saved.filter(|_| same_origin).map(|row| row.try_get("last_success"))
++                .transpose().map_err(unavailable)?.flatten();
+*** End Patch

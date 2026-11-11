@@ -1,0 +1,30 @@
+*** Begin Patch
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render/signals.rs
+@@
+     Reason, Rule, SignalReport, Status, SIGNAL_STALE_SECONDS,
+ };
++const CURRENT_SAMPLE_HEALTHY: &str = "В текущей проверяемой выборке нет подтверждённых потерь. Восстановление ранее проверенных URL не утверждается";
+@@
+-        write!(body,"<section class=\"book-section-card\" data-signal=\"{}\" data-state=\"{}\"><h2>{}</h2><p><strong>{state}</strong></p><p>{}</p>",signal.rule.code(),if stale{"stale"}else{signal.status.code()},title(signal.rule),if stale{"Последний результат больше пяти минут не обновлялся. Активность сигнала сейчас не подтверждена."}else{reason(signal.reason)}).expect("String");
++        let explanation=if stale {
++            "Последний результат больше пяти минут не обновлялся. Активность сигнала сейчас не подтверждена."
++        } else if signal.rule==Rule::PublicPageLoss && signal.status==Status::Healthy {
++            CURRENT_SAMPLE_HEALTHY
++        } else { reason(signal.reason) };
++        write!(body,"<section class=\"book-section-card\" data-signal=\"{}\" data-state=\"{}\"><h2>{}</h2><p><strong>{state}</strong></p><p>{}</p>",signal.rule.code(),if stale{"stale"}else{signal.status.code()},title(signal.rule),explanation).expect("String");
+@@
+     for event in &report.events {
++        if event.rule==Rule::PublicPageLoss {
++            write!(body,"<li data-event-id=\"{}\"><time>{}</time> — {}: {}. Потерь в текущей выборке: {}.</li>",
++                event.id,escape_html(&event.recorded_at),title(event.rule),
++                if event.recovered { CURRENT_SAMPLE_HEALTHY } else { reason(event.reason) },
++                value(event.current)).expect("String");
++            continue;
++        }
+*** Update File: /workspace/scratch/1e86e471c018/tor-flow09/crates/web/src/auth/audience_http/render/public_pages.rs
+@@
+     } else if let Some(report) = report {
++        if report.expected_targets()>0 && report.checked_targets()==report.expected_targets() && report.lost_targets()==0 {
++            body.push_str("<p data-testid=\"pages-current-sample-healthy\">В текущей проверяемой выборке нет подтверждённых потерь. Восстановление ранее проверенных URL не утверждается</p>");
++        }
+*** End Patch
