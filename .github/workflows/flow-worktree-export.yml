@@ -13,42 +13,50 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: c5864e51df56ce52f3761b81ae996ecc1f15ac5b
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Export exact sources and evidence without changing any branch
+      - name: Collect bounded failed job diagnostics
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/flow-current"
           python3 - <<'PY'
-          import json,os,pathlib,subprocess
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-current'
-          def run(*args):return subprocess.check_output(['git',*args],text=True).strip()
-          main='c5864e51df56ce52f3761b81ae996ecc1f15ac5b'
-          refs={'export-main':main,'export-812':'refs/remotes/origin/qa/flow812-integrated-c5864e-20261111','export-810':'f3616b4cdd3dc2389097b6c4c2a8f66a5b8910cf'}
-          result={}
-          for name,ref in refs.items():
-              run('branch',name,ref)
-              result[name]={'sha':run('rev-parse',ref),'tree':run('rev-parse',ref+'^{tree}')}
-          (root/'refs.json').write_text(json.dumps(result,indent=2))
-          run('bundle','create',str(root/'current.bundle'),*refs)
+          import json,os,pathlib,re,urllib.request,urllib.error
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-diag';root.mkdir()
+          api='https://api.github.com/repos/calex794/tor/'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*a,**kw):return None
+          opener=urllib.request.build_opener(NoRedirect)
+          def get(path):
+              req=urllib.request.Request(api+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              try:
+                  with opener.open(req,timeout=60) as r:return r.read()
+              except urllib.error.HTTPError as e:
+                  if e.code not in (301,302,303,307,308):raise
+                  with urllib.request.urlopen(e.headers['Location'],timeout=60) as r:return r.read()
+          runs={42928788281,42930074210}
+          for sha in ['281a177899a345604d71fddab2767f96e37fa2a2','1f25de1a5d84ff8f120a157861ef98402d400d30']:
+              result=json.loads(get(f'actions/runs?head_sha={sha}&per_page=100'))
+              runs.update(r['id'] for r in result['workflow_runs'])
           evidence=[]
-          for sha in ['416b9e943c221aa24301e7a8c4e267d082619c6c',main]:
-              payload=json.loads(subprocess.check_output(['gh','api',f'repos/calex794/tor/actions/runs?head_sha={sha}&per_page=100'],text=True))
-              for r in payload['workflow_runs']:
-                  jobs=json.loads(subprocess.check_output(['gh','api',f'repos/calex794/tor/actions/runs/{r["id"]}/jobs?per_page=100'],text=True))
-                  evidence.append({'sha':sha,'run':r['id'],'name':r['name'],'status':r['status'],'conclusion':r['conclusion'],'url':r['html_url'],'jobs':[{'name':j['name'],'id':j['id'],'status':j['status'],'conclusion':j['conclusion']} for j in jobs['jobs']]})
-          (root/'ci-evidence.json').write_text(json.dumps(evidence,indent=2))
-          print(json.dumps(result,indent=2))
+          for run in sorted(runs):
+              r=json.loads(get(f'actions/runs/{run}'))
+              jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
+              evidence.append({'run':run,'sha':r['head_sha'],'name':r['name'],'status':r['status'],'conclusion':r['conclusion'],'url':r['html_url'],'jobs':[{'id':j['id'],'name':j['name'],'status':j['status'],'conclusion':j['conclusion']} for j in jobs]})
+              for j in jobs:
+                  if j['conclusion'] not in ('failure','timed_out'):continue
+                  text=get(f'actions/jobs/{j["id"]}/logs').decode('utf-8-sig')
+                  lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in text.splitlines()]
+                  hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
+                  keep=set()
+                  for i in hits[-12:]:keep.update(range(max(0,i-10),min(len(lines),i+35)))
+                  if not keep:keep.update(range(max(0,len(lines)-80),len(lines)))
+                  (root/f'failure-{run}-{j["id"]}.txt').write_text('\n'.join(f'{i+1}: {lines[i]}' for i in sorted(keep)))
+          (root/'status.json').write_text(json.dumps(evidence,indent=2))
+          print(json.dumps([{k:v for k,v in r.items() if k!='jobs'} for r in evidence],indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: flow-current-source-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-current/
+          name: flow-bounded-diagnostics-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-diag/
           retention-days: 2
