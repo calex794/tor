@@ -66,12 +66,18 @@ pub(super) async fn page(
         }
         _ => return pages::secure_page(deny(StatusCode::BAD_REQUEST), &[]),
     }
-    out.push_str(r#"<p><a href="/me/recommendations/manage">Настройки рекомендаций</a></p></div></section>"#);
+    out.push_str(
+        r#"<p><a href="/me/recommendations/manage">Настройки рекомендаций</a></p></div></section>"#,
+    );
     if let Err(code) = actor(&state, &headers).await {
         return pages::secure_page(deny(code), &[]);
     }
     pages::secure_page(
-        html::layout("Полка после главы", "Проверка источников рекомендаций", &out),
+        html::layout(
+            "Полка после главы",
+            "Проверка источников рекомендаций",
+            &out,
+        ),
         &[],
     )
 }
