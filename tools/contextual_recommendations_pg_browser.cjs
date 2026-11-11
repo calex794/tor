@@ -158,4 +158,3 @@ async function feed(context,seed){const response=await context.request.get(base+
   if(books.length)sql(`UPDATE books SET admin_hold=true WHERE id IN (${books.join(',')})`);
  }
 })().catch(error=>{console.error(error);process.exitCode=1;});
-
