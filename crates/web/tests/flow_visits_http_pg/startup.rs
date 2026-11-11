@@ -1,4 +1,4 @@
-//! Actual AUTH=0 binary on a real installed190 -> 192 database, never a helper drain.
+//! Actual AUTH=0 binary on a real installed190 -> 193 database, never a helper drain.
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpListener,
@@ -101,7 +101,7 @@ impl Drop for BusyRetirement {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires installed192 disposable tor_ci_collection_retirement_startup"]
+#[ignore = "requires installed193 disposable tor_ci_collection_retirement_startup"]
 async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
     let url = std::env::var("COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL").unwrap();
     let parsed = reqwest::Url::parse(&url).unwrap();
@@ -120,7 +120,7 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
             &url,
             "SELECT concat_ws('|',count(*),max(version),bool_and(success)) FROM _sqlx_migrations"
         ),
-        "192|202611168903|t"
+        "193|202611168903|t"
     );
     let legacy = retirement::Probe::load(&url);
     let canonical = legacy.canonical(&url);
