@@ -1,4 +1,4 @@
-//! Actual AUTH=0 binary on a real installed190 -> 193 database, never a helper drain.
+//! Actual AUTH=0 binary on a real installed190 -> current database, never a helper drain.
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpListener,
@@ -101,7 +101,7 @@ impl Drop for BusyRetirement {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires installed193 disposable tor_ci_collection_retirement_startup"]
+#[ignore = "requires installed contextual disposable tor_ci_collection_retirement_startup"]
 async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
     let url = std::env::var("COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL").unwrap();
     let parsed = reqwest::Url::parse(&url).unwrap();
@@ -115,12 +115,18 @@ async fn public_postgres_startup_retires_legacy_flags_and_preserves_cleanup() {
         pg(&url, "SELECT current_database()||'|'||current_user"),
         "tor_ci_collection_retirement_startup|tor_app"
     );
+    // The migrator suite verifies every version and checksum against its exact
+    // embedded manifest. This runtime probe needs these two installed features,
+    // not a frozen global count that breaks with unrelated additive migrations.
     assert_eq!(
         pg(
             &url,
-            "SELECT concat_ws('|',count(*),max(version),bool_and(success)) FROM _sqlx_migrations"
+            "SELECT bool_and(success)
+            AND count(*) FILTER(WHERE version=202611168903)=1
+            AND count(*) FILTER(WHERE version=202611198437)=1
+            FROM _sqlx_migrations"
         ),
-        "194|202611198437|t"
+        "t"
     );
     let legacy = retirement::Probe::load(&url);
     let canonical = legacy.canonical(&url);
