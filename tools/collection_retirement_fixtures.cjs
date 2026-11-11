@@ -1,5 +1,5 @@
 'use strict';
-// Current migration-193 fixture guards and exact optional-store snapshots.
+// Current migration-194 fixture guards and exact optional-store snapshots.
 // Installed legacy data is exercised only by the separate migration harness.
 const assert = require('node:assert/strict');
 const {randomBytes} = require('node:crypto');
@@ -7,7 +7,9 @@ const {randomBytes} = require('node:crypto');
 module.exports = function retirementFixtures(sql) {
   function assertCurrentSchema() {
     assert.equal(sql(`SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
-      WHERE version=202611168903 AND success)
+      WHERE version=202611198437 AND success)
+      AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='rec_runtime_policy'::regclass
+        AND tgname='rec_contextual_policy_guard' AND tgenabled='O')
       AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='rec_subjects'::regclass
         AND tgname='retired_collection_write_fence' AND tgenabled='O')`),'t',
       'browser acceptance requires the current database retirement barrier');

@@ -566,6 +566,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
+    let contextual_builder =
+        tor_web::recommendation_worker::start_contextual(pending_security_retention.clone());
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
     let serve_result = axum::serve(
@@ -574,6 +576,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )
     .await;
     if let Some(handle) = account_retention {
+        handle.abort();
+        let _ = handle.await;
+    }
+    if let Some(handle) = contextual_builder {
         handle.abort();
         let _ = handle.await;
     }

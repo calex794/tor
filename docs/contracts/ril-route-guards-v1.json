@@ -2787,6 +2787,34 @@
       "source": "crates/web/src/auth/surprise_admin.rs",
       "handler": "set_state",
       "policy": "admin_surprises"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/admin/recommendations/contextual",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::contextual::status",
+      "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/admin/recommendations/contextual",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::contextual::control",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/me/recommendations/contextual",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::contextual::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "POST",
+      "template": "/me/recommendations/contextual",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::contextual::form",
+      "policy": "administrator"
     }
   ]
 }

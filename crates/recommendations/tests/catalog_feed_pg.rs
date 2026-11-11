@@ -12,6 +12,8 @@ mod current_analytics;
 #[path = "catalog_feed_pg/fixtures.rs"]
 mod fixtures;
 use fixtures::*;
+#[path = "catalog_feed_pg/contextual.rs"]
+mod contextual;
 
 async fn fixture(name: &str) -> Fixture {
     let url = current_analytics::url("TEST_DATABASE_URL", "tor_app");
@@ -222,3 +224,6 @@ async fn catalog_does_not_wait_for_legacy_history_generation_or_rollout_tables()
     assert_eq!(ids(&feed), vec![f.books[4], f.books[3], f.books[2]]);
     f.cleanup().await;
 }
+
+#[path = "catalog_feed_pg/contextual_scale.rs"]
+mod contextual_scale;

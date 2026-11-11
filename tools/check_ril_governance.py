@@ -210,6 +210,11 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
                 "super::sync_actions::put_archived_free",
             }):
         return source.parent / "sync_actions.rs"
+    # Only these reviewed nested handlers may share the existing live-admin gate.
+    if (source == root / "crates/web/src/recommendation_http/mod.rs"
+            and handler in {"admin::contextual::page", "admin::contextual::status",
+                            "admin::contextual::control", "admin::contextual::form"}):
+        return source.parent / "admin/contextual.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
@@ -389,6 +394,22 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    contextual = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+                  and entry["handler"] in {"admin::contextual::page", "admin::contextual::status",
+                                           "admin::contextual::control", "admin::contextual::form"})
+    if contextual:
+        # Follow only actual delegates. A removed actor/CSRF call loses its evidence.
+        evidence = body
+        added = set()
+        for _ in range(4):
+            for helper in ("load", "execute", "actor", "csrf"):
+                if helper not in added and re.search(rf"(?<!\w){helper}\s*\(", evidence):
+                    evidence += "\n" + functions.get(helper, "")
+                    added.add(helper)
+        if not ("Duration::from_millis(950)" in evidence
+                and (".contextual_status()" in evidence if entry["method"] == "GET"
+                     else ".control_contextual(&body)" in evidence)):
+            errors.append(f"{label}: missing bounded versioned contextual operation")
     retired_policy = _retired_policy(entry)
     retired_ok = False
     if retired_policy:
@@ -1518,6 +1539,10 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing Origin+CSRF rejection")
     rec_admin = {
         ("GET", "/api/v1/admin/recommendations/quality", "admin::quality"),
+        ("GET", "/api/v1/admin/recommendations/contextual", "admin::contextual::status"),
+        ("POST", "/api/v1/admin/recommendations/contextual", "admin::contextual::control"),
+        ("GET", "/me/recommendations/contextual", "admin::contextual::page"),
+        ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
         ("GET", "/me/recommendations/manage", "admin::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
@@ -1834,6 +1859,18 @@ def check(root: Path = ROOT) -> list[str]:
                 )
             except OSError:
                 source_cache[path]["__audience_administrator"] = ""
+        if (entry.get("source") == "crates/web/src/recommendation_http/mod.rs"
+                and entry.get("handler") in {"admin::contextual::page", "admin::contextual::status",
+                                              "admin::contextual::control", "admin::contextual::form"}):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / "crates/web/src/recommendation_http/admin.rs").read_text(encoding="utf-8"))
+                imported = re.search(r"use\s+super::\{\s*actor,\s*csrf\s*\}", child)
+                for helper in ("actor", "csrf"):
+                    source_cache[path][helper] = parent.get(helper, "") if imported else ""
+            except OSError:
+                source_cache[path]["actor"] = ""
+                source_cache[path]["csrf"] = ""
         if _retired_policy(entry):
             try:
                 api = _functions((root / "crates/web/src/recommendation_http/api.rs")

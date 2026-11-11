@@ -8,3 +8,5 @@ pub mod ranking;
 pub mod scenario;
 pub mod surprise_schedule;
 pub mod visits;
+
+pub mod contextual;

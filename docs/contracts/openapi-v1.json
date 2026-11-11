@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "TOR Rust/Pg REST contracts",
-    "version": "2026-11-11.v2",
+    "version": "2026-11-11.v3",
     "description": "Planned JSON HTTP API; NOT implemented. Source of truth detailed in docs/roadmap/api-v1.md and docs/contracts/*.md. Includes core high-risk REST surface; HTML compatibility remains specified separately. REC/FLOW runtime retirement v2 changes the implemented recommendation source enum and retired collection/control responses at existing compatibility URLs; see flow-rec-runtime-retirement-v2.md."
   },
   "servers": [
@@ -4715,6 +4715,128 @@
         "x-tor-require-origin": true,
         "x-tor-json-max-bytes": 65536
       }
+    },
+    "/api/v1/admin/recommendations/contextual": {
+      "get": {
+        "operationId": "rec_contextual_status",
+        "tags": [
+          "F"
+        ],
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "description": "Only metadata_manual_v1. Whole handler timeout 950ms including authorization; SQL 750ms. Product serving flag remains independent. Retired control URLs stay 410.",
+        "responses": {
+          "200": {
+            "description": "Private contextual model state; no-store, noindex; fresh live administrator role required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecContextualStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Http413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Http422"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I"
+      },
+      "post": {
+        "operationId": "rec_contextual_control",
+        "tags": [
+          "F"
+        ],
+        "security": [
+          {
+            "cookieSession": []
+          }
+        ],
+        "description": "Only metadata_manual_v1. Whole handler timeout 950ms including authorization; SQL 750ms. Product serving flag remains independent. Retired control URLs stay 410. Policy CAS: stale/repeated expected_revision returns 409 without another mutation; no claim of receipt replay.",
+        "responses": {
+          "200": {
+            "description": "Private contextual model state; no-store, noindex; fresh live administrator role required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecContextualReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Http413"
+          },
+          "422": {
+            "$ref": "#/components/responses/Http422"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecContextualControl"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5543,6 +5665,169 @@
             "$ref": "#/components/schemas/SupportMessage"
           }
         }
+      },
+      "RecContextualStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model_version": {
+            "type": "string",
+            "const": "metadata_manual_v1"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active_generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "previous_generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "held": {
+            "type": "boolean"
+          },
+          "generations": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/RecContextualGeneration"
+            }
+          }
+        },
+        "required": [
+          "model_version",
+          "revision",
+          "active_generation",
+          "previous_generation",
+          "held",
+          "generations"
+        ]
+      },
+      "RecContextualGeneration": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "building",
+              "validated",
+              "rejected"
+            ]
+          },
+          "cursor_book_id": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Committed ascending seed watermark, not completed book count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "cursor_book_id",
+          "created_at",
+          "finished_at"
+        ]
+      },
+      "RecContextualControl": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "refresh",
+                  "hold",
+                  "rollback"
+                ]
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "generation": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "activate",
+                  "cancel"
+                ]
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "generation": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "action",
+              "expected_revision",
+              "generation"
+            ]
+          }
+        ]
+      },
+      "RecContextualReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "revision",
+          "generation"
+        ]
       }
     },
     "responses": {
