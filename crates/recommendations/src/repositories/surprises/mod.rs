@@ -1,6 +1,7 @@
 //! F-SURPRISE: account-owned, durable, non-monetary surprise decisions.
 use sqlx::PgPool;
 
+pub mod admin;
 mod content;
 mod decisions;
 
