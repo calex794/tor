@@ -95,6 +95,35 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium and its system dependencies
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps --only-shell chromium
+      - name: Browser HTML quality on a fresh database without JavaScript
+        run: |
+          set -euo pipefail
+          cargo build -p tor-web
+          mkdir -p "$RUNNER_TEMP/html-health-shots"
+          TOR_AUTH_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 DATABASE_URL="$TEST_DATABASE_URL" TOR_LISTEN_ADDR=127.0.0.1:3108 ./target/debug/tor-web > "$RUNNER_TEMP/html-health-server.log" 2>&1 &
+          flow_server=$!
+          trap 'kill "$flow_server" 2>/dev/null || true; wait "$flow_server" 2>/dev/null || true' EXIT
+          for flow_attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3108/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3108/readyz >/dev/null
+          APP_URL="$TEST_DATABASE_URL" TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$RUNNER_TEMP/html-health-shots" TOR_FLOW_EMIT_SCREENSHOTS=1 node tools/audience_html_health_pg_browser.cjs
+      - name: Upload HTML quality browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-health-browser
+          path: |
+            ${{ runner.temp }}/html-health-shots
+            ${{ runner.temp }}/html-health-server.log
       - name: Focused PostgreSQL and HTTP cases present in this development slice
         shell: bash
         run: |
