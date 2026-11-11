@@ -112,6 +112,28 @@ pub struct CanonicalReport {
     pub next_after_label: Option<String>,
 }
 
+
+/// A bounded descriptive ranking of retained first account/book completions.
+/// The threshold is a presentation caveat, not statistical significance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalRankRow {
+    pub book_id: Option<i64>,
+    pub label: Option<String>,
+    pub counts: CanonicalCounts,
+    pub small_current_sample: bool,
+    pub small_previous_sample: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalRankReport {
+    pub measured_at_utc: String,
+    pub current_from_utc: String,
+    pub previous_from_utc: String,
+    /// Whole eligible scope, before group expansion and top-20 selection.
+    pub totals: CanonicalCounts,
+    pub rows: Vec<CanonicalRankRow>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

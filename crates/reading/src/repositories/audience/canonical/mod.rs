@@ -1,4 +1,6 @@
 //! Single read-only snapshot over C facts and the already approved public catalogue port.
+mod rank;
+
 use super::{unavailable, AudienceError, PgAudience};
 use crate::services::audience::canonical::{
     CanonicalCounts, CanonicalDimension, CanonicalQuery, CanonicalReport, CanonicalRow,
