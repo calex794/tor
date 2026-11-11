@@ -84,8 +84,21 @@ async function save(page) {
     assert.ok(!(await page.locator('main').innerText()).includes('Положительный результат подтверждён'));
     await page.screenshot({path:path.join(shots,'surprise-experiment-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth>innerWidth+1),false);
     await page.screenshot({path:path.join(shots,'surprise-experiment-mobile.png'),fullPage:true});
+    const mobile = await page.evaluate(() => ({
+      viewport: innerWidth,
+      scroll: document.documentElement.scrollWidth,
+      offenders: [...document.querySelectorAll('body *')]
+        .filter(el => el.getBoundingClientRect().right > innerWidth + 1)
+        .slice(0,12)
+        .map(el => ({tag:el.tagName, className:typeof el.className === 'string' ? el.className : '',
+          right:Math.round(el.getBoundingClientRect().right)})),
+    }));
+    assert.ok(mobile.scroll <= mobile.viewport + 1,
+      `mobile page overflow: ${JSON.stringify(mobile)}`);
+    assert.ok(await page.locator('.surprise-experiment-scroll')
+      .evaluate(el => el.scrollWidth > el.clientWidth),
+      'wide experiment columns must scroll inside their own keyboard-accessible region');
 
     const csrf = await policy.locator('[name=csrf_token]').inputValue();
     const injected = await context.request.post(base+'/admin/surprises/policy',{

@@ -67,7 +67,7 @@ pub(super) fn render(body: &mut String, report: Option<&ExperimentReport>) {
         );
         return;
     }
-    body.push_str("<div style=\"overflow-x:auto\"><table><thead><tr><th>Группа</th><th>Назначено</th><th>Полное окно</th><th>Новая книга</th><th>Текущая глава</th><th>D1</th><th>D7</th><th>Отключение</th></tr></thead><tbody>");
+    body.push_str("<div class=\"surprise-experiment-scroll\" role=\"region\" aria-label=\"Эксперимент: сравнение групп\" tabindex=\"0\"><table><thead><tr><th>Группа</th><th>Назначено</th><th>Полное окно</th><th>Новая книга</th><th>Текущая глава</th><th>D1</th><th>D7</th><th>Отключение</th></tr></thead><tbody>");
     for (arm, name) in report
         .counts
         .iter()

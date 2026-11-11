@@ -104,7 +104,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let csrf = pages::escape_html(&csrf);
     let mut body = format!(
-        "<section class=\"section\"><div class=\"container\"><h1>Случайные открытия</h1>\
+        "<section class=\"section surprise-admin\"><div class=\"container\"><h1>Случайные открытия</h1>\
          <p>Бесплатные редакционные сюрпризы; оплаченные показы и бонусные деньги не поддерживаются.</p>\
          <p>Система также требует отдельный серверный переключатель TOR_SURPRISE_HTTP_ENABLED.</p>\
          <h2>Появления</h2><form method=\"post\" action=\"/admin/surprises/policy\">\
