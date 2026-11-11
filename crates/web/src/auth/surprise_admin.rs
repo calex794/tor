@@ -18,6 +18,9 @@ use tor_recommendations::repositories::surprises::{
     admin::NewSurprise, PgSurprises, SurpriseError,
 };
 
+#[path = "surprise_experiment_view.rs"]
+mod experiment_view;
+
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/admin/surprises", get(page))
@@ -94,6 +97,10 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(value) => value,
         Err(error) => return problem(error),
     };
+    let reading = repo.admin_reading_experiment(&digest).await;
+    if matches!(reading, Err(SurpriseError::Forbidden)) {
+        return deny(StatusCode::FORBIDDEN);
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let csrf = pages::escape_html(&csrf);
     let mut body = format!(
@@ -105,6 +112,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
          <label><input type=\"checkbox\" name=\"enabled\" value=\"on\" {}> Включить выбор сюрпризов</label>\
          <label>Вероятность, промилле <input type=\"number\" min=\"0\" max=\"1000\" name=\"probability_per_mille\" value=\"{probability}\"></label>\
          <label><input type=\"checkbox\" name=\"experiment_enabled\" value=\"on\" {}> Эксперимент 20% без подарков / 40% мягкий / 40% обычный (по умолчанию выключен)</label>\
+         <p>Изменение вероятности или отключение работающего эксперимента останавливает запуск и выключает подарки. Повторное включение создаёт новый запуск; результаты не смешиваются.</p>\
          <button type=\"submit\">Сохранить настройки</button></form>\
          <h2>Новый сюрприз</h2><form method=\"post\" action=\"/admin/surprises/create\">\
          <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
@@ -153,7 +161,7 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         body.push_str("</li>");
     }
     body.push_str("</ul><h2>Эксперимент — служебные итоги за 7 завершённых суток UTC</h2>");
-    body.push_str("<p>Это решения и занятые слоты, не подтверждённые показы и не прирост чтения. Меньше 20 разных аккаунтов в группе — значения скрыты. Оценка эффекта на чтение пока не готова.</p>");
+    body.push_str("<p>Это решения и занятые слоты, не подтверждённые показы и не прирост чтения. Меньше 20 разных аккаунтов в группе — значения скрыты. Отдельный отчёт по чтению расположен ниже.</p>");
     if summary.is_empty() {
         body.push_str("<p>Недостаточно данных для безопасного агрегированного отчёта.</p>");
     } else {
@@ -171,6 +179,10 @@ async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
             );
         }
         body.push_str("</tbody></table>");
+    }
+    match reading {
+        Ok(report) => experiment_view::render(&mut body, report.as_ref()),
+        Err(_) => body.push_str("<p role=\"alert\">Отчёт по чтению недоступен. Результат эксперимента не определён; управление отключением остаётся доступным.</p>"),
     }
     body.push_str("</div></section>");
     private_response(
@@ -192,6 +204,12 @@ async fn policy(
         Ok(digest) => digest,
         Err(status) => return deny(status),
     };
+    if form.enabled.as_deref() == Some("on")
+        && form.experiment_enabled.as_deref() == Some("on")
+        && !super::surprise_http::enabled()
+    {
+        return deny(StatusCode::CONFLICT);
+    }
     let repo = PgSurprises::new(state.accounts.pool().clone());
     match repo
         .admin_policy(

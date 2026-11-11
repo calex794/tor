@@ -16,12 +16,11 @@ impl PgSurprises {
             "SELECT d.content_ticket FROM surprise_daily_decisions d
              JOIN users u ON u.id=d.user_id AND u.account_state='active'
              LEFT JOIN surprise_user_preferences p ON p.user_id=d.user_id
-             JOIN surprise_runtime_policy policy ON policy.singleton
              WHERE d.user_id=$1 AND d.utc_day=$2
                AND d.state IN ('claimed','opened')
                AND d.claimed_at>now()-interval '30 minutes'
-               AND COALESCE(p.disabled,false)=false AND policy.enabled
-               AND (NOT policy.experiment_enabled OR d.experiment_arm IN ('gentle','standard'))",
+               AND COALESCE(p.disabled,false)=false
+               AND surprise_delivery_allowed(d.user_id,d.utc_day)",
         )
         .bind(user_id)
         .bind(utc_day)
@@ -63,15 +62,18 @@ impl PgSurprises {
             book_id: row.try_get("book_id")?,
             editorial: row.try_get("editorial")?,
         };
-        // An opened receipt is idempotent; it cannot pay or increase chances.
-        sqlx::query(
+        let changed = sqlx::query(
             "UPDATE surprise_daily_decisions SET state='opened',opened_at=COALESCE(opened_at,now())
-             WHERE user_id=$1 AND utc_day=$2 AND state IN ('claimed','opened')",
+             WHERE user_id=$1 AND utc_day=$2 AND state IN ('claimed','opened')
+               AND surprise_delivery_allowed(user_id,utc_day)
+               AND NOT COALESCE((SELECT disabled FROM surprise_user_preferences WHERE user_id=$1),false)
+               AND EXISTS(SELECT 1 FROM users WHERE id=$1 AND account_state='active')",
         )
         .bind(user_id)
         .bind(utc_day)
         .execute(&self.pool)
-        .await?;
-        Ok(Some(result))
+        .await?
+        .rows_affected();
+        Ok((changed == 1).then_some(result))
     }
 }
