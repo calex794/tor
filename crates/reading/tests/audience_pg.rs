@@ -285,3 +285,6 @@ async fn flow_reading_periods_count_accounts_once_without_truncating_or_rebuildi
 
 #[path = "audience_pg/intent.rs"]
 mod intent;
+
+#[path = "audience_pg/canonical.rs"]
+mod canonical;

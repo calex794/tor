@@ -1,6 +1,7 @@
 //! FLOW: site-administrator access to reading, discovery and saved page views.
 //! No tracking identifier, collection switch, SQL or operator-password fallback.
 mod books;
+mod canonical;
 mod funnel;
 mod groups;
 mod render;
@@ -71,6 +72,7 @@ pub(crate) fn routes(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/admin/audience", get(page))
         .route("/admin/audience/books", get(books::page))
+        .route("/admin/audience/reading", get(canonical::page))
         .route("/admin/audience/groups", get(groups::page))
         .route("/admin/audience/returns", get(returns::page))
         .route("/admin/audience/visits", get(visits::page))

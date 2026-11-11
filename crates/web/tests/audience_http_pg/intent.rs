@@ -7,12 +7,12 @@ use std::{
 
 // Keep SQL fixture machinery outside tor-web's dependencies. A real psql
 // transaction holds the relation lock until Drop, including assertion failures.
-struct LockedFollows {
+pub(super) struct LockedFollows {
     child: Child,
     input: ChildStdin,
 }
 impl LockedFollows {
-    fn acquire(url: &str) -> Self {
+    pub(super) fn acquire(url: &str) -> Self {
         let target = reqwest::Url::parse(url).expect("fixture database URL");
         assert!(matches!(target.scheme(), "postgres" | "postgresql"));
         assert_eq!(target.host_str(), Some("127.0.0.1"));

@@ -2710,6 +2710,13 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "funnel::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/reading",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "canonical::page",
+      "policy": "administrator"
     }
   ]
 }

@@ -1,5 +1,6 @@
 'use strict';
 const intents = require('./audience_intent_pg_helpers.cjs');
+const canonical = require('./audience_canonical_pg_helpers.cjs');
 // FLOW: actual account forms, C progress, administrator page and two viewports.
 // Reuses the already running isolated PostgreSQL/Chromium acceptance server.
 const {chromium} = require('playwright');
@@ -145,6 +146,7 @@ async function periodBoundaries(page, days) {
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'),200);
     intents.delta(intentBefore,await intents.snapshot(adminPage),0);
     await intents.choices(readerPage,book,csrf);
+    await canonical.check({adminPage,readerPage,guestPage,base,shots,book,run,sql,privateResponse,event});
     sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);
 
     for (const width of [390,1440]) {
@@ -176,6 +178,7 @@ async function periodBoundaries(page, days) {
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${administrator} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience'), 403);
+    await privateResponse(await adminPage.goto(base+'/admin/audience/reading'), 403);
     assert.equal(await adminPage.locator('[data-metric]').count(), 0,
       'revoked administrator must not receive audience data');
     assert.equal((await adminPage.goto(base+'/me')).status(), 200);
