@@ -10,14 +10,14 @@ use tor_traffic_behavior::{
 };
 use uuid::Uuid;
 
-struct Fixture {
-    owner: PgPool,
-    app: PgPool,
-    schema: String,
+pub(super) struct Fixture {
+    pub(super) owner: PgPool,
+    pub(super) app: PgPool,
+    pub(super) schema: String,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let owner_url = std::env::var("MIGRATOR_URL").unwrap();
         let app_url = std::env::var("TEST_DATABASE_URL").unwrap();
         for url in [&owner_url, &app_url] {
@@ -44,6 +44,8 @@ impl Fixture {
             "ril_flush_flow_observed",
             "ril_flow_observed_hourly",
             "ril_flow_observed_receipts",
+            "ril_flow_health_epochs",
+            "ril_flow_health_hourly",
         ] {
             sqlx::query(&format!(
                 "CREATE TABLE {schema}.{table} (LIKE public.{table} INCLUDING ALL)"
@@ -54,6 +56,7 @@ impl Fixture {
         }
         for query in [
             format!("GRANT USAGE ON SCHEMA {schema} TO tor_app"),
+            format!("GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO tor_app"),
             format!(
                 "GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO tor_app"
             ),
@@ -70,6 +73,8 @@ impl Fixture {
                     sqlx::query(&format!("SET search_path={schema},public"))
                         .execute(&mut *connection)
                         .await?;
+                    sqlx::query("SET statement_timeout = '1s'").execute(&mut *connection).await?;
+                    sqlx::query("SET lock_timeout = '75ms'").execute(&mut *connection).await?;
                     sqlx::query("SET TIME ZONE 'Asia/Kathmandu'")
                         .execute(connection)
                         .await?;
@@ -81,11 +86,11 @@ impl Fixture {
             .unwrap();
         Self { owner, app, schema }
     }
-    async fn hour(&self) -> i64 {
+    pub(super) async fn hour(&self) -> i64 {
         sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM (date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'))::bigint")
             .fetch_one(&self.app).await.unwrap()
     }
-    async fn finish(self) {
+    pub(super) async fn finish(self) {
         self.app.close().await;
         sqlx::query(&format!("DROP SCHEMA {} CASCADE", self.schema))
             .execute(&self.owner)

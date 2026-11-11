@@ -1,5 +1,7 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
+mod flow_health;
+use flow_health::FlowGate;
 use crate::domain::{
     BehaviorEvent, BehaviorSketch, FlowPageview, FlowVisitWindows, PathReport, RollupDelta,
     SketchSnapshot, SqlCostEvent, VerifiedSubjectKey, MAX_SUBJECTS,
@@ -13,7 +15,7 @@ use std::{
         Arc,
     },
     thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 const MAX_QUEUE: usize = 4_096;
@@ -32,6 +34,7 @@ pub struct TrafficRecorder {
     dropped: Arc<AtomicU64>,
     flow_candidates: Arc<AtomicU64>,
     flow_dropped: Arc<AtomicU64>,
+    flow_gate: Arc<FlowGate>,
     paths: PathRecorder,
     started: Instant,
 }
@@ -118,6 +121,7 @@ impl TrafficRecorder {
             dropped,
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths,
             started: Instant::now(),
         }
@@ -139,21 +143,28 @@ impl TrafficRecorder {
         if has_flow {
             self.flow_candidates.fetch_add(1, Ordering::Relaxed);
         }
-        // Capture at the HTTP producer, not after queueing or PostgreSQL delay.
-        let observed_hour = flow.and_then(|_| crate::domain::observation_hour(SystemTime::now()));
-        match self
+        let guard = has_flow.then(|| self.flow_gate.lock()).flatten();
+        let observed_at = guard.as_ref().and_then(|guard| guard.observation_time());
+        let unavailable = has_flow && observed_at.is_none();
+        if unavailable { self.flow_dropped.fetch_add(1, Ordering::Relaxed); }
+        let flow = if unavailable { None } else { flow };
+        // Timestamp and enqueue are fenced together against the pump barrier.
+        let observed_hour = observed_at.and_then(crate::domain::observation_hour);
+        let accepted = match self
             .sender
             .try_send(Message::Event(event, flow, observed_hour))
         {
-            Ok(()) => true,
+            Ok(()) => !unavailable,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
-                if has_flow {
+                if has_flow && !unavailable {
                     self.flow_dropped.fetch_add(1, Ordering::Relaxed);
                 }
                 false
             }
-        }
+        };
+        drop(guard);
+        accepted
     }
 
     /// Best effort, nonblocking finite per-route SQLx completion telemetry.
@@ -183,6 +194,21 @@ impl TrafficRecorder {
     pub fn drain_for_persistence(&self) -> Option<RollupDelta> {
         let (reply, response) = mpsc::channel();
         self.sender.try_send(Message::Drain(reply)).ok()?;
+        response.recv_timeout(Duration::from_secs(2)).ok()
+    }
+
+    pub(crate) fn manage_flow_health(&self) { self.flow_gate.manage(); }
+    pub(crate) fn flow_health_started(&self) -> Instant { self.flow_gate.created() }
+    pub(crate) fn activate_flow_health(&self, clock_ms: i64, started: Instant) -> bool {
+        self.flow_gate.activate(clock_ms, started)
+    }
+    pub(crate) fn close_flow_health(&self) { self.flow_gate.close(); }
+    pub(crate) fn drain_for_health(&self) -> Option<RollupDelta> {
+        let guard = self.flow_gate.lock()?;
+        guard.observation_time()?;
+        let (reply, response) = mpsc::channel();
+        self.sender.try_send(Message::Drain(reply)).ok()?;
+        drop(guard);
         response.recv_timeout(Duration::from_secs(2)).ok()
     }
 
@@ -342,6 +368,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -359,6 +386,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -376,6 +404,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };

@@ -1,5 +1,6 @@
 //! Observation-time read model over the existing bounded RIL batch pipeline.
 use super::{unavailable, PgFlowAudience};
+use crate::{domain::html_health::HtmlHealthReport,repositories::PgHtmlHealth};
 use crate::services::{
     audience::FlowHourlyError,
     observed_audience::{
@@ -16,6 +17,14 @@ impl PgFlowAudience {
         days: i32,
         zone: &str,
     ) -> Result<ObservedAudienceReport, FlowHourlyError> {
+        self.observed_snapshot(days,zone,false).await.map(|value|value.0)
+    }
+    /// Counts and their durable quality proof share one repeatable-read snapshot.
+    /// A later checkpoint cannot certify counts omitted by an earlier read.
+    pub async fn observed_health_report(&self,days:i32,zone:&str)->Result<(ObservedAudienceReport,Option<HtmlHealthReport>),FlowHourlyError>{
+        self.observed_snapshot(days,zone,true).await
+    }
+    async fn observed_snapshot(&self,days:i32,zone:&str,with_health:bool)->Result<(ObservedAudienceReport,Option<HtmlHealthReport>),FlowHourlyError>{
         let count = observed_hours(days)?;
         let zone = validate_zone(zone)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -23,7 +32,7 @@ impl PgFlowAudience {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '750ms'")
+        sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
@@ -69,7 +78,10 @@ impl PgFlowAudience {
             });
         }
         let report = observed_report(days, zone, anchor, hours)?;
+        let health=if with_health && PgHtmlHealth::capability_in(&mut tx).await.map_err(|_|FlowHourlyError::Unavailable)? {
+            Some(PgHtmlHealth::read_in(&mut tx,days,report.current.until_epoch).await.map_err(|_|FlowHourlyError::Unavailable)?)
+        }else {None};
         tx.commit().await.map_err(unavailable)?;
-        Ok(report)
+        Ok((report,health))
     }
 }
