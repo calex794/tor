@@ -10,20 +10,31 @@ impl PgFlowSignals {
         bounded(async {
             let mut tx = self.pool.begin().await?;
             settings(&mut tx).await?;
-            let row = sqlx::query(r#"WITH stamp AS MATERIALIZED (
+            let row = sqlx::query(
+                r#"WITH stamp AS MATERIALIZED (
  SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS ms
 ) UPDATE flow_signal_rounds r SET epoch=epoch+1,started_ms=s.ms,
  lease_until_ms=s.ms+15000,committed=false,payload_digest=NULL FROM stamp s
  WHERE days=$1 AND lease_until_ms<=s.ms
- RETURNING epoch,started_ms,lease_until_ms"#)
-                .bind(days).fetch_optional(&mut *tx).await?;
-            let lease = row.map(|r| -> Result<_, SignalError> {
-                Ok(SignalLease { days, epoch: r.try_get("epoch")?,
-                    started_ms: r.try_get("started_ms")?, until_ms: r.try_get("lease_until_ms")? })
-            }).transpose()?;
+ RETURNING epoch,started_ms,lease_until_ms"#,
+            )
+            .bind(days)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let lease = row
+                .map(|r| -> Result<_, SignalError> {
+                    Ok(SignalLease {
+                        days,
+                        epoch: r.try_get("epoch")?,
+                        started_ms: r.try_get("started_ms")?,
+                        until_ms: r.try_get("lease_until_ms")?,
+                    })
+                })
+                .transpose()?;
             tx.commit().await?;
             Ok(lease)
-        }).await
+        })
+        .await
     }
 
     pub async fn record_round(
@@ -31,20 +42,37 @@ impl PgFlowSignals {
         lease: SignalLease,
         observations: &[SignalObservation],
     ) -> Result<(), SignalError> {
-        let expected: Vec<_> = Rule::ALL.into_iter().filter(|r| r.accepts_days(lease.days)).collect();
-        if expected.is_empty() || observations.len() != expected.len()
-            || expected.iter().any(|r| observations.iter().filter(|o| &o.rule == r).count() != 1)
+        let expected: Vec<_> = Rule::ALL
+            .into_iter()
+            .filter(|r| r.accepts_days(lease.days))
+            .collect();
+        if expected.is_empty()
+            || observations.len() != expected.len()
+            || expected
+                .iter()
+                .any(|r| observations.iter().filter(|o| &o.rule == r).count() != 1)
         {
             return Err(SignalError::Invalid);
         }
         for o in observations {
-            if !valid_scope(&o.scope) { return Err(SignalError::Invalid); }
+            if !valid_scope(&o.scope) {
+                return Err(SignalError::Invalid);
+            }
             o.window.validate()?;
             o.evidence.validate()?;
         }
-        let mut digest_parts = observations.iter().map(|o| {
-            format!("{}:{}:{:?}:{:?}", o.rule.code(), o.scope, o.window, o.evidence)
-        }).collect::<Vec<_>>();
+        let mut digest_parts = observations
+            .iter()
+            .map(|o| {
+                format!(
+                    "{}:{}:{:?}:{:?}",
+                    o.rule.code(),
+                    o.scope,
+                    o.window,
+                    o.evidence
+                )
+            })
+            .collect::<Vec<_>>();
         digest_parts.sort();
         let digest = source_scope(&digest_parts.iter().map(String::as_str).collect::<Vec<_>>());
         bounded(async {
@@ -110,19 +138,43 @@ async fn write_state(
     next: Episode,
 ) -> Result<(), SignalError> {
     let e = o.evidence;
-    let mut q = sqlx::QueryBuilder::<Postgres>::new(format!("INSERT INTO flow_signal_states ({COLUMNS}) VALUES("));
+    let mut q = sqlx::QueryBuilder::<Postgres>::new(format!(
+        "INSERT INTO flow_signal_states ({COLUMNS}) VALUES("
+    ));
     let mut values = q.separated(",");
-    values.push_bind(o.rule.code()).push_bind(lease.days).push_bind(&o.scope)
-        .push_bind(result.status.code()).push_bind(result.reason.code())
-        .push_bind(lease.epoch).push_bind(lease.started_ms)
-        .push_bind(o.window.until_epoch).push_bind(&o.window.label)
-        .push_bind(e.enabled).push_bind(e.available).push_bind(e.current).push_bind(e.previous)
-        .push_bind(e.current_units).push_bind(e.previous_units).push_bind(e.expected_units)
-        .push_bind(e.known_discards).push_bind(e.source_failed).push_bind(e.limited_units)
-        .push_bind(e.omitted_rows).push_bind(e.current_ack_per_mille).push_bind(e.previous_ack_per_mille)
-        .push_bind(e.current_sample).push_bind(e.previous_sample).push_bind(e.unknown_entities)
-        .push_bind(next.sequence).push_bind(next.reason.map(Reason::code))
-        .push_bind(next.opened_ms).push_bind(next.opening_emitted).push_bind(next.last_notice_ms);
+    values
+        .push_bind(o.rule.code())
+        .push_bind(lease.days)
+        .push_bind(&o.scope)
+        .push_bind(result.status.code())
+        .push_bind(result.reason.code())
+        .push_bind(lease.epoch)
+        .push_bind(lease.started_ms)
+        .push_bind(o.window.until_epoch)
+        .push_bind(&o.window.label)
+        .push_bind(e.enabled)
+        .push_bind(e.available)
+        .push_bind(e.current)
+        .push_bind(e.previous)
+        .push_bind(e.current_units)
+        .push_bind(e.previous_units)
+        .push_bind(e.expected_units)
+        .push_bind(e.known_discards)
+        .push_bind(e.source_failed)
+        .push_bind(e.limited_units)
+        .push_bind(e.omitted_rows)
+        .push_bind(e.current_ack_per_mille)
+        .push_bind(e.previous_ack_per_mille)
+        .push_bind(e.current_sample)
+        .push_bind(e.previous_sample)
+        .push_bind(e.current_opportunities)
+        .push_bind(e.previous_opportunities)
+        .push_bind(e.unknown_entities)
+        .push_bind(next.sequence)
+        .push_bind(next.reason.map(Reason::code))
+        .push_bind(next.opened_ms)
+        .push_bind(next.opening_emitted)
+        .push_bind(next.last_notice_ms);
     q.push(") ON CONFLICT(rule,days,scope) DO UPDATE SET ");
     let mut updates = q.separated(",");
     for column in COLUMNS.split(',').skip(3) {

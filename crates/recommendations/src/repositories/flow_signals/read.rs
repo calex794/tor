@@ -1,7 +1,11 @@
 use super::*;
 
 impl PgFlowSignals {
-    pub async fn report(&self, days: i32, before: Option<i64>) -> Result<SignalReport, SignalError> {
+    pub async fn report(
+        &self,
+        days: i32,
+        before: Option<i64>,
+    ) -> Result<SignalReport, SignalError> {
         if ![1, 7, 30, 90].contains(&days) || before.is_some_and(|n| n <= 0) {
             return Err(SignalError::Invalid);
         }
@@ -36,23 +40,39 @@ impl PgFlowSignals {
 }
 fn state(row: &sqlx::postgres::PgRow) -> Result<SignalState, SignalError> {
     Ok(SignalState {
-        rule: Rule::from_str(row.try_get("rule")?)?, days: row.try_get("days")?,
+        rule: Rule::from_str(row.try_get("rule")?)?,
+        days: row.try_get("days")?,
         scope: row.try_get("scope")?,
-        window: SignalWindow { until_epoch: row.try_get("until_epoch")?, label: row.try_get("window_label")? },
-        result: Evaluation::new(Status::from_str(row.try_get("status")?)?, Reason::from_str(row.try_get("reason")?)?),
+        window: SignalWindow {
+            until_epoch: row.try_get("until_epoch")?,
+            label: row.try_get("window_label")?,
+        },
+        result: Evaluation::new(
+            Status::from_str(row.try_get("status")?)?,
+            Reason::from_str(row.try_get("reason")?)?,
+        ),
         evidence: Evidence {
-            enabled: row.try_get("enabled")?, available: row.try_get("available")?,
-            current: row.try_get("current_value")?, previous: row.try_get("previous_value")?,
-            current_units: row.try_get("current_units")?, previous_units: row.try_get("previous_units")?,
-            expected_units: row.try_get("expected_units")?, known_discards: row.try_get("known_discards")?,
-            source_failed: row.try_get("source_failed")?, limited_units: row.try_get("limited_units")?,
+            enabled: row.try_get("enabled")?,
+            available: row.try_get("available")?,
+            current: row.try_get("current_value")?,
+            previous: row.try_get("previous_value")?,
+            current_units: row.try_get("current_units")?,
+            previous_units: row.try_get("previous_units")?,
+            expected_units: row.try_get("expected_units")?,
+            known_discards: row.try_get("known_discards")?,
+            source_failed: row.try_get("source_failed")?,
+            limited_units: row.try_get("limited_units")?,
             omitted_rows: row.try_get("omitted_rows")?,
             current_ack_per_mille: row.try_get("current_ack_per_mille")?,
             previous_ack_per_mille: row.try_get("previous_ack_per_mille")?,
-            current_sample: row.try_get("current_sample")?, previous_sample: row.try_get("previous_sample")?,
+            current_sample: row.try_get("current_sample")?,
+            previous_sample: row.try_get("previous_sample")?,
+            current_opportunities: row.try_get("current_opportunities")?,
+            previous_opportunities: row.try_get("previous_opportunities")?,
             unknown_entities: row.try_get("unknown_entities")?,
         },
-        episode: episode(row)?, checked_at_ms: row.try_get("checked_at_ms")?,
+        episode: episode(row)?,
+        checked_at_ms: row.try_get("checked_at_ms")?,
         last_epoch: row.try_get("last_epoch")?,
     })
 }

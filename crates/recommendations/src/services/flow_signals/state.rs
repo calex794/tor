@@ -17,7 +17,10 @@ pub enum EventKind {
 }
 impl EventKind {
     pub const fn code(self) -> &'static str {
-        match self { Self::Opened => "opened", Self::Recovered => "recovered" }
+        match self {
+            Self::Opened => "opened",
+            Self::Recovered => "recovered",
+        }
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +38,8 @@ pub fn transition(mut episode: Episode, result: Evaluation, now_ms: i64) -> Tran
             episode.sequence = episode.sequence.saturating_add(1);
             episode.reason = Some(result.reason);
             episode.opened_ms = Some(now_ms);
-            episode.opening_emitted = episode.last_notice_ms
+            episode.opening_emitted = episode
+                .last_notice_ms
                 .is_none_or(|last| now_ms.saturating_sub(last) >= COOLDOWN_MS);
             if episode.opening_emitted {
                 episode.last_notice_ms = Some(now_ms);

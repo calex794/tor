@@ -3,16 +3,22 @@ use crate::domain::exposure_health::{ExposureHealth, ExposureHealthPeriod};
 use sqlx::Row;
 
 impl PgExposureHealth {
-    pub async fn report(&self, days: i32, until_epoch: i64) -> Result<ExposureHealth, ExposureError> {
+    pub async fn report(
+        &self,
+        days: i32,
+        until_epoch: i64,
+    ) -> Result<ExposureHealth, ExposureError> {
         bounded(async {
             let mut tx = self.pool.begin().await?;
             sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-                .execute(&mut *tx).await?;
+                .execute(&mut *tx)
+                .await?;
             settings(&mut tx).await?;
             let report = Self::report_in(&mut tx, days, until_epoch).await?;
             tx.commit().await?;
             Ok(report)
-        }).await
+        })
+        .await
     }
 
     /// Shared by the counts owner inside its single repeatable-read snapshot.
@@ -26,15 +32,19 @@ impl PgExposureHealth {
             return Err(ExposureError::Invalid);
         }
         let valid: bool = sqlx::query_scalar(
-            "SELECT $1::bigint=(floor((extract(epoch FROM now())-900)/3600)::bigint*3600)"
-        ).bind(until_epoch).fetch_one(&mut **tx).await?;
+            "SELECT $1::bigint=(floor((extract(epoch FROM now())-900)/3600)::bigint*3600)",
+        )
+        .bind(until_epoch)
+        .fetch_one(&mut **tx)
+        .await?;
         if !valid {
             return Err(ExposureError::Invalid);
         }
         let start_ms = (until_epoch - i64::from(days) * 172_800) * 1000;
         let end_ms = until_epoch * 1000;
         let middle_ms = end_ms - i64::from(days) * 86_400_000;
-        let row = sqlx::query(r#"
+        let row = sqlx::query(
+            r#"
 WITH epochs AS MATERIALIZED (
  SELECT started_ms,confirmed_ms,retired,ended_ms
  FROM flow_observation_epochs
@@ -72,7 +82,13 @@ SELECT (SELECT workers<=4096 FROM coverage) AS bounded,
  count(*) FILTER(WHERE bucket_ms>=$3 AND failed)::int AS current_failed,
  count(*) FILTER(WHERE bucket_ms<$3 AND failed)::int AS previous_failed
 FROM hours
-"#).bind(start_ms).bind(end_ms).bind(middle_ms).fetch_one(&mut **tx).await?;
+"#,
+        )
+        .bind(start_ms)
+        .bind(end_ms)
+        .bind(middle_ms)
+        .fetch_one(&mut **tx)
+        .await?;
         if !row.try_get::<bool, _>("bounded")? {
             return Err(ExposureError::Unavailable);
         }
@@ -84,7 +100,9 @@ FROM hours
             })
         };
         Ok(ExposureHealth {
-            until_epoch, current: period("current")?, previous: period("previous")?,
+            until_epoch,
+            current: period("current")?,
+            previous: period("previous")?,
         })
     }
 }

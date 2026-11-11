@@ -34,6 +34,8 @@ CREATE TABLE flow_signal_states (
  previous_ack_per_mille integer CHECK(previous_ack_per_mille BETWEEN 0 AND 1000),
  current_sample bigint NOT NULL CHECK(current_sample>=0),
  previous_sample bigint NOT NULL CHECK(previous_sample>=0),
+ current_opportunities bigint NOT NULL CHECK(current_opportunities>=0),
+ previous_opportunities bigint NOT NULL CHECK(previous_opportunities>=0),
  unknown_entities bigint NOT NULL CHECK(unknown_entities>=0),
  episode_seq bigint NOT NULL DEFAULT 0 CHECK(episode_seq>=0),
  episode_reason text CONSTRAINT flow_signal_states_episode_reason_check CHECK(episode_reason IN ('within_threshold','recorded_drop','recorded_growth','missing_measurement','partial_coverage','source_failure','discarded_observations','limited_pages','small_baseline','source_unavailable','source_disabled','low_exposure','observer_coverage','public_page_loss')),

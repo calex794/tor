@@ -43,14 +43,26 @@ codes!(Rule {
 });
 impl Rule {
     pub const ALL: [Self; 13] = [
-        Self::HtmlQuality, Self::HtmlChange, Self::ReadingStarts,
-        Self::ReadingCompletions, Self::GoogleQuality, Self::GoogleClicks,
-        Self::YandexQuality, Self::YandexClicks, Self::ExposureQuality,
-        Self::ExposureChange, Self::UnderexposedBooks, Self::UnderexposedGenres,
+        Self::HtmlQuality,
+        Self::HtmlChange,
+        Self::ReadingStarts,
+        Self::ReadingCompletions,
+        Self::GoogleQuality,
+        Self::GoogleClicks,
+        Self::YandexQuality,
+        Self::YandexClicks,
+        Self::ExposureQuality,
+        Self::ExposureChange,
+        Self::UnderexposedBooks,
+        Self::UnderexposedGenres,
         Self::PublicPageLoss,
     ];
     pub fn accepts_days(self, days: i32) -> bool {
-        if self == Self::PublicPageLoss { days == 0 } else { [1, 7, 30, 90].contains(&days) }
+        if self == Self::PublicPageLoss {
+            days == 0
+        } else {
+            [1, 7, 30, 90].contains(&days)
+        }
     }
 }
 codes!(Status {
@@ -93,28 +105,59 @@ pub struct Evidence {
     pub previous_ack_per_mille: Option<i32>,
     pub current_sample: i64,
     pub previous_sample: i64,
+    pub current_opportunities: i64,
+    pub previous_opportunities: i64,
     pub unknown_entities: i64,
 }
 impl Evidence {
     pub fn missing(enabled: bool) -> Self {
         Self {
-            enabled, available: false, current: None, previous: None,
-            current_units: 0, previous_units: 0, expected_units: 0,
-            known_discards: 0, source_failed: false, limited_units: 0,
-            omitted_rows: 0, current_ack_per_mille: None,
-            previous_ack_per_mille: None, current_sample: 0, previous_sample: 0,
+            enabled,
+            available: false,
+            current: None,
+            previous: None,
+            current_units: 0,
+            previous_units: 0,
+            expected_units: 0,
+            known_discards: 0,
+            source_failed: false,
+            limited_units: 0,
+            omitted_rows: 0,
+            current_ack_per_mille: None,
+            previous_ack_per_mille: None,
+            current_sample: 0,
+            previous_sample: 0,
+            current_opportunities: 0,
+            previous_opportunities: 0,
             unknown_entities: 0,
         }
     }
     pub fn validate(self) -> Result<Self, SignalError> {
         if self.current.is_some_and(|n| n < 0)
             || self.previous.is_some_and(|n| n < 0)
-            || [self.current_units, self.previous_units, self.expected_units, self.limited_units]
-                .iter().any(|n| *n < 0)
-            || [self.known_discards, self.omitted_rows, self.current_sample,
-                self.previous_sample, self.unknown_entities].iter().any(|n| *n < 0)
+            || [
+                self.current_units,
+                self.previous_units,
+                self.expected_units,
+                self.limited_units,
+            ]
+            .iter()
+            .any(|n| *n < 0)
+            || [
+                self.known_discards,
+                self.omitted_rows,
+                self.current_sample,
+                self.previous_sample,
+                self.current_opportunities,
+                self.previous_opportunities,
+                self.unknown_entities,
+            ]
+            .iter()
+            .any(|n| *n < 0)
             || [self.current_ack_per_mille, self.previous_ack_per_mille]
-                .into_iter().flatten().any(|n| !(0..=1000).contains(&n))
+                .into_iter()
+                .flatten()
+                .any(|n| !(0..=1000).contains(&n))
         {
             Err(SignalError::Invalid)
         } else {
@@ -122,8 +165,10 @@ impl Evidence {
         }
     }
     pub fn current_complete(self) -> bool {
-        self.expected_units > 0 && self.current_units == self.expected_units
-            && self.known_discards == 0 && !self.source_failed
+        self.expected_units > 0
+            && self.current_units == self.expected_units
+            && self.known_discards == 0
+            && !self.source_failed
     }
     pub fn comparable(self) -> bool {
         self.current_complete() && self.previous_units == self.expected_units
@@ -152,7 +197,10 @@ pub fn source_scope(parts: &[&str]) -> String {
     format!("{:x}", hash.finalize())
 }
 pub fn valid_scope(scope: &str) -> bool {
-    scope.len() == 64 && scope.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    scope.len() == 64
+        && scope
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +213,8 @@ pub struct SignalWindow {
 impl SignalWindow {
     pub fn validate(&self) -> Result<(), SignalError> {
         if self.until_epoch.is_some_and(|n| n < 0)
-            || self.label.len() > 240 || self.label.chars().any(char::is_control)
+            || self.label.len() > 240
+            || self.label.chars().any(char::is_control)
         {
             Err(SignalError::Invalid)
         } else {

@@ -8,8 +8,10 @@ pub fn evaluate(rule: Rule, evidence: Evidence) -> Result<Evaluation, SignalErro
         unknown(Reason::SourceUnavailable)
     } else {
         match rule {
-            Rule::HtmlQuality | Rule::GoogleQuality | Rule::YandexQuality
-                | Rule::ExposureQuality => quality(rule, e),
+            Rule::HtmlQuality
+            | Rule::GoogleQuality
+            | Rule::YandexQuality
+            | Rule::ExposureQuality => quality(rule, e),
             Rule::UnderexposedBooks | Rule::UnderexposedGenres => underexposed(e),
             Rule::PublicPageLoss => public_pages(e),
             _ => change(rule, e),
@@ -38,11 +40,17 @@ fn quality(rule: Rule, e: Evidence) -> Evaluation {
     } else if e.limited_units > 0 || e.omitted_rows > 0 {
         active(Reason::LimitedPages)
     } else if rule == Rule::ExposureQuality
-        && (e.current_sample < 20 || e.previous_sample < 20
-            || e.current_ack_per_mille.is_none_or(|n| n < 800)
-            || e.previous_ack_per_mille.is_none_or(|n| n < 800))
+        && (e.current_opportunities < 20
+            || e.previous_opportunities < 20
+            || e.current_ack_per_mille.is_none()
+            || e.previous_ack_per_mille.is_none())
     {
         unknown(Reason::ObserverCoverage)
+    } else if rule == Rule::ExposureQuality
+        && (e.current_ack_per_mille.is_some_and(|n| n < 800)
+            || e.previous_ack_per_mille.is_some_and(|n| n < 800))
+    {
+        active(Reason::ObserverCoverage)
     } else {
         healthy()
     }
@@ -58,7 +66,8 @@ fn change(rule: Rule, e: Evidence) -> Evaluation {
         return unknown(Reason::PartialCoverage);
     }
     if rule == Rule::ExposureChange
-        && (e.current_sample < 20 || e.previous_sample < 20
+        && (e.current_sample < 20
+            || e.previous_sample < 20
             || e.current_ack_per_mille.is_none_or(|n| n < 800)
             || e.previous_ack_per_mille.is_none_or(|n| n < 800))
     {
@@ -82,7 +91,11 @@ fn change(rule: Rule, e: Evidence) -> Evaluation {
 }
 fn underexposed(e: Evidence) -> Evaluation {
     if !e.current_complete() {
-        return unknown(if e.source_failed { Reason::SourceFailure } else { Reason::PartialCoverage });
+        return unknown(if e.source_failed {
+            Reason::SourceFailure
+        } else {
+            Reason::PartialCoverage
+        });
     }
     match e.current {
         Some(n) if n > 0 => active(Reason::LowExposure),

@@ -76,7 +76,8 @@ async fn bounded<T>(
     work: impl std::future::Future<Output = Result<T, SignalError>>,
 ) -> Result<T, SignalError> {
     tokio::time::timeout(Duration::from_millis(950), work)
-        .await.map_err(|_| SignalError::Unavailable)?
+        .await
+        .map_err(|_| SignalError::Unavailable)?
 }
 async fn settings(tx: &mut Transaction<'_, Postgres>) -> Result<(), SignalError> {
     sqlx::query("SELECT set_config('statement_timeout','750ms',true),set_config('lock_timeout','75ms',true)")
@@ -93,4 +94,4 @@ fn episode(row: &sqlx::postgres::PgRow) -> Result<Episode, SignalError> {
         last_notice_ms: row.try_get("last_notice_ms")?,
     })
 }
-const COLUMNS: &str = "rule,days,scope,status,reason,last_epoch,checked_at_ms,until_epoch,window_label,enabled,available,current_value,previous_value,current_units,previous_units,expected_units,known_discards,source_failed,limited_units,omitted_rows,current_ack_per_mille,previous_ack_per_mille,current_sample,previous_sample,unknown_entities,episode_seq,episode_reason,episode_opened_ms,episode_emitted,last_notice_ms";
+const COLUMNS: &str = "rule,days,scope,status,reason,last_epoch,checked_at_ms,until_epoch,window_label,enabled,available,current_value,previous_value,current_units,previous_units,expected_units,known_discards,source_failed,limited_units,omitted_rows,current_ack_per_mille,previous_ack_per_mille,current_sample,previous_sample,current_opportunities,previous_opportunities,unknown_entities,episode_seq,episode_reason,episode_opened_ms,episode_emitted,last_notice_ms";

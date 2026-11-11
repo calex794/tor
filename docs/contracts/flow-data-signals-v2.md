@@ -16,7 +16,7 @@ policy, not a claim that the product owner approved specific thresholds.
 | google_clicks | Google property-total clicks | At least 30% fewer; previous count at least 100 |
 | yandex_quality | Yandex import coverage and limits | Import error, incomplete known coverage or limited page detail |
 | yandex_clicks | Yandex property-total clicks | At least 30% fewer; previous count at least 100 |
-| exposure_quality | F durable health and registered proof/render path | Persisted loss/error or known partial coverage |
+| exposure_quality | F durable health and registered proof/render path | Persisted loss/error, known partial coverage, or ACK below 80% with at least 20 opportunities |
 | exposure_change | F saved browser-observed views | At least 30% fewer; previous views at least 100 |
 | underexposed_books | F currently eligible books with adequate observed sample | At least one qualified low-observed book |
 | underexposed_genres | F currently eligible genres with adequate observed sample | At least one qualified low-observed genre |

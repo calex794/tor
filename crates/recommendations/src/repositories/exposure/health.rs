@@ -2,6 +2,8 @@ use crate::domain::exposure::ExposureError;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::time::Duration;
 
+mod checkpoint;
+mod lifecycle;
 mod read;
 
 #[derive(Clone)]
