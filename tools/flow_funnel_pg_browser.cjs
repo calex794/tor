@@ -19,7 +19,7 @@ if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
 }
 fs.mkdirSync(shots, {recursive:true});
 const ordinaryUA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-const {legacyScope,optionalSnapshot,assertNoControls,retiredConsent,historicalFunnel} =
+const {assertCurrentSchema,optionalSnapshot,assertNoControls,retiredConsent} =
   require('./collection_retirement_fixtures.cjs')(sql);
 const preview = require('./ci_browser_preview.cjs');
 
@@ -152,6 +152,7 @@ async function assertReport(page,days) {
   const users=[],books=[];
   let browser;
   try {
+    assertCurrentSchema();
     const catalog=fixture('catalog',run),search=fixture('search',run);
     const rec=fixture('rec',run),unknown=fixture('unknown',run);
     books.push(catalog.book,search.book,rec.book,unknown.book);
@@ -178,9 +179,6 @@ async function assertReport(page,days) {
     await adminContext.clearCookies();
     await login(adminPage,adminEmail);
 
-    // Explicit legacy scope and anonymous mature totals, before real navigation.
-    const scope=legacyScope(reader);
-    historicalFunnel(catalog.book);
     const before=optionalSnapshot(reader);
     const historyQuery=`SELECT jsonb_agg(to_jsonb(d) ORDER BY cohort_day)
       FROM flow_book_daily d WHERE book_id=${catalog.book}`;
@@ -218,7 +216,7 @@ async function assertReport(page,days) {
       assert.equal(await adminPage.locator('[data-measurement="legacy-consented"]').count(),2);
       await assertReport(adminPage,days);
       const html=await adminPage.content();
-      for (const secret of [readerEmail,scope.subject,scope.epoch,catalog.title,'abcdefghij']) {
+      for (const secret of [readerEmail,catalog.title,'abcdefghij']) {
         assert.equal(html.includes(secret),false,'private identity/content leaked');
       }
     }
@@ -226,7 +224,7 @@ async function assertReport(page,days) {
       await adminPage.setViewportSize({width,height:900});
       await adminPage.goto(base+'/admin/audience/funnel?days=90');
       assert.ok(await adminPage.getByRole('heading',{name:'Путь от визита к чтению',exact:true}).isVisible());
-      assert.ok(await adminPage.locator('[data-discovery="2"]').count()>0);
+      assert.ok(await adminPage.locator('[data-current-measurement="unavailable"]').isVisible());
       assert.equal(await adminPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
       await adminPage.screenshot({path:path.join(shots,`flow-funnel-${width}.png`),fullPage:true});
       await preview(adminPage,`flow-funnel-${width}`);
@@ -238,7 +236,7 @@ async function assertReport(page,days) {
       await retiredConsent(readerPage,endpoint,true);
     }
     assert.deepEqual(optionalSnapshot(reader),before);
-    assert.equal(sql(historyQuery),historical,'browser activity cannot rewrite historical report totals');
+    assert.equal(sql(historyQuery),historical,'current browser activity cannot introduce cohort aggregates');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${reader}`),2);
     assert.equal(scalar(`SELECT count(*) FROM reader_library_items WHERE user_id=${reader}`),1);
     assert.equal(scalar(`SELECT count(*) FROM reader_book_follows WHERE user_id=${reader}`),1);
@@ -247,7 +245,7 @@ async function assertReport(page,days) {
     assert.equal(await adminPage.locator('[data-metric]').count(),0);
     assert.deepEqual(unexpectedAnalytics,[]);
     assert.deepEqual(errors,[]);
-    console.log('FLOW funnel browser PASS: native REC/catalog/search/direct navigation, real C start/completion/save/follow, old scope inert, independent historical totals, retired410, admin ACL/privacy, 390/1440');
+    console.log('FLOW funnel browser PASS: native REC/catalog/search/direct navigation, real C start/completion/save/follow, current193 barrier, no new identity or optional totals, retired410, admin ACL/privacy, 390/1440');
   } finally {
     if (browser) await browser.close();
     if (users.length) sql(`DELETE FROM rec_subjects WHERE user_id IN(${users.join(',')});

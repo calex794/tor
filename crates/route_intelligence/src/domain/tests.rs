@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 395);
+    assert_eq!(unique.len(), 396);
 }
 
 #[test]
@@ -543,4 +543,19 @@ fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
         )
         .route_known
     );
+}
+
+#[test]
+fn canonical_reading_admin_route_has_no_public_or_write_alias() {
+    let route = classify(Some("/admin/audience/reading"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (path, method) in [
+        ("/admin/audience/reading", "POST"),
+        ("/admin/audience/reading/export", "GET"),
+        ("/admin/audience/reading/{user_id}", "GET"),
+    ] {
+        assert!(!classify(Some(path), method).route_known);
+    }
 }

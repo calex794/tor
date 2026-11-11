@@ -26,19 +26,17 @@ async fn scoped_pool(url: &str) -> PgPool {
 
 impl Fixture {
     pub(super) async fn new() -> Self {
-        let app_url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL URL");
-        let owner_url = std::env::var("MIGRATOR_URL").expect("disposable CI schema owner");
-        for url in [&app_url, &owner_url] {
-            assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:"));
-        }
+        let app_url = super::legacy::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
+        let owner_url = super::legacy::url("LEGACY_ANALYTICS_MIGRATOR_URL", "tor_migrator");
         let admin = PgPool::connect(&owner_url).await.unwrap();
         assert_eq!(
             sqlx::query_as::<_, (String, String)>("SELECT current_database(),current_user")
                 .fetch_one(&admin)
                 .await
                 .unwrap(),
-            ("tor_ci".into(), "tor_migrator".into())
+            ("tor_ci_legacy_analytics".into(), "tor_migrator".into())
         );
+        super::legacy::assert_schema(&admin).await;
         sqlx::query(&format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
             .execute(&admin)
             .await

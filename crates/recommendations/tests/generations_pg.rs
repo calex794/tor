@@ -6,10 +6,13 @@ use tor_recommendations::{
     services::feedback::new_ticket,
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 async fn setup() -> (PgPool, PgRecommendations, i64, Vec<i64>) {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable database");
-    assert!(url.ends_with("/tor_ci"));
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     let actor:i64=sqlx::query_scalar("INSERT INTO users(email_normalized,display_name,password_hash) VALUES('rec13-gen@tor-ci.example','Reader','$argon2id$test') ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name RETURNING id")
         .fetch_one(&pool).await.unwrap();
     let mut books = Vec::new();
@@ -358,9 +361,9 @@ async fn rec13_content_edits_keep_eligibility_and_b_policy_changes_apply_live() 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable database");
-    assert!(url.ends_with("/tor_ci"), "never modify production");
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     let actor: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash,adult_enabled)
          VALUES('s020-rec-tier@tor-ci.example','REC age reader','$argon2id$test',FALSE)

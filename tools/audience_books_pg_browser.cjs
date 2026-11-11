@@ -9,14 +9,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const preview = require('./ci_browser_preview.cjs');
 
-const db = process.env.APP_URL || '';
+const db = require('./legacy_analytics_fixture.cjs')();
 const base = process.env.TOR_AUDIENCE_BASE || 'http://127.0.0.1:3108';
 const shots = process.env.TOR_AUDIENCE_SHOTS || '/tmp/audience-browser-shots';
 const parsed = new URL(db);
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1'
-    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci'
+    || parsed.port !== '5432' || parsed.pathname !== '/tor_ci_legacy_analytics'
     || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) {
-  throw new Error('Book-report acceptance requires disposable loopback tor_ci');
+  throw new Error('Book-report acceptance requires disposable loopback legacy analytics baseline 191');
 }
 fs.mkdirSync(shots, {recursive:true});
 const metrics = ['issued', 'impressions', 'clicks', 'book-opens', 'starts'];
@@ -180,7 +180,7 @@ async function periods(page, days) {
     await read(readerPage,fixture('direct'));
     await readerPage.goto(base+'/me');
     await readerPage.waitForLoadState('networkidle');
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     // A new public book with no historical row remains unknown.
     const zero = create('zero','Новая книга без наблюдений '+run);
@@ -264,7 +264,7 @@ async function periods(page, days) {
     await read(readerPage,zero);
     await readerPage.goto(base+'/catalog?sort=newest');
     assert.equal(await readerPage.locator('[data-organic-ticket],[data-rec-ticket]').count(),0);
-    await retired.settled();
+    retired.legacyBoundary();
     retired.noCapture(users,fixtures.map(item=>item.book));
     assert.equal(retired.scopeSnapshot(users),scope,'retired routes do not mutate old scopes');
     await privateResponse(await adminPage.goto(reportUrl));

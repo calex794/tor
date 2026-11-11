@@ -1,4 +1,6 @@
 'use strict';
+const intents = require('./audience_intent_pg_helpers.cjs');
+const canonical = require('./audience_canonical_pg_helpers.cjs');
 // FLOW: actual account forms, C progress, administrator page and two viewports.
 // Reuses the already running isolated PostgreSQL/Chromium acceptance server.
 const {chromium} = require('playwright');
@@ -105,6 +107,7 @@ async function periodBoundaries(page, days) {
     assert.equal(await readerPage.locator('[data-metric]').count(), 0);
     await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'), 200);
     const before = await numbers(adminPage);
+    const intentBefore = await intents.snapshot(adminPage);
 
     // Public reading does not need an owner or unrelated immutable share history.
     book = scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level)
@@ -135,6 +138,15 @@ async function periodBoundaries(page, days) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${reader} AND chapter_id=${chapter}`), 1);
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${reader} AND chapter_id=${chapter}`), 1);
     const event = sql(`SELECT source_event_id FROM reader_chapter_completions WHERE user_id=${reader} AND chapter_id=${chapter}`);
+    await intents.choices(readerPage,book,csrf);
+    await intents.choices(readerPage,book,csrf); // idempotent repeated user commands
+    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'),200);
+    intents.delta(intentBefore,await intents.snapshot(adminPage),1);
+    await intents.choices(readerPage,book,csrf,true);
+    await privateResponse(await adminPage.goto(base+'/admin/audience?days=7'),200);
+    intents.delta(intentBefore,await intents.snapshot(adminPage),0);
+    await intents.choices(readerPage,book,csrf);
+    await canonical.check({adminPage,readerPage,guestPage,base,shots,book,run,sql,privateResponse,event});
     sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);
 
     for (const width of [390,1440]) {
@@ -145,6 +157,8 @@ async function periodBoundaries(page, days) {
         assert.equal(after[field], before[field]+1, `C ${field} must count the real fact once`);
       }
       await periodBoundaries(adminPage, 7);
+      intents.delta(intentBefore,await intents.snapshot(adminPage),1);
+      await adminPage.getByTestId('audience-intents').screenshot({path:path.join(shots,`audience-intents-${width}.png`)});
       const html = await adminPage.content();
       for (const forbidden of ['AUDIENCE-PRIVATE-SENTINEL', readerEmail, 'Audience text', event]) {
         assert.ok(!html.includes(forbidden), 'aggregate page exposed a source identity or content');
@@ -164,6 +178,7 @@ async function periodBoundaries(page, days) {
     }
     sql(`UPDATE account_roles SET is_active=false WHERE user_id=${administrator} AND role='administrator'`);
     await privateResponse(await adminPage.goto(base+'/admin/audience'), 403);
+    await privateResponse(await adminPage.goto(base+'/admin/audience/reading'), 403);
     assert.equal(await adminPage.locator('[data-metric]').count(), 0,
       'revoked administrator must not receive audience data');
     assert.equal((await adminPage.goto(base+'/me')).status(), 200);
@@ -178,6 +193,7 @@ async function periodBoundaries(page, days) {
       DELETE FROM reader_book_positions WHERE book_id=${book};
       DELETE FROM reader_chapter_starts WHERE book_id=${book};
       DELETE FROM reader_chapter_completions WHERE book_id=${book};
+      DELETE FROM reader_saved_free_chapters WHERE user_id=${reader} AND chapter_id IN(SELECT id FROM chapters WHERE book_id=${book});
       DELETE FROM chapter_publications WHERE chapter_id IN(SELECT id FROM chapters WHERE book_id=${book});
       DELETE FROM book_members WHERE book_id=${book};
       DELETE FROM books WHERE id=${book};

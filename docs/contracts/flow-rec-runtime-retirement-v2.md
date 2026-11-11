@@ -18,7 +18,8 @@
 | --- | --- | --- |
 | P1 | Явные скрытия книг, CAS и квитанции команд отделены от профиля аналитики | Отмена старого сбора |
 | P2a | Новый сервер не собирает индивидуальные REC/FLOW/RIL данные, не потребляет их события; UI не просит согласие | Защита от старого бинарного процесса и полное физическое удаление |
-| P2b | SQL запрещает старые записи; ограниченная очистка согласованно удаляет производные; все старые процессы остановлены | Уникальные посетители или анонимная сквозная воронка без доказательства |
+| P2b1 | SQL запрещает старые записи; ограниченная очистка вычитает доказанный FLOW-вклад и инвалидирует неопределимые REC/organic показатели | Стирание чужой RAM, новая contextual model или завершение выпуска |
+| P2b2 | Отдельная версия модели metadata/manual, явная граница build/activate/rollback | Повторное использование поведенческого legacy score под новым названием |
 | Следующие FLOW | Минимизированные агрегаты времени события с явным источником и покрытием | Восстановление утраченной истории или обход нового решения |
 
 ## P2a: живой пользовательский путь
@@ -128,46 +129,60 @@ C сохраняет личные бизнес-факты; агрегирова�
 сохранённых записей, а не работающий collector. Недоступное чтение остаётся 503.
 Сохраняются live administrator guard и общий deadline 950 ms.
 
-## P2b: отдельный SQL и процессный барьер
+## P2b1: отдельный SQL и процессный барьер
 
-P2a не вносит миграций. Следующий пакет должен доказать одновременно:
+Точный договор — [flow-collection-retirement-db-v1](flow-collection-retirement-db-v1.md).
+Миграция 191 создаёт только примитивы; 192 атомарно подключает барьеры.
+191 — техническая граница исторических тестов, не отдельный принятый production режим.
 
-1. Approved C consent projections безопасно пусты, optional capture functions
-   становятся no-op до закрытия raw writes. Старые GUC=1 не ломают canonical
-   C progress/library/follow transactions и не создают производных.
-2. INSERT/UPDATE retired raw и собственных delivery receipts запрещены;
-   DELETE для очистки остаётся. Старый app не восстанавливает scope или профиль.
-   P1 preferences и общий явный command namespace сохраняются.
-3. Ограниченная очистка блокирует scope в принятом порядке. До удаления proof
-   вычитаются только связанные сохранённые finalized contributions через
-   `flow_erase_scope` и `flow_book_erase_scope`. REC/organic dirty buckets
-   пересчитываются согласованно. Нельзя сначала удалить daily, затем вызвать
-   erasure helper, или потерять raw доказательство перед вычитанием.
-4. Удаляются также C activity/return rows и dateless enrollment marker;
-   canonical starts/completions, позиции, библиотека, follows, immutable
-   purchase/version evidence и payload общего outbox не изменяются.
-5. `recommendation-feedback-v1` снимается с obligations общего outbox без
-   synthetic per-event acknowledgements. У ChapterStarted это единственный
-   required consumer; нужно разрешить пустой список обязанностей и корректно
-   закрыть только delivery metadata. Ranking/achievements и другие consumers
-   сохраняются. `flow-read-attribution-v1` receipts удаляются узко.
-6. Новые контекстные поколения имеют явный model marker; build/activate/rollback
-   и указатели исключают старые смешанные поколения. Старый building не блокирует
-   новую модель. P2a catalog fallback остаётся до доказательства этой границы.
-7. Старые RIL producers не блокируют анонимный batch целиком. Для mixed flow
-   staging подавляются только retired counters; hourly INSERT создаёт их нулевыми,
-   hourly UPDATE сохраняет OLD retired values и обновляет anonymous requests.
-   Новые transitions подавляются, старые исторические строки живут по прежнему TTL.
-8. **Все старые процессы и их очереди остановлены.** SQL fence не стирает HMAC,
-   path/window или незавершённый batch из чужой памяти. Штатный deploy применяет
-   миграции до restart; полного online coexistence с прежним бинарником нет.
-   Полное завершение перехода требует и барьера БД, и подтверждённого прекращения
-   старых процессов, и завершённой согласованной очистки. Production deploy
-   этим PR не разрешается автоматически.
+Approved C consent projections остаются row-lockable и безопасно пусты.
+Optional capture callbacks становятся no-op, а INSERT/UPDATE в retired stores
+и квитанции двух retired consumers запрещены. Canonical C и P1 не запрещаются.
 
-Новые anonymous aggregates будущего FLOW не строятся путём переименования
-персональных rows. Без отдельной доказанной модели не обещаются источник визита
-до чтения, unique visitors, физические сессии, индивидуальные воронки или возвраты.
+FLOW вычитает только вклад удаляемых finalized raw через statement DELETE
+transition tables. Scope helpers не вычитают повторно. Потерянный ещё сохраняемый
+FLOW daily — ошибка целостности и rollback, а не clamp или ноль.
+REC/organic не имеют точного materialization proof: атомарный anonymous marker
+по source/UTC day/book делает соответствующие показатели неизвестными.
+Отчёты распространяют неизвестность до итогов, долей и дельт до физического
+удаления затронутого daily. Незатронутая история остаётся.
+
+Один transaction advisory gate координирует batch, scope helpers и DELETE
+родителей users/books/outbox до их row locks. Batch использует неблокирующую
+попытку: busy означает `(0,true)`. Внутри остаются SKIP LOCKED, leaf-first,
+сортировка aggregate keys и порядок book daily → visit daily.
+Нельзя обещать отсутствие любых deadlock для произвольного старого caller,
+который заранее заблокировал другие rows: timeout/rollback/retry обязательны.
+
+После 192 always-on supervisor вызывает только независимый P1 preference TTL
+и `retire_analytics_batch(256)`; прежние финализаторы/REC recompute/C returns
+в production wiring больше не запускаются. HTTP не ждёт глобального drain.
+Budget ограничивает суммарные DELETE/normalize/scrub work rows. Возвращённый
+`erased_rows` считает только DELETE; ноль не означает завершённую очистку.
+
+Из outbox снимаются только `recommendation-feedback-v1` и
+`flow-read-attribution-v1`. Пустые obligations разрешены и закрывают delivery
+metadata без fake ACK. Payload/ID/дедупликация и чужие obligations сохраняются.
+Старый mixed RIL batch сохраняет route/SQL/anonymous HTML, а retired-компонент
+подавляется; старые hourly значения заморожены и имеют прежний TTL.
+
+**Все старые процессы и их очереди должны быть остановлены отдельно.**
+SQL не стирает HMAC, path/window или очередь из чужой памяти.
+Штатный deploy мигрирует до restart; полного online coexistence со старым
+бинарником и возможности вернуть старый collector после барьера не заявляется.
+`pending=false` — состояние ограниченной работы БД, не разрешение выпуска
+и не доказательство остановленной RAM. Production deploy требует прежнего
+отдельного разрешения и точного проверенного SHA.
+
+## P2b2 и последующие FLOW
+
+Новая metadata/manual модель, build/activate/rollback guard и очистка старых
+generation pointers — отдельный следующий пакет. P2b1 сохраняет P2a catalog
+fallback; старые поколения production serving не читает.
+
+Новые anonymous aggregates не строятся переименованием персональных rows.
+Без отдельной доказанной модели не обещаются источник визита до чтения,
+unique visitors, физические сессии, индивидуальные воронки или возвраты.
 
 ## Приёмка и владельцы
 
@@ -178,26 +193,25 @@ H/root — административное представление исто�
 
 Обязательны реальные проверки на итоговом SHA:
 
-- Старые flags=1, AUTH=0, product REC=0: сервер запускается, P1/REC/C/F TTL
-  обслуживается; новые canonical C facts и поздний legacy proof не получают
-  retired deliveries и не обогащают сохранённую когорту.
+- Старые flags=1, AUTH=0, product REC=0: сервер запускается. После 192 отдельная
+  installed startup DB доказывает ограниченный drain и независимость P1 TTL
+  от busy/failed batch. Новые canonical C facts не получают retired deliveries.
 - Прежний enabled consent и свежий аккаунт: публичные/личные HTML не создают
   identity queue; valid retired POST даёт 410 без изменения row/epoch, нарушения
   Origin/CSRF/session/role по-прежнему отклоняются.
 - Без согласий: каталог → новинки → «Не интересно» → восстановление, reload,
   exact replay, stale CAS, JS и no-JS; чужой/закрытый контент не раскрывается.
-- Historical fixtures создаются через реальные legacy repositories или точный
-  isolated SQL seed, не через retired production endpoints. Старые repository
-  tests остаются доказательством исходных фактов, erasure и TTL; HTTP/browser
-  проверяют новый production режим.
+- Historical positive repositories и отчёты запускаются на отдельной disposable
+  legacy191 DB с явным guard. Их результаты не доказывают current collection.
+  Current192 проверки не отключают triggers и не создают новые retired rows;
+  installed190→192 target доказывает сохранение/erasure существовавших данных.
 - Администратор видит живые C/anonymous request counts и отдельно подписанную
   legacy-историю; обычный пользователь/гость не получают отчёт. Проверяются
   unavailable, пустое окно, UTC-границы, live role revocation и deadline.
-- P2b дополнительно: fresh/installed migration twice, old-writer и revoke races,
-  bounded resume/restart, exact subtraction, retention/consumer preservation,
-  model rollback barrier и release gate для старой RAM. Эти результаты P2a
-  не подменяет старым зелёным CI. После SQL fence старые положительные suites
-  выполняются только на явно обозначенной disposable legacy-baseline схеме до
-  P2b либо переписываются под upgrade/no-write. Triggers current schema не
-  отключаются для тестов; новые business/retirement проверки используют все
-  текущие миграции, installed upgrade доказывает сам переход.
+- P2b1 дополнительно: fresh/installed SQLx twice с прежними checksum,
+  old-writer waiting, app TEMP-shadow refusal, actual FK inventory, account/book/
+  outbox DELETE races, two workers, полный budget включая fan-out и rollback.
+  RIL mixed batch и сохранение canonical C/P1/чужих consumers обязательны.
+- P2b2 отдельно доказывает model boundary/rollback. Выпуск всего перехода
+  требует прекращения старых процессов и ограниченного согласованного drain.
+  Прежний зелёный CI не является проверкой новых байтов.

@@ -93,8 +93,7 @@ async fn paid_and_layer_views_need_actual_entitlements_and_live_session() {
         &format!("flow-paid-outsider-{stamp}@tor-ci.example"),
     )
     .await;
-    legacy_scope(&url, buyer);
-    legacy_scope(&url, outsider);
+    assert_current_schema(&url);
     let buyer_before = optional_snapshot(&url, buyer);
     let outsider_before = optional_snapshot(&url, outsider);
     pg(&url, &format!("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({buyer},400,'RUB')"));

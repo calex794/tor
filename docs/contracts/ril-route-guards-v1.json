@@ -2713,6 +2713,13 @@
     },
     {
       "method": "GET",
+      "template": "/admin/audience/reading",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "canonical::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/me/surprises/plan",
       "source": "crates/web/src/auth/surprise_http.rs",
       "handler": "plan",
