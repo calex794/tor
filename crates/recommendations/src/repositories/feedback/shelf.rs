@@ -79,7 +79,7 @@ impl PgRecommendations {
               FROM rec_actor_books public
               JOIN books candidate ON candidate.id=public.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE public.id<>o.id AND candidate.owner_user_id<>o.owner_user_id
+              WHERE public.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -103,7 +103,7 @@ impl PgRecommendations {
               FROM rec_actor_books public
               JOIN books candidate ON candidate.id=public.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE public.id<>o.id AND candidate.owner_user_id<>o.owner_user_id
+              WHERE public.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND NOT EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
