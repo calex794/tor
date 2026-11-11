@@ -1,0 +1,151 @@
+{
+  "status": "UNCOMPILED_UNVERIFIED_STATIC_REVIEW_PENDING",
+  "apply_after": "e81ba6ccaca081558c3d9cb5bc1d58ba367a6463 ack-fix.json",
+  "required_local_base": "cc418415a813c527237a54b71426c9a4c69abf9b plus original H authoring edits",
+  "reason": "There must be no committed interval after closing a predecessor while HTTP still runs and the successor has not been registered.",
+  "changes": [
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "        self.insert_epoch(None, 0, 0, 0, 0).await",
+      "after": "        self.insert_epoch(None, None, 0, 0, 0, 0).await",
+      "reason": "Handoff: no predecessor for a fresh standalone epoch."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "        self.insert_epoch(\n            Some(from_ms),",
+      "after": "        self.insert_epoch(\n            None,\n            Some(from_ms),",
+      "reason": "Handoff: keep ordinary first-registration API, with no unrelated epoch to retire."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    async fn insert_epoch(\n        &self,\n        gap_from_ms: Option<i64>,",
+      "after": "    /// Replace only the caller's known predecessor. Its open tail remains visible\n    /// until the same transaction closes it and creates the successor.\n    pub async fn replace_epoch_after_gap(\n        &self,\n        predecessor: i64,\n        from_ms: i64,\n        counters: (i64, i64),\n        recorded: (i64, i64),\n    ) -> Result<(i64, i64), HtmlHealthError> {\n        self.insert_epoch(\n            Some(predecessor),\n            Some(from_ms),\n            counters.0,\n            counters.1,\n            recorded.0,\n            recorded.1,\n        )\n        .await\n    }\n    async fn insert_epoch(\n        &self,\n        predecessor: Option<i64>,\n        gap_from_ms: Option<i64>,",
+      "reason": "Handoff: owner-only predecessor + gap + successor share a single commit."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "            || gap_from_ms.is_some_and(|from| from <= 0)",
+      "after": "            || gap_from_ms.is_some_and(|from| from <= 0)\n            || predecessor.is_some_and(|epoch| epoch <= 0)\n            || predecessor.is_some() && gap_from_ms.is_none()",
+      "reason": "Handoff: reject malformed predecessor calls; no bulk retirement."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "        if let Some(from) = gap_from_ms {\n            if from > now {",
+      "after": "        if let Some(epoch) = predecessor {\n            retire_in(&mut tx, epoch, now, dropped, failed).await?;\n        }\n        if let Some(from) = gap_from_ms {\n            if from > now {",
+      "reason": "Handoff: all retirement, gap and successor statements roll back together on failure. They share one DB instant."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    /// A returning or stopping worker permanently leaves its last unconfirmed\n    /// tail unknown; another registered worker cannot conceal that interval.\n    pub async fn retire(&self, epoch:i64, dropped:i64, failed:i64)->Result<(),HtmlHealthError>{\n        let mut tx=self.pool.begin().await?;\n        limits(&mut tx,false).await?;\n        let row=sqlx::query(\"SELECT confirmed_ms,dropped,failed,floor(extract(epoch FROM clock_timestamp())*1000)::bigint AS now_ms FROM ril_flow_health_epochs WHERE epoch=$1 AND NOT retired FOR UPDATE\")\n            .bind(epoch).fetch_optional(&mut *tx).await?;\n        if let Some(row)=row {\n            flags(&mut tx,epoch,row.try_get(\"confirmed_ms\")?,row.try_get(\"now_ms\")?,dropped>row.try_get(\"dropped\")?,failed>row.try_get(\"failed\")?).await?;\n            sqlx::query(\"UPDATE ril_flow_health_epochs SET retired=true,pending_ms=NULL,generation=generation+1,lease_until_ms=greatest(lease_until_ms,floor(extract(epoch FROM clock_timestamp())*1000)::bigint),dropped=greatest(dropped,$2),failed=greatest(failed,$3) WHERE epoch=$1\")\n                .bind(epoch).bind(dropped).bind(failed).execute(&mut *tx).await?;\n        }\n        tx.commit().await?;\n        Ok(())\n    }\n",
+      "after": "    /// Terminal stop only: the owner must have stopped accepting HTTP and drained\n    /// in-flight middleware. Closing the recorder gate alone is not that witness.\n    /// A returning collector uses replace_epoch_after_gap instead.\n    pub async fn retire(&self, epoch:i64, dropped:i64, failed:i64)->Result<(),HtmlHealthError>{\n        if epoch<=0 || dropped<0 || failed<0 {return Err(HtmlHealthError::Invalid);}\n        let mut tx=self.pool.begin().await?;\n        limits(&mut tx,false).await?;\n        let now:i64=sqlx::query_scalar(\"SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint\")\n            .fetch_one(&mut *tx).await?;\n        retire_in(&mut tx,epoch,now,dropped,failed).await?;\n        tx.commit().await?;\n        Ok(())\n    }\n",
+      "reason": "Handoff: terminal retire requires an actual drained-ingress witness; ordinary renewal failure never invokes it."
+    },
+    {
+      "path": "crates/traffic_behavior/src/repositories/html_health.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "async fn flags(tx:&mut Transaction<'_,Postgres>,epoch:i64,from:i64,through:i64,loss:bool,error:bool)->Result<(),HtmlHealthError>{",
+      "after": "async fn retire_in(\n    tx:&mut Transaction<'_,Postgres>,\n    epoch:i64,\n    now:i64,\n    dropped:i64,\n    failed:i64,\n)->Result<(),HtmlHealthError>{\n    let row=sqlx::query(\"SELECT confirmed_ms,dropped,failed FROM ril_flow_health_epochs WHERE epoch=$1 AND NOT retired FOR UPDATE\")\n        .bind(epoch).fetch_optional(&mut **tx).await?;\n    if let Some(row)=row {\n        let old_dropped:i64=row.try_get(\"dropped\")?;\n        let old_failed:i64=row.try_get(\"failed\")?;\n        if dropped<old_dropped || failed<old_failed {return Err(HtmlHealthError::Invalid);}\n        flags(tx,epoch,row.try_get(\"confirmed_ms\")?,now,dropped>old_dropped,failed>old_failed).await?;\n        sqlx::query(\"UPDATE ril_flow_health_epochs SET retired=true,pending_ms=NULL,generation=generation+1,lease_until_ms=greatest(lease_until_ms,$2),dropped=$3,failed=$4 WHERE epoch=$1\")\n            .bind(epoch).bind(now).bind(dropped).bind(failed).execute(&mut **tx).await?;\n    }\n    Ok(())\n}\nasync fn flags(tx:&mut Transaction<'_,Postgres>,epoch:i64,from:i64,through:i64,loss:bool,error:bool)->Result<(),HtmlHealthError>{",
+      "reason": "Handoff: one shared helper preserves the unconfirmed tail and accepts the transaction's common DB instant."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    epoch: Option<i64>,",
+      "after": "    epoch: Option<i64>,\n    predecessor: Option<i64>,",
+      "reason": "Handoff: retain the same process's unresolved predecessor while registration is unavailable."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "            epoch: None,",
+      "after": "            epoch: None,\n            predecessor: None,",
+      "reason": "Handoff: a first registration has no predecessor."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 2,
+      "before": "                self.failure(recorder);\n                self.retire(recorder).await?;\n                Err(HtmlHealthError::Expired)",
+      "after": "                self.failure(recorder);\n                self.stage_replacement(recorder);\n                Err(HtmlHealthError::Expired)",
+      "reason": "Handoff: expiration only changes local intent and closes the gate; predecessor remains open durably."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "            self.epoch = Some(self.store.start_epoch_after_gap(\n                from, cap(dropped), cap(self.failures),\n                cap(self.reported.0), cap(self.reported.1),\n            ).await?.0);\n            self.reported=(dropped,self.failures);",
+      "after": "            let next=match self.predecessor {\n                Some(epoch)=>self.store.replace_epoch_after_gap(\n                    epoch,from,(cap(dropped),cap(self.failures)),\n                    (cap(self.reported.0),cap(self.reported.1)),\n                ).await?,\n                None=>self.store.start_epoch_after_gap(\n                    from,cap(dropped),cap(self.failures),\n                    cap(self.reported.0),cap(self.reported.1),\n                ).await?,\n            };\n            self.epoch=Some(next.0);\n            self.predecessor=None;\n            self.reported=(dropped,self.failures);",
+      "reason": "Handoff: predecessor closure is committed with the new epoch; only then may local ownership move."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    async fn retire(&mut self, recorder: &TrafficRecorder) -> Result<(), HtmlHealthError> {",
+      "after": "    fn stage_replacement(&mut self,recorder:&TrafficRecorder){\n        self.gap_started.get_or_insert_with(Instant::now);\n        recorder.close_flow_health();\n        if let Some(epoch)=self.epoch.take(){self.predecessor=Some(epoch);}\n        self.point=None;\n        self.drained=false;\n        self.batch=None;\n    }\n    async fn retire(&mut self, recorder: &TrafficRecorder) -> Result<(), HtmlHealthError> {",
+      "reason": "Handoff: no SQL retirement during a reregistration gap."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "        if let Some(epoch) = self.epoch {\n            let (_, dropped) = recorder.flow_coverage_counts();",
+      "after": "        if let Some(epoch) = self.epoch.or(self.predecessor) {\n            let (_, dropped) = recorder.flow_coverage_counts();",
+      "reason": "Handoff: final drained-ingress shutdown also resolves a pending predecessor."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "        self.epoch = None;\n        self.point = None;",
+      "after": "        self.epoch = None;\n        self.predecessor = None;\n        self.point = None;",
+      "reason": "Handoff: clear predecessor only after terminal retirement commits."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/html_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    pub(super) async fn shutdown(",
+      "after": "    /// Caller must first stop accepting HTTP and drain in-flight middleware.\n    /// A task abort/Drop without that witness leaves the epoch unresolved.\n    pub(super) async fn shutdown(",
+      "reason": "Handoff: explicit I-layer stop ordering; current root runtime order is not verified while its source is unavailable."
+    },
+    {
+      "path": "crates/traffic_behavior/src/services/pg_pump.rs",
+      "operation": "replace_exact",
+      "expected_matches": 1,
+      "before": "    /// Closes the producer first. Pending durable RIL batches remain recoverable;\n    /// unacknowledged memory is an unknown tail, never a healthy zero after SIGTERM.",
+      "after": "    /// Call only after the HTTP listener has stopped accepting requests and all\n    /// in-flight middleware has drained. Closing the producer alone is not a stop\n    /// witness. Pending durable RIL batches remain recoverable; an abort, panic or\n    /// Drop without the HTTP witness leaves an unresolved epoch and unknown tail.",
+      "reason": "Handoff: preserve the actual HTTP stop/drain precondition at the public pump API.",
+      "scope": "Exact known H-authored doc snippet; do not reconstruct the unavailable runtime."
+    },
+    {
+      "path": "crates/traffic_behavior/tests/ril_rollups_pg/health.rs",
+      "operation": "append",
+      "content": "\n\n#[tokio::test]\n#[ignore=\"requires fresh isolated PostgreSQL with HTML health migration\"]\nasync fn html_expired_service_transition_keeps_predecessor_open_until_atomic_replacement() {\n    let f=Fixture::new().await;\n    let health=PgHtmlHealth::new(f.app.clone());\n    let recorder=TrafficRecorder::start(8,16);\n    let mut pump=PgRollupPump::new(PgRilRollups::new(f.app.clone()),recorder.clone());\n    pump.run_once().await;\n    let owned:i64=sqlx::query_scalar(\"SELECT epoch FROM ril_flow_health_epochs WHERE NOT retired ORDER BY epoch LIMIT 1\")\n        .fetch_one(&f.app).await.unwrap();\n    let anchor=f.hour().await;\n    let original=(anchor-49*3600)*1000;\n    sqlx::query(\"UPDATE ril_flow_health_epochs SET started_ms=$2,confirmed_ms=$2+10000,lease_until_ms=$2+30000,pending_ms=NULL WHERE epoch=$1\")\n        .bind(owned).bind(original).execute(&f.app).await.unwrap();\n    sqlx::query(\"INSERT INTO ril_flow_health_epochs(started_ms,confirmed_ms,lease_until_ms) VALUES($1,$2,$2+30000)\")\n        .bind((anchor-48*3600)*1000).bind(anchor*1000).execute(&f.app).await.unwrap();\n    // Expiration is detected, but the next registration has not happened.\n    pump.run_once().await;\n    assert!(!recorder.try_record_with_flow(event(),Some(page())));\n    assert!(!sqlx::query_scalar::<_,bool>(\"SELECT retired FROM ril_flow_health_epochs WHERE epoch=$1\")\n        .bind(owned).fetch_one(&f.app).await.unwrap(),\n        \"no terminal retirement merely because this collector needs replacement\");\n    assert_eq!(health.report(1,anchor).await.unwrap().current.confirmed_hours,0);\n    let mut lock=f.owner.begin().await.unwrap();\n    sqlx::query(&format!(\"LOCK TABLE {}.ril_flow_health_hourly IN ACCESS EXCLUSIVE MODE\",f.schema))\n        .execute(&mut *lock).await.unwrap();\n    // Persisting the old failure/gap is blocked. The complete handoff rolls back.\n    pump.run_once().await;\n    lock.rollback().await.unwrap();\n    assert!(!sqlx::query_scalar::<_,bool>(\"SELECT retired FROM ril_flow_health_epochs WHERE epoch=$1\")\n        .bind(owned).fetch_one(&f.app).await.unwrap());\n    assert_eq!(sqlx::query_scalar::<_,i64>(\"SELECT count(*) FROM ril_flow_health_epochs WHERE NOT retired\")\n        .fetch_one(&f.app).await.unwrap(),2,\"failed handoff creates no successor\");\n    assert_eq!(health.report(1,anchor).await.unwrap().current.confirmed_hours,0);\n    pump.run_once().await;\n    let old=sqlx::query(\"SELECT retired,confirmed_ms,lease_until_ms FROM ril_flow_health_epochs WHERE epoch=$1\")\n        .bind(owned).fetch_one(&f.app).await.unwrap();\n    assert!(old.get::<bool,_>(\"retired\"));\n    assert_eq!(old.get::<i64,_>(\"confirmed_ms\"),original+10000);\n    let end:i64=old.get(\"lease_until_ms\");\n    let successor:bool=sqlx::query_scalar(\n        \"SELECT EXISTS(SELECT 1 FROM ril_flow_health_epochs WHERE NOT retired AND epoch<>$1 AND started_ms=$2)\")\n        .bind(owned).bind(end).fetch_one(&f.app).await.unwrap();\n    assert!(successor,\"the successor starts at the same DB instant that closes its predecessor\");\n    assert_eq!(health.report(1,anchor).await.unwrap().current.confirmed_hours,0,\n        \"atomic replacement does not repair the preceding unknown interval\");\n    assert!(recorder.try_record_with_flow(event(),Some(page())));\n    // This fixture has no HTTP listener and submits no more FLOW observations:\n    // ingress has stopped and drained before the explicit terminal witness.\n    pump.shutdown().await;\n    f.finish().await;\n}\n",
+      "reason": "Handoff regression: expiry transition before new prepare, failed registration rollback, same-instant successor, historical unknown preserved."
+    }
+  ],
+  "acceptance": [
+    "Expired service transition without a later successful prepare leaves the predecessor non-retired and later closed hours Unknown.",
+    "A failed registration transaction leaves the predecessor open and creates no successor.",
+    "Predecessor closure, gap and successor use one DB instant and one atomic commit.",
+    "Old unconfirmed history remains Unknown after replacement.",
+    "Terminal retire is called only after HTTP stops accepting and in-flight middleware drains; Drop, abort and panic supply no such witness."
+  ],
+  "integration_not_verified": "Root flow_runtime startup/shutdown source is unavailable. Its stop order is a required future verification, not a completed check."
+}

@@ -1,0 +1,26 @@
+{
+  "status": "UNCOMPILED_UNVERIFIED_STATIC_REVIEW_PENDING",
+  "scope": "Other files in this handoff proposal; excludes this inventory",
+  "files": [
+    {
+      "path": "recovery/flow-html/handoff-fix.json",
+      "characters": 17339
+    },
+    {
+      "path": "recovery/flow-html/handoff-fix/sources/crates/traffic_behavior/src/repositories/html_health.rs",
+      "characters": 16376
+    },
+    {
+      "path": "recovery/flow-html/handoff-fix/sources/crates/traffic_behavior/src/services/html_pump.rs",
+      "characters": 8291
+    },
+    {
+      "path": "recovery/flow-html/handoff-fix/sources/crates/traffic_behavior/tests/ril_rollups_pg/health.rs",
+      "characters": 25643
+    },
+    {
+      "path": "recovery/flow-html/handoff-fix/README.md",
+      "characters": 3540
+    }
+  ]
+}
