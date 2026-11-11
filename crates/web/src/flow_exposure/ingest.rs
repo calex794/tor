@@ -69,6 +69,7 @@ pub(super) async fn event(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     if status == StatusCode::SERVICE_UNAVAILABLE {
+        state.gate.disable();
         state.counters.failed.fetch_add(1, Ordering::Release);
     }
     private_response(status, &[])

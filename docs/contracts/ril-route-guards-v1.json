@@ -2864,6 +2864,20 @@
       "source": "crates/web/src/editorial_http/mod.rs",
       "handler": "admin::submit",
       "policy": "admin_editorial"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/signals",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "signals::page",
+      "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/audience/pages",
+      "source": "crates/web/src/auth/audience_http.rs",
+      "handler": "public_pages::page",
+      "policy": "administrator"
     }
   ]
 }

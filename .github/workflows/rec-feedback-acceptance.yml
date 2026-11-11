@@ -179,6 +179,13 @@ jobs:
           cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
           cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1

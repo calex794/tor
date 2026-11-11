@@ -36,21 +36,25 @@ async function privateResponse(response, expected = 200) {
   let browser, actor;
   try {
     assert.equal(sql('SELECT count(*) FROM _sqlx_migrations WHERE version=202611294684 AND success'), '1');
-    const many = Array.from({length: 101}, (_, n) => label + 'a' + String(n).padStart(3, '0'));
     const low = label + 'zzz-low <script>';
     const unknown = label + 'zzzz-unknown';
-    const first = Number(sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
-      prefix + "first','ru','" + label + " main','public','basic',ARRAY[" + many.map(x => "'" + x + "'").join(',') + "]) RETURNING id"));
+    // Respect the production per-book genre limit: 101 ordinary books, one label each.
+    const normal = sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres)" +
+      " SELECT '" + prefix + "normal-'||n,'ru','" + label + " normal '||n,'public','basic'," +
+      "ARRAY['" + label + "a'||lpad(n::text,3,'0')] FROM generate_series(0,100) n RETURNING id")
+      .split(/\s+/).map(Number);
+    assert.equal(normal.length, 101);
+    assert.ok(normal.every(id => Number.isSafeInteger(id) && id > 0));
+    const first = normal[0];
     const lowBook = Number(sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
       prefix + "low','ru','" + label + " low <script>safe</script>','public','basic',ARRAY['" + low + "']) RETURNING id"));
     sql("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) VALUES('" +
       prefix + "unknown','ru','" + label + " unknown','public','basic',ARRAY['" + unknown + "']);" +
-      "INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres) SELECT '" + prefix +
-      "page-'||n,'ru','" + label + " page '||n,'public','basic',ARRAY['" + many[0] + "'] FROM generate_series(1,51) n;" +
       "INSERT INTO flow_observation_hourly(bucket,book_id,surface,opportunities,rendered,views)" +
       " SELECT date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '2 hours',id,'home',20,20," +
       "CASE WHEN id=" + lowBook + " THEN 0 ELSE 6 END FROM books WHERE source_identity LIKE '" + prefix +
       "%' AND source_identity<>'" + prefix + "unknown'");
+    sql("UPDATE books SET tags=ARRAY['" + label + "'] WHERE source_identity LIKE '" + prefix + "%'");
     assert.ok(first > 0 && lowBook > 0);
     browser = await chromium.launch({headless: true});
     const context = await browser.newContext({javaScriptEnabled: false, viewport: {width: 1440, height: 900}});
@@ -66,7 +70,7 @@ async function privateResponse(response, expected = 200) {
     actor = Number(sql("SELECT id FROM users WHERE email_normalized='" + email + "'"));
     await privateResponse(await page.goto(base + '/admin/audience/exposure?window=closed'), 403);
     sql("INSERT INTO account_roles(user_id,role) VALUES(" + actor + ",'administrator')");
-    await privateResponse(await page.goto(base + '/admin/audience/exposure'));
+    await privateResponse(await page.goto(base + '/admin/audience/exposure?group=tag&label=' + encodeURIComponent(label)));
     assert.equal(await page.locator('[data-testid="exposure-health"]').count(), 0);
     await page.getByLabel('Граница периода').selectOption('closed');
     await page.getByLabel('Дней в периоде').selectOption('1');
@@ -76,9 +80,9 @@ async function privateResponse(response, expected = 200) {
     assert.equal(await page.locator('[data-testid="exposure-health-unknown"]').count(), 1);
     assert.equal(await page.locator('[data-testid="exposure-health-complete"]').count(), 0);
     const summary = page.locator('[data-testid="exposure-genres"]');
-    assert.ok(Number(await summary.locator('[data-metric="genres"]').innerText()) >= 103);
-    assert.ok(Number(await summary.locator('[data-metric="low-genres"]').innerText()) >= 1);
-    assert.ok(Number(await summary.locator('[data-metric="unknown-genres"]').innerText()) >= 1);
+    assert.equal(await summary.locator('[data-metric="genres"]').innerText(), '103');
+    assert.equal(await summary.locator('[data-metric="low-genres"]').innerText(), '1');
+    assert.equal(await summary.locator('[data-metric="unknown-genres"]').innerText(), '1');
     assert.equal(await summary.getByRole('link', {name: low, exact: true}).count(), 1);
     assert.ok(!(await page.content()).includes('<script>safe'));
     const summaryText = await summary.innerText();

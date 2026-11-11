@@ -632,7 +632,19 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
         "0"
     );
     println!("authority lock: three 503 responses in {} ms, zero blocked authority SQL, shared pool reusable before unlock", elapsed.as_millis());
+    assert!(!f.runtime.queue_snapshot().ready);
     drop(held);
+    // Reader recovery is immediate; optional observation issuance waits for the
+    // next bounded durable-health acknowledgement before reopening its gate.
+    assert_eq!(
+        f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
+        StatusCode::OK
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+    while !f.runtime.queue_snapshot().ready {
+        assert!(tokio::time::Instant::now() < deadline, "collector did not re-acknowledge its healthy source");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(
         f.send("GET", "/catalog", "", ORIGIN, "").await.status(),
         StatusCode::OK
@@ -643,3 +655,6 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
     );
     f.cleanup().await;
 }
+
+#[path = "exposure_http_pg/health.rs"]
+mod health;

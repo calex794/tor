@@ -4,11 +4,11 @@ mod books;
 mod canonical;
 mod funnel;
 mod groups;
+mod public_pages;
 mod render;
 mod returns;
 mod seo;
 mod signals;
-mod public_pages;
 mod visits;
 
 use crate::auth_cookies::{private_response, CookiePolicy};

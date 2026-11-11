@@ -8,7 +8,9 @@ use axum::{
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
-use tor_search::{repositories::public_pages::PgPublicPages, services::public_pages::PublicPageProbe};
+use tor_search::{
+    repositories::public_pages::PgPublicPages, services::public_pages::PublicPageProbe,
+};
 mod render;
 
 #[derive(Default, Deserialize)]
@@ -25,11 +27,22 @@ pub(super) async fn page(
         Ok(Err(status)) => return secure(status),
         Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE),
     }
-    if query.is_err() { return secure(StatusCode::BAD_REQUEST); }
+    if query.is_err() {
+        return secure(StatusCode::BAD_REQUEST);
+    }
     let report = if let Ok(origin) = PublicPageProbe::new(&state.cookies.origin) {
         let store = PgPublicPages::new(state.accounts.pool().clone());
-        timeout_at(deadline, store.report(origin.origin())).await.ok().and_then(Result::ok)
-    } else { None };
-    let status = if report.is_some() { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+        timeout_at(deadline, store.report(origin.origin()))
+            .await
+            .ok()
+            .and_then(Result::ok)
+    } else {
+        None
+    };
+    let status = if report.is_some() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
     secure((status, render::page(report.as_ref())))
 }

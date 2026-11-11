@@ -8,6 +8,11 @@ pub struct ObservationCollector {
     pub(super) probe: QueueProbe,
 }
 impl ObservationCollector {
+    /// Forced termination never retires an epoch or certifies its tail.
+    pub fn abort(self) {
+        self.probe.gate.disable();
+        self.join.abort();
+    }
     pub fn probe(&self) -> QueueProbe {
         self.probe.clone()
     }

@@ -37,12 +37,28 @@ pub(super) fn section(
     .expect("String");
     body.push_str("<div class=\"audience-source-grid\">");
     let quality = quality.filter(|proof| proof.until_epoch == report.current.until_epoch);
-    let current_complete =
-        health::complete(quality.map(|proof| proof.current), report.current.hours.len());
-    let previous_complete =
-        health::complete(quality.map(|proof| proof.previous), report.previous.hours.len());
-    period(body, "current", "Текущий период", &report.current, current_complete);
-    period(body, "previous", "Предыдущий период", &report.previous, previous_complete);
+    let current_complete = health::complete(
+        quality.map(|proof| proof.current),
+        report.current.hours.len(),
+    );
+    let previous_complete = health::complete(
+        quality.map(|proof| proof.previous),
+        report.previous.hours.len(),
+    );
+    period(
+        body,
+        "current",
+        "Текущий период",
+        &report.current,
+        current_complete,
+    );
+    period(
+        body,
+        "previous",
+        "Предыдущий период",
+        &report.previous,
+        previous_complete,
+    );
     body.push_str("</div><p>Это категории недоверенного заголовка запроса, не доказанный первый вход из поиска. Внутренний поиск и рекомендации здесь не подменяют внешние каналы.</p>");
     write!(body,"<p>Отброшено при обработке новых пакетов: <span data-metric=\"observed-discards\">{}</span>. По времени обработки за текущий период: неверные часы, предел памяти или истекший срок. Потери до очереди и при остановке процесса в это число не входят.</p>",report.persisted_discards).expect("String");
     if report.persisted_discards > 0 {
@@ -72,7 +88,12 @@ pub(super) fn section(
         )
         .expect("String");
         for value in hour.views {
-            write!(body, "<td>{}</td>", number(value.or(current_complete.then_some(0)))).expect("String");
+            write!(
+                body,
+                "<td>{}</td>",
+                number(value.or(current_complete.then_some(0)))
+            )
+            .expect("String");
         }
         body.push_str("</tr>");
     }
@@ -115,7 +136,10 @@ fn heatmap(body: &mut String, period: &ObservedPeriod, complete: bool) {
             write!(
                 body,
                 "<td>{}<br><small>{}/{}</small></td>",
-                number(period.weekday_hour[day][hour].or((complete && period.expected_slots[day][hour] > 0).then_some(0))),
+                number(
+                    period.weekday_hour[day][hour]
+                        .or((complete && period.expected_slots[day][hour] > 0).then_some(0))
+                ),
                 period.recorded_slots[day][hour],
                 period.expected_slots[day][hour]
             )

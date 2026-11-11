@@ -297,11 +297,17 @@ mod tests {
         )
         .0
         .contains("data-metric=\"readers\""));
-        assert!(
-            page(30, (None, None), None, None, None, None, ("UTC", None, None))
-                .0
-                .contains("role=\"alert\"")
-        );
+        assert!(page(
+            30,
+            (None, None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None)
+        )
+        .0
+        .contains("role=\"alert\""));
     }
 
     #[test]

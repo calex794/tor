@@ -9,8 +9,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::{timeout_at, Instant};
 use tor_recommendations::{
-    repositories::flow_signals::PgFlowSignals,
-    services::flow_signals::SignalError,
+    repositories::flow_signals::PgFlowSignals, services::flow_signals::SignalError,
 };
 mod render;
 
@@ -42,6 +41,10 @@ pub(super) async fn page(
         Ok(Err(SignalError::Invalid)) => return secure(StatusCode::BAD_REQUEST),
         _ => None,
     };
-    let status = if report.is_some() { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    let status = if report.is_some() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
     secure((status, render::page(days, report.as_ref())))
 }

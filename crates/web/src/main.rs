@@ -575,7 +575,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tor_web::flow_exposure::start_managed(app, pending_security_retention.clone()).await;
     let account_retention =
         tor_web::start_account_security_retention(pending_security_retention).await;
-    backgrounds.extend([account_retention, contextual_builder, seo_import].into_iter().flatten());
+    backgrounds.extend(
+        [account_retention, contextual_builder, seo_import]
+            .into_iter()
+            .flatten(),
+    );
     tor_web::flow_runtime::serve(listener, app, html_collector, observations, backgrounds).await?;
     Ok(())
 }

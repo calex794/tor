@@ -1,13 +1,13 @@
-use super::QueueSnapshot;
 use super::report::ReportWindow;
+use super::QueueSnapshot;
 use crate::pages::{escape_html as e, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_contracts::exposure::ExposureSurface;
-use tor_recommendations::domain::exposure_health::ExposureHealth;
 use tor_recommendations::domain::exposure::{
     Counts, ExposureFilter, ExposureReport, ObservationClass,
 };
+use tor_recommendations::domain::exposure_health::ExposureHealth;
 
 pub(super) fn page(
     q: &ExposureFilter,
@@ -67,7 +67,13 @@ fn genres(out: &mut String, q: &ExposureFilter, window: ReportWindow, report: &E
             let mut selected = q.clone();
             selected.group = Some(("genre".into(), label.clone()));
             selected.class = None;
-            write!(out,r#"<li><a href="{}">{}</a></li>"#, e(&url(&selected,window,0)),e(label)).expect("String");
+            write!(
+                out,
+                r#"<li><a href="{}">{}</a></li>"#,
+                e(&url(&selected, window, 0)),
+                e(label)
+            )
+            .expect("String");
         }
         out.push_str("</ul><p>До 20 названий по алфавиту; общий итог включает все жанры.</p>");
     }
@@ -163,8 +169,15 @@ fn filters(out: &mut String, q: &ExposureFilter, window: ReportWindow) {
         out,
         "window",
         "Граница периода",
-        if window == ReportWindow::Closed { "closed" } else { "calendar" },
-        &[("calendar", "Календарные дни"), ("closed", "Закрытые UTC-часы")],
+        if window == ReportWindow::Closed {
+            "closed"
+        } else {
+            "calendar"
+        },
+        &[
+            ("calendar", "Календарные дни"),
+            ("closed", "Закрытые UTC-часы"),
+        ],
     );
     select(
         out,

@@ -150,16 +150,26 @@ pub(super) async fn page(
     };
     let query = async {
         match (window, campaign_book) {
-            (ReportWindow::Closed, Some(book)) => state.store
+            (ReportWindow::Closed, Some(book)) => state
+                .store
                 .report_campaign_book_closed_with_health(&filter, book)
-                .await.map(|(report, health)| (report, Some(health))),
-            (ReportWindow::Closed, None) => state.store
+                .await
+                .map(|(report, health)| (report, Some(health))),
+            (ReportWindow::Closed, None) => state
+                .store
                 .report_closed_with_health(&filter)
-                .await.map(|(report, health)| (report, Some(health))),
-            (ReportWindow::Calendar, Some(book)) => state.store.report_campaign_book(&filter, book)
-                .await.map(|report| (report, None)),
-            (ReportWindow::Calendar, None) => state.store.report(&filter)
-                .await.map(|report| (report, None)),
+                .await
+                .map(|(report, health)| (report, Some(health))),
+            (ReportWindow::Calendar, Some(book)) => state
+                .store
+                .report_campaign_book(&filter, book)
+                .await
+                .map(|report| (report, None)),
+            (ReportWindow::Calendar, None) => state
+                .store
+                .report(&filter)
+                .await
+                .map(|report| (report, None)),
         }
     };
     let report = timeout_at(deadline, query).await.ok().and_then(Result::ok);
@@ -169,8 +179,13 @@ pub(super) async fn page(
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         },
-        super::render::page(&filter, window, report.as_ref().map(|r| &r.0),
-            report.as_ref().and_then(|r| r.1.as_ref()), state.queue_snapshot()),
+        super::render::page(
+            &filter,
+            window,
+            report.as_ref().map(|r| &r.0),
+            report.as_ref().and_then(|r| r.1.as_ref()),
+            state.queue_snapshot(),
+        ),
     ))
 }
 
@@ -205,9 +220,14 @@ mod tests {
     }
     #[test]
     fn calendar_default_and_explicit_closed_preserve_filters() {
-        for (raw, expected) in [("days=7", ReportWindow::Calendar),
+        for (raw, expected) in [
+            ("days=7", ReportWindow::Calendar),
             ("days=7&window=calendar", ReportWindow::Calendar),
-            ("days=7&window=closed&source=editorial&campaign=9", ReportWindow::Closed)] {
+            (
+                "days=7&window=closed&source=editorial&campaign=9",
+                ReportWindow::Closed,
+            ),
+        ] {
             let uri = format!("/admin/audience/exposure?{raw}").parse().unwrap();
             let Query(selection) = Query::<Selection>::try_from_uri(&uri).unwrap();
             let (filter, window) = selection.filter().unwrap();

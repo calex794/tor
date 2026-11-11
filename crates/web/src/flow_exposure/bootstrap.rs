@@ -42,11 +42,6 @@ pub async fn start_managed(
     if worker.prepare().await.is_err() {
         return (runtime.attach_routes(app), None);
     }
-    let probe = runtime.probe();
-    let (stop, receiver) = tokio::sync::oneshot::channel();
-    let join = tokio::spawn(worker.run_managed(receiver));
-    (
-        runtime.attach(app),
-        Some(ObservationCollector { join, stop, probe }),
-    )
+    let collector = worker.spawn_managed();
+    (runtime.attach(app), Some(collector))
 }

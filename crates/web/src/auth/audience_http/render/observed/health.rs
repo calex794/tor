@@ -74,11 +74,17 @@ mod tests {
         assert!(complete(Some(full), 24));
         assert!(!complete(Some(full), 168));
         assert!(!complete(
-            Some(HtmlHealthPeriod { loss_hours: 1, ..full }),
+            Some(HtmlHealthPeriod {
+                loss_hours: 1,
+                ..full
+            }),
             24,
         ));
         assert!(!complete(
-            Some(HtmlHealthPeriod { error_hours: 1, ..full }),
+            Some(HtmlHealthPeriod {
+                error_hours: 1,
+                ..full
+            }),
             24,
         ));
     }

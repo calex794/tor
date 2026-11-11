@@ -22,14 +22,24 @@ impl HtmlCollector {
     pub fn start(catalog: &PgCatalog) -> Self {
         let (stop, receiver) = oneshot::channel();
         let pump = crate::ril::pg_pump(PgRilRollups::new(catalog.pool()));
-        Self { stop: Some(stop), task: Some(pump.spawn_with_shutdown(receiver)) }
+        Self {
+            stop: Some(stop),
+            task: Some(pump.spawn_with_shutdown(receiver)),
+        }
     }
     async fn shutdown_after_http_drained(mut self) -> bool {
-        let Some(stop) = self.stop.take() else { return false; };
-        if stop.send(HtmlIngressStopped::after_http_stopped_and_drained()).is_err() {
+        let Some(stop) = self.stop.take() else {
+            return false;
+        };
+        if stop
+            .send(HtmlIngressStopped::after_http_stopped_and_drained())
+            .is_err()
+        {
             return false;
         }
-        let Some(mut task) = self.task.take() else { return false; };
+        let Some(mut task) = self.task.take() else {
+            return false;
+        };
         match tokio::time::timeout(Duration::from_secs(15), &mut task).await {
             Ok(Ok(Ok(()))) => true,
             _ => {
@@ -42,7 +52,9 @@ impl HtmlCollector {
 }
 impl Drop for HtmlCollector {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() { task.abort(); }
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
@@ -53,9 +65,12 @@ pub async fn serve(
     observations: Option<crate::flow_exposure::ObservationCollector>,
     backgrounds: Vec<JoinHandle<()>>,
 ) -> std::io::Result<()> {
-    let result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await;
+    let result = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await;
     // Axum returns only after accepting stopped and all in-flight requests completed.
     // A listener error, task abort or dropped control is never a terminal acknowledgement.
     if result.is_ok() {
@@ -86,7 +101,9 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => { signal.recv().await; }
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
             Err(_) => std::future::pending::<()>().await,
         }
     };

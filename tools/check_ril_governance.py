@@ -459,11 +459,22 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/seo", "seo::page"),
             ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
         })
+    audience_signals = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/signals", "signals::page")
+    )
+    audience_pages = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/pages", "public_pages::page")
+    )
     audience_child = (
         "books" if audience_books else "groups" if audience_groups
         else "returns" if audience_returns else "visits" if audience_visits
         else "funnel" if audience_funnel else "canonical" if audience_canonical
-        else "seo" if audience_seo else None
+        else "seo" if audience_seo else "signals" if audience_signals
+        else "public_pages" if audience_pages else None
     )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
@@ -788,6 +799,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/visits", "visits::page"),
             ("GET", "/admin/audience/funnel", "funnel::page"),
             ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
             ("GET", "/admin/audience/seo", "seo::page"),
             ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
         }
@@ -1618,6 +1631,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience/visits", "visits::page"),
             ("GET", "/admin/audience/funnel", "funnel::page"),
             ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
             ("GET", "/admin/audience/seo", "seo::page"),
             ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
         }
@@ -1727,6 +1742,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         audience_read = (
             ".report(days, provider, q.after.as_deref())" if audience_seo and entry["method"] == "GET"
             else ".request_refresh(provider)" if audience_seo and entry["method"] == "POST"
+            else ".report(days, q.before)" if audience_signals
+            else ".report(origin.origin())" if audience_pages
             else ".report(days)" if audience_visits or audience_funnel
             else ".returns_report(days)" if audience_returns
             else f".{audience_child}_report(&query)" if audience_child else ".report(days)"
@@ -1746,6 +1763,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and body.index("administrator(&state, &headers)") < body.index(audience_read)
         ):
             errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
+        if (audience_signals or audience_pages) and not (
+            "Duration::from_millis(950)" in body
+            and "timeout_at(deadline, store.report(" in body
+            and "secure((status, render::page(" in body
+        ):
+            errors.append(f"{label}: FLOW signals/pages must keep one bounded secure administrator read")
         if audience_returns and not _audience_returns_are_bounded(body):
             errors.append(
                 f"{label}: FLOW returns must keep all three report reads behind live authorization and its deadline"
@@ -1905,6 +1928,8 @@ def check(root: Path = ROOT) -> list[str]:
                         ("GET", "/admin/audience/visits", "visits::page"),
                         ("GET", "/admin/audience/funnel", "funnel::page"),
             ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
             ("GET", "/admin/audience/seo", "seo::page"),
             ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
                     }):
