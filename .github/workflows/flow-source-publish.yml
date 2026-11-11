@@ -2,6 +2,7 @@ name: FLOW verified source publication
 on:
   push:
     branches: [qa/flow-completion-publisher-20261111]
+    paths: [.qa/flow-publish.json]
 permissions:
   contents: write
 concurrency:
@@ -30,7 +31,14 @@ jobs:
           assert re.fullmatch(r'[0-9a-f]{40}',item['base'])
           assert re.fullmatch(r'[0-9a-f]{40}',item['tree'])
           assert re.fullmatch(r'qa/flow[0-9a-z-]+-20261111',item['target'])
-          patch=lzma.decompress(base64.b64decode(item['patch_lzma_base64'],validate=True))
+          if 'patch_chunks' in item:
+              assert 1<=len(item['patch_chunks'])<=10
+              assert all(re.fullmatch(r'[a-z0-9-]+\.txt',n) for n in item['patch_chunks'])
+              encoded=''.join((pathlib.Path('payload/.qa')/n).read_text().strip() for n in item['patch_chunks'])
+          else:
+              encoded=item['patch_lzma_base64']
+          assert len(encoded)<1000000
+          patch=lzma.decompress(base64.b64decode(encoded,validate=True))
           assert len(patch)<2000000
           assert hashlib.sha256(patch).hexdigest()==item['patch_sha256']
           root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-publication';root.mkdir()
