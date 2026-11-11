@@ -97,8 +97,7 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
         .execute(&f.pool)
         .await
         .unwrap();
-    assert!(ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap())
-        .contains(&site_book));
+    assert!(ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
 
     f.store
         .set_feedback(
