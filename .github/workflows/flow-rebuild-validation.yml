@@ -107,7 +107,8 @@ jobs:
             tor-search:public_pages_pg:crates/search \
             tor-reading:audience_closed_pg:crates/reading \
             tor-web:audience_http_pg:crates/web \
-            tor-web:exposure_http_pg:crates/web; do
+            tor-web:exposure_http_pg:crates/web \
+            tor-web:exposure_report_http_pg:crates/web; do
             IFS=: read -r flow_pkg flow_test flow_dir <<< "$flow_case"
             if test -f "$flow_dir/tests/$flow_test.rs"; then
               printf 'FLOW_TARGET package=%s test=%s\n' "$flow_pkg" "$flow_test"
@@ -116,6 +117,35 @@ jobs:
               printf 'FLOW_PENDING_SOURCE package=%s test=%s\n' "$flow_pkg" "$flow_test"
             fi
           done
+      - name: Closed exposure report native browser acceptance
+        env:
+          APP_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+          TOR_EXPOSURE_BASE: http://127.0.0.1:3113
+          TOR_EXPOSURE_SHOTS: /tmp/flow-owner-browser-shots
+        run: |
+          npm install --prefix "$RUNNER_TEMP/flow-owner-browser" playwright@1.56.1
+          export NODE_PATH="$RUNNER_TEMP/flow-owner-browser/node_modules"
+          node "$RUNNER_TEMP/flow-owner-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          cargo build -p tor-web
+          TOR_AUTH_ENABLED=1 TOR_PUBLIC_ORIGIN="$TOR_EXPOSURE_BASE" \
+            TOR_LISTEN_ADDR=127.0.0.1:3113 DATABASE_URL="$TEST_DATABASE_URL" \
+            target/debug/tor-web >/tmp/flow-owner-browser-server.log 2>&1 &
+          owner_server_pid=$!
+          trap 'kill "$owner_server_pid" 2>/dev/null || true; wait "$owner_server_pid" 2>/dev/null || true' EXIT
+          for owner_attempt in $(seq 1 100); do
+            if curl --fail --silent "$TOR_EXPOSURE_BASE/readyz" >/dev/null; then break; fi
+            kill -0 "$owner_server_pid"
+            sleep 0.2
+          done
+          curl --fail --silent "$TOR_EXPOSURE_BASE/readyz"
+          node tools/exposure_report_pg_browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flow-owner-report-browser
+          path: |
+            /tmp/flow-owner-browser-shots
+            /tmp/flow-owner-browser-server.log
       - name: Strict owner and web Clippy
         run: |
           cargo clippy -p tor-recommendations -p tor-traffic_behavior \

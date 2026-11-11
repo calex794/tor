@@ -51,6 +51,7 @@ async function privateResponse(response, expected = 200) {
       " SELECT date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '2 hours',id,'home',20,20," +
       "CASE WHEN id=" + lowBook + " THEN 0 ELSE 6 END FROM books WHERE source_identity LIKE '" + prefix +
       "%' AND source_identity<>'" + prefix + "unknown'");
+    sql("UPDATE books SET tags=ARRAY['" + label + "'] WHERE source_identity LIKE '" + prefix + "%'");
     assert.ok(first > 0 && lowBook > 0);
     browser = await chromium.launch({headless: true});
     const context = await browser.newContext({javaScriptEnabled: false, viewport: {width: 1440, height: 900}});
@@ -66,7 +67,7 @@ async function privateResponse(response, expected = 200) {
     actor = Number(sql("SELECT id FROM users WHERE email_normalized='" + email + "'"));
     await privateResponse(await page.goto(base + '/admin/audience/exposure?window=closed'), 403);
     sql("INSERT INTO account_roles(user_id,role) VALUES(" + actor + ",'administrator')");
-    await privateResponse(await page.goto(base + '/admin/audience/exposure'));
+    await privateResponse(await page.goto(base + '/admin/audience/exposure?group=tag&label=' + encodeURIComponent(label)));
     assert.equal(await page.locator('[data-testid="exposure-health"]').count(), 0);
     await page.getByLabel('Граница периода').selectOption('closed');
     await page.getByLabel('Дней в периоде').selectOption('1');
@@ -76,9 +77,9 @@ async function privateResponse(response, expected = 200) {
     assert.equal(await page.locator('[data-testid="exposure-health-unknown"]').count(), 1);
     assert.equal(await page.locator('[data-testid="exposure-health-complete"]').count(), 0);
     const summary = page.locator('[data-testid="exposure-genres"]');
-    assert.ok(Number(await summary.locator('[data-metric="genres"]').innerText()) >= 103);
-    assert.ok(Number(await summary.locator('[data-metric="low-genres"]').innerText()) >= 1);
-    assert.ok(Number(await summary.locator('[data-metric="unknown-genres"]').innerText()) >= 1);
+    assert.equal(await summary.locator('[data-metric="genres"]').innerText(), '103');
+    assert.equal(await summary.locator('[data-metric="low-genres"]').innerText(), '1');
+    assert.equal(await summary.locator('[data-metric="unknown-genres"]').innerText(), '1');
     assert.equal(await summary.getByRole('link', {name: low, exact: true}).count(), 1);
     assert.ok(!(await page.content()).includes('<script>safe'));
     const summaryText = await summary.innerText();
