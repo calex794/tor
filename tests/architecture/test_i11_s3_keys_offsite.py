@@ -22,6 +22,8 @@ class Dr03OperatorSafety(unittest.TestCase):
                       "--immutable", "--download --one-way",
                       "age -r", "TOR_DR_SECRET_BUNDLE",
                       "recovery-keys/", "cmp -s", "flock -n",
+                      "config dump", 'c.get("type") == "crypt"',
+                      "/run/tor-dr03", "symlink lock refused",
                       "TOR_DR03_S3_AND_KEYS_OFFSITE_OK"):
             self.assertIn(token, data)
         for forbidden in ("rclone sync", "rclone move", "rclone delete",
@@ -34,12 +36,15 @@ class Dr03OperatorSafety(unittest.TestCase):
         for token in ("[[ ! -v GITHUB_ACTIONS ]]", "tor-offsite-read:",
                       "TOR_DR_AGE_IDENTITY", "TOR_DR_EXPECTED_OBJECT_SHA256",
                       "TOR_DR_EXPECTED_SECRET_SHA256", "age -d -i",
-                      "private/", "sha256sum",
+                      "private/", "sha256sum", "config dump",
+                      'c.get("type") == "crypt"', "stat -f -c",
+                      "/run/tor-dr03-restore",
                       "TOR_DR03_PRIVATE_OBJECT_AND_OFFLINE_KEY_RESTORED"):
             self.assertIn(token, data)
         for forbidden in ("rclone sync", "rclone move", "rclone delete",
                           "rclone purge", "systemctl", "DROP DATABASE",
-                          "CREATE DATABASE", "ssh ", "curl "):
+                          "CREATE DATABASE", "ssh ", "curl ",
+                          "keys.txt", " -o \"$work/keys"):
             self.assertNotIn(forbidden, data)
 
 

@@ -28,14 +28,20 @@ done
   refuse 'independent SHA256 evidence required'
 owned "$TOR_DR_RCLONE_CONFIG"
 owned "$TOR_DR_AGE_IDENTITY"
-for executable in age rclone sha256sum mktemp stat; do
+for executable in age rclone sha256sum mktemp stat python3; do
   command -v "$executable" >/dev/null || refuse 'missing executable'
 done
-work=$(mktemp -d /var/tmp/tor-dr03-restore.XXXXXXXX)
+rclone --config "$TOR_DR_RCLONE_CONFIG" config dump |
+  python3 -c 'import json,sys; c=json.load(sys.stdin).get("tor-offsite-read",{}); sys.exit(0 if c.get("type") == "crypt" and bool(c.get("remote")) else 2)' ||
+  refuse 'offsite restore remote must be a crypt backend'
+# Never place decrypted recovery keys on persistent /var/tmp.
+[[ $(stat -f -c '%T' /run) == tmpfs ]] ||
+  refuse '/run must be tmpfs before decrypting recovery secrets'
+work=$(mktemp -d /run/tor-dr03-restore.XXXXXXXX)
 cleanup() {
   code=$?
   trap - EXIT
-  rm -f -- "$work/object.bin" "$work/keys.age" "$work/keys.txt"
+  rm -f -- "$work/object.bin" "$work/keys.age"
   rmdir -- "$work" || code=1
   exit "$code"
 }
@@ -52,10 +58,10 @@ digest=$(sha256sum "$work/object.bin" | cut -d ' ' -f 1)
 rclone --config "$TOR_DR_RCLONE_CONFIG" copyto \
   "$TOR_DR_OFFSITE_READ_REMOTE/$TOR_DR_KEY_ARCHIVE" "$work/keys.age" --quiet ||
   refuse 'encrypted keys unavailable'
-age -d -i "$TOR_DR_AGE_IDENTITY" -o "$work/keys.txt" "$work/keys.age" ||
+# Stream plaintext only through a pipe; do not persist keys on the restore host.
+digest=$(age -d -i "$TOR_DR_AGE_IDENTITY" "$work/keys.age" | sha256sum | cut -d ' ' -f 1) ||
   refuse 'offline identity cannot open sealed keys'
-[[ -s "$work/keys.txt" ]] || refuse 'empty recovered secret bundle'
-digest=$(sha256sum "$work/keys.txt" | cut -d ' ' -f 1)
-[[ "$digest" == "$TOR_DR_EXPECTED_SECRET_SHA256" ]] ||
-  refuse 'independent secret-bundle digest mismatch'
+[[ "$digest" != e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 &&
+   "$digest" == "$TOR_DR_EXPECTED_SECRET_SHA256" ]] ||
+  refuse 'empty secret bundle or independent digest mismatch'
 echo TOR_DR03_PRIVATE_OBJECT_AND_OFFLINE_KEY_RESTORED

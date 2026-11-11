@@ -27,7 +27,18 @@ owned "$TOR_DR_SECRET_BUNDLE"
 for executable in age rclone flock mktemp stat sha256sum cmp python3; do
   command -v "$executable" >/dev/null || refuse 'missing required executable'
 done
-exec 9>/run/lock/tor-offsite-objects.lock
+# An alias name alone does not guarantee encryption. Reject plaintext remotes.
+rclone --config "$TOR_DR_RCLONE_CONFIG" config dump |
+  python3 -c 'import json,sys; c=json.load(sys.stdin).get("tor-offsite-crypt",{}); r=c.get("remote",""); sys.exit(0 if c.get("type") == "crypt" and r.split(":")[0] not in ("", "tor-primary-ro", "tor-offsite-crypt") else 2)' ||
+  refuse 'offsite remote must be a crypt backend on a separate underlying alias'
+# Never open a predictable root-owned lock in a potentially shared /run/lock.
+lock_dir=/run/tor-dr03
+mkdir -m 700 "$lock_dir" 2>/dev/null || true
+[[ -d "$lock_dir" && ! -L "$lock_dir" &&
+   $(stat -c '%U:%G:%a' -- "$lock_dir") == root:root:700 ]] ||
+  refuse 'unsafe offsite lock directory'
+[[ ! -L "$lock_dir/offsite-objects.lock" ]] || refuse 'symlink lock refused'
+exec 9>"$lock_dir/offsite-objects.lock"
 flock -n 9 || refuse 'already running'
 work=$(mktemp -d /run/tor-offsite-objects.XXXXXXXX)
 cleanup() {
