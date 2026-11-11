@@ -3,40 +3,53 @@ on:
   push:
     branches: [qa/flow-worktree-export-20261111]
 permissions:
-  contents: read
-  actions: read
+  contents: write
+concurrency:
+  group: flow-completion-source-publication
+  cancel-in-progress: false
 jobs:
   worktree:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Export only failing sections from integrated acceptance
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@v4
+        with:
+          path: payload
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: tor
+          ref: 54d89a331a396c613dee85a57c84d4473a53e98b
+          fetch-depth: 0
+      - name: Publish only verified source fixes to new QA branches
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
-          import json,os,pathlib,re,subprocess
-          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-evidence';root.mkdir()
-          def get(path):
-              return subprocess.check_output(['gh','api','--allow-escape-sequences','repos/calex794/tor/'+path],timeout=90)
-          for run in [42926154008,42927088395,42927097347,42927097324]:
-              jobs=json.loads(get(f'actions/runs/{run}/jobs?per_page=100'))['jobs']
-              (root/f'jobs-{run}.json').write_text(json.dumps(jobs,indent=2))
-              print(run,[(j['name'],j['status'],j['conclusion']) for j in jobs])
-              for job in jobs:
-                  if job['conclusion'] not in ('failure','timed_out','cancelled'):continue
-                  lines=get(f"actions/jobs/{job['id']}/logs").decode('utf-8-sig').splitlines()
-                  lines=[re.sub(r'\x1b\[[0-9;]*m','',s) for s in lines]
-                  hits=[i for i,s in enumerate(lines) if re.search(r'FAILED|panicked at|error\[|##\[error\]|AssertionError',s)]
-                  indices=set()
-                  for i in hits[-20:]:indices.update(range(max(0,i-10),min(len(lines),i+30)))
-                  text='\n'.join(f'{i+1}: {lines[i]}' for i in sorted(indices)) or '\n'.join(lines[-100:])
-                  (root/f"failure-{run}-{job['id']}.txt").write_text(text)
-                  print(job['name'],job['conclusion'],text[-16000:])
+          import base64,hashlib,json,lzma,os,pathlib,subprocess
+          items=json.loads(pathlib.Path('payload/.qa/flow-completion-fixes-2.json').read_text())
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'flow-fixed';root.mkdir()
+          def run(*args):return subprocess.check_output(['git','-C','tor',*args],text=True).strip()
+          run('config','user.name','FLOW QA')
+          run('config','user.email','flow-qa@users.noreply.github.com')
+          refs=[]
+          for item in items:
+              patch=lzma.decompress(base64.b64decode(item['patch'],validate=True))
+              assert hashlib.sha256(patch).hexdigest()==item['sha256']
+              path=root/str(item['number']);path.write_bytes(patch)
+              assert not run('ls-remote','--heads','origin','refs/heads/'+item['branch'])
+              run('switch','-c',item['branch'],item['base'])
+              run('apply','--check',str(path));run('apply','--index',str(path))
+              assert run('write-tree')==item['tree']
+              run('diff','--check','--cached')
+              run('commit','-m',f"FLOW #{item['number']}: preserve anonymous observations and exact fixture cleanup")
+              run('push','origin','HEAD:refs/heads/'+item['branch'])
+              (root/(str(item['number'])+'-COMMIT')).write_text(run('rev-parse','HEAD'))
+              refs.append(item['branch'])
+          run('bundle','create',str(root/'fixes.bundle'),*refs)
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-integration-diagnostics-${{ github.sha }}
-          path: ${{ runner.temp }}/flow-evidence/
+          name: flow-corrected-fixtures-${{ github.sha }}
+          path: ${{ runner.temp }}/flow-fixed/
           retention-days: 2
