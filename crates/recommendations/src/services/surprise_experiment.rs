@@ -162,8 +162,7 @@ pub fn assess(arms: &[ArmCounts; 3], finished: bool, healthy: bool) -> Assessmen
     let control = arms[0];
     for treatment in &arms[1..] {
         let guards = guardrails(control, *treatment, !finished);
-        if guards[..3].iter().any(|delta| delta.upper < -LOSS)
-            || guards[3].lower > DISABLE_INCREASE
+        if guards[..3].iter().any(|delta| delta.upper < -LOSS) || guards[3].lower > DISABLE_INCREASE
         {
             return result("guardrail_harm", true);
         }

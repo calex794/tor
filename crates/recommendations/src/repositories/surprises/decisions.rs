@@ -56,14 +56,13 @@ impl PgSurprises {
             // Enroll BEFORE the appearance draw. A stored assignment, not a
             // later click, key rotation or new day, owns this account's arm.
             let candidate = experiment_arm(server_key, &subject);
-            let assigned: Option<(i64, String, i16)> = sqlx::query_as(
-                "SELECT run_id,arm,probability FROM surprise_enroll($1,$2,$3)",
-            )
-            .bind(user_id)
-            .bind(candidate.as_str())
-            .bind(day)
-            .fetch_optional(&mut *tx)
-            .await?;
+            let assigned: Option<(i64, String, i16)> =
+                sqlx::query_as("SELECT run_id,arm,probability FROM surprise_enroll($1,$2,$3)")
+                    .bind(user_id)
+                    .bind(candidate.as_str())
+                    .bind(day)
+                    .fetch_optional(&mut *tx)
+                    .await?;
             let Some((id, pinned, probability)) = assigned else {
                 tx.commit().await?;
                 return Ok(PlanState::NotSelected);
