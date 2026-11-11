@@ -36,14 +36,6 @@ fn problem(error: SurpriseError) -> Response {
     deny(status)
 }
 
-fn valid_write(state: &AuthState, headers: &HeaderMap) -> bool {
-    let csrf = headers
-        .get("x-csrf-token")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    state.cookies.same_origin(headers) && state.cookies.valid_csrf(headers, csrf)
-}
-
 #[derive(Serialize)]
 struct PlanResponse {
     state: &'static str,
@@ -129,7 +121,13 @@ async fn claim(
     if !enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    if !state.cookies.same_origin(&headers) || !valid_write(&state, &headers) {
+    let posted_csrf = headers
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, posted_csrf)
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -155,7 +153,13 @@ async fn open(
     if !enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    if !state.cookies.same_origin(&headers) || !valid_write(&state, &headers) {
+    let posted_csrf = headers
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, posted_csrf)
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -185,7 +189,13 @@ async fn disable(State(state): State<AuthState>, headers: HeaderMap) -> Response
     if !enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    if !state.cookies.same_origin(&headers) || !valid_write(&state, &headers) {
+    let posted_csrf = headers
+        .get("x-csrf-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, posted_csrf)
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
