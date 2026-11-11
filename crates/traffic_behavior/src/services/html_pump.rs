@@ -250,13 +250,26 @@ mod gap_tests {
 
     #[test]
     fn a_late_barrier_must_match_the_entire_checkpoint() {
-        let current = HtmlCheckpoint { epoch: 10, generation: 4, cut_ms: 50_000 };
+        let current = HtmlCheckpoint {
+            epoch: 10,
+            generation: 4,
+            cut_ms: 50_000,
+        };
         assert!(!matches_checkpoint(Some(current), None));
         assert!(!matches_checkpoint(None, Some(current)));
         for old in [
-            HtmlCheckpoint { epoch: 9, ..current },
-            HtmlCheckpoint { generation: 3, ..current },
-            HtmlCheckpoint { cut_ms: 49_999, ..current },
+            HtmlCheckpoint {
+                epoch: 9,
+                ..current
+            },
+            HtmlCheckpoint {
+                generation: 3,
+                ..current
+            },
+            HtmlCheckpoint {
+                cut_ms: 49_999,
+                ..current
+            },
         ] {
             assert!(!matches_checkpoint(Some(current), Some(old)));
         }
