@@ -4,6 +4,8 @@ use crate::services::audience::{
 };
 use sqlx::{PgPool, Row};
 
+mod observed;
+
 #[derive(Clone)]
 pub struct PgFlowAudience {
     pool: PgPool,

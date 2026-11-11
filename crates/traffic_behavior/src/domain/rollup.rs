@@ -73,6 +73,7 @@ pub struct RollupDelta {
     transitions: [[[u64; GAPS]; ROUTES]; ROUTES],
     sql: [SqlCell; ROUTES],
     flow: [[FlowCell; FLOW_SOURCES]; FLOW_SURFACES],
+    observed: super::observed_flow::ObservedFlowDelta,
     capped_cells: u64,
 }
 
@@ -83,6 +84,7 @@ impl Default for RollupDelta {
             transitions: [[[0; GAPS]; ROUTES]; ROUTES],
             sql: [SqlCell::default(); ROUTES],
             flow: [[FlowCell::default(); FLOW_SOURCES]; FLOW_SURFACES],
+            observed: super::observed_flow::ObservedFlowDelta::default(),
             capped_cells: 0,
         }
     }
@@ -155,6 +157,19 @@ impl RollupDelta {
         }
     }
 
+    /// Separate event-hour totals; legacy batch-hour rows retain their meaning.
+    pub fn record_observed_flow(&mut self, page: FlowPageview, hour: Option<i64>) -> Option<bool> {
+        self.observed.record(page, hour)
+    }
+
+    pub fn observed_flow_rows(&self) -> Vec<super::ObservedFlowCount> {
+        self.observed.rows()
+    }
+
+    pub fn observed_flow_discarded(&self) -> u64 {
+        self.observed.discarded()
+    }
+
     pub fn flow_rows(&self) -> Vec<FlowCountRow> {
         let mut rows = Vec::new();
         for (surface, sources) in self.flow.iter().enumerate() {
@@ -188,7 +203,8 @@ impl RollupDelta {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.routes.iter().flatten().flatten().all(|n| *n == 0)
+        self.observed.is_empty()
+            && self.routes.iter().flatten().flatten().all(|n| *n == 0)
             && self.transitions.iter().flatten().flatten().all(|n| *n == 0)
             && self.sql.iter().all(|item| item.requests == 0)
             && self

@@ -350,7 +350,11 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
         private(&response, StatusCode::OK);
         let html = body(response).await;
         assert!(html.contains("audience-hours-unsupported"));
-        assert!(!html.contains("audience-hours-table"));
+        // Both projections share presentation classes; only the legacy table
+        // is absent for long periods. The observation-hour report stays live.
+        assert!(!html.contains("data-testid=\"audience-hours-table\""));
+        assert!(html.contains("data-testid=\"audience-observed-table\""));
+        assert_eq!(html.matches("data-observed-hour=").count(), 168);
         assert!(html.contains("audience-sources-current"));
     }
     let malformed = call(&app, "/admin/audience?days=invalid", "").await;
@@ -362,6 +366,7 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
     private(&failed, StatusCode::SERVICE_UNAVAILABLE);
     let html = body(failed).await;
     assert!(html.contains("audience-hours-unavailable"));
+    assert!(html.contains("data-testid=\"audience-observed-current\""));
     assert!(!html.contains("audience-hours-current"));
     assert!(html.contains("audience-sources-current"));
     pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={admin} AND role='administrator'"));
@@ -386,3 +391,6 @@ async fn flow_hours_live_admin_periods_gaps_and_isolated_database_timeout() {
     );
     pg(&url, &format!("BEGIN; DELETE FROM account_roles WHERE user_id IN({admin},{reader},{moderator}); DELETE FROM users WHERE id IN({admin},{reader},{moderator}); COMMIT"));
 }
+
+#[path = "audience_hours_http_pg/observed.rs"]
+mod observed;
