@@ -1,5 +1,8 @@
 //! S023: one bounded worker for owner-approved, canonical UTF-8 chapter batches.
 use std::{sync::Arc, time::Duration};
+
+mod attempt_trace;
+use attempt_trace::AttemptTrace;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
@@ -48,7 +51,18 @@ impl ChapterImportWorker {
         else {
             return Ok(ChapterImportWorkerResult::Idle);
         };
+        let mut trace = AttemptTrace::new(&claim);
+        let result = self.run_claim(&claim, &mut trace).await;
+        trace.finish(&result);
+        result
+    }
 
+    async fn run_claim(
+        &self,
+        claim: &ChapterImportClaim,
+        trace: &mut AttemptTrace,
+    ) -> Result<ChapterImportWorkerResult, &'static str> {
+        trace.enter(1); // S3 and source validation.
         let expected_hash: [u8; 32] = match claim.source_sha256.as_slice().try_into() {
             Ok(value) => value,
             Err(_) => {
@@ -78,6 +92,7 @@ impl ChapterImportWorker {
         // Tokio: an imported source can be 700 KiB. A cancelled waiter cannot
         // stop a spawn_blocking task; it has no PostgreSQL or S3 side effects.
         // The epoch-fenced completion below remains the only place that writes.
+        trace.enter(2); // UTF-8 and structural parsing.
         let filename = claim.source_filename.clone();
         let expected_count = claim.expected_chapter_count;
         let approved_fingerprint = claim.approved_fingerprint.clone();
@@ -103,6 +118,7 @@ impl ChapterImportWorker {
             }
         };
 
+        trace.enter(3); // PostgreSQL commit / fenced final state.
         match self
             .authoring
             .complete_chapter_import_job(claim.job_id, claim.epoch, &chapters)
@@ -111,6 +127,7 @@ impl ChapterImportWorker {
             Ok(_) => {
                 // The succeeded state and all chapters are already committed.
                 // Cleanup failure leaves only an unreferenced private staging object.
+                trace.enter(4); // Cleanup outside the commit transaction.
                 let _ = self.storage.delete(&claim.source_key).await;
                 Ok(ChapterImportWorkerResult::Completed)
             }
