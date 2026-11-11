@@ -395,6 +395,12 @@ static ROUTES: [RouteRegistration; 385] = [
     RouteRegistration::new("/me/recommendations/flow-consent", "POST", "/me/", Exact, Page, Dashboard, Write), // 382
     RouteRegistration::new("/admin/audience/visits", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 383
     RouteRegistration::new("/admin/audience/funnel", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 384
+    RouteRegistration::new("/api/v1/me/surprises/plan", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 385
+    RouteRegistration::new("/api/v1/me/surprises/claim", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 386
+    RouteRegistration::new("/api/v1/me/surprises/open", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 387
+    RouteRegistration::new("/api/v1/me/surprises/disable", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 388
+    RouteRegistration::new("/assets/surprise.js", "GET", "/assets/", Exact, Static, System, Free), // 389
+    RouteRegistration::new("/assets/surprise.css", "GET", "/assets/", Exact, Static, System, Free), // 390
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
