@@ -83,11 +83,16 @@ impl HtmlPump {
             // a conservative lower bound even if SQL or scheduling was delayed.
             let from = gap_lower_ms(clock, gap_started.elapsed());
             let dropped = recorder.flow_coverage_counts().1;
-            let next = self.store.register_epoch_after_gap(
-                &self.registration, self.predecessor, from,
-                (cap(dropped), cap(self.failures)),
-                (cap(self.reported.0), cap(self.reported.1)),
-            ).await?;
+            let next = self
+                .store
+                .register_epoch_after_gap(
+                    &self.registration,
+                    self.predecessor,
+                    from,
+                    (cap(dropped), cap(self.failures)),
+                    (cap(self.reported.0), cap(self.reported.1)),
+                )
+                .await?;
             self.epoch = Some(next.epoch);
             self.predecessor = None;
             self.reported = (
@@ -239,13 +244,26 @@ mod gap_tests {
 
     #[test]
     fn a_late_barrier_must_match_the_entire_checkpoint() {
-        let current = HtmlCheckpoint { epoch: 10, generation: 4, cut_ms: 50_000 };
+        let current = HtmlCheckpoint {
+            epoch: 10,
+            generation: 4,
+            cut_ms: 50_000,
+        };
         assert!(!matches_checkpoint(Some(current), None));
         assert!(!matches_checkpoint(None, Some(current)));
         for old in [
-            HtmlCheckpoint { epoch: 9, ..current },
-            HtmlCheckpoint { generation: 3, ..current },
-            HtmlCheckpoint { cut_ms: 49_999, ..current },
+            HtmlCheckpoint {
+                epoch: 9,
+                ..current
+            },
+            HtmlCheckpoint {
+                generation: 3,
+                ..current
+            },
+            HtmlCheckpoint {
+                cut_ms: 49_999,
+                ..current
+            },
         ] {
             assert!(!matches_checkpoint(Some(current), Some(old)));
         }
