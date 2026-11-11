@@ -91,8 +91,14 @@ fn layout_with_seo(
         .replace("<!--PAGE_CONTENT-->", content);
     if crate::auth::surprise_http::enabled() {
         html = html
-            .replace("</head>", "<link rel=\"stylesheet\" href=\"/assets/surprise.css\">\\n</head>")
-            .replace("</body>", "<script src=\"/assets/surprise.js\" defer></script>\\n</body>");
+            .replace(
+                "</head>",
+                "<link rel=\"stylesheet\" href=\"/assets/surprise.css\">\\n</head>",
+            )
+            .replace(
+                "</body>",
+                "<script src=\"/assets/surprise.js\" defer></script>\\n</body>",
+            );
     }
     Html(html)
 }
