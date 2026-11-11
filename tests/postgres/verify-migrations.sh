@@ -58,6 +58,7 @@ SQL
     "SELECT count(*) FROM books WHERE source_identity='ci-preexisting'" | grep -qx '1'
   psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -f tests/postgres/migrations-smoke.sql
 
+  bash tests/postgres/verify-migration-modes.sh
   echo 'PG18: fresh SQL migrations PASS, upgrade with existing data PASS, privacy/constraints PASS'
 }
 

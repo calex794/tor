@@ -25,7 +25,9 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
         .fetch_one(&mut connection)
         .await?;
     let build = tokio::spawn(async move {
-        let result = through(spec.version).run(&mut connection).await;
+        let result = through(spec.version)
+            .run_direct(&mut connection)
+            .await;
         (result, connection)
     });
 
@@ -44,7 +46,10 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
         if waiting {
             break;
         }
-        assert!(Instant::now() < deadline, "concurrent build never reached its writer wait");
+        assert!(
+            Instant::now() < deadline,
+            "concurrent build never reached its writer wait"
+        );
         sleep(Duration::from_millis(20)).await;
     }
 
@@ -71,7 +76,10 @@ pub async fn cancel_during_writer_wait(fixture: &Fixture, spec: Spec) -> TestRes
     };
     assert_eq!(version, spec.version);
     assert_eq!(
-        error.as_database_error().and_then(|error| error.code()).as_deref(),
+        error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
         Some("57014")
     );
     Ok(())

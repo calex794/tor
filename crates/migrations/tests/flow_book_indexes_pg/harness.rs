@@ -89,7 +89,10 @@ impl Fixture {
         )
         .fetch_one(&pool)
         .await?;
-        assert_eq!(actual, (database.to_owned(), "tor_migrator".to_owned(), true));
+        assert_eq!(
+            actual,
+            (database.to_owned(), "tor_migrator".to_owned(), true)
+        );
         Ok(Self { pool, options })
     }
 
@@ -144,18 +147,21 @@ pub async fn index(fixture: &Fixture, spec: Spec, valid: bool) -> TestResult {
     if valid {
         assert!(actual.1);
     }
-    assert_eq!(actual.2, spec.definition(), "never repair an unrelated index");
+    assert_eq!(
+        actual.2,
+        spec.definition(),
+        "never repair an unrelated index"
+    );
     Ok(())
 }
 
 pub async fn repair(fixture: &Fixture, spec: Spec) -> TestResult {
     assert!(SPECS.iter().any(|known| known.name == spec.name));
-    let present: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version=$1)",
-    )
-    .bind(spec.version)
-    .fetch_one(&fixture.pool)
-    .await?;
+    let present: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version=$1)")
+            .bind(spec.version)
+            .fetch_one(&fixture.pool)
+            .await?;
     assert!(!present, "recorded migration is outside this repair recipe");
     // Caller already checked the exact schema/table/columns with index().
     // This is test/operator recovery, never automatic production repair.

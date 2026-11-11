@@ -5,7 +5,9 @@ mod harness;
 #[path = "flow_book_indexes_pg/interrupted.rs"]
 mod interrupted;
 
-use harness::{assert_ledger, fingerprint, index, ledger, repair, seed, Fixture, Spec, LAST, SPECS};
+use harness::{
+    assert_ledger, fingerprint, index, ledger, repair, seed, Fixture, Spec, LAST, SPECS,
+};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -82,6 +84,9 @@ async fn cancelled_build_leaves_invalid_index_and_retry_requires_explicit_repair
     let accepted = ledger(&fixture).await?;
     fixture.migrate(LAST).await??;
     assert_eq!(ledger(&fixture).await?, accepted);
+    for spec in SPECS {
+        index(&fixture, spec, true).await?;
+    }
     Ok(())
 }
 
@@ -115,6 +120,9 @@ async fn committed_index_without_ledger_is_not_silently_accepted_on_retry() -> T
     let accepted = ledger(&fixture).await?;
     fixture.migrate(LAST).await??;
     assert_eq!(ledger(&fixture).await?, accepted);
+    for spec in SPECS {
+        index(&fixture, spec, true).await?;
+    }
     Ok(())
 }
 
@@ -128,7 +136,10 @@ async fn assert_duplicate_rejected(fixture: &Fixture, spec: Spec) -> TestResult 
     };
     assert_eq!(version, spec.version);
     assert_eq!(
-        error.as_database_error().and_then(|error| error.code()).as_deref(),
+        error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
         Some("42P07"),
         "a valid or INVALID duplicate relation must never become migration success"
     );

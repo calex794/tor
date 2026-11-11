@@ -72,14 +72,13 @@ Create fresh loopback PostgreSQL 18 databases `tor_ci_flow_index_fresh`, `tor_ci
 FLOW_BOOK_INDEX_MIGRATOR_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_flow_index_fresh' \
   cargo test -p tor-migrations --test flow_book_indexes_pg -- --ignored --test-threads=1 --nocapture
 
-# Existing disposable psql fresh/upgrade smoke, plus real transaction regressions:
+# Existing disposable smoke also invokes its real transaction-mode regression:
 bash tests/postgres/verify-migrations.sh
-bash tests/postgres/verify-migration-modes.sh
 ```
 
 The Rust target checks fresh/replay; upgrade with retained canonical starts, completions, outbox and immutable versions; cancellation at PostgreSQL's observed `waiting for writers before build` phase; and valid DDL without its later ledger insert. Both affected indexes are tested. Failed retries preserve the exact prior ledger, explicit repair drops only the inspected new index, and unchanged SQLx retry creates a valid index and a real ledger record. The writer-wait case also checks that another writer can take a table lock while concurrent creation waits.
 
-The shell regression proves ordinary multi-file rollback, the committed boundary around a real concurrent index, rollback of a following ordinary batch, and stopping after a marked failure.
+The normal smoke entrypoint invokes `verify-migration-modes.sh` exactly once; do not invoke it again against the same disposable service. The shell regression proves ordinary multi-file rollback, the committed boundary around a real concurrent index, rollback of a following ordinary batch, and stopping after a marked failure.
 
 Acceptance requires actual successful Actions evidence on the final source SHA. Temporary WIP workflow files are not part of the production patch. The permanent CI invocation is composed by I.
 

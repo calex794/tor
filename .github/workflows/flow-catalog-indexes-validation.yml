@@ -82,7 +82,6 @@ jobs:
       - name: Real psql fresh and upgrade, transaction boundaries and failure propagation
         run: |
           bash tests/postgres/verify-migrations.sh
-          bash tests/postgres/verify-migration-modes.sh
       - name: Migration crate units and ignored-target compilation
         run: cargo test -p tor-migrations --all-targets
       - name: Real SQLx fresh, upgrade, cancelled and unrecorded build recovery
