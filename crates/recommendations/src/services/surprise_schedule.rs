@@ -201,8 +201,13 @@ mod tests {
         let arm = experiment_arm(&KEY, &SESSION);
         for day in 0..100 {
             let _ = decide(
-                &KEY, &SESSION, day,
-                SurpriseSchedule { enabled: true, probability_per_mille: 350 },
+                &KEY,
+                &SESSION,
+                day,
+                SurpriseSchedule {
+                    enabled: true,
+                    probability_per_mille: 350,
+                },
             )
             .unwrap();
             assert_eq!(experiment_arm(&KEY, &SESSION), arm);
@@ -210,16 +215,20 @@ mod tests {
         let mut other_key = KEY;
         other_key[0] ^= 11;
         assert_ne!(
-            (0..1000).map(|i| {
-                let mut subject = SESSION;
-                subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
-                experiment_arm(&KEY, &subject)
-            }).collect::<Vec<_>>(),
-            (0..1000).map(|i| {
-                let mut subject = SESSION;
-                subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
-                experiment_arm(&other_key, &subject)
-            }).collect::<Vec<_>>()
+            (0..1000)
+                .map(|i| {
+                    let mut subject = SESSION;
+                    subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+                    experiment_arm(&KEY, &subject)
+                })
+                .collect::<Vec<_>>(),
+            (0..1000)
+                .map(|i| {
+                    let mut subject = SESSION;
+                    subject[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+                    experiment_arm(&other_key, &subject)
+                })
+                .collect::<Vec<_>>()
         );
     }
 
