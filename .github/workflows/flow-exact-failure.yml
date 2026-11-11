@@ -1,0 +1,40 @@
+name: FLOW exact-head failure diagnostics
+on:
+  push:
+    branches: [qa/flow-completion-publisher-20261111]
+    paths: [.github/workflows/flow-exact-failure.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact failed test output without modifying the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          gh api repos/calex794/tor/actions/runs/43013391872 > evidence/run.json
+          gh api repos/calex794/tor/actions/jobs/130499486785/logs > evidence/full.log
+          python3 - <<'PY'
+          import json,pathlib,re
+          p=pathlib.Path('evidence')
+          run=json.loads((p/'run.json').read_text())
+          assert run['head_sha']=='1e3852deccdcdb5ebe37f7a95d395b8dcb9aa0d1'
+          lines=(p/'full.log').read_text().splitlines()
+          indexes=set(range(max(0,len(lines)-180),len(lines)))
+          for i,line in enumerate(lines):
+              if re.search(r'FAILED|panicked|AssertionError|Error:|error:|failures:',line):
+                  indexes.update(range(max(0,i-8),min(len(lines),i+22)))
+          text='\n'.join(lines[i] for i in sorted(indexes))
+          (p/'failures.txt').write_text(text[-60000:])
+          print(text[-16000:])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flow819-exact-failure
+          path: evidence/
+          retention-days: 3
