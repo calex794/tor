@@ -10,9 +10,9 @@ use axum::{
 };
 use base64::Engine;
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use std::{
     num::NonZeroU32,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -24,6 +24,17 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
+
+fn pg(url: &str, statement: &str) -> String {
+    let out = Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", statement])
+        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "disposable fixture SQL failed: {}",
+        String::from_utf8_lossy(&out.stderr));
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
 
 async fn http(
     app: &Router,
@@ -129,13 +140,7 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     private(&response, StatusCode::NOT_FOUND);
     std::env::set_var("TOR_SURPRISE_HTTP_ENABLED", "1");
 
-    sqlx::query(
-        "UPDATE surprise_runtime_policy
-         SET enabled=false,probability_per_mille=350 WHERE singleton",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(&url, "UPDATE surprise_runtime_policy SET enabled=false,probability_per_mille=350 WHERE singleton");
     let response = http(
         &app,
         "GET",
@@ -172,15 +177,11 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     .await;
     private(&guest, StatusCode::UNAUTHORIZED);
 
-    sqlx::query(
+    pg(&url, &format!(
         "INSERT INTO account_roles(user_id,role,is_active)
-         VALUES($1,'administrator',true)
-         ON CONFLICT(user_id,role) DO UPDATE SET is_active=true",
-    )
-    .bind(user)
-    .execute(&pool)
-    .await
-    .unwrap();
+         VALUES({user},'administrator',true)
+         ON CONFLICT(user_id,role) DO UPDATE SET is_active=true"
+    ));
 
     let title = format!("surprise-http-{nonce}");
     let create = format!(
@@ -208,12 +209,9 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     )
     .await;
     private(&created, StatusCode::SEE_OTHER);
-    let item_id: i64 =
-        sqlx::query_scalar("SELECT id FROM surprise_content WHERE title=$1 AND state='draft'")
-            .bind(&title)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let item_id: i64 = pg(&url, &format!(
+        "SELECT id FROM surprise_content WHERE title='{title}' AND state='draft'"
+    )).parse().unwrap();
 
     let approval = format!("csrf_token={csrf}&state=approved");
     let approved = http(
@@ -286,16 +284,11 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
 
     // Only the disposable test row is backdated; the public site never
     // offers time travel or a second independent chance.
-    sqlx::query(
+    pg(&url, &format!(
         "UPDATE surprise_daily_decisions
          SET created_at=now()-interval '30 minutes'
-         WHERE user_id=$1 AND utc_day=$2",
-    )
-    .bind(user)
-    .bind(day)
-    .execute(&pool)
-    .await
-    .unwrap();
+         WHERE user_id={user} AND utc_day={day}"
+    ));
     let claimed = http(
         &app,
         "POST",
@@ -374,14 +367,10 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     private(&response, StatusCode::OK);
     assert_eq!(parse(response).await["state"], "off");
 
-    sqlx::query(
+    pg(&url, &format!(
         "UPDATE account_roles SET is_active=false
-         WHERE user_id=$1 AND role='administrator'",
-    )
-    .bind(user)
-    .execute(&pool)
-    .await
-    .unwrap();
+         WHERE user_id={user} AND role='administrator'"
+    ));
     let revoked = http(
         &app,
         "GET",
@@ -394,32 +383,13 @@ async fn surprise_http_opt_in_admin_controls_and_reader_one_shot_are_live() {
     .await;
     private(&revoked, StatusCode::FORBIDDEN);
 
-    clean(&pool, user, item_id).await;
+    clean(&url, user, item_id);
 }
 
-async fn clean(pool: &PgPool, actor: i64, item_id: i64) {
-    sqlx::query("UPDATE surprise_runtime_policy SET enabled=false WHERE singleton")
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM surprise_admin_events WHERE actor_user_id=$1")
-        .bind(actor)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM surprise_content WHERE id=$1")
-        .bind(item_id)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM account_roles WHERE user_id=$1")
-        .bind(actor)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id=$1")
-        .bind(actor)
-        .execute(pool)
-        .await
-        .unwrap();
+fn clean(url: &str, actor: i64, item_id: i64) {
+    pg(url, "UPDATE surprise_runtime_policy SET enabled=false WHERE singleton");
+    pg(url, &format!("DELETE FROM surprise_admin_events WHERE actor_user_id={actor}"));
+    pg(url, &format!("DELETE FROM surprise_content WHERE id={item_id}"));
+    pg(url, &format!("DELETE FROM account_roles WHERE user_id={actor}"));
+    pg(url, &format!("DELETE FROM users WHERE id={actor}"));
 }
