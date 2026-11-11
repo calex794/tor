@@ -1,7 +1,7 @@
 //! Optional PG-backed RIL-06 pump. Runs outside HTTP and never blocks responses.
 //! Enqueue uses a stable UUID across retries; PG claims survive process death.
 use super::html_pump::HtmlPump;
-use crate::domain::html_health::{HtmlHealthError, HtmlIngressStopped};
+use crate::domain::html_health::{HtmlCheckpoint, HtmlHealthError, HtmlIngressStopped};
 use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};
 use uuid::Uuid;
 
@@ -108,10 +108,16 @@ struct Pending {
     delta: RollupDelta,
 }
 
+struct Draining {
+    point: Option<HtmlCheckpoint>,
+    response: tokio::sync::oneshot::Receiver<RollupDelta>,
+}
+
 pub struct PgRollupPump {
     repo: PgRilRollups,
     recorder: TrafficRecorder,
     pending: Option<Pending>,
+    draining: Option<Draining>,
     ticks: u64,
     monitor: PgPumpMonitor,
     html: HtmlPump,
@@ -132,6 +138,7 @@ impl PgRollupPump {
             repo,
             recorder,
             pending: None,
+            draining: None,
             ticks: 0,
             monitor,
         }
@@ -157,30 +164,32 @@ impl PgRollupPump {
         let mut failed = !healthy;
 
         if self.pending.is_none() && !self.html.waiting() {
-            let source = self.recorder.clone();
-            let managed = healthy && self.html.has_point();
-            match tokio::task::spawn_blocking(move || {
-                if managed {
-                    source.drain_for_health()
-                } else {
-                    source.drain_for_persistence()
+            if self.draining.is_none() {
+                let point = healthy.then(|| self.html.point()).flatten();
+                self.draining = self
+                    .recorder
+                    .start_persistence_drain(point.is_some())
+                    .map(|response| Draining { point, response });
+                if self.draining.is_none() {
+                    failed = true;
                 }
-            })
-            .await
-            {
-                Ok(Some(delta)) if !delta.is_empty() => {
-                    let id = Uuid::new_v4().to_string();
-                    if managed {
-                        self.html.drained(Some(id.clone()));
+            }
+            if let Some(draining) = self.draining.as_mut() {
+                // Await by reference: a timeout keeps both the receiver and its
+                // exact checkpoint in this pump. There is no detached task that
+                // could enqueue an old barrier after the next cycle reopens.
+                let result = (&mut draining.response).await;
+                let point = draining.point;
+                self.draining = None;
+                match result {
+                    Ok(delta) if !delta.is_empty() => {
+                        let id = Uuid::new_v4().to_string();
+                        self.html.drained(point, Some(id.clone()));
+                        self.pending = Some(Pending { id, delta });
                     }
-                    self.pending = Some(Pending { id, delta });
+                    Ok(_) => self.html.drained(point, None),
+                    Err(_) => failed = true,
                 }
-                Ok(Some(_)) => {
-                    if managed {
-                        self.html.drained(None);
-                    }
-                }
-                Ok(None) | Err(_) => failed = true,
             }
         }
 

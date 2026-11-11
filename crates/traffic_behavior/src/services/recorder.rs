@@ -24,6 +24,9 @@ enum Message {
     Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
+    DrainAsync(tokio::sync::oneshot::Sender<RollupDelta>),
+    #[cfg(test)]
+    Pause(mpsc::Sender<()>, mpsc::Receiver<()>),
     Forget(VerifiedSubjectKey, mpsc::Sender<bool>),
 }
 
@@ -93,6 +96,19 @@ impl TrafficRecorder {
                         Message::Drain(reply) => {
                             let batch = std::mem::take(&mut rollup);
                             let _ = reply.send(batch);
+                        }
+                        Message::DrainAsync(reply) => {
+                            let batch = std::mem::take(&mut rollup);
+                            if let Err(batch) = reply.send(batch) {
+                                // No other FIFO message ran between take/send.
+                                // A cancelled receiver must not consume the data.
+                                rollup = batch;
+                            }
+                        }
+                        #[cfg(test)]
+                        Message::Pause(ready, resume) => {
+                            let _ = ready.send(());
+                            let _ = resume.recv();
                         }
                         Message::Forget(key, reply) => {
                             if revoked.insert(key) {
@@ -211,13 +227,23 @@ impl TrafficRecorder {
     pub(crate) fn close_flow_health(&self) {
         self.flow_gate.close();
     }
-    pub(crate) fn drain_for_health(&self) -> Option<RollupDelta> {
-        let guard = self.flow_gate.lock()?;
-        guard.observation_time()?;
-        let (reply, response) = mpsc::channel();
-        self.sender.try_send(Message::Drain(reply)).ok()?;
+    /// Enqueue the FIFO barrier immediately; only its reply is asynchronous.
+    /// The pump retains the receiver across cancellation of a progress cycle.
+    pub(crate) fn start_persistence_drain(
+        &self,
+        managed: bool,
+    ) -> Option<tokio::sync::oneshot::Receiver<RollupDelta>> {
+        let guard = if managed {
+            let guard = self.flow_gate.lock()?;
+            guard.observation_time()?;
+            Some(guard)
+        } else {
+            None
+        };
+        let (reply, response) = tokio::sync::oneshot::channel();
+        self.sender.try_send(Message::DrainAsync(reply)).ok()?;
         drop(guard);
-        response.recv_timeout(Duration::from_secs(2)).ok()
+        Some(response)
     }
 
     /// Serializes against earlier traffic events, then queries the independent
@@ -487,3 +513,7 @@ mod tests {
         assert_eq!(revoked.flow_rows()[0].html_requests, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "recorder/drain_tests.rs"]
+mod drain_tests;
