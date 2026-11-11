@@ -67,7 +67,7 @@ struct NewForm {
     kind: String,
     title: String,
     body: String,
-    book_id: Option<i64>,
+    book_id: String,
     editorial: Option<String>,
 }
 
@@ -191,12 +191,20 @@ async fn create(
         Ok(digest) => digest,
         Err(status) => return deny(status),
     };
+    let book_id = if form.book_id.trim().is_empty() {
+        None
+    } else {
+        match form.book_id.trim().parse::<i64>() {
+            Ok(id) if id > 0 => Some(id),
+            _ => return deny(StatusCode::BAD_REQUEST),
+        }
+    };
     let repo = PgSurprises::new(state.accounts.pool().clone());
     let input = NewSurprise {
         kind: &form.kind,
         title: &form.title,
         body: &form.body,
-        book_id: form.book_id,
+        book_id,
         editorial: form.editorial.as_deref() == Some("on"),
     };
     match repo.admin_create(&digest, &input).await {
