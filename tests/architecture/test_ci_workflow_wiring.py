@@ -132,7 +132,7 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
 
     def test_reader_and_visual_use_headless_chromium_shell(self):
-        # Both manual jobs must remain identical to the required integration jobs.
+        # Both manual jobs must remain identical to required CI; avoid optional apt font packs.
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         for job, manual_file in (
             ("reader-browser", "tor-reader-visual.yml"),
@@ -143,8 +143,8 @@ class WorkflowWiringTests(unittest.TestCase):
                     integration[job],
                     job_sections((WORKFLOWS / manual_file).read_text())[job],
                 ):
-                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    self.assertIn("npx playwright install --only-shell chromium", body)
+                    self.assertNotIn("npx playwright install --with-deps", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
@@ -163,8 +163,8 @@ class WorkflowWiringTests(unittest.TestCase):
                         self.assertNotIn("npx playwright install --with-deps", body)
                         self.assertIn("chromium.launch({headless:true})", body)
                     else:
-                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                        self.assertNotIn("npx playwright install --with-deps chromium", body)
+                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):

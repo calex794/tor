@@ -123,7 +123,7 @@ jobs:
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps --only-shell chromium
+          npx playwright install --only-shell chromium
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
