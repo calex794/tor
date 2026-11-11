@@ -63,7 +63,9 @@ fn private(response: &Response, code: StatusCode) {
     // Private A/F responses have an explicit no-store and unframeable CSP;
     // an x-robots-tag is not part of the shared private_response contract.
     assert!(response.headers()["content-security-policy"]
-        .to_str().unwrap().contains("frame-ancestors 'none'"));
+        .to_str()
+        .unwrap()
+        .contains("frame-ancestors 'none'"));
 }
 
 async fn parse(response: Response) -> Value {
