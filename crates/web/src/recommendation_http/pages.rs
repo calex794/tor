@@ -104,6 +104,48 @@ pub(super) fn panel_observed(
     out
 }
 
+/// Cross-promotion of discoverable owner/team/site Books after free chapters.
+/// Browser-visible observation uses the shared bounded FLOW collector, not a
+/// reader history or a second paid placement.
+pub(super) fn shelf_panel_observed(
+    feed: &Feed,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
+    if feed.items.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">"#,
+    );
+    for item in &feed.items {
+        let Ok(id) = book_id(&item.book_id) else {
+            continue;
+        };
+        let title = html::escape_html(&item.title);
+        let source = html::escape_html(&item.source);
+        let relation = match item.source.as_str() {
+            "author" => "Ещё у автора",
+            "teammate" => "Из команды автора",
+            "site" => "Другие книги сайта",
+            _ => "Рекомендуем",
+        };
+        let observation = crate::flow_exposure::attributes(
+            issuer,
+            tor_contracts::exposure::CardObservation {
+                book_id: id,
+                surface: tor_contracts::exposure::ExposureSurface::ReaderEnd,
+                editorial: None,
+            },
+        );
+        let _ = write!(
+            out,
+            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3><small class="book-mini-card__meta">{relation}</small></div></a></article>"#,
+        );
+    }
+    out.push_str("</div></div></section>");
+    out
+}
+
 pub(super) async fn page(
     State(state): State<Runtime>,
     headers: HeaderMap,
@@ -284,5 +326,55 @@ mod tests {
         assert!(!result.contains("?ticket="));
         assert!(!result.contains("data-rec-ticket"));
         assert!(!result.contains("<script"));
+    }
+
+    struct ProofIssuer;
+    impl tor_contracts::exposure::ObservationIssuer for ProofIssuer {
+        fn issue(&self, card: tor_contracts::exposure::CardObservation) -> Option<String> {
+            assert_eq!(
+                card.surface,
+                tor_contracts::exposure::ExposureSurface::ReaderEnd
+            );
+            assert!(card.editorial.is_none());
+            Some("A".repeat(43))
+        }
+    }
+
+    #[test]
+    fn reader_shelf_is_escaped_and_only_live_delivery_mints_observation() {
+        let feed = Feed {
+            items: vec![FeedItem {
+                book_id: "12".into(),
+                title: "<script>reader</script>".into(),
+                reason: "similar_by_content".into(),
+                source: "teammate".into(),
+                algorithm_version: "reader_end_shelf_504010_v1",
+                ticket: None,
+                feedback_revision: None,
+            }],
+            generation_id: None,
+            next_cursor: None,
+            personalized: false,
+        };
+        let preview = shelf_panel_observed(&feed, None);
+        assert!(preview.contains("data-rec-source=\"teammate\""));
+        assert!(preview.contains("href=\"/books/12\""));
+        assert!(preview.contains("/covers/12/card.webp"));
+        assert!(preview.contains("&lt;script&gt;reader&lt;/script&gt;"));
+        assert!(!preview.contains("data-flow-proof"));
+        assert!(!preview.contains("<script>reader"));
+        let delivered = shelf_panel_observed(&feed, Some(&ProofIssuer));
+        assert!(delivered.contains(&format!("data-flow-proof=\"{}\"", "A".repeat(43))));
+        assert!(delivered.contains("data-flow-link"));
+    }
+
+    #[test]
+    fn free_reader_shelf_stays_after_navigation_and_before_discussion() {
+        let html = include_str!("../../templates/reader.html");
+        let nav = html.rfind("<!--CHAPTER_NAVIGATION-->").unwrap();
+        let shelf = html.find("<!--READER_END_SHELF-->").unwrap();
+        let discussion = html.find("<!--FREE_CHAPTER_COMMENTS-->").unwrap();
+        assert!(nav < shelf && shelf < discussion);
+        assert!(html.contains("<!--EDITORIAL_PROMOTION-->"));
     }
 }

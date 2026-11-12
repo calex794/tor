@@ -1,0 +1,153 @@
+//! Real PostgreSQL reader-end shelf: team links are relations, not ACL.
+use super::*;
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with S028 teams"]
+async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
+    let f = fixture("reader-end-shelf").await;
+    let (owner, teammate) = (f.actors[0], f.actors[1]);
+    let (source, author_book, team_book, site_book) =
+        (f.books[0], f.books[1], f.books[2], f.books[3]);
+
+    sqlx::query(
+        "UPDATE books SET owner_user_id=CASE
+           WHEN id=ANY($1::bigint[]) THEN $2 ELSE $3 END,
+           genres=ARRAY['fantasy'],tags=ARRAY['romance']
+         WHERE id=ANY($4::bigint[])",
+    )
+    .bind([source, author_book])
+    .bind(owner)
+    .bind(teammate)
+    .bind(&f.books)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let team: i64 = sqlx::query_scalar(
+        "INSERT INTO translation_teams(owner_user_id,name)
+         VALUES($1,$2) RETURNING id",
+    )
+    .bind(owner)
+    .bind(format!("Shelf integration {}", source))
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+
+    let digest =
+        tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap()).unwrap();
+    sqlx::query(
+        "INSERT INTO translation_team_invites
+         (token_digest,team_id,invitee_user_id,inviter_user_id,status,decided_at)
+         VALUES($1,$2,$3,$4,'accepted',now())",
+    )
+    .bind(digest.as_slice())
+    .bind(team)
+    .bind(teammate)
+    .bind(owner)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO translation_team_members(team_id,user_id,invite_digest)
+         VALUES($1,$2,$3)",
+    )
+    .bind(team)
+    .bind(teammate)
+    .bind(digest.as_slice())
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    for (book, added_by) in [(source, owner), (team_book, teammate)] {
+        sqlx::query(
+            "INSERT INTO translation_team_books(team_id,book_id,added_by_user_id)
+             VALUES($1,$2,$3)",
+        )
+        .bind(team)
+        .bind(book)
+        .bind(added_by)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    }
+
+    let result = f.store.reader_end_shelf(None, source, 200).await.unwrap();
+    let source_for = |book: i64| {
+        result
+            .items
+            .iter()
+            .find(|item| item.book_id == book.to_string())
+            .map(|item| item.source.as_str())
+    };
+    assert_eq!(source_for(author_book), Some("author"));
+    assert_eq!(source_for(team_book), Some("teammate"));
+    assert_eq!(source_for(site_book), Some("site"));
+    assert!(!ids(&result).contains(&source));
+    assert_eq!(
+        ids(&result).len(),
+        ids(&result)
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    );
+
+    // Catalog entries with no owner are still eligible for the site pool.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
+        .bind(site_book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
+
+    f.store
+        .set_feedback(
+            owner,
+            site_book,
+            Choice::NotInterested,
+            0,
+            &new_ticket().unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!ids(&f
+        .store
+        .reader_end_shelf(Some(owner), source, 201)
+        .await
+        .unwrap())
+    .contains(&site_book));
+    assert!(ids(&f.store.reader_end_shelf(None, source, 201).await.unwrap()).contains(&site_book));
+
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(team_book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(!ids(&f.store.reader_end_shelf(None, source, 202).await.unwrap()).contains(&team_book));
+
+    sqlx::query("DELETE FROM translation_team_books WHERE team_id=$1")
+        .bind(team)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM translation_team_members WHERE team_id=$1")
+        .bind(team)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM translation_team_invites WHERE team_id=$1")
+        .bind(team)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM translation_teams WHERE id=$1")
+        .bind(team)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
+        .bind(&f.books)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    f.cleanup().await;
+}

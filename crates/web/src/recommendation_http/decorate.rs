@@ -46,6 +46,12 @@ fn page_csrf(state: &Runtime, request: &HeaderMap, response: &HeaderMap) -> (Str
     state.cookies.csrf_for_page(request)
 }
 
+// An active editorial campaign owns the single placement after a free chapter.
+// Never inject the organic shelf beside it or mint a second set of proofs.
+fn reader_shelf_slot_available(html: &str) -> bool {
+    html.contains("<!--READER_END_SHELF-->") && !html.contains("data-editorial-campaign=")
+}
+
 pub(super) async fn append(State(state): State<Runtime>, request: Request, next: Next) -> Response {
     let issuer = request
         .extensions()
@@ -101,7 +107,25 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         Err(StatusCode::UNAUTHORIZED) => None,
         Err(_) => return response,
     };
-    let feed = match api::load(&state, identity, surface, seed, 10).await {
+    // On public free chapters the relation-weighted shelf replaces REC's
+    // generic grid. Other surfaces keep the existing observed REC cards.
+    let shelf_book = if surface == Surface::ReaderEnd {
+        seed.zip(
+            path.strip_prefix("/reader/")
+                .and_then(|id| book_id(id).ok()),
+        )
+    } else {
+        None
+    };
+    let feed_result = if let Some((book, chapter)) = shelf_book {
+        state
+            .store
+            .reader_end_shelf(identity.as_ref().map(|(id, _)| *id), book, chapter)
+            .await
+    } else {
+        api::load(&state, identity, surface, seed, 10).await
+    };
+    let feed = match feed_result {
         Ok(feed) if !feed.items.is_empty() => feed,
         _ => return response,
     };
@@ -114,10 +138,17 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         Ok(original) => original,
         Err(_) => return Response::from_parts(parts, Body::from(bytes)),
     };
-    if original.contains("data-rec-panel") {
+    if original.contains("data-rec-panel")
+        || (shelf_book.is_some() && !reader_shelf_slot_available(original))
+    {
         return Response::from_parts(parts, Body::from(bytes));
     }
-    let Some(at) = original.rfind("</main>") else {
+    let at = if shelf_book.is_some() {
+        original.find("<!--READER_END_SHELF-->")
+    } else {
+        original.rfind("</main>")
+    };
+    let Some(at) = at else {
         return Response::from_parts(parts, Body::from(bytes));
     };
     // An anonymous recommendation card has no account-setting form and does
@@ -144,9 +175,17 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         }
     };
     let observer = issuer.as_deref().zip(observed);
-    let panel = pages::panel_observed(&feed, &csrf, observer);
+    let panel = if shelf_book.is_some() {
+        pages::shelf_panel_observed(&feed, issuer.as_deref())
+    } else {
+        pages::panel_observed(&feed, &csrf, observer)
+    };
     let mut html = original.to_owned();
-    html.insert_str(at, &panel);
+    if shelf_book.is_some() {
+        html = html.replace("<!--READER_END_SHELF-->", &panel);
+    } else {
+        html.insert_str(at, &panel);
+    }
     for cookie in cookies {
         if let Ok(value) = HeaderValue::from_str(&cookie) {
             parts.headers.append(header::SET_COOKIE, value);
@@ -158,4 +197,20 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         .headers
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Response::from_parts(parts, Body::from(html))
+}
+
+#[cfg(test)]
+mod shelf_precedence_tests {
+    use super::reader_shelf_slot_available;
+
+    #[test]
+    fn editorial_campaign_preempts_organic_shelf_at_reader_end() {
+        assert!(reader_shelf_slot_available("<!--READER_END_SHELF-->"));
+        assert!(!reader_shelf_slot_available(
+            "<section data-editorial-campaign=\"42\"></section><!--READER_END_SHELF-->"
+        ));
+        assert!(!reader_shelf_slot_available(
+            "<section>not a free reader</section>"
+        ));
+    }
 }

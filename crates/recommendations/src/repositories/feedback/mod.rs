@@ -16,6 +16,7 @@ mod preference_retention;
 mod preferences;
 mod retirement;
 mod serving;
+mod shelf;
 mod sources;
 mod status;
 

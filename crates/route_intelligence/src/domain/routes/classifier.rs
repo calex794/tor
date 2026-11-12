@@ -427,6 +427,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/apple-touch-icon.png"), "GET") => Some(412),
         (Some("/icon-192.png"), "GET") => Some(413),
         (Some("/site.webmanifest"), "GET") => Some(414),
+        (Some("/me/recommendations/shelf-preview"), "GET") => Some(415),
         _ => None,
     };
     index
