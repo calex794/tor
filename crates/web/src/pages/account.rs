@@ -264,6 +264,10 @@ pub fn private_account_layout(title: &str, description: &str, content: &str) -> 
             .replace(
                 "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
                 "",
+            )
+            .replace(
+                "<a class=\"site-mobile-nav__link\" href=\"/register\">Регистрация</a>",
+                "",
             ),
     )
 }
