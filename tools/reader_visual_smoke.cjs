@@ -375,6 +375,8 @@ async function inspect(page, name, where) {
         name + ': bookmark confirmation missing');
       await page.getByRole('button', { name: 'Сохранить книгу' }).click();
       await page.waitForURL('**/me/library');
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
       assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
         name + ': personal bookmark missing');
       await inspect(page, name, 'bookmarked');
