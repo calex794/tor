@@ -65,7 +65,20 @@ pub(super) async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = pages::my_library_with_updates_and_layers_and_purchased_only(
+    // Query-selected panels work with the strict script-src none CSP.
+    // Preserve legacy cursors by deriving the panel when view is omitted.
+    let view = query.view.as_deref().or_else(|| {
+        if query.updates_after.is_some() {
+            Some("updates")
+        } else if query.purchased_after.is_some() {
+            Some("purchased")
+        } else if query.after.is_some() {
+            Some("saved")
+        } else {
+            None
+        }
+    });
+    let page = pages::my_library_with_updates_and_layers_and_purchased_only_selected(
         &books,
         &saved,
         &csrf,
@@ -73,6 +86,7 @@ pub(super) async fn my_library(
         state.paid_checkout_enabled,
         (&updates, &owned),
         &purchase_books,
+        view,
     );
     private_response(page, &cookies)
 }
