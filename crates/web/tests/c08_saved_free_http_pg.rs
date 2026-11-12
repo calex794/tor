@@ -515,7 +515,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let approved_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(!approved_form.contains("value=\"complete\""));
     assert!(approved_form.contains("удалена"));
-    let pending_library = html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
+    let pending_library =
+        html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Удалена"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending
@@ -657,7 +658,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              ordinary_deleted_at=now(),visibility='draft' WHERE id={paid_only_book}"
         ),
     );
-    let paid_only_card = html(call(&app, "GET", "/me/library?view=purchased", &reader_cookie, "").await).await;
+    let paid_only_card = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(paid_only_card.contains("Paid-only &lt;unsafe&gt;"));
     assert!(paid_only_card.contains("Книги с покупками"));
     assert!(paid_only_card.contains("чтение временно недоступно"));
@@ -677,7 +688,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    let tombstone = html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
+    let tombstone =
+        html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
     let archived_response = call(&app, "GET", &read, &reader_cookie, "").await;
@@ -721,11 +733,28 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let fresh_session = auth_cookie(&logged, "tor-dev-session=");
     assert_ne!(fresh_session, format!("tor-dev-session={token}"));
     let new_reader_cookie = format!("{fresh_session}; {login_cookie}");
-    let fresh_library = html(call(&app, "GET", "/me/library?view=saved", &new_reader_cookie, "").await).await;
+    let fresh_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=saved",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
     let fresh_bought = html(
-        call(&app, "GET", "/me/library?view=purchased", &new_reader_cookie, "").await,
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
     )
     .await;
     assert!(fresh_bought.contains("Paid-only &lt;unsafe&gt;"));
@@ -738,7 +767,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(paid_list.contains("Купленная редакция 1"));
     assert!(paid_list.contains("чтение временно недоступно"));
     assert!(!paid_list.contains(&format!("/read/paid/{paid_chapter}")));
-    let outsider_library = html(call(&app, "GET", "/me/library?view=purchased", &outsider_cookie, "").await).await;
+    let outsider_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(!outsider_library.contains("Paid-only &lt;unsafe&gt;"));
 
     let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
@@ -927,7 +966,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              VALUES({paid_purchase},'br060-paid-only-refund-{marker}','refund')"
         ),
     );
-    let after_refund = html(call(&app, "GET", "/me/library?view=purchased", &new_reader_cookie, "").await).await;
+    let after_refund = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(!after_refund.contains("Paid-only &lt;unsafe&gt;"));
     assert_eq!(
         pg(
