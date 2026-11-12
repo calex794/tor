@@ -1,7 +1,10 @@
 //! C-08/BR-060: reader opens exact private saved-free V1, not current V2.
 //! Only disposable PostgreSQL tor_ci. No normal-delete production switch.
 use axum::http::{header, StatusCode};
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
