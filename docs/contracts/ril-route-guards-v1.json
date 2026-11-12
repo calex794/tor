@@ -2920,6 +2920,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "site_icons::manifest",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/recommendations/shelf-preview",
+      "source": "crates/web/src/recommendation_http/mod.rs",
+      "handler": "admin::shelf::page",
+      "policy": "administrator"
     }
   ]
 }

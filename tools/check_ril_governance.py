@@ -215,6 +215,9 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
             and handler in {"admin::contextual::page", "admin::contextual::status",
                             "admin::contextual::control", "admin::contextual::form"}):
         return source.parent / "admin/contextual.rs"
+    if (source == root / "crates/web/src/recommendation_http/mod.rs"
+            and handler == "admin::shelf::page"):
+        return source.parent / "admin/shelf.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
@@ -410,6 +413,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and (".contextual_status()" in evidence if entry["method"] == "GET"
                      else ".control_contextual(&body)" in evidence)):
             errors.append(f"{label}: missing bounded versioned contextual operation")
+    shelf_preview = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+                     and entry["handler"] == "admin::shelf::page")
+    if shelf_preview and not all(token in evidence for token in (
+            "actor(&state, &headers).await", "Duration::from_millis(950)",
+            "state.store.reader_end_shelf(None, book, chapter)",
+            "pages::shelf_panel_observed(&feed, None)",
+            "pages::secure_page(")):
+        errors.append(f"{label}: unbounded or unauthorized shelf preview")
     retired_policy = _retired_policy(entry)
     retired_ok = False
     if retired_policy:
@@ -1642,6 +1653,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
         ("GET", "/me/recommendations/manage", "admin::page"),
+        ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     if (entry["template"] == "/me/refunds"
@@ -2014,6 +2026,15 @@ def check(root: Path = ROOT) -> list[str]:
             except OSError:
                 source_cache[path]["actor"] = ""
                 source_cache[path]["csrf"] = ""
+        if (entry.get("source") == "crates/web/src/recommendation_http/mod.rs"
+                and entry.get("handler") == "admin::shelf::page"):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / "crates/web/src/recommendation_http/admin.rs").read_text(encoding="utf-8"))
+                imported = re.search(r"use\s+super::\{\s*actor\s*,", child)
+                source_cache[path]["actor"] = parent.get("actor", "") if imported else ""
+            except OSError:
+                source_cache[path]["actor"] = ""
         if _retired_policy(entry):
             try:
                 api = _functions((root / "crates/web/src/recommendation_http/api.rs")
