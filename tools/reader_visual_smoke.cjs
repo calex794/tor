@@ -365,7 +365,7 @@ async function inspect(page, name, where) {
       await inspect(page, name, 'me');
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
       // S007: a book can be saved before any progress or purchase is recorded.
       await page.goto(base + '/books/1');
