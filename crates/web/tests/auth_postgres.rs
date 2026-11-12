@@ -559,7 +559,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert_eq!(private_library.status(), StatusCode::OK);
     assert_eq!(private_library.headers()[header::CACHE_CONTROL], "no-store");
     let library_html = body_of(private_library).await;
-    assert!(library_html.contains("Вы пока не сохраняли место чтения"));
+    assert!(library_html.contains("Ваша книжная полка пока пуста"));
+    assert!(library_html.contains("href=\"/me/library?view=saved\""));
     assert!(!library_html.contains("PRIVATE-PAID-MARKER"));
     // C-08: a book bookmark is independent of the stored reading position.
     let bookmark_prompt = send(
