@@ -401,7 +401,7 @@ pub(super) async fn verify(
         .await
         .contains("data-paid-chapter-reader"));
     let fresh_library =
-        html_body(private_get(app, "/me/library", Some(&fresh.session)).await).await;
+        html_body(private_get(app, "/me/library?view=saved", Some(&fresh.session)).await).await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&archive));
 
