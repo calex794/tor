@@ -278,12 +278,7 @@ fn my_library_inner(
         Some("purchased") => "purchased",
         _ => "reading",
     };
-    let selected =
-        if requested == "purchased" && !purchased_available && purchased_only_html.is_empty() {
-            "reading"
-        } else {
-            requested
-        };
+    let selected = requested;
     let tabs = [
         ("reading", "Читаю"),
         ("saved", "Сохранено"),
