@@ -253,7 +253,7 @@ fn render_my_account(
 }
 
 /// Switch public navigation to the authenticated account shell.
-pub(super) fn private_account_layout(
+pub fn private_account_layout(
     title: &str,
     description: &str,
     content: &str,
@@ -486,6 +486,14 @@ mod tests {
         assert!(!html.contains("href=\"/me/purchases\""));
         assert!(html.contains("href=\"/me/finance\""));
     }
+    #[test]
+    fn authenticated_pages_show_profile_instead_of_login_links() {
+        let html = private_account_layout("Уведомления", "Ваши уведомления", "<p>Уведомления</p>").0;
+        assert!(html.contains("href=\"/me\" aria-current=\"page\">Мой кабинет</a>"));
+        assert!(!html.contains("href=\"/login\">Войти</a>"));
+        assert!(!html.contains("href=\"/register\">Регистрация</a>"));
+    }
+
     #[test]
     fn d_06_swap_link_requires_explicit_browser_opt_in() {
         let achievements = ReaderAchievements {
