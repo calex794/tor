@@ -29,7 +29,12 @@ fn pending_deletion_book_is_private_visible_and_distinct_from_deleted() {
         items: Vec::new(),
         next_cursor: None,
     };
-    let page = my_library_with_updates(&[], &saved, "csrf-token", false, false, &updates, &[]);
+    let page = my_library_with_updates_and_layers_and_purchased_only_selected(
+        &[], &saved, "csrf-token", (false, false), false, (&updates, &[]),
+        &tor_reading::services::library::PurchasedOnlyBookPage {
+            items: vec![], next_cursor: None,
+        }, Some("saved"),
+    );
     let html = page.0;
     assert!(html.contains("Ожидает удаления"));
     assert_eq!(html.matches("Ожидает удаления").count(), 1);
