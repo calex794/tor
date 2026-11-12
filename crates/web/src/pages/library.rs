@@ -3,90 +3,6 @@ use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 
-pub fn my_library_with_updates(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    purchased_available: bool,
-    checkout_enabled: bool,
-    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
-    owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
-) -> Html<String> {
-    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(
-        items,
-        saved,
-        csrf,
-        purchased_available,
-        false,
-        &update_html,
-        "",
-        !updates.items.is_empty(),
-        None,
-    )
-}
-
-/// The purchased-Layer navigation only appears with explicit storefront opt-in.
-pub fn my_library_with_updates_and_layers(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    availability: (bool, bool),
-    checkout_enabled: bool,
-    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
-    owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
-) -> Html<String> {
-    let (purchased_available, layers_available) = availability;
-    if !layers_available {
-        return my_library_with_updates(
-            items,
-            saved,
-            csrf,
-            purchased_available,
-            checkout_enabled,
-            updates,
-            owned,
-        );
-    }
-    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(
-        items,
-        saved,
-        csrf,
-        purchased_available,
-        layers_available,
-        &update_html,
-        "",
-        !updates.items.is_empty(),
-        None,
-    )
-}
-
-/// Purchases remain independent from bookmarks; tab selection changes presentation only.
-pub fn my_library_with_updates_and_layers_and_purchased_only(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    availability: (bool, bool),
-    checkout_enabled: bool,
-    updates_and_owned: (
-        &tor_reading::repositories::follow_updates::FollowedReleasePage,
-        &[tor_commerce::services::reader_views::ReadablePurchaseLink],
-    ),
-    purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
-) -> Html<String> {
-    my_library_with_updates_and_layers_and_purchased_only_selected(
-        items,
-        saved,
-        csrf,
-        availability,
-        checkout_enabled,
-        updates_and_owned,
-        purchased_only,
-        None,
-    )
-}
-
 pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -97,9 +13,9 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
         &tor_reading::repositories::follow_updates::FollowedReleasePage,
         &[tor_commerce::services::reader_views::ReadablePurchaseLink],
     ),
-    purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
-    view: Option<&str>,
+    purchased_and_view: (&tor_reading::services::library::PurchasedOnlyBookPage, Option<&str>),
 ) -> Html<String> {
+    let (purchased_only, view) = purchased_and_view;
     let (updates, owned) = updates_and_owned;
     let (purchased_available, layers_available) = availability;
     let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
@@ -108,12 +24,10 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
         items,
         saved,
         csrf,
-        purchased_available,
-        layers_available,
+        (purchased_available, layers_available),
         &updates_html,
         &purchased_only_html,
-        !updates.items.is_empty(),
-        view,
+        (!updates.items.is_empty(), view),
     )
 }
 
@@ -182,13 +96,13 @@ fn my_library_inner(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
-    purchased_available: bool,
-    layers_available: bool,
+    availability: (bool, bool),
     updates_html: &str,
     purchased_only_html: &str,
-    has_updates: bool,
-    view: Option<&str>,
+    selection: (bool, Option<&str>),
 ) -> Html<String> {
+    let (purchased_available, layers_available) = availability;
+    let (has_updates, view) = selection;
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-placeholder\"><h2>Вы ещё не сохраняли место чтения</h2><p>Выберите книгу и сохраните позицию в главе, чтобы продолжить позже.</p><a class=\"button button--small\" href=\"/catalog\">Выбрать книгу</a></div>");
@@ -477,7 +391,7 @@ mod archived_continue_tests {
             block_index: 3,
             archived_saved: true,
         }];
-        let html = my_library_with_updates(&items, &saved, "csrf", false, false, &updates, &[]).0;
+        let html = my_library_with_updates_and_layers_and_purchased_only_selected(&items, &saved, "csrf", (false, false), false, (&updates, &[]), (&tor_reading::services::library::PurchasedOnlyBookPage { items: vec![], next_cursor: None }, Some("reading"))).0;
         assert!(html.contains("href=\"/me/library/saved/71#saved-resume\""));
         assert!(html.contains("Сохранённая редакция · Удалена"));
         assert!(html.contains("&lt;книга&gt;"));
@@ -488,7 +402,7 @@ mod archived_continue_tests {
             ..items[0].clone()
         }];
         let current =
-            my_library_with_updates(&public, &saved, "csrf", false, false, &updates, &[]).0;
+            my_library_with_updates_and_layers_and_purchased_only_selected(&public, &saved, "csrf", (false, false), false, (&updates, &[]), (&tor_reading::services::library::PurchasedOnlyBookPage { items: vec![], next_cursor: None }, Some("reading"))).0;
         assert!(current.contains("href=\"/read/71#p-3\""));
         assert!(!current.contains("href=\"/me/library/saved/71"));
     }
@@ -536,8 +450,7 @@ mod purchase_only_book_tests {
             (true, false),
             false,
             (&updates, &[]),
-            &only_bought,
-            Some("purchased"),
+            (&only_bought, Some("purchased")),
         )
         .0;
         assert!(html.contains("aria-label=\"Книги с покупками\""));
@@ -558,8 +471,7 @@ mod purchase_only_book_tests {
             (false, false),
             false,
             (&updates, &[]),
-            &only_bought,
-            Some("purchased"),
+            (&only_bought, Some("purchased")),
         )
         .0;
         assert!(unavailable.contains("чтение временно недоступно"));
