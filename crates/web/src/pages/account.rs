@@ -498,6 +498,11 @@ mod tests {
         let enabled =
             my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, true).0;
         assert!(enabled.contains("href=\"/me/refunds/swap\""));
+        assert!(enabled
+            .split("<details class=\"account-nav-group\">")
+            .next()
+            .unwrap_or_default()
+            .contains("href=\"/me/refunds/swap\""));
 
         let refund_only = my_account_with_achievements_refunds_and_swap(
             "Reader",
@@ -510,6 +515,11 @@ mod tests {
         )
         .0;
         assert!(refund_only.contains("href=\"/me/refunds\""));
+        assert!(refund_only
+            .split("<details class=\"account-nav-group\">")
+            .next()
+            .unwrap_or_default()
+            .contains("href=\"/me/refunds\""));
         assert!(!refund_only.contains("href=\"/me/refunds/swap\""));
         assert!(!hidden.contains("href=\"/me/refunds\""));
     }
