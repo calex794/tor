@@ -40,6 +40,30 @@ async function login(browser,mail,secret) {
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
     const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
     const second=await login(browser,email,password);
+    // Account and notification layout must remain readable at desktop/mobile widths.
+    await fs.mkdir(shots,{recursive:true});
+    for (const width of [1440,390]) {
+      await alice.page.setViewportSize({width,height:1000});
+      await alice.page.goto(base+'/me');
+      assert.equal(await alice.page.locator('.account-sidebar').count(),1);
+      assert.equal(await alice.page.locator('.account-main').count(),1);
+      assert.equal(await alice.page.locator('nav.dashboard-nav a[aria-current="page"]').count(),1);
+      assert.equal(await alice.page.locator('form[action="/logout"]').count(),1);
+      const achievementCards=alice.page.locator('.achievement-card');
+      assert(await achievementCards.count()>=1,'achievement cards are visible');
+      assert.equal(await achievementCards.locator('progress').count(),await achievementCards.count());
+      assert(await alice.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'account overflows at '+width);
+      await alice.page.screenshot({path:path.join(shots,'account-overview-'+width+'.png'),fullPage:true});
+      await alice.page.goto(base+'/notifications');
+      assert.equal(await alice.page.locator('.account-sidebar').count(),1);
+      assert.equal(await alice.page.locator('nav.dashboard-nav a[aria-current="page"]').getAttribute('href'),'/notifications');
+      const preferences=alice.page.locator('.notifications-settings-card');
+      await preferences.locator('summary').click();
+      assert(await preferences.locator('.notifications-switch').count()>=1,'preferences rendered');
+      assert.equal(await preferences.locator('.notifications-switch').first().evaluate(el=>getComputedStyle(el).display),'flex');
+      assert(await alice.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'notifications overflow at '+width);
+      await alice.page.screenshot({path:path.join(shots,'notifications-preferences-'+width+'.png'),fullPage:true});
+    }
     const guest=await browser.newContext();
     assert.equal((await guest.request.get(`${base}/api/v1/me`)).status(),401);
     await alice.page.goto(`${base}/me/settings`);
