@@ -253,11 +253,7 @@ fn render_my_account(
 }
 
 /// Switch public navigation to the authenticated account shell.
-pub fn private_account_layout(
-    title: &str,
-    description: &str,
-    content: &str,
-) -> Html<String> {
+pub fn private_account_layout(title: &str, description: &str, content: &str) -> Html<String> {
     let html = layout(title, description, content);
     Html(
         html.0
@@ -488,7 +484,8 @@ mod tests {
     }
     #[test]
     fn authenticated_pages_show_profile_instead_of_login_links() {
-        let html = private_account_layout("Уведомления", "Ваши уведомления", "<p>Уведомления</p>").0;
+        let html =
+            private_account_layout("Уведомления", "Ваши уведомления", "<p>Уведомления</p>").0;
         assert!(html.contains("href=\"/me\" aria-current=\"page\">Мой кабинет</a>"));
         assert!(!html.contains("href=\"/login\">Войти</a>"));
         assert!(!html.contains("href=\"/register\">Регистрация</a>"));
