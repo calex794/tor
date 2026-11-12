@@ -382,7 +382,9 @@ async function inspect(page, name, where) {
       await inspect(page, name, 'bookmarked');
       await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
+      assert(await page.getByText('Пока нет сохранённых книг').isVisible(),
         name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
