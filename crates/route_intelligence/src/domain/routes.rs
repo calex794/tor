@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 409] = [
+static ROUTES: [RouteRegistration; 415] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -419,6 +419,12 @@ static ROUTES: [RouteRegistration; 409] = [
     RouteRegistration::new("/admin/promotion/editorial", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 406
     RouteRegistration::new("/admin/audience/signals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 407
     RouteRegistration::new("/admin/audience/pages", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 408
+    RouteRegistration::new("/favicon.ico", "GET", "/assets/", Exact, Static, System, Free), // 409
+    RouteRegistration::new("/favicon.svg", "GET", "/assets/", Exact, Static, System, Free), // 410
+    RouteRegistration::new("/favicon-32x32.png", "GET", "/assets/", Exact, Static, System, Free), // 411
+    RouteRegistration::new("/apple-touch-icon.png", "GET", "/assets/", Exact, Static, System, Free), // 412
+    RouteRegistration::new("/icon-192.png", "GET", "/assets/", Exact, Static, System, Free), // 413
+    RouteRegistration::new("/site.webmanifest", "GET", "/assets/", Exact, Static, System, Free), // 414
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

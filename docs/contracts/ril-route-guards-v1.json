@@ -2878,6 +2878,48 @@
       "source": "crates/web/src/auth/audience_http.rs",
       "handler": "public_pages::page",
       "policy": "administrator"
+    },
+    {
+      "method": "GET",
+      "template": "/favicon.ico",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::favicon_ico",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/favicon.svg",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::favicon_svg",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/favicon-32x32.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::favicon_png",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/apple-touch-icon.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::apple_touch_icon",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/icon-192.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::android_icon",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/site.webmanifest",
+      "source": "crates/web/src/lib.rs",
+      "handler": "site_icons::manifest",
+      "policy": "public"
     }
   ]
 }

@@ -421,6 +421,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/promotion/editorial"), "POST") => Some(406),
         (Some("/admin/audience/signals"), "GET") => Some(407),
         (Some("/admin/audience/pages"), "GET") => Some(408),
+        (Some("/favicon.ico"), "GET") => Some(409),
+        (Some("/favicon.svg"), "GET") => Some(410),
+        (Some("/favicon-32x32.png"), "GET") => Some(411),
+        (Some("/apple-touch-icon.png"), "GET") => Some(412),
+        (Some("/icon-192.png"), "GET") => Some(413),
+        (Some("/site.webmanifest"), "GET") => Some(414),
         _ => None,
     };
     index

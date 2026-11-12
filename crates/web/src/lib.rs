@@ -70,6 +70,7 @@ pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+mod site_icons;
 mod toc_window_http;
 pub mod yandex_cdn_purge;
 #[cfg(feature = "s3-paid")]
@@ -475,6 +476,12 @@ fn make_router_with_paid_checkout(
             "/assets/newboo-free-reader.js",
             get(pages::free_reader_script),
         )
+        .route("/favicon.ico", get(site_icons::favicon_ico))
+        .route("/favicon.svg", get(site_icons::favicon_svg))
+        .route("/favicon-32x32.png", get(site_icons::favicon_png))
+        .route("/apple-touch-icon.png", get(site_icons::apple_touch_icon))
+        .route("/icon-192.png", get(site_icons::android_icon))
+        .route("/site.webmanifest", get(site_icons::manifest))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
