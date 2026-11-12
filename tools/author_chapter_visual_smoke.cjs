@@ -290,7 +290,8 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL(base + '/me/library/add/' + bookId);
         await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
         await reader.waitForURL('**/me/library');
-        assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
+        await reader.goto(base + '/me/library?view=saved');
+        assert(await reader.locator('.library-shelf-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
         // S010: real reader UI -> server-side book like -> public counter.
@@ -363,7 +364,7 @@ async function inspect(page, viewport, name) {
         await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
         await page.getByRole('button', { name: 'Сохранить главу' }).click();
         await page.waitForURL(base + '/me/books/' + bookId);
-        await reader.goto(base + '/me/library');
+        await reader.goto(base + '/me/library?view=updates');
         const updates = reader.locator('#new-chapters');
         assert(await updates.getByRole('heading', { name: 'Новые главы подписок' }).isVisible(),
           viewport + ': release feed missing');
@@ -398,19 +399,20 @@ async function inspect(page, viewport, name) {
 
         // C-08/S007: saved books and reading positions have independent lifetimes.
         // A second authenticated account must not inherit the reader's bookmark.
-        await page.goto(base + '/me/library');
-        assert(await page.getByRole('region', { name: 'Сохранённые книги' })
-          .locator('a[href="/books/' + bookId + '"]').count() === 0,
+        await page.goto(base + '/me/library?view=saved');
+        assert(await page.locator('#saved-books a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': reader bookmark leaked into the author account');
-        const savedBooks = reader.getByRole('region', { name: 'Сохранённые книги' });
-        const savedCard = savedBooks.locator('.library-card').filter({
+        await reader.goto(base + '/me/library?view=saved');
+        const savedBooks = reader.locator('#saved-books');
+        const savedCard = savedBooks.locator('.library-shelf-card').filter({
           has: reader.locator('a[href="/books/' + bookId + '"]'),
         });
         await savedCard.getByRole('button', { name: 'Убрать из библиотеки' }).click();
         await reader.waitForURL(base + '/me/library');
-        await reader.reload();
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': removed bookmark returned after reload');
+        await reader.goto(base + '/me/library');
         assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
           viewport + ': removing bookmark erased the saved reading position');
         await inspect(reader, viewport, 'bookmark-removed');
@@ -427,8 +429,10 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL('**/me');
         await reader.goto(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': removed bookmark returned after logout and login');
+        await reader.goto(base + '/me/library');
         assert(await resume.isVisible(),
           viewport + ': reader lost saved place after logout and login');
         await resume.click();
@@ -444,8 +448,10 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL(base + '/me/library/add/' + bookId);
         await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
         await reader.waitForURL(base + '/me/library');
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 1,
           viewport + ': removed book could not be saved again exactly once');
+        await reader.goto(base + '/me/library');
         assert(await resume.isVisible(),
           viewport + ': re-adding bookmark changed saved reading position');
         await inspect(reader, viewport, 'bookmark-restored');
