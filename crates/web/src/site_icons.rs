@@ -17,11 +17,17 @@ fn asset(mime: &'static str, body: &'static [u8]) -> Response {
 }
 
 pub(crate) async fn favicon_ico() -> Response {
-    asset("image/x-icon", include_bytes!("../assets/brand/favicon.ico"))
+    asset(
+        "image/x-icon",
+        include_bytes!("../assets/brand/favicon.ico"),
+    )
 }
 
 pub(crate) async fn favicon_svg() -> Response {
-    asset("image/svg+xml", include_bytes!("../assets/brand/favicon.svg"))
+    asset(
+        "image/svg+xml",
+        include_bytes!("../assets/brand/favicon.svg"),
+    )
 }
 
 pub(crate) async fn favicon_png() -> Response {
@@ -129,7 +135,10 @@ mod tests {
             ("/favicon-32x32.png", "image/png"),
             ("/apple-touch-icon.png", "image/png"),
             ("/icon-192.png", "image/png"),
-            ("/site.webmanifest", "application/manifest+json; charset=utf-8"),
+            (
+                "/site.webmanifest",
+                "application/manifest+json; charset=utf-8",
+            ),
         ] {
             let response = router
                 .clone()

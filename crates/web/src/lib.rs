@@ -63,7 +63,6 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
-mod site_icons;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
@@ -71,6 +70,7 @@ pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+mod site_icons;
 mod toc_window_http;
 pub mod yandex_cdn_purge;
 #[cfg(feature = "s3-paid")]
