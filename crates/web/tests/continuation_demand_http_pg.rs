@@ -341,7 +341,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "one author Save must create exactly one reader-visible first release"
     );
     let follower_updates =
-        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+        html(call(&app, "GET", "/me/library?view=updates", &reader_cookie, ORIGIN, "").await).await;
     assert!(follower_updates.contains("Demand fulfilled"));
     assert!(follower_updates.contains(&format!("href=\"/read/{released}\"")));
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
