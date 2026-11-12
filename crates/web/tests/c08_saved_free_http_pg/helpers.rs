@@ -35,7 +35,13 @@ pub(super) fn pg(url: &str, sql: &str) -> String {
         .to_owned()
 }
 
-pub(super) async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -> Response {
+pub(super) async fn call(
+    app: &Router,
+    method: &str,
+    url: &str,
+    cookie: &str,
+    body: &str,
+) -> Response {
     let mut req = Request::builder()
         .method(method)
         .uri(url)
