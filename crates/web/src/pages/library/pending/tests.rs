@@ -36,11 +36,10 @@ fn pending_deletion_book_is_private_visible_and_distinct_from_deleted() {
         (false, false),
         false,
         (&updates, &[]),
-        &tor_reading::services::library::PurchasedOnlyBookPage {
+        (&tor_reading::services::library::PurchasedOnlyBookPage {
             items: vec![],
             next_cursor: None,
-        },
-        Some("saved"),
+        }, Some("saved")),
     );
     let html = page.0;
     assert!(html.contains("Ожидает удаления"));
