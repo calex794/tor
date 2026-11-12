@@ -152,9 +152,11 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
     assert!(json.contains("\"pending_deletion\":true"));
     let stranger = body(call(&app, "GET", "/me/library?view=saved", &other_cookie, "").await).await;
     assert!(!stranger.contains("Архив &lt;script&gt;"));
-    assert!(!body(call(&app, "GET", "/me/library?view=saved", "", "").await)
-        .await
-        .contains("Архив &lt;script&gt;"));
+    assert!(
+        !body(call(&app, "GET", "/me/library?view=saved", "", "").await)
+            .await
+            .contains("Архив &lt;script&gt;")
+    );
     assert!(other > 0);
 
     let payload = format!("csrf_token={csrf}");
