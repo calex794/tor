@@ -17,11 +17,11 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
-    my_account_with_achievements_and_swap, my_account_with_achievements_refunds_and_swap,
-    my_account_with_follow_updates, password_change_form, registration_form,
-    registration_form_with_error, registration_form_with_error_and_next,
-    registration_form_with_next,
+    account_error_page, account_navigation, login_form, login_form_with_next, my_account,
+    my_account_with_achievements, my_account_with_achievements_and_swap,
+    my_account_with_achievements_refunds_and_swap, my_account_with_follow_updates,
+    password_change_form, private_account_layout, registration_form, registration_form_with_error,
+    registration_form_with_error_and_next, registration_form_with_next,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
@@ -446,6 +446,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/account-ui.css"));
         css
     });
     (

@@ -109,7 +109,7 @@ fn render_previous_day_digest(entries: &[DailyChapterDigestEntry]) -> axum::resp
          <section class=\"me-section\" aria-label=\"Вчерашние выпуски\">{cards}</section>\
          </div></section>"
     );
-    pages::layout(
+    pages::private_account_layout(
         "Дайджест новых глав",
         "Личная сводка опубликованных глав.",
         &body,
@@ -162,6 +162,7 @@ pub(super) async fn page(
         Err(e) => return deny(super::mail::status(e)),
     };
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
+    let account_nav = pages::account_navigation("/notifications", &csrf_token);
     let csrf_token = pages::escape_html(&csrf_token);
     let mut tab_links = String::new();
     for (value, label, href) in [
@@ -179,7 +180,7 @@ pub(super) async fn page(
         };
         write!(
             tab_links,
-            "<a class=\"ui-button ui-button--small{active}\" href=\"{href}\"{current}>{label}</a>"
+            "<a class=\"notifications-tab{active}\" href=\"{href}\"{current}>{label}</a>"
         )
         .expect("notification tab");
     }
@@ -190,25 +191,25 @@ pub(super) async fn page(
         } else {
             "Не прочитано"
         };
+        let state_class = if row.is_read { " is-read" } else { "" };
         write!(
             cards,
-            "<article class=\"me-now-card\" data-notification-id=\"{}\" data-notification-kind=\"{}\"><strong>{}</strong><p>{}</p><time>{}</time><p>{status}</p>",
+            r#"<article class="notification-card{state_class}" data-notification-id="{}" data-notification-kind="{}">
+               <div class="notification-card__content">
+                 <div class="notification-card__heading"><strong>{}</strong><span class="notification-card__status">{status}</span></div>
+                 <p>{}</p><time>{}</time>
+               </div>"#,
             row.id,
             pages::escape_html(&row.kind),
             pages::escape_html(&row.title),
             pages::escape_html(&row.body),
             pages::escape_html(&row.created_at),
         ).expect("notification markup");
-        // The source 'Open' action acknowledges in POST before navigating.
-        // Render it for read and unread rows; acknowledgement is idempotent.
         write!(
             cards,
-            "<form method=\"post\" action=\"/notifications/{}/read\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"next\" value=\"{}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Открыть</button></form>",
-            row.id,
-            csrf_token,
-            pages::escape_html(&row.url),
-        )
-        .expect("notification open form");
+            "<form class=\"notification-card__action\" method=\"post\" action=\"/notifications/{}/read\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"next\" value=\"{}\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">Открыть</button></form>",
+            row.id, csrf_token, pages::escape_html(&row.url),
+        ).expect("notification open form");
         cards.push_str("</article>");
     }
     if rows.is_empty() {
@@ -219,7 +220,7 @@ pub(super) async fn page(
         } else {
             "Уведомлений пока нет."
         };
-        write!(cards, "<p>{empty}</p>").expect("notification empty state");
+        write!(cards, "<div class=\"notifications-empty-state\"><strong>Здесь пока пусто</strong><p>{empty}</p></div>").expect("notification empty state");
     }
     let older = if rows.len() == 50 {
         rows.last().map_or_else(String::new, |row| {
@@ -236,26 +237,58 @@ pub(super) async fn page(
         let checked = if preference.enabled { " checked" } else { "" };
         write!(
             preference_controls,
-            r#"<label class="notifications-switch"><span class="notifications-switch__text"><strong>{}</strong><small>{}</small></span><input type="checkbox" name="pref_{}" value="on"{checked}></label>"#,
+            r#"<label class="notifications-switch"><input class="notifications-switch__input" type="checkbox" name="pref_{}" value="on"{checked}><span class="notifications-switch__text"><strong>{}</strong><small>{}</small></span></label>"#,
+            preference.kind,
             pages::escape_html(preference.label),
             pages::escape_html(preference.description),
-            preference.kind,
-        )
-        .expect("notification preference control");
+        ).expect("notification preference control");
     }
     let settings_notice = if query.notice.as_deref() == Some("preferences_saved") {
-        r#"<p role="status">Настройки уведомлений сохранены.</p>"#
+        r#"<p class="notifications-settings-card__saved" role="status">Настройки уведомлений сохранены.</p>"#
+    } else {
+        ""
+    };
+    let settings_open = if query.notice.as_deref() == Some("preferences_saved") {
+        " open"
     } else {
         ""
     };
     let preferences_section = format!(
-        r#"<aside class="notifications-settings-card" aria-labelledby="notifications-settings-title"><h2 id="notifications-settings-title">Настройки</h2><p>Выберите, какие события будут попадать в колокольчик.</p>{settings_notice}<form method="post" action="/notifications/preferences"><input type="hidden" name="csrf_token" value="{csrf_token}">{preference_controls}<button class="ui-button ui-button--primary" type="submit">Сохранить</button></form></aside>"#
+        r#"<details class="notifications-settings-card"{settings_open}>
+             <summary class="notifications-settings-card__summary"><span><strong>Настройки уведомлений</strong><small>Какие события будут попадать в колокольчик</small></span></summary>
+             <div class="notifications-settings-card__body">{settings_notice}
+               <form method="post" action="/notifications/preferences">
+                 <input type="hidden" name="csrf_token" value="{csrf_token}">
+                 <div class="notifications-preferences-grid">{preference_controls}</div>
+                 <div class="notifications-settings-card__actions"><button class="ui-button ui-button--primary" type="submit">Сохранить изменения</button></div>
+               </form>
+             </div>
+           </details>"#
     );
+    // Keep the existing read-all route/form for integration checks.
+    let read_all_empty = if rows.is_empty() { " is-empty" } else { "" };
     let body = format!(
-        "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><nav class=\"ui-tabs notifications-tabs\" aria-label=\"Раздел уведомлений\">{tab_links}</nav><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section>{preferences_section}</div></section>"
+        r#"<section class="me-page notifications-page"><div class="container account-layout">
+           {account_nav}
+           <div class="account-main">
+             <header class="ui-page-header"><div>
+               <p class="ui-page-header__kicker">Личный кабинет</p>
+               <h1 class="ui-page-header__title">Уведомления</h1>
+               <p class="ui-page-header__text">Новые главы, обсуждения и события ваших книг.</p>
+             </div></header>
+             <div class="notifications-toolbar">
+               <nav class="ui-tabs notifications-tabs" aria-label="Раздел уведомлений">{tab_links}</nav>
+               <form class="notifications-read-all{read_all_empty}" method="post" action="/notifications/read-all">
+                 <input type="hidden" name="csrf_token" value="{csrf_token}">
+                 <button class="ui-button ui-button--ghost ui-button--small" type="submit">Отметить все прочитанными</button>
+               </form>
+             </div>
+             <section class="notifications-feed" aria-label="Список уведомлений">{cards}{older}</section>
+             {preferences_section}
+           </div></div></section>"#
     );
     private_response(
-        pages::layout("Уведомления", "Ваши уведомления", &body),
+        pages::private_account_layout("Уведомления", "Ваши уведомления", &body),
         &cookies,
     )
 }
