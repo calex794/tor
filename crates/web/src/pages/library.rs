@@ -534,7 +534,7 @@ mod purchase_only_book_tests {
             items: vec![],
             next_cursor: None,
         };
-        let html = my_library_with_updates_and_layers_and_purchased_only(
+        let html = my_library_with_updates_and_layers_and_purchased_only_selected(
             &[],
             &bookmarked,
             "csrf",
@@ -542,6 +542,7 @@ mod purchase_only_book_tests {
             false,
             (&updates, &[]),
             &only_bought,
+            Some("purchased"),
         )
         .0;
         assert!(html.contains("aria-label=\"Книги с покупками\""));
@@ -555,7 +556,7 @@ mod purchase_only_book_tests {
         assert!(!html.contains("action=\"/me/library/88/remove\""));
         assert!(!html.contains("action=\"/me/library/77/remove\""));
 
-        let unavailable = my_library_with_updates_and_layers_and_purchased_only(
+        let unavailable = my_library_with_updates_and_layers_and_purchased_only_selected(
             &[],
             &bookmarked,
             "csrf",
@@ -563,6 +564,7 @@ mod purchase_only_book_tests {
             false,
             (&updates, &[]),
             &only_bought,
+            Some("purchased"),
         )
         .0;
         assert!(unavailable.contains("чтение временно недоступно"));
