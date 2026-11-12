@@ -415,8 +415,18 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         ),
         "1"
     );
-    let acknowledged =
-        html(call(&app, "GET", "/me/library?view=updates", &reader_cookie, ORIGIN, "").await).await;
+    let acknowledged = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(acknowledged.contains("Просмотрено"));
     assert!(acknowledged.contains("Отметить непрочитанной"));
     assert_eq!(
@@ -432,7 +442,18 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         .status(),
         StatusCode::SEE_OTHER
     );
-    let unread = html(call(&app, "GET", "/me/library?view=updates", &reader_cookie, ORIGIN, "").await).await;
+    let unread = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(unread.contains("Отметить прочитанной"));
     assert_eq!(
         pg(
