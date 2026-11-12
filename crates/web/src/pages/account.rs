@@ -199,6 +199,20 @@ pub fn my_account_with_achievements_refunds_and_swap(
     )
 }
 
+/// Shared, accessible account navigation for the overview and notification pages.
+pub fn account_navigation(active: &str, csrf: &str) -> String {
+    let mut navigation = include_str!("../../templates/account_nav.html")
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+    if matches!(active, "/me" | "/notifications") {
+        let needle = format!("class=\"dashboard-nav__item\" href=\"{active}\"");
+        let selected = format!(
+            "class=\"dashboard-nav__item is-active\" href=\"{active}\" aria-current=\"page\""
+        );
+        navigation = navigation.replacen(&needle, &selected, 1);
+    }
+    navigation
+}
+
 fn render_my_account(
     name: &str,
     csrf: &str,
@@ -223,6 +237,7 @@ fn render_my_account(
         )
     };
     let content = include_str!("../../templates/me.html")
+        .replace("<!--ACCOUNT_NAVIGATION-->", &account_navigation("/me", csrf))
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
@@ -259,28 +274,33 @@ fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
         return "<p class=\"ui-section-header__text\">Достижения появятся после подтверждённого чтения.</p>"
             .to_owned();
     };
-    let mut cards = String::from("<div class=\"me-block-grid\">");
+    let mut cards = String::from("<div class=\"me-block-grid achievement-grid\">");
     for badge in &snapshot.badges {
         let definition = badge.definition;
         let done = badge.unlocked_on.is_some();
-        let status = if done {
-            "Получено"
-        } else {
-            "Пока не получено"
-        };
+        let status = if done { "Получено" } else { "Пока не получено" };
         let progress = snapshot.completed_chapters.min(definition.threshold);
+        let unlocked = if done { " is-unlocked" } else { "" };
         cards.push_str(&format!(
-            "<article class=\"dashboard-tile dashboard-tile--reader\">\
-             <h3 class=\"dashboard-tile__title\">{}</h3>\
-             <p class=\"dashboard-tile__text\">{}</p>\
-             <p class=\"dashboard-tile__text\">{status}: {progress}/{} глав</p>",
+            "<article class=\"achievement-card{unlocked}\">\
+             <div class=\"achievement-card__top\">\
+             <span class=\"achievement-card__icon\" aria-hidden=\"true\">★</span>\
+             <span class=\"achievement-card__status\">{status}</span></div>\
+             <h3 class=\"achievement-card__title\">{}</h3>\
+             <p class=\"achievement-card__description\">{}</p>\
+             <div class=\"achievement-card__progress\">\
+             <span class=\"achievement-card__progress-text\">{status}: {progress}/{} глав</span>\
+             <progress value=\"{progress}\" max=\"{}\" aria-label=\"Прогресс достижения «{}»\"></progress>\
+             </div>",
             escape_html(definition.title),
             escape_html(definition.description),
             definition.threshold,
+            definition.threshold.max(1),
+            escape_html(definition.title),
         ));
         if let Some(unlocked_on) = &badge.unlocked_on {
             cards.push_str(&format!(
-                "<p class=\"dashboard-tile__text\">Дата получения: {}</p>",
+                "<p class=\"achievement-card__date\">Дата получения: {}</p>",
                 escape_html(unlocked_on),
             ));
         }
@@ -413,6 +433,9 @@ mod tests {
         };
         let page = my_account_with_achievements("Reader", "csrf", &[], 0, &achievements).0;
         assert!(page.contains("Достижения"));
+        assert!(page.contains("class=\"me-block-grid achievement-grid\""));
+        assert!(page.contains("class=\"achievement-card is-unlocked\""));
+        assert!(page.contains("<progress value=\"1\" max=\"10\""));
         assert!(page.contains("Первая глава"));
         assert!(page.contains("Получено: 1/1 глав"));
         assert!(page.contains("Пока не получено: 1/10 глав"));
@@ -429,6 +452,10 @@ mod tests {
         let html = my_account("<Читатель>", "csrf-token", &[]).0;
         assert!(html.contains("class=\"me-page\""));
         assert!(html.contains("class=\"me-overview\""));
+        assert!(html.contains("class=\"account-main\""));
+        assert!(html.contains("class=\"account-sidebar\""));
+        assert!(html.contains("href=\"/me\" aria-current=\"page\""));
+        assert_eq!(html.matches("action=\"/logout\"").count(), 1);
         assert!(html.contains("class=\"me-block-grid\""));
         assert!(html.contains("class=\"dashboard-tile dashboard-tile--reader\""));
         assert!(html.contains("Работа с книгами"));

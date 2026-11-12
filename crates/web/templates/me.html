@@ -1,37 +1,15 @@
 <!-- NEwBOO templates/me/index.html — only working TOR actions and routes. -->
 <section class="me-page">
-  <div class="container">
-    <nav class="dashboard-nav" aria-label="Разделы кабинета">
-      <a class="dashboard-nav__item is-active" href="/me" aria-current="page">Обзор</a>
-      <a class="dashboard-nav__item" href="/mail">Личная почта</a>
-      <a class="dashboard-nav__item" href="/notifications">Все уведомления</a>
-      <a class="dashboard-nav__item" href="/me/inbox">Обсуждения</a>
-      <a class="dashboard-nav__item" href="/me/comment-appeals">Апелляции на скрытие комментариев</a>
-      <a class="dashboard-nav__item" href="/me/referrals">Приглашения</a>
-      <a class="dashboard-nav__item" href="/me/library">Библиотека</a>
-      <!--SWAP_NAV_LINK-->
-      <!--REFUND_NAV_LINK-->
-      <!--AUDIENCE_NAV_LINK-->
-      <a class="dashboard-nav__item" href="/me/creators">Подписки на авторов</a>
-      <a class="dashboard-nav__item" href="/me/notification-settings">Уведомления</a>
-      <a class="dashboard-nav__item" href="/me/rankings">Мой рейтинг</a>
-      <a class="dashboard-nav__item" href="/me/settings/password">Сменить пароль</a>
-      <a class="dashboard-nav__item" href="/me/books">Книги автора</a>
-      <a class="dashboard-nav__item" href="/me/finance">Финансы автора</a>
-      <a class="dashboard-nav__item" href="/me/teams">Команды</a>
-      <a class="dashboard-nav__item" href="/personal-books">Личные книги</a>
-          <a class="dashboard-nav__item" href="/me/security/sessions">Устройства и сеансы</a>
-</nav>
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+
     <header class="ui-page-header me-page-header">
       <div class="ui-page-header__content">
         <p class="ui-page-header__kicker">Личный кабинет</p>
         <h1 class="ui-page-header__title">Кабинет</h1>
         <p class="ui-page-header__text">Чтение, библиотека и работа с книгами — в одном месте.</p>
       </div>
-      <form class="me-page__logout" method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
-        <button class="ui-button ui-button--ghost ui-button--small" type="submit">Выйти</button>
-      </form>
     </header>
 
     <section class="me-overview" aria-label="Сводка кабинета">
@@ -132,7 +110,6 @@
         </article>
       </div>
     </section>
+    </div>
   </div>
 </section>
-
-<p><a href="/me/recommendations">Рекомендации и согласие</a></p>

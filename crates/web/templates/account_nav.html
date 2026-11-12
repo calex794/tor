@@ -1,0 +1,44 @@
+<aside class="account-sidebar" aria-label="Меню личного кабинета">
+  <div class="account-sidebar__header">
+    <span class="account-sidebar__eyebrow">Личный кабинет</span>
+    <strong class="account-sidebar__title">Мои разделы</strong>
+  </div>
+  <nav class="dashboard-nav" aria-label="Разделы кабинета">
+    <span class="dashboard-nav__group-label">Основное</span>
+    <a class="dashboard-nav__item" href="/me">Обзор</a>
+    <a class="dashboard-nav__item" href="/me/library">Моя библиотека</a>
+    <a class="dashboard-nav__item" href="/notifications">Уведомления</a>
+    <a class="dashboard-nav__item" href="/mail">Личная почта</a>
+    <a class="dashboard-nav__item" href="/me/inbox">Обсуждения</a>
+    <details class="account-nav-group">
+      <summary>Книги и авторство</summary>
+      <div class="account-nav-group__items">
+        <a class="dashboard-nav__item" href="/me/books">Мои книги</a>
+        <a class="dashboard-nav__item" href="/me/books/new">Создать книгу</a>
+        <a class="dashboard-nav__item" href="/me/teams">Мои команды</a>
+        <a class="dashboard-nav__item" href="/me/finance">Финансы автора</a>
+        <a class="dashboard-nav__item" href="/me/creators">Подписки на авторов</a>
+        <a class="dashboard-nav__item" href="/personal-books">Личные книги</a>
+        <!--SWAP_NAV_LINK-->
+        <!--REFUND_NAV_LINK-->
+        <!--AUDIENCE_NAV_LINK-->
+      </div>
+    </details>
+    <details class="account-nav-group">
+      <summary>Настройки и другое</summary>
+      <div class="account-nav-group__items">
+        <a class="dashboard-nav__item" href="/me/rankings">Мой рейтинг</a>
+        <a class="dashboard-nav__item" href="/me/referrals">Приглашения</a>
+        <a class="dashboard-nav__item" href="/me/comment-appeals">Апелляции по комментариям</a>
+        <a class="dashboard-nav__item" href="/me/notification-settings">Настройки уведомлений</a>
+        <a class="dashboard-nav__item" href="/me/settings/password">Сменить пароль</a>
+        <a class="dashboard-nav__item" href="/me/security/sessions">Устройства и сеансы</a>
+        <a class="dashboard-nav__item" href="/me/recommendations">Рекомендации</a>
+      </div>
+    </details>
+  </nav>
+  <form class="account-sidebar__logout" method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+    <button class="ui-button ui-button--ghost" type="submit">Выйти из аккаунта</button>
+  </form>
+</aside>
