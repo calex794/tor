@@ -96,7 +96,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         "Never run auth integration against production"
     );
     let lookup = accounts.clone();
-
     let cover_store = h_cover_cases::MemoryCoverStore::default();
     let app = tor_web::router_with_postgres_reading_auth_cover_uploads(
         catalog,
@@ -640,8 +639,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(bookmarks.contains("\"book_id\":\"1\""));
     assert_eq!(bookmarks.matches("\"book_id\"").count(), 1);
     assert!(!bookmarks.contains("PRIVATE-PAID-MARKER"));
+    let saved_path = "/me/library?view=saved";
     let saved_html =
-        body_of(send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await).await;
+        body_of(send(&app, request("GET", saved_path, "", &session, ORIGIN)).await).await;
     assert!(saved_html.contains("Убрать из библиотеки"));
     assert_eq!(
         send(
