@@ -13,7 +13,10 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
         &tor_reading::repositories::follow_updates::FollowedReleasePage,
         &[tor_commerce::services::reader_views::ReadablePurchaseLink],
     ),
-    purchased_and_view: (&tor_reading::services::library::PurchasedOnlyBookPage, Option<&str>),
+    purchased_and_view: (
+        &tor_reading::services::library::PurchasedOnlyBookPage,
+        Option<&str>,
+    ),
 ) -> Html<String> {
     let (purchased_only, view) = purchased_and_view;
     let (updates, owned) = updates_and_owned;
@@ -391,7 +394,22 @@ mod archived_continue_tests {
             block_index: 3,
             archived_saved: true,
         }];
-        let html = my_library_with_updates_and_layers_and_purchased_only_selected(&items, &saved, "csrf", (false, false), false, (&updates, &[]), (&tor_reading::services::library::PurchasedOnlyBookPage { items: vec![], next_cursor: None }, Some("reading"))).0;
+        let html = my_library_with_updates_and_layers_and_purchased_only_selected(
+            &items,
+            &saved,
+            "csrf",
+            (false, false),
+            false,
+            (&updates, &[]),
+            (
+                &tor_reading::services::library::PurchasedOnlyBookPage {
+                    items: vec![],
+                    next_cursor: None,
+                },
+                Some("reading"),
+            ),
+        )
+        .0;
         assert!(html.contains("href=\"/me/library/saved/71#saved-resume\""));
         assert!(html.contains("Сохранённая редакция · Удалена"));
         assert!(html.contains("&lt;книга&gt;"));
@@ -401,8 +419,22 @@ mod archived_continue_tests {
             archived_saved: false,
             ..items[0].clone()
         }];
-        let current =
-            my_library_with_updates_and_layers_and_purchased_only_selected(&public, &saved, "csrf", (false, false), false, (&updates, &[]), (&tor_reading::services::library::PurchasedOnlyBookPage { items: vec![], next_cursor: None }, Some("reading"))).0;
+        let current = my_library_with_updates_and_layers_and_purchased_only_selected(
+            &public,
+            &saved,
+            "csrf",
+            (false, false),
+            false,
+            (&updates, &[]),
+            (
+                &tor_reading::services::library::PurchasedOnlyBookPage {
+                    items: vec![],
+                    next_cursor: None,
+                },
+                Some("reading"),
+            ),
+        )
+        .0;
         assert!(current.contains("href=\"/read/71#p-3\""));
         assert!(!current.contains("href=\"/me/library/saved/71"));
     }
