@@ -21,6 +21,8 @@ pub fn my_library_with_updates(
         false,
         &update_html,
         "",
+        !updates.items.is_empty(),
+        None,
     )
 }
 
@@ -55,11 +57,12 @@ pub fn my_library_with_updates_and_layers(
         layers_available,
         &update_html,
         "",
+        !updates.items.is_empty(),
+        None,
     )
 }
 
-/// A purchase is separate from a bookmark. Keep bought-only Books in the
-/// private shelf, without displaying a misleading "remove bookmark" action.
+/// Purchases remain independent from bookmarks; tab selection changes presentation only.
 pub fn my_library_with_updates_and_layers_and_purchased_only(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -72,30 +75,42 @@ pub fn my_library_with_updates_and_layers_and_purchased_only(
     ),
     purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
 ) -> Html<String> {
+    my_library_with_updates_and_layers_and_purchased_only_selected(
+        items, saved, csrf, availability, checkout_enabled, updates_and_owned, purchased_only, None,
+    )
+}
+
+pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+    availability: (bool, bool),
+    checkout_enabled: bool,
+    updates_and_owned: (
+        &tor_reading::repositories::follow_updates::FollowedReleasePage,
+        &[tor_commerce::services::reader_views::ReadablePurchaseLink],
+    ),
+    purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
+    view: Option<&str>,
+) -> Html<String> {
     let (updates, owned) = updates_and_owned;
-    if purchased_only.items.is_empty() {
-        return my_library_with_updates_and_layers(
-            items,
-            saved,
-            csrf,
-            availability,
-            checkout_enabled,
-            updates,
-            owned,
-        );
-    }
     let (purchased_available, layers_available) = availability;
     let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available);
     my_library_inner(
-        items,
-        saved,
-        csrf,
-        purchased_available,
-        layers_available,
-        &updates_html,
-        &purchased_only_html,
+        items, saved, csrf, purchased_available, layers_available,
+        &updates_html, &purchased_only_html, !updates.items.is_empty(), view,
     )
+}
+
+/// A public cover is attempted only for books without private deletion state.
+fn book_art(book_id: i64, public_visible: bool) -> String {
+    let image = if public_visible && book_id > 0 {
+        format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
+    } else {
+        String::new()
+    };
+    format!("<div class=\"library-book-art\" aria-hidden=\"true\"><span class=\"library-book-art__spine\"></span><span class=\"library-book-art__glyph\">✦</span>{image}</div>")
 }
 
 fn purchase_only_book_cards(
@@ -123,9 +138,10 @@ fn purchase_only_book_cards(
         } else {
             "<p>Купленные главы — чтение временно недоступно</p>".to_owned()
         };
+        let art = book_art(book.book_id, !book.ordinary_deleted && !book.pending_deletion);
         write!(
             cards,
-            "<article class=\"library-card\"><div><h3>{title}</h3>{status}{navigation}</div></article>"
+            "<article class=\"library-shelf-card\">{art}<div class=\"library-shelf-card__body\"><h3>{title}</h3>{status}{navigation}</div></article>"
         )
         .expect("write purchased-only book");
     }
@@ -141,7 +157,7 @@ fn purchase_only_book_cards(
         "<section class=\"section\" aria-label=\"Книги с покупками\">\
          <h2>Книги с покупками</h2>\
          <p>Ваши оплаченные главы остаются в библиотеке независимо от закладок.</p>\
-         <div class=\"library-grid\">{cards}</div>{next}</section>"
+         <div class=\"library-books-grid\">{cards}</div>{next}</section>"
     )
 }
 
@@ -153,10 +169,12 @@ fn my_library_inner(
     layers_available: bool,
     updates_html: &str,
     purchased_only_html: &str,
+    has_updates: bool,
+    view: Option<&str>,
 ) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
-        cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
+        cards.push_str("<div class=\"library-placeholder\"><h2>Вы ещё не сохраняли место чтения</h2><p>Выберите книгу и сохраните позицию в главе, чтобы продолжить позже.</p><a class=\"button button--small\" href=\"/catalog\">Выбрать книгу</a></div>");
     } else {
         for item in items {
             let book = escape_html(&item.book_title);
@@ -189,13 +207,14 @@ fn my_library_inner(
                     "Продолжить чтение",
                 )
             };
-            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">{mode}</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"{target}\">Продолжить</a></article>", item.chapter_no).expect("write HTML");
+            let art = book_art(item.book_id, !item.archived_saved);
+            write!(cards, "<article class=\"library-reading-card\">{art}<div class=\"library-reading-card__copy\"><span class=\"library-status\">{mode}</span><h3>{book}</h3><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"{target}\">Продолжить</a></article>", item.chapter_no).expect("write HTML");
         }
     }
     let token = escape_html(csrf);
     let mut saved_html = String::new();
     if saved.items.is_empty() {
-        saved_html.push_str("<p>Пока нет сохранённых книг.</p>");
+        saved_html.push_str("<div class=\"library-placeholder\"><h2>Пока нет сохранённых книг</h2><p>Добавьте книгу в личную библиотеку из каталога.</p><a class=\"button button--small\" href=\"/catalog\">Открыть каталог</a></div>");
     } else {
         for book in &saved.items {
             let title = escape_html(&book.title);
@@ -213,9 +232,10 @@ fn my_library_inner(
             } else {
                 format!("<h3><a href=\"/books/{}\">{title}</a></h3>", book.book_id)
             };
+            let art = book_art(book.book_id, !book.ordinary_deleted && !book.pending_deletion);
             write!(
                 saved_html,
-                "<article class=\"library-card\"><div>{title_view}{state}<p><a href=\"/me/library/{}/saved\">Сохранённые главы</a></p></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
+                "<article class=\"library-shelf-card\">{art}<div class=\"library-shelf-card__body\">{title_view}{state}<a href=\"/me/library/{}/saved\">Сохранённые главы</a></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"library-remove\" type=\"submit\">Убрать из библиотеки</button></form></article>",
                 book.book_id, book.book_id
             )
             .expect("writing saved book");
@@ -224,28 +244,60 @@ fn my_library_inner(
     if let Some(after) = saved.next_cursor {
         write!(
             saved_html,
-            "<p><a href=\"/me/library?after={after}\">Другие сохранённые книги</a></p>"
+            "<p class=\"library-cursor\"><a href=\"/me/library?after={after}&amp;view=saved\">Другие сохранённые книги</a></p>"
         )
         .expect("writing library cursor");
     }
+    let no_content = items.is_empty() && saved.items.is_empty()
+        && !has_updates && purchased_only_html.is_empty();
+    let requested = match view {
+        Some("saved") => "saved",
+        Some("updates") => "updates",
+        Some("purchased") => "purchased",
+        _ => "reading",
+    };
+    let selected = if requested == "purchased" && !purchased_available
+        && purchased_only_html.is_empty() { "reading" } else { requested };
+    let tabs = [
+        ("reading", "Читаю"),
+        ("saved", "Сохранено"),
+        ("updates", "Обновления"),
+        ("purchased", "Куплено"),
+    ];
+    let mut nav = String::new();
+    for (key, label) in tabs {
+        let current = if key == selected { " aria-current=\"page\"" } else { "" };
+        write!(nav, "<a class=\"library-tab\" href=\"/me/library?view={key}\"{current}>{label}</a>")
+            .expect("write library nav");
+    }
+    let main = if no_content {
+        "<div class=\"library-onboarding\"><div class=\"library-onboarding__art\" aria-hidden=\"true\"><span></span><span></span><span></span></div><h2>Ваша книжная полка пока пуста</h2><p>Начните с интересной книги. Здесь будут сохранённые истории, новые главы и место, на котором вы остановились.</p><a class=\"button\" href=\"/catalog\">Найти книгу</a></div>".to_owned()
+    } else {
+        match selected {
+            "saved" => format!("<div class=\"library-pane\" id=\"saved-books\"><div class=\"library-pane-head\"><h2>Сохранённые книги</h2></div><div class=\"library-books-grid\">{saved_html}</div></div>"),
+            "updates" => updates_html.to_owned(),
+            "purchased" => if purchased_only_html.is_empty() {
+                "<div class=\"library-placeholder\"><h2>Отдельных книг с покупками пока нет</h2><p>Книги, добавленные вручную, находятся на вкладке «Сохранено». История покупок доступна отдельно.</p></div>".to_owned()
+            } else {
+                purchased_only_html.to_owned()
+            },
+            _ => format!("<div class=\"library-pane\" id=\"continue-reading\"><div class=\"library-pane-head\"><h2>Продолжить чтение</h2></div><div class=\"library-reading-list\">{cards}</div></div>"),
+        }
+    };
     let purchased_link = if purchased_available {
-        "<p><a class=\"button button--small\" href=\"/me/purchases\">Мои купленные главы</a></p>"
-    } else {
-        ""
-    };
+        "<a href=\"/me/purchases\">Мои купленные главы</a>"
+    } else { "" };
     let layers_link = if layers_available {
-        "<p><a class=\"button button--small\" href=\"/me/library/layers\">Мои пакеты доступа</a></p>"
-    } else {
-        ""
-    };
+        "<a href=\"/me/library/layers\">Мои пакеты доступа</a>"
+    } else { "" };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}<p><a href=\"/library/shared\">Рекомендации друзей</a></p></div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section>{purchased_only_html}</div></section>"
+        "<section class=\"section library-v2\"><div class=\"container library-shell\">\
+         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav>\
+         <div class=\"library-topline\"><div><p class=\"library-kicker\">Моё чтение</p><h1>Моя библиотека</h1><p class=\"library-intro\">Истории, к которым хочется возвращаться</p></div><div class=\"library-top-actions\"><a class=\"button button--small\" href=\"/catalog\">Найти книгу</a></div></div>\
+         <div class=\"library-quick-links\">{purchased_link}{layers_link}<a href=\"/library/shared\">Рекомендации друзей</a></div>\
+         <nav class=\"library-tabs\" aria-label=\"Разделы библиотеки\">{nav}</nav>{main}</div></section>"
     );
-    layout(
-        "Моя библиотека",
-        "Продолжить чтение в личной библиотеке.",
-        &html,
-    )
+    layout("Моя библиотека", "Продолжить чтение в личной библиотеке.", &html)
 }
 
 fn update_cards(
@@ -257,7 +309,7 @@ fn update_cards(
 ) -> String {
     let mut body = String::new();
     if updates.items.is_empty() {
-        body.push_str("<p>После подписки новые главы появятся здесь.</p>");
+        body.push_str("<div class=\"library-placeholder\"><h2>Новых глав пока нет</h2><p>После подписки на книгу или автора новые публикации появятся здесь.</p></div>");
     } else {
         for item in &updates.items {
             let book = escape_html(&item.book_title);
@@ -323,11 +375,10 @@ fn update_cards(
                 item.chapter_id,
                 escape_html(csrf),
             );
+            let art = book_art(item.book_id, true);
             write!(
                 body,
-                "<article class=\"library-card\"><div><p class=\"eyebrow\">{state} · {read_hint}</p>\\
-                 <h3>{book}</h3><p>Глава {}. {chapter}</p></div>\\
-                 <div class=\"library-card__actions\">{action}{read_control}</div></article>",
+                "<article class=\"library-update-card\">{art}<div class=\"library-update-card__copy\"><span class=\"library-status\">{state} · {read_hint}</span><h3>{book}</h3><p>Глава {}. {chapter}</p></div><div class=\"library-card__actions\">{action}{read_control}</div></article>",
                 item.chapter_number,
             )
             .expect("writing safe HTML");
@@ -337,7 +388,7 @@ fn update_cards(
         .next_cursor
         .map(|cursor| {
             format!(
-                "<p><a href=\"/me/library?updates_after={}#new-chapters\">Ранее вышедшие главы</a></p>",
+                "<p class=\"library-cursor\"><a href=\"/me/library?updates_after={}&amp;view=updates#new-chapters\">Ранее вышедшие главы</a></p>",
                 cursor.encode()
             )
         })
@@ -347,7 +398,7 @@ fn update_cards(
          <h2 id=\"new-chapters-heading\">Новые главы подписок</h2>\
          <p>Здесь показываются бесплатные и платные главы после подписки на книгу или автора.\
          Подписка не даёт доступа к платному тексту.</p>\
-         <div class=\"library-grid\">{body}</div>{next}</section>"
+         <div class=\"library-update-list\">{body}</div>{next}</section>"
     )
 }
 
