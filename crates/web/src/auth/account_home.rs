@@ -63,5 +63,13 @@ pub(super) async fn page(
         ""
     };
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
+    // Admin tools must be discoverable without an extra disclosure click.
+    if administrator {
+        page.0 = page.0.replacen(
+            "<details class=\"account-nav-group\">",
+            "<details class=\"account-nav-group\" open>",
+            1,
+        );
+    }
     private_response(page, &cookies)
 }
