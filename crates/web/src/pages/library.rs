@@ -76,7 +76,14 @@ pub fn my_library_with_updates_and_layers_and_purchased_only(
     purchased_only: &tor_reading::services::library::PurchasedOnlyBookPage,
 ) -> Html<String> {
     my_library_with_updates_and_layers_and_purchased_only_selected(
-        items, saved, csrf, availability, checkout_enabled, updates_and_owned, purchased_only, None,
+        items,
+        saved,
+        csrf,
+        availability,
+        checkout_enabled,
+        updates_and_owned,
+        purchased_only,
+        None,
     )
 }
 
@@ -98,8 +105,15 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
     let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available);
     my_library_inner(
-        items, saved, csrf, purchased_available, layers_available,
-        &updates_html, &purchased_only_html, !updates.items.is_empty(), view,
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        layers_available,
+        &updates_html,
+        &purchased_only_html,
+        !updates.items.is_empty(),
+        view,
     )
 }
 
@@ -138,7 +152,10 @@ fn purchase_only_book_cards(
         } else {
             "<p>Купленные главы — чтение временно недоступно</p>".to_owned()
         };
-        let art = book_art(book.book_id, !book.ordinary_deleted && !book.pending_deletion);
+        let art = book_art(
+            book.book_id,
+            !book.ordinary_deleted && !book.pending_deletion,
+        );
         write!(
             cards,
             "<article class=\"library-shelf-card\">{art}<div class=\"library-shelf-card__body\"><h3>{title}</h3>{status}{navigation}</div></article>"
@@ -232,7 +249,10 @@ fn my_library_inner(
             } else {
                 format!("<h3><a href=\"/books/{}\">{title}</a></h3>", book.book_id)
             };
-            let art = book_art(book.book_id, !book.ordinary_deleted && !book.pending_deletion);
+            let art = book_art(
+                book.book_id,
+                !book.ordinary_deleted && !book.pending_deletion,
+            );
             write!(
                 saved_html,
                 "<article class=\"library-shelf-card\">{art}<div class=\"library-shelf-card__body\">{title_view}{state}<a href=\"/me/library/{}/saved\">Сохранённые главы</a></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"library-remove\" type=\"submit\">Убрать из библиотеки</button></form></article>",
@@ -248,16 +268,22 @@ fn my_library_inner(
         )
         .expect("writing library cursor");
     }
-    let no_content = items.is_empty() && saved.items.is_empty()
-        && !has_updates && purchased_only_html.is_empty();
+    let no_content = items.is_empty()
+        && saved.items.is_empty()
+        && !has_updates
+        && purchased_only_html.is_empty();
     let requested = match view {
         Some("saved") => "saved",
         Some("updates") => "updates",
         Some("purchased") => "purchased",
         _ => "reading",
     };
-    let selected = if requested == "purchased" && !purchased_available
-        && purchased_only_html.is_empty() { "reading" } else { requested };
+    let selected =
+        if requested == "purchased" && !purchased_available && purchased_only_html.is_empty() {
+            "reading"
+        } else {
+            requested
+        };
     let tabs = [
         ("reading", "Читаю"),
         ("saved", "Сохранено"),
@@ -266,9 +292,16 @@ fn my_library_inner(
     ];
     let mut nav = String::new();
     for (key, label) in tabs {
-        let current = if key == selected { " aria-current=\"page\"" } else { "" };
-        write!(nav, "<a class=\"library-tab\" href=\"/me/library?view={key}\"{current}>{label}</a>")
-            .expect("write library nav");
+        let current = if key == selected {
+            " aria-current=\"page\""
+        } else {
+            ""
+        };
+        write!(
+            nav,
+            "<a class=\"library-tab\" href=\"/me/library?view={key}\"{current}>{label}</a>"
+        )
+        .expect("write library nav");
     }
     let main = if no_content {
         "<div class=\"library-onboarding\"><div class=\"library-onboarding__art\" aria-hidden=\"true\"><span></span><span></span><span></span></div><h2>Ваша книжная полка пока пуста</h2><p>Начните с интересной книги. Здесь будут сохранённые истории, новые главы и место, на котором вы остановились.</p><a class=\"button\" href=\"/catalog\">Найти книгу</a></div>".to_owned()
@@ -286,10 +319,14 @@ fn my_library_inner(
     };
     let purchased_link = if purchased_available {
         "<a href=\"/me/purchases\">Мои купленные главы</a>"
-    } else { "" };
+    } else {
+        ""
+    };
     let layers_link = if layers_available {
         "<a href=\"/me/library/layers\">Мои пакеты доступа</a>"
-    } else { "" };
+    } else {
+        ""
+    };
     let html = format!(
         "<section class=\"section library-v2\"><div class=\"container library-shell\">\
          <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav>\
@@ -297,7 +334,11 @@ fn my_library_inner(
          <div class=\"library-quick-links\">{purchased_link}{layers_link}<a href=\"/library/shared\">Рекомендации друзей</a></div>\
          <nav class=\"library-tabs\" aria-label=\"Разделы библиотеки\">{nav}</nav>{main}</div></section>"
     );
-    layout("Моя библиотека", "Продолжить чтение в личной библиотеке.", &html)
+    layout(
+        "Моя библиотека",
+        "Продолжить чтение в личной библиотеке.",
+        &html,
+    )
 }
 
 fn update_cards(
