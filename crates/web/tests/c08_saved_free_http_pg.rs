@@ -3,6 +3,7 @@
 use axum::http::{header, StatusCode};
 use std::{
     num::NonZeroU32,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -14,6 +15,7 @@ use tor_reading::repositories::PgReader;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "c08_saved_free_http_pg/helpers.rs"]
 mod helpers;
 use helpers::{auth_cookie, call, html, json_call, pg};
 
