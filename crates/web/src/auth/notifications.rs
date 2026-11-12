@@ -186,7 +186,11 @@ pub(super) async fn page(
     }
     let mut cards = String::new();
     for row in &rows {
-        let status = if row.is_read { "Прочитано" } else { "Не прочитано" };
+        let status = if row.is_read {
+            "Прочитано"
+        } else {
+            "Не прочитано"
+        };
         let state_class = if row.is_read { " is-read" } else { "" };
         write!(
             cards,
@@ -244,7 +248,11 @@ pub(super) async fn page(
     } else {
         ""
     };
-    let settings_open = if query.notice.as_deref() == Some("preferences_saved") { " open" } else { "" };
+    let settings_open = if query.notice.as_deref() == Some("preferences_saved") {
+        " open"
+    } else {
+        ""
+    };
     let preferences_section = format!(
         r#"<details class="notifications-settings-card"{settings_open}>
              <summary class="notifications-settings-card__summary"><span><strong>Настройки уведомлений</strong><small>Какие события будут попадать в колокольчик</small></span></summary>
@@ -279,7 +287,10 @@ pub(super) async fn page(
              {preferences_section}
            </div></div></section>"#
     );
-    private_response(pages::layout("Уведомления", "Ваши уведомления", &body), &cookies)
+    private_response(
+        pages::layout("Уведомления", "Ваши уведомления", &body),
+        &cookies,
+    )
 }
 
 pub(super) async fn mark_one(

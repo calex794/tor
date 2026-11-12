@@ -237,7 +237,10 @@ fn render_my_account(
         )
     };
     let content = include_str!("../../templates/me.html")
-        .replace("<!--ACCOUNT_NAVIGATION-->", &account_navigation("/me", csrf))
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &account_navigation("/me", csrf),
+        )
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
@@ -278,7 +281,11 @@ fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
     for badge in &snapshot.badges {
         let definition = badge.definition;
         let done = badge.unlocked_on.is_some();
-        let status = if done { "Получено" } else { "Пока не получено" };
+        let status = if done {
+            "Получено"
+        } else {
+            "Пока не получено"
+        };
         let progress = snapshot.completed_chapters.min(definition.threshold);
         let unlocked = if done { " is-unlocked" } else { "" };
         cards.push_str(&format!(
