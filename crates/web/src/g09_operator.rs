@@ -207,16 +207,19 @@ async fn page(State(state): State<OperatorState>, headers: HeaderMap) -> Respons
                         Ok(Some(p)) => (
                             format!(
                                 "Просмотрено: {}; в реестре: {}; переходные: {}; кандидаты: {};
-                            расхождения размеров: {}; неизвестные: {}",
+                            расхождения размеров: {}; неизвестные объекты: {};
+                            ошибки S3: {}; попытки: {}",
                                 p.scanned,
                                 p.registered,
                                 p.recently_pending,
                                 p.unregistered_candidates,
                                 p.size_mismatch,
-                                p.unknown
+                                p.unknown,
+                                p.unknown_attempts,
+                                p.retries
                             ),
                             p.completed,
-                            false,
+                            p.exhausted,
                         ),
                         Ok(None) => ("Ещё не запускался".to_owned(), false, false),
                         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -302,6 +305,7 @@ async fn command(
         (Direction::Forward, "next") => forward.begin_next_cycle(bucket, scope).await,
         (Direction::Reverse, "next") => reverse.begin_next_cycle(bucket, scope).await,
         (Direction::Body, "next") => body_audit.begin_next_cycle(bucket, scope).await,
+        (Direction::Forward, "resume") => forward.resume_exhausted(bucket, scope).await,
         (Direction::Reverse, "resume") => reverse.resume_exhausted(bucket, scope).await,
         (Direction::Body, "resume") => body_audit.resume_exhausted(bucket, scope).await,
         (_, "run") => {
@@ -309,7 +313,7 @@ async fn command(
                 Direction::Forward => forward
                     .progress(bucket, scope)
                     .await
-                    .map(|p| p.is_none_or(|p| !p.completed)),
+                    .map(|p| p.is_none_or(|p| !p.completed && !p.exhausted)),
                 Direction::Reverse => reverse
                     .progress(bucket, scope)
                     .await
