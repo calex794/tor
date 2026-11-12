@@ -45,6 +45,7 @@
 .library-v2 [aria-label="Книги с покупками"] > p {
   margin: 0; font-size: 13px; color: var(--text-muted, #647366);
 }
+.library-v2 .library-books-grid > .library-placeholder { grid-column: 1 / -1; }
 .library-v2 .library-reading-list, .library-v2 .library-update-list { display: grid; gap: 12px; }
 .library-v2 .library-reading-card {
   display: flex; align-items: center; gap: 22px; padding: 19px;
