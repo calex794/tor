@@ -148,7 +148,7 @@
   .library-v2 .breadcrumbs { margin-bottom: 21px; }
   .library-v2 .library-topline { align-items: flex-start; flex-direction: column; gap: 15px; }
   .library-v2 .library-intro { margin-top: 7px; }
-  .library-v2 .library-tabs { margin-inline: -18px; padding-inline: 18px; margin-bottom: 22px; }
+  .library-v2 .library-tabs { min-width: 0; width: 100%; max-width: 100%; margin-inline: 0; padding-inline: 0; margin-bottom: 22px; }
   .library-v2 .library-tab { padding-inline: 14px; }
   .library-v2 .library-reading-card { gap: 14px; padding: 15px; flex-wrap: wrap; align-items: flex-start; }
   .library-v2 .library-reading-card .library-book-art { width: 80px; flex-basis: 80px; }
