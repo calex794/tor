@@ -99,7 +99,7 @@ async function checkSharedControls(browser, base, out) {
             '<button class="ui-button" disabled>Недоступное действие</button>' +
             '<label>Сообщение<textarea class="ui-textarea" rows="3"></textarea></label></section>';
         });
-        const secondary = page.locator('.button--secondary');
+        const secondary = page.locator('#main .button--secondary');
         await page.mouse.move(0, 0);
         await secondary.hover();
         await page.waitForFunction(() => {
@@ -110,7 +110,7 @@ async function checkSharedControls(browser, base, out) {
           probe.remove();
           return getComputedStyle(document.querySelector('.button--secondary')).backgroundColor === expected;
         });
-        const disabled = page.locator('.ui-button');
+        const disabled = page.locator('#main .ui-button');
         const disabledBefore = await disabled.evaluate(node => getComputedStyle(node).backgroundColor);
         await disabled.hover({ force: true });
         assert.equal(await disabled.evaluate(node => getComputedStyle(node).backgroundColor),
