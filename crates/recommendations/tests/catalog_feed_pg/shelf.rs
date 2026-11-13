@@ -251,5 +251,11 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
         "only {} distinct books were ever reachable across 50 requests",
         observed.len()
     );
+    // The fixture deletes actors before Books: release owner FKs first.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
+        .bind(&f.books)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     f.cleanup().await;
 }
