@@ -7,7 +7,7 @@ use std::fmt::Write;
 use tor_contracts::exposure::ExposureSurface;
 use tor_reading::services::audience::ClosedBookEvidenceReport;
 use tor_recommendations::domain::exposure::{
-    Counts, ExposureFilter, ExposureReport, ObservationClass,
+    Counts, ExposureFilter, ExposurePlacement, ExposureReport, ObservationClass,
 };
 use tor_recommendations::domain::exposure_health::ExposureHealth;
 
@@ -34,6 +34,7 @@ pub(super) fn page(
                 ReportWindow::Closed => write!(body,"<p data-testid=\"exposure-closed-window\">Два соседних окна по {} полных UTC-часов. Последний учитываемый час завершился не менее 15 минут назад. Это даёт время получить подтверждение браузера; текущий неполный час исключён. Правая граница Unix UTC: {}.</p>",q.days * 24, report.until_epoch).expect("String"),
             }
             body.push_str("</section>");
+            attention_placements(&mut body, q, window, report);
             if window == ReportWindow::Closed { collector_health(&mut body, q.days, health); }
             genres(&mut body, q, window, report);
             if window == ReportWindow::Closed { reading::intro(&mut body, q.days, report.until_epoch, reading); }
@@ -62,6 +63,68 @@ pub(super) fn page(
         "Показы карточек и границы наблюдения",
         &body,
     )
+}
+/// Independent aggregates by source and surface, in the exact same UTC
+/// snapshot and eligibility scope as the totals. No CTR or reading attribution:
+/// click and view callbacks are independent, and a page contains many cards.
+fn attention_placement_row(
+    out: &mut String,
+    q: &ExposureFilter,
+    window: ReportWindow,
+    row: &ExposurePlacement,
+) {
+    let label = match row.surface {
+        ExposureSurface::Home => "Главная",
+        ExposureSurface::Catalog => "Каталог",
+        ExposureSurface::Search => "Поиск",
+        ExposureSurface::BookDetail => "Карточка книги",
+        ExposureSurface::ReaderEnd => "После бесплатной главы",
+    };
+    let source = if row.editorial {
+        "Редакционное продвижение"
+    } else {
+        "Органические рекомендации"
+    };
+    let mut drill = q.clone();
+    drill.surface = Some(row.surface);
+    drill.editorial = Some(row.editorial);
+    drill.after = 0;
+    drill.class = None;
+    let views = known(row.current.known_views());
+    let clicks = if row.current.rendered > 0 {
+        row.current.clicks.to_string()
+    } else {
+        "неизвестно".to_owned()
+    };
+    let previous = known(row.previous.known_views());
+    write!(
+        out,
+        r#"<tr data-attn-surface="{}" data-attn-source="{}"><th scope="row"><a href="{}">{label}</a></th><td>{source}</td><td>{}</td><td>{}</td><td>{views}</td><td>{clicks}</td><td>{previous}</td></tr>"#,
+        row.surface.as_str(),
+        if row.editorial { "editorial" } else { "organic" },
+        e(&url(&drill, window, 0)),
+        row.current.opportunities,
+        row.current.rendered,
+    )
+    .expect("String");
+}
+fn attention_placements(
+    out: &mut String,
+    q: &ExposureFilter,
+    window: ReportWindow,
+    report: &ExposureReport,
+) {
+    out.push_str(r#"<section class="book-section-card" data-testid="attention-placements"><h2>ВНИМАНИЕ: источник × место показа</h2><p>Только серверные карточки и отдельные подтверждения браузера за то же окно, что и итог выше. Доли карточек не равны долям читателей. Клики нельзя считать конверсией из показов; подтверждённое чтение ниже — независимые данные, а не результат именно этой карточки.</p>"#);
+    if report.placements.is_empty() {
+        out.push_str("<p>Зарегистрированных карточек по выбранным фильтрам нет; охват всего трафика неизвестен.</p>");
+    } else {
+        out.push_str(r#"<div class="table-scroll"><table><thead><tr><th scope="col">Место</th><th scope="col">Источник</th><th scope="col">Карточки</th><th scope="col">DOM</th><th scope="col">Показы</th><th scope="col">Клики</th><th scope="col">Показы в предыдущем окне</th></tr></thead><tbody>"#);
+        for placement in &report.placements {
+            attention_placement_row(out, q, window, placement);
+        }
+        out.push_str("</tbody></table></div>");
+    }
+    out.push_str("</section>");
 }
 fn genres(out: &mut String, q: &ExposureFilter, window: ReportWindow, report: &ExposureReport) {
     let genres = &report.genres;
@@ -278,4 +341,44 @@ fn url(q: &ExposureFilter, window: ReportWindow, after: i64) -> String {
         write!(url, "&after={after}").expect("String");
     }
     url
+}
+
+// The matrix must never invent view/click zeros when client acknowledgement
+// is missing, and drill-down links must preserve the chosen closed window.
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    #[test]
+    fn missing_dom_is_unknown_even_when_card_was_registered() {
+        let mut html = String::new();
+        let q = ExposureFilter {
+            days: 7,
+            surface: None,
+            after: 0,
+            class: None,
+            group: None,
+            campaign: None,
+            editorial: None,
+        };
+        attention_placement_row(
+            &mut html,
+            &q,
+            ReportWindow::Closed,
+            &ExposurePlacement {
+                surface: ExposureSurface::ReaderEnd,
+                editorial: true,
+                current: Counts {
+                    opportunities: 14,
+                    ..Counts::default()
+                },
+                previous: Counts::default(),
+            },
+        );
+        assert!(html.contains("data-attn-surface=\"reader_end\""));
+        assert!(html.contains("data-attn-source=\"editorial\""));
+        assert!(html.contains("days=7&amp;window=closed&amp;surface=reader_end&amp;source=editorial"));
+        assert!(html.contains("<td>14</td><td>0</td><td>неизвестно</td><td>неизвестно</td>"));
+        assert!(!html.contains("конверсия"));
+    }
 }
