@@ -346,7 +346,9 @@ jobs:
             for arg in "$@"; do
               case "$prev" in
                 -p) package="$arg" ;;
-                --test) target="$arg" ;;
+                --test)
+                  if [[ "$target" == lib ]]; then target="$arg"; else target+=",$arg"; fi
+                  ;;
               esac
               case "$arg" in
                 -p|--test) prev="$arg" ;;
@@ -360,16 +362,22 @@ jobs:
               "$ci_pg_cargo_index" "$package" "$target" "$(((end_us-start_us)/1000))" "$status"
             return "$status"
           }
-          cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
-          cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
-          cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
+          # Batch test targets only when package, features, and libtest flags match.
+          # Each selected binary still runs with --ignored --test-threads=1.
+          cargo test -p tor-traffic_behavior \
+            --test ril_rollups_pg \
+            --test ril_costs_pg \
+            --test ril_sql_costs_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test storage_reconciliation_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
-          cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg \
+            --test storage_registry_pg \
+            --test keyring_rotation_pg \
+            --test storage_gc_pg \
+            --test storage_reconciliation_pg \
+            --test storage_paid_grant_pg \
+            --test storage_paid_asset_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-ingest --test outbox_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test admin_jobs_http_pg -- --ignored --test-threads=1
@@ -378,16 +386,20 @@ jobs:
           cargo test -p tor-books --test shadow_age_visibility_pg -- --ignored --test-threads=1
           ci_pg_phase_done "traffic_storage_catalog"
           cargo test -p tor-search --test search_pg -- --ignored
-          cargo test -p tor-search --test f04_rising_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
+          cargo test -p tor-search \
+            --test f04_rising_pg \
+            --test catalog_window_pg \
+            --test actor_catalog_age_pg \
+            --test perf233_projection_pg \
+            --test seo_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
-          cargo test -p tor-books --test authoring_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_lifecycle_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test origin_metadata_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
+          cargo test -p tor-books \
+            --test authoring_pg \
+            --test book_lifecycle_pg \
+            --test origin_metadata_pg \
+            --test chapter_file_import_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
@@ -408,15 +420,19 @@ jobs:
           cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_release_pg -- --ignored
           cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_delayed_schedule_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_slot_occurrences_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_slot_frontier_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_slot_release_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test book_slot_paid_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-books \
+            --test book_delayed_schedule_pg \
+            --test book_slot_occurrences_pg \
+            --test book_slot_frontier_pg \
+            --test book_slot_release_pg \
+            --test book_slot_paid_release_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test scheduled_release_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
-          cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
+          cargo test -p tor-books \
+            --test paid_storage_pg \
+            --test paid_published_edit_pg \
+            --test paid_assets_pg \
+            -- --ignored --test-threads=1
           ci_pg_phase_done "books_import_authoring"
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
@@ -424,12 +440,14 @@ jobs:
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-reading --test age_tier_progress_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
-          cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test chapter_thanks_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test book_stats_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test book_likes_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
-          cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading \
+            --test completion_pg \
+            --test chapter_thanks_pg \
+            --test book_stats_pg \
+            --test book_likes_pg \
+            --test continuation_demand_pg \
+            --test follow_updates_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
@@ -482,20 +500,26 @@ jobs:
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test recommendation_preferences_legacy_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations \
+            --test feedback_pg \
+            --test recommendation_preferences_pg \
+            --test recommendation_preferences_legacy_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test catalog_legacy_history_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test analytics_invalidation_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations \
+            --test catalog_legacy_history_pg \
+            --test analytics_invalidation_pg \
+            --test generations_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
           TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
-          cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations \
+            --test book_stars_pg \
+            --test completion_consumer_pg \
+            --test achievements_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test s046_achievements_http_pg -- --ignored --test-threads=1
           cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
@@ -550,10 +574,12 @@ jobs:
           TOR_S039_PAYOUT_QUOTE_HTTP_ENABLED=1 cargo test -p tor-web --test s039_payout_quote_http_pg s039_quote_http_admin_only_and_no_wallet_movement -- --ignored --test-threads=1
           cargo test -p tor-web --test s039_payout_step_up_pg s039_password_step_up_is_session_bound_and_posted_only_once -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web \
+            --test book_stars_http_pg \
+            --test chapter_thanks_http_pg \
+            --test book_stats_http_pg \
+            --test book_likes_http_pg \
+            -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --nocapture --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_FLOW_PUBLIC_OPT_IN_ENABLED=1 \
