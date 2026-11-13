@@ -205,7 +205,6 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
     )
 }
 
-
 // REC-ADMIN-01: the sole write surface for the versioned global shelf ratios.
 // The underlying F-owned CAS function checks the administrator session again
 // inside PostgreSQL; H must additionally validate the live A role and CSRF.
@@ -239,8 +238,7 @@ impl ShareForm {
             ShareAction::Defaults => ([50, 40, 10], [70, 30]),
         };
         tor_recommendations::services::reader_end_shelf::ShelfSharePolicy::validated(
-            values.0,
-            values.1,
+            values.0, values.1,
         )
         .map_err(|_| FeedbackError::Invalid)?;
         Ok(values)
@@ -290,10 +288,7 @@ fn share_markup(
     out
 }
 
-pub(super) async fn shares_page(
-    State(state): State<Runtime>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn shares_page(State(state): State<Runtime>, headers: HeaderMap) -> Response {
     let operation = async {
         actor(&state, &headers).await?;
         let policy = state
@@ -336,12 +331,7 @@ pub(super) async fn shares_submit(
         let digest = session_token_digest(&token);
         state
             .store
-            .set_shelf_share_policy(
-                &digest,
-                form.expected_revision,
-                with_team,
-                without_team,
-            )
+            .set_shelf_share_policy(&digest, form.expected_revision, with_team, without_team)
             .await
             .map_err(share_status)?;
         Ok::<_, StatusCode>(axum::response::Redirect::to("/admin/recommendations").into_response())
@@ -349,10 +339,13 @@ pub(super) async fn shares_submit(
     let response = tokio::time::timeout(std::time::Duration::from_millis(950), operation)
         .await
         .unwrap_or(Err(StatusCode::SERVICE_UNAVAILABLE));
-    pages::secure_page(match response {
-        Ok(response) => response,
-        Err(status) => deny(status),
-    }, &[])
+    pages::secure_page(
+        match response {
+            Ok(response) => response,
+            Err(status) => deny(status),
+        },
+        &[],
+    )
 }
 
 #[cfg(test)]
@@ -370,7 +363,8 @@ mod share_panel_tests {
         let html = share_markup(snapshot, "csrf&<test>", false);
         assert!(html.contains(r#"data-revision="9""#));
         assert!(html.contains(r#"name="author_pct" type="number" min="0" max="100" value="40""#));
-        assert!(html.contains(r#"name="no_team_author_pct" type="number" min="0" max="100" value="60""#));
+        assert!(html
+            .contains(r#"name="no_team_author_pct" type="number" min="0" max="100" value="60""#));
         assert!(html.contains("csrf&amp;&lt;test&gt;"));
         assert!(html.contains("rec-policy-off"));
         assert!(!html.contains("<script"));
