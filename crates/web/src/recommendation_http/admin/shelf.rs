@@ -26,9 +26,26 @@ pub(crate) async fn page(
     if let Err(code) = actor(&state, &headers).await {
         return pages::secure_page(deny(code), &[]);
     }
-    let mut out = String::from(
-        r#"<section class="section"><div class="container"><h1>Полка после бесплатной главы</h1><p>Правила: другие книги владельца 50%, книги других участников привязанной команды 40%, книги других авторов вне команды 10%. При отсутствии команды: 70% / 30%. Пропорции распределяются между выдачами, а не в одной полке из пяти карточек.</p><p>Предпросмотр использует анонимный basic-доступ. Он не выдаёт персональную информацию и не записывает показы.</p><form method="get" action="/me/recommendations/shelf-preview" class="author-form"><label>Исходная книга (ID)<input type="number" name="book" min="1" required></label><label>ID бесплатной главы для ротации<input type="number" name="chapter" min="1" required></label><button type="submit" class="button">Показать полку</button></form>"#,
+    let policy = match tokio::time::timeout(
+        Duration::from_millis(650),
+        state.store.shelf_share_policy(),
+    )
+    .await
+    {
+        Ok(Ok(policy)) => policy.policy,
+        _ => return pages::secure_page(deny(StatusCode::SERVICE_UNAVAILABLE), &[]),
+    };
+    let [author, team, others] = policy.with_team();
+    let [no_team_author, no_team_other] = policy.without_team();
+    let mut out = format!(
+        r#"<section class="section"><div class="container"><h1>Полка после бесплатной главы</h1><p data-testid="shelf-preview-shares">Текущие доли: другие книги владельца {}%, книги других участников подтверждённой команды {}%, другие авторы {}%. При отсутствии команды: {}% / {}%.</p><p>Пропорции распределяются между выдачами, а не в одной полке из пяти карточек. Предпросмотр использует анонимный basic-доступ, не выдаёт персональные данные и не записывает показы.</p><form method="get" action="/me/recommendations/shelf-preview" class="author-form"><label>Исходная книга (ID)<input type="number" name="book" min="1" required></label><label>ID бесплатной главы для ротации<input type="number" name="chapter" min="1" required></label><button type="submit" class="button">Показать полку</button></form>"#,
+        author,
+        team,
+        others,
+        no_team_author,
+        no_team_other,
     );
+
     if !state.enabled {
         out.push_str(r#"<p role="status">Рекомендательный блок сейчас отключён флагом TOR_RECOMMENDATIONS_ENABLED.</p>"#);
     }
@@ -67,7 +84,7 @@ pub(crate) async fn page(
         _ => return pages::secure_page(deny(StatusCode::BAD_REQUEST), &[]),
     }
     out.push_str(
-        r#"<p><a href="/me/recommendations/manage">Настройки рекомендаций</a></p></div></section>"#,
+        r#"<p><a href="/admin/recommendations">Управление долями и рекомендациями</a></p></div></section>"#,
     );
     if let Err(code) = actor(&state, &headers).await {
         return pages::secure_page(deny(code), &[]);
