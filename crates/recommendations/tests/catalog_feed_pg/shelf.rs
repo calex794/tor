@@ -36,7 +36,10 @@ async fn shelf_backside_metadata_is_real_read_only_and_actor_authorized() {
         .unwrap();
     assert_eq!(anonymous.len(), 1);
     assert_eq!(anonymous[0].book_id, visible);
-    assert_eq!(anonymous[0].description, "Главный герой попадает в иной мир.");
+    assert_eq!(
+        anonymous[0].description,
+        "Главный герой попадает в иной мир."
+    );
     assert_eq!(anonymous[0].genres, vec!["Фэнтези", "Система"]);
     assert_eq!(anonymous[0].work_rating.as_deref(), Some("5.0"));
     assert_eq!(anonymous[0].published_chapters, 0);
