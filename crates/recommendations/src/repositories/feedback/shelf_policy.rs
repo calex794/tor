@@ -67,23 +67,28 @@ impl PgRecommendations {
                 .bind(session_digest.as_slice())
                 .execute(&mut *tx)
                 .await?;
-            let revision = sqlx::query_scalar::<_, i64>(
-                "SELECT rec_shelf_share_update($1,$2,$3,$4,$5,$6)",
-            )
-            .bind(expected_revision)
-            .bind(with_team[0])
-            .bind(with_team[1])
-            .bind(with_team[2])
-            .bind(without_team[0])
-            .bind(without_team[1])
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|error| match error.as_database_error().and_then(|db| db.code()).as_deref() {
-                Some("42501") => FeedbackError::Forbidden,
-                Some("22023") => FeedbackError::Invalid,
-                Some("P4090") => FeedbackError::Conflict,
-                _ => FeedbackError::Unavailable,
-            })?;
+            let revision =
+                sqlx::query_scalar::<_, i64>("SELECT rec_shelf_share_update($1,$2,$3,$4,$5,$6)")
+                    .bind(expected_revision)
+                    .bind(with_team[0])
+                    .bind(with_team[1])
+                    .bind(with_team[2])
+                    .bind(without_team[0])
+                    .bind(without_team[1])
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|error| {
+                        match error
+                            .as_database_error()
+                            .and_then(|db| db.code())
+                            .as_deref()
+                        {
+                            Some("42501") => FeedbackError::Forbidden,
+                            Some("22023") => FeedbackError::Invalid,
+                            Some("P4090") => FeedbackError::Conflict,
+                            _ => FeedbackError::Unavailable,
+                        }
+                    })?;
             tx.commit().await.map_err(FeedbackError::from)?;
             Ok::<i64, FeedbackError>(revision)
         };
