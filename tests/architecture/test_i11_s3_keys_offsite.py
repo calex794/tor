@@ -22,7 +22,7 @@ class Dr03OperatorSafety(unittest.TestCase):
                       "--immutable", "--download --one-way",
                       "age -r", "TOR_DR_SECRET_BUNDLE",
                       "recovery-keys/", "cmp -s", "flock -n",
-                      "config dump", 'c.get("type") == "crypt"',
+                      "config dump", 'x.get("type") == "crypt"',
                       "/run/tor-dr03", "symlink lock refused",
                       "TOR_DR03_S3_AND_KEYS_OFFSITE_OK"):
             self.assertIn(token, data)
@@ -111,7 +111,7 @@ class Dr03OperatorSafety(unittest.TestCase):
                       "TOR_DR_AGE_IDENTITY", "TOR_DR_EXPECTED_OBJECT_SHA256",
                       "TOR_DR_EXPECTED_SECRET_SHA256", "age -d -i",
                       "private/", "sha256sum", "config dump",
-                      'c.get("type") == "crypt"', "stat -f -c",
+                      'x.get("type") == "crypt"', "stat -f -c",
                       "/run/tor-dr03-restore",
                       "TOR_DR03_PRIVATE_OBJECT_AND_OFFLINE_KEY_RESTORED"):
             self.assertIn(token, data)
