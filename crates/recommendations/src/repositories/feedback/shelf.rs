@@ -38,6 +38,10 @@ impl PgRecommendations {
         {
             return Err(FeedbackError::Invalid);
         }
+        // Salt is independent of reader identity and never persisted.
+        // Rotate the SQL candidate window and Rust quota wheel together.
+        let rotation = (chapter as u64) ^ rand::random::<u64>();
+        let tie_seed = (rotation & i64::MAX as u64) as i64;
         // Reuse the exact actor-scoped discoverability predicate of the
         // existing REC serving path. No private title/metadata is selected.
         // The three independently bounded branches protect the owner and team
@@ -88,7 +92,7 @@ impl PgRecommendations {
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
               WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND candidate.owner_user_id=o.owner_user_id
-              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, (visible.id # $5::bigint), visible.id DESC LIMIT 100
             ),
             teammate_pool AS (
               SELECT visible.id,visible.title,1::integer AS kind,
@@ -112,7 +116,7 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, (visible.id # $5::bigint), visible.id DESC LIMIT 100
             ),
             site_pool AS (
               SELECT visible.id,visible.title,2::integer AS kind,
@@ -137,7 +141,7 @@ impl PgRecommendations {
                       WHERE m.team_id=t.id AND m.user_id=candidate.owner_user_id
                     ))
                 )
-              ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
+              ORDER BY relevance DESC, preference_boost DESC, (visible.id # $5::bigint), visible.id DESC LIMIT 100
             )
             SELECT candidate.id,candidate.title,candidate.kind,candidate.relevance,candidate.preference_boost,
                    (COALESCE(p.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision
@@ -154,6 +158,7 @@ impl PgRecommendations {
                 .bind(source_book)
                 .bind(REVISION_STRIDE)
                 .bind(excluded)
+                .bind(tie_seed)
                 .fetch_all(&self.pool),
         )
         .await
@@ -187,11 +192,7 @@ impl PgRecommendations {
                 preference_boost: row.try_get("preference_boost")?,
             });
         }
-        // Each request rotates the bounded 5-card allocation independently;
-        // the chapter is a public context, not an actor or tracking key.
-        // A fixed rotation per chapter would skew quotas when a popular
-        // first chapter is opened many times.
-        let rotation = (chapter as u64) ^ rand::random::<u64>();
+        // The SQL tie-break and the weighted shelf share one request rotation.
         let cards = select_shelf(source_book, pools, slots, rotation);
         let items = cards
             .into_iter()
@@ -207,7 +208,7 @@ impl PgRecommendations {
                     title,
                     source: source.to_owned(),
                     reason: "similar_by_content".to_owned(),
-                    algorithm_version: "reader_end_shelf_504010_v1",
+                    algorithm_version: "reader_end_shelf_504010_v2_diverse",
                     ticket: None,
                     feedback_revision: revision,
                 })
