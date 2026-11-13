@@ -1,3 +1,4 @@
+mod attention;
 mod reading;
 use super::report::ReportWindow;
 use super::QueueSnapshot;
@@ -34,6 +35,7 @@ pub(super) fn page(
                 ReportWindow::Closed => write!(body,"<p data-testid=\"exposure-closed-window\">Два соседних окна по {} полных UTC-часов. Последний учитываемый час завершился не менее 15 минут назад. Это даёт время получить подтверждение браузера; текущий неполный час исключён. Правая граница Unix UTC: {}.</p>",q.days * 24, report.until_epoch).expect("String"),
             }
             body.push_str("</section>");
+            attention::placements(&mut body, q, window, report, health);
             if window == ReportWindow::Closed { collector_health(&mut body, q.days, health); }
             genres(&mut body, q, window, report);
             if window == ReportWindow::Closed { reading::intro(&mut body, q.days, report.until_epoch, reading); }

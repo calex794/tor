@@ -20,6 +20,7 @@ mod unix_store {
         repositories::sqlite::{SearchFilter, StorePolicy, TraceStore},
         services::{
             lookup::{self, LookupResult},
+            trace::background::{lookup as background_lookup, BackgroundTrace, FRAME_SIZE},
             wire::{decode, MAX_FRAME_BYTES},
         },
     };
@@ -99,6 +100,20 @@ mod unix_store {
             let response = lookup::encode_reply(&result).ok_or("invalid lookup result")?;
             stream.write_all(&(response.len() as u32).to_be_bytes())?;
             stream.write_all(&response)?;
+            return Ok(());
+        }
+        if let Some(id) = background_lookup::parse_query(&body) {
+            let page = store.background_for_parent(id)?;
+            let response =
+                background_lookup::encode_reply(&page).ok_or("invalid background lookup result")?;
+            stream.write_all(&(response.len() as u32).to_be_bytes())?;
+            stream.write_all(&response)?;
+            return Ok(());
+        }
+        if body.len() == FRAME_SIZE && body.starts_with(b"OBG1") {
+            let trace = BackgroundTrace::decode(&body).ok_or("invalid background frame")?;
+            store.append_background(&trace, unix_now()?)?;
+            stream.write_all(&[1_u8])?;
             return Ok(());
         }
         let trace = decode(&body).map_err(|_| "invalid trace frame")?;

@@ -1027,3 +1027,224 @@ img.home-spotlight-card__cover {
 .site-nav__create { white-space: nowrap; min-height: 40px; }
 .site-mobile-nav__link--create { background: var(--primary-color); color: #fff; }
 .site-mobile-nav__link--create:hover,.site-mobile-nav__link--create:focus-visible { color: #fff; background: var(--primary-color); filter: brightness(.9); }
+
+/* REC: a single compact book-cover shelf under free chapters. No source labels
+   or editorial badges are displayed; attribution remains in server data. */
+.reader-end-shelf .home-shelf__track {
+  gap: 12px;
+}
+.reader-end-shelf .home-shelf__track .book-mini-card--shelf {
+  flex: 0 0 calc((100% - 48px) / 5);
+  width: calc((100% - 48px) / 5);
+  min-width: 0;
+}
+.reader-end-shelf .book-mini-card__link {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.reader-end-shelf .book-mini-card__body {
+  padding-top: 7px;
+}
+.reader-end-shelf .book-mini-card__title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+@media (max-width: 640px) {
+  .reader-end-shelf .home-shelf__track .book-mini-card--shelf {
+    flex: 0 0 136px;
+    width: 136px;
+    min-width: 136px;
+  }
+}
+
+/* REC-UI: the reverse of a chapter-end cover is real, access-checked metadata.
+   Keep all transforms inside the cover; neighbouring cards never move. */
+.reader-end-shelf .book-mini-card__visual {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  perspective: 900px;
+}
+.reader-end-shelf .book-mini-card__flip-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 340ms cubic-bezier(.2, .78, .2, 1);
+}
+.reader-end-shelf .book-mini-card__flip-front,
+.reader-end-shelf .book-mini-card__flip-back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.reader-end-shelf .book-mini-card__flip-front,
+.reader-end-shelf .book-mini-card__cover-link {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.reader-end-shelf .book-mini-card__cover {
+  height: 100%;
+  aspect-ratio: auto;
+}
+.reader-end-shelf .book-mini-card__flip-back {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px;
+  transform: rotateY(180deg);
+  background: linear-gradient(145deg, #263752, #111b2d);
+  border: 1px solid #40536f;
+  color: #f7f9fc;
+  text-align: left;
+}
+.reader-end-shelf .book-mini-card__flip-back-link {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.reader-end-shelf .book-mini-card__flip-back-link:hover .book-mini-card__flip-open {
+  background: #dce9fc;
+}
+.reader-end-shelf .book-mini-card__flip-title {
+  display: -webkit-box;
+  max-height: 3.6em;
+  overflow: hidden;
+  padding-right: 17px;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.reader-end-shelf .book-mini-card__flip-genres {
+  margin: 0;
+  color: #c3dafb;
+  font-size: 11px;
+  line-height: 1.35;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.reader-end-shelf .book-mini-card__flip-description {
+  display: -webkit-box;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+  color: #e3eaf4;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+.reader-end-shelf .book-mini-card__flip-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 9px;
+  color: #efcf94;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.reader-end-shelf .book-mini-card__flip-open {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin-top: auto;
+  border: 1px solid #9cb3d1;
+  border-radius: 5px;
+  background: #f2f5fa;
+  color: #162238;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: none;
+}
+.reader-end-shelf .book-mini-card__flip-back-link:focus-visible,
+.reader-end-shelf .book-mini-card__cover-link:focus-visible,
+.reader-end-shelf .book-mini-card__flip-info:focus-visible {
+  outline: 3px solid #f4ca73;
+  outline-offset: -3px;
+}
+.reader-end-shelf .book-mini-card__flip-info {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid #ffffffad;
+  border-radius: 50%;
+  background: #111c31cb;
+  color: white;
+  font-family: Georgia, serif;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.reader-end-shelf .book-mini-card__title a {
+  color: inherit;
+  text-decoration: none;
+}
+.reader-end-shelf .book-mini-card__title a:hover,
+.reader-end-shelf .book-mini-card__title a:focus-visible {
+  text-decoration: underline;
+}
+.reader-end-shelf .book-mini-card__visual[data-flipped="true"] .book-mini-card__flip-inner {
+  transform: rotateY(180deg);
+}
+/* Keyboard focus on the front cover must not hide its own link.
+   Focusing the reverse link instead reveals that side even without JS. */
+.reader-end-shelf .book-mini-card__visual:has(.book-mini-card__flip-back-link:focus-visible) .book-mini-card__flip-inner {
+  transform: rotateY(180deg);
+}
+@media (hover: hover) and (pointer: fine) {
+  .reader-end-shelf .book-mini-card__visual:hover .book-mini-card__flip-inner {
+    transform: rotateY(180deg);
+  }
+}
+@media (max-width: 640px) {
+  .reader-end-shelf .book-mini-card__flip-back {
+    gap: 5px;
+    padding: 9px;
+  }
+  .reader-end-shelf .book-mini-card__flip-title {
+    font-size: 12px;
+  }
+  .reader-end-shelf .book-mini-card__flip-description {
+    -webkit-line-clamp: 3;
+    font-size: 10px;
+  }
+  .reader-end-shelf .book-mini-card__flip-genres,
+  .reader-end-shelf .book-mini-card__flip-stats {
+    font-size: 10px;
+  }
+  .reader-end-shelf .book-mini-card__flip-open {
+    min-height: 29px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-end-shelf .book-mini-card__flip-inner {
+    transition: none;
+  }
+}

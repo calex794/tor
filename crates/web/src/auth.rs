@@ -223,6 +223,7 @@ fn router_inner(
     let state = AuthState {
         editorial: crate::editorial_http::display::DisplayRuntime::new(
             tor_ads::repositories::editorial::PgEditorial::new(pool.clone()),
+            tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
             Some((accounts.clone(), cookies.clone())),
         ),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),

@@ -590,3 +590,64 @@ async fn unavailable_and_duplicate_assignments_do_not_starve_the_next_eligible_b
     assert!(cards.len() <= 4);
     f.clean().await;
 }
+
+/// Editorial priority never overrides a *known* incompatible genre at reader-end.
+/// Unknown metadata remains eligible; other editorial surfaces keep their rules.
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+async fn chapter_end_editorial_skips_disjoint_genres_but_preserves_other_slots() {
+    let f = Fixture::new().await;
+    let host = f.book("context-host", "basic").await;
+    let unrelated = f.book("context-disjoint", "basic").await;
+    let same_genre = f.book("context-same-genre", "basic").await;
+    let same_tag = f.book("context-same-tag", "basic").await;
+    let unknown = f.book("context-unknown", "basic").await;
+
+    for (book, genres, tags) in [
+        (host, vec!["fantasy"], vec!["system"]),
+        (unrelated, vec!["sci-fi"], vec!["space"]),
+        (same_genre, vec!["fantasy"], vec!["alchemy"]),
+        (same_tag, vec!["sci-fi"], vec!["system"]),
+    ] {
+        sqlx::query("UPDATE books SET genres=$2,tags=$3 WHERE id=$1")
+            .bind(book)
+            .bind(genres)
+            .bind(tags)
+            .execute(&f.pool)
+            .await
+            .unwrap();
+    }
+    let slot = PromotionSlot::ChapterEndFree;
+    for (n, book) in [unrelated, same_genre, same_tag, unknown]
+        .into_iter()
+        .enumerate()
+    {
+        f.active(book, slot, 6000 + n as u32 * 2).await;
+    }
+    let service = Editorial::new(&f.store);
+    let cards = service.cards(None, slot, Some(host)).await.unwrap();
+    assert!(!cards.iter().any(|card| card.book_id == unrelated));
+    for included in [same_genre, same_tag, unknown] {
+        assert!(cards.iter().any(|card| card.book_id == included));
+    }
+    assert_eq!(cards.len(), 3);
+    assert!(!cards.iter().any(|card| card.book_id == host));
+
+    for other in [
+        PromotionSlot::HomeFeatured,
+        PromotionSlot::BookDetailRelated,
+    ] {
+        f.active(unrelated, other, 6050 + other as u32 * 2).await;
+        assert!(service
+            .cards(
+                None,
+                other,
+                (other != PromotionSlot::HomeFeatured).then_some(host)
+            )
+            .await
+            .unwrap()
+            .iter()
+            .any(|card| card.book_id == unrelated));
+    }
+    f.clean().await;
+}

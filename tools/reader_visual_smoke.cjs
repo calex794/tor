@@ -365,7 +365,7 @@ async function inspect(page, name, where) {
       await inspect(page, name, 'me');
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
       // S007: a book can be saved before any progress or purchase is recorded.
       await page.goto(base + '/books/1');
@@ -375,12 +375,16 @@ async function inspect(page, name, where) {
         name + ': bookmark confirmation missing');
       await page.getByRole('button', { name: 'Сохранить книгу' }).click();
       await page.waitForURL('**/me/library');
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
       assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
         name + ': personal bookmark missing');
       await inspect(page, name, 'bookmarked');
       await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
+      assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(),
         name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
@@ -584,6 +588,11 @@ async function inspect(page, name, where) {
       await page.goto(base + '/me/library');
       assert(await page.getByRole('link', { name: 'Продолжить' }).isVisible(), name + ': resume card missing');
       assert(await page.getByText('Фрагмент 1').isVisible(), name + ': saved anchor missing');
+      // The fixture has no published cover slot: the server must not render an image.
+      assert(await page.locator('.library-reading-card .library-book-art img').count() === 0,
+        name + ': missing public cover slot must not emit a broken image');
+      assert(await page.locator('.library-reading-card .library-book-art__glyph').count() === 1,
+        name + ': missing cover must preserve the illustrated fallback');
       await inspect(page, name, 'library-saved');
       await page.getByRole('link', { name: 'Продолжить' }).click();
       await page.waitForURL('**/read/101#p-1');

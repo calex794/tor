@@ -86,7 +86,7 @@ async fn read_state_post(
 
 async fn followed_page(app: &Router, cookies: &str) -> String {
     let request = Request::builder()
-        .uri("/me/library")
+        .uri("/me/library?view=updates")
         .header(header::COOKIE, cookies)
         .body(Body::empty())
         .expect("request");

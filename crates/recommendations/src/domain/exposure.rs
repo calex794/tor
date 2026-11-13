@@ -163,6 +163,15 @@ pub struct GenreExposureSummary {
     /// The first twenty labels explain the complete low count without an unbounded response.
     pub low_labels: Vec<String>,
 }
+/// A bounded, aggregate-only split of a placement into organic/editorial.
+#[derive(Clone, Debug)]
+pub struct ExposurePlacement {
+    pub surface: ExposureSurface,
+    pub editorial: bool,
+    pub current: Counts,
+    pub previous: Counts,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExposureReport {
     pub checked_at_epoch: i64,
@@ -177,6 +186,9 @@ pub struct ExposureReport {
     pub rows: Vec<ExposureBook>,
     pub next: Option<i64>,
     pub groups: Vec<ExposureGroup>,
+    /// Same snapshot and filters as totals, before pagination and class filtering.
+    /// Counts are cards, never visitors or attributed purchasers.
+    pub placements: Vec<ExposurePlacement>,
 }
 
 #[cfg(test)]

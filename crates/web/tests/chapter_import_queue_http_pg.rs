@@ -25,7 +25,10 @@ use tor_books::{
         chapter_file_import::{fingerprint, parse_text},
     },
 };
-use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
+use tor_imports::{
+    repositories::postgres::PgImportJobs,
+    services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError},
+};
 use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
 use tower::ServiceExt;
 
@@ -163,12 +166,13 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     .unwrap();
     let book_id = authoring.create_owned_book(owner, &book).await.unwrap();
     let store = MemoryStore::default();
-    let app = tor_web::chapter_import_queue_http::router(
+    // Run the real late-bound Axum/RIL instrumentation around this queue.
+    let app = tor_web::instrument_additional_routes(tor_web::chapter_import_queue_http::router(
         accounts,
         false,
         ORIGIN.to_owned(),
         Arc::new(store.clone()),
-    );
+    ));
     let owner_cookie = format!("tor-dev-session={owner_token}; tor-dev-csrf={csrf}");
     let stranger_cookie = format!("tor-dev-session={stranger_token}; tor-dev-csrf={csrf}");
 
@@ -367,6 +371,147 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         "completed and cancelled source objects are cleaned up"
     );
 
+    // A real authorized HTTP POST carries a server-issued RIL trace ID into
+    // the durable PostgreSQL command. Ignore a forged x-request-id from the
+    // client and prove the response parent equals the claimed job's parent.
+    let causal_text = "Глава 2: Трасса\nСодержимое для проверки";
+    let causal_chapters = parse_text("trace.md", causal_text).unwrap();
+    let causal_fingerprint = fingerprint(book_id, &causal_chapters);
+    let causal_hash: [u8; 32] = Sha256::digest(causal_text.as_bytes()).into();
+    let causal_command = generate_session_token();
+    let source_key = format!("staging/chapters/{owner}/{book_id}/{causal_command}");
+    let causal_payload = json!({
+        "filename": "trace.md",
+        "text": causal_text,
+        "csrf_token": csrf,
+        "command_key": causal_command,
+        "fingerprint": fingerprint_hex(&causal_fingerprint),
+    });
+    let http_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(queue_path.as_str())
+                .method("POST")
+                .header(header::COOKIE, owner_cookie.as_str())
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-request-id", "CLIENT-FORGED-TRACE")
+                .body(Body::from(causal_payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(http_response.status(), StatusCode::OK);
+    let issued = http_response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(issued, "CLIENT-FORGED-TRACE");
+    let parent = u128::from_str_radix(&issued, 16).unwrap();
+    assert_eq!(
+        http_response
+            .extensions()
+            .get::<tor_observability::services::trace::RequestTrace>()
+            .unwrap()
+            .trace_id,
+        parent
+    );
+    let causal_response: Value = serde_json::from_slice(
+        &to_bytes(http_response.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let causal_job = causal_response["job_id"].as_i64().unwrap();
+    let jobs = PgImportJobs::new(pool.clone());
+    let http_replay = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(causal_payload),
+    )
+    .await;
+    assert_eq!(http_replay.0, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_str::<Value>(&http_replay.1).unwrap()["job_id"],
+        causal_job
+    );
+    let (replayed_job, new_job) = jobs
+        .enqueue_verified_traced(
+            owner,
+            book_id,
+            &causal_command,
+            &source_key,
+            "trace.md",
+            &causal_hash,
+            causal_text.len() as i64,
+            &causal_fingerprint,
+            1,
+            Some(parent + 1),
+        )
+        .await
+        .unwrap();
+    assert!(!new_job, "replay must not be a newly linked root");
+    assert_eq!(replayed_job, causal_job);
+    let claimed = jobs.claim_next().await.unwrap().unwrap();
+    assert_eq!(claimed.job_id, causal_job);
+    assert_eq!(claimed.parent_trace_id, Some(parent));
+    assert_eq!(claimed.attempts, 1);
+    assert!(jobs
+        .fail_if_current(causal_job, claimed.epoch, false, "test_probe")
+        .await
+        .unwrap());
+    store.delete(&source_key).await.unwrap();
+
+    // A fresh traced job follows the real worker path, not just a direct claim.
+    // The first job's failed epoch cannot publish or delete this new source.
+    let worker_command = generate_session_token();
+    let worker_key = format!("staging/chapters/{owner}/{book_id}/{worker_command}");
+    store
+        .put_verified(&worker_key, causal_text.as_bytes(), &causal_hash)
+        .await
+        .unwrap();
+    let (worker_job, created) = jobs
+        .enqueue_verified_traced(
+            owner,
+            book_id,
+            &worker_command,
+            &worker_key,
+            "trace.md",
+            &causal_hash,
+            causal_text.len() as i64,
+            &causal_fingerprint,
+            1,
+            Some(parent),
+        )
+        .await
+        .unwrap();
+    assert!(created);
+    assert_eq!(
+        worker.run_one().await.unwrap(),
+        ChapterImportWorkerResult::Completed
+    );
+    let finished = jobs
+        .status_for_owner(owner, book_id, worker_job)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(finished.status, "succeeded");
+    assert!(store.0.lock().await.is_empty());
+    assert_eq!(
+        authoring
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
     // Publishing a book must close the queued import route before any S3 PUT,
     // even if the caller is still the authenticated owner.
     authoring.release_book(owner, book_id).await.unwrap();
@@ -402,7 +547,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
             .await
             .unwrap()
             .len(),
-        1,
+        2,
         "rejected published-book import must not add chapters"
     );
     pool.close().await;

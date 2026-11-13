@@ -156,3 +156,139 @@ async fn f_08_seo_01_pg_publication_and_withdrawal_fail_closed() {
 
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with SEO-06 schema"]
+async fn seo_06_sitemap_publication_acl_is_live() {
+    use tor_search::repositories::PgSearch;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable test database URL");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        db, "tor_ci",
+        "SEO-06 fixture must not run on a real database"
+    );
+
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books (source_identity,target_language,title,visibility,access_level)
+         VALUES ('ci:seo06:'||gen_random_uuid()::text,'ru','SEO06 public probe','public','basic')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let search = PgSearch::new(pool.clone());
+    assert!(
+        !search.seo_public_book_indexable(book as u64).await.unwrap(),
+        "a book without a released free chapter is never indexable"
+    );
+
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES ($1,19876,'Free SEO chapter','public','free',0) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions (chapter_id,version_no,body_markdown)
+         VALUES ($1,1,'SEO06 published free content') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications (chapter_id,version_id) VALUES ($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let bucket = u32::try_from((book - 1) / 10_000).unwrap();
+    assert!(search.seo_public_book_indexable(book as u64).await.unwrap());
+    assert!(search.seo_max_public_book_id().await.unwrap() >= book as u64);
+    assert!(
+        search
+            .seo_public_book_ids_in_bucket(bucket)
+            .await
+            .unwrap()
+            .contains(&(book as u64)),
+        "published free chapter must be represented in its bounded sitemap bucket"
+    );
+    let session_search = search.with_session_digest(Some([7_u8; 32]));
+    assert!(matches!(
+        session_search.seo_public_book_indexable(book as u64).await,
+        Err(tor_search::domain::SearchError::Invalid)
+    ));
+
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!search.seo_public_book_indexable(book as u64).await.unwrap());
+    sqlx::query("UPDATE books SET visibility_status='active', access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!search.seo_public_book_indexable(book as u64).await.unwrap());
+    sqlx::query("UPDATE books SET access_level='basic',admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!search.seo_public_book_indexable(book as u64).await.unwrap());
+
+    sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET reader_released_at=now()+interval '1 day' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!search.seo_public_book_indexable(book as u64).await.unwrap());
+
+    sqlx::query("UPDATE chapters SET reader_released_at=NULL WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET shadow_enabled=TRUE,seo_index_owner='shadow' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!search.seo_public_book_indexable(book as u64).await.unwrap());
+
+    // The disposable database must not retain the fixture for later test targets.
+    sqlx::query("DELETE FROM chapter_publications WHERE chapter_id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapter_versions WHERE id=$1")
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapters WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+}

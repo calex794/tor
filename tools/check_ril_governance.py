@@ -215,6 +215,9 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
             and handler in {"admin::contextual::page", "admin::contextual::status",
                             "admin::contextual::control", "admin::contextual::form"}):
         return source.parent / "admin/contextual.rs"
+    if (source == root / "crates/web/src/recommendation_http/mod.rs"
+            and handler == "admin::shelf::page"):
+        return source.parent / "admin/shelf.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
@@ -410,6 +413,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and (".contextual_status()" in evidence if entry["method"] == "GET"
                      else ".control_contextual(&body)" in evidence)):
             errors.append(f"{label}: missing bounded versioned contextual operation")
+    shelf_preview = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+                     and entry["handler"] == "admin::shelf::page")
+    if shelf_preview and not all(token in evidence for token in (
+            "actor(&state, &headers).await", "Duration::from_millis(950)",
+            "state.store.reader_end_shelf(None, book, chapter)",
+            "pages::shelf_panel_observed(&feed, None)",
+            "pages::secure_page(")):
+        errors.append(f"{label}: unbounded or unauthorized shelf preview")
     retired_policy = _retired_policy(entry)
     retired_ok = False
     if retired_policy:
@@ -864,11 +875,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "PgSurprises::new" in body
         ):
             errors.append(f"{label}: missing origin/CSRF and actor-bound surprise mutation")
+    audited_ratio_admin = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+        and admin_key in {
+            ("GET", "/admin/recommendations", "admin::shares_page"),
+            ("POST", "/admin/recommendations", "admin::shares_submit"),
+        }
+        and "actor(&state, &headers).await" in body
+        and "session_actor(" in evidence
+        and "!verified.administrator" in evidence
+        and "StatusCode::FORBIDDEN" in evidence
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
+            or audited_ratio_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -1642,6 +1666,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
         ("GET", "/me/recommendations/manage", "admin::page"),
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
+        ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     if (entry["template"] == "/me/refunds"
@@ -1690,6 +1717,36 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
+    if entry["source"] == "crates/web/src/recommendation_http/mod.rs" and route_key in {
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
+    }:
+        expected = (
+            "actor(&state, &headers).await",
+            "tokio::time::timeout(",
+            "Duration::from_millis(950)",
+            "pages::secure_page(",
+        )
+        if not all(marker in body for marker in expected):
+            errors.append(f"{label}: shares dashboard lost bounded admin authentication")
+        if entry["method"] == "GET":
+            if not all(marker in body for marker in (
+                ".shelf_share_policy()", "actor(&state, &headers).await",
+                "csrf_for_page(&headers)",
+            )):
+                errors.append(f"{label}: share policy read must be authenticated and CSRF-bound")
+        else:
+            required = (
+                "csrf(&state, &headers, &form.csrf_token)",
+                "form.shares()",
+                "session_token_digest(&token)",
+                ".set_shelf_share_policy(",
+                "form.expected_revision",
+                "share_status",
+            )
+            if not all(marker in body for marker in required):
+                errors.append(f"{label}: share policy mutation lost CSRF, CAS or session-bound write")
+
     if policy == "admin_reader":
         # Only the exact read-only shell and one session-bound CSRF POST for
         # current unsealed bodies. Never permit a generic paid grant, wallet
@@ -2014,6 +2071,15 @@ def check(root: Path = ROOT) -> list[str]:
             except OSError:
                 source_cache[path]["actor"] = ""
                 source_cache[path]["csrf"] = ""
+        if (entry.get("source") == "crates/web/src/recommendation_http/mod.rs"
+                and entry.get("handler") == "admin::shelf::page"):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / "crates/web/src/recommendation_http/admin.rs").read_text(encoding="utf-8"))
+                imported = re.search(r"use\s+super::\{\s*actor\s*,", child)
+                source_cache[path]["actor"] = parent.get("actor", "") if imported else ""
+            except OSError:
+                source_cache[path]["actor"] = ""
         if _retired_policy(entry):
             try:
                 api = _functions((root / "crates/web/src/recommendation_http/api.rs")

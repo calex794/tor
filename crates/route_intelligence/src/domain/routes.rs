@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 409] = [
+static ROUTES: [RouteRegistration; 421] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -419,6 +419,18 @@ static ROUTES: [RouteRegistration; 409] = [
     RouteRegistration::new("/admin/promotion/editorial", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 406
     RouteRegistration::new("/admin/audience/signals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 407
     RouteRegistration::new("/admin/audience/pages", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 408
+    RouteRegistration::new("/favicon.ico", "GET", "/assets/", Exact, Static, System, Free), // 409
+    RouteRegistration::new("/favicon.svg", "GET", "/assets/", Exact, Static, System, Free), // 410
+    RouteRegistration::new("/favicon-32x32.png", "GET", "/assets/", Exact, Static, System, Free), // 411
+    RouteRegistration::new("/apple-touch-icon.png", "GET", "/assets/", Exact, Static, System, Free), // 412
+    RouteRegistration::new("/icon-192.png", "GET", "/assets/", Exact, Static, System, Free), // 413
+    RouteRegistration::new("/site.webmanifest", "GET", "/assets/", Exact, Static, System, Free), // 414
+    RouteRegistration::new("/me/recommendations/shelf-preview", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
+    RouteRegistration::new("/robots.txt", "GET", "/assets/", Exact, Static, System, Free), // 416
+    RouteRegistration::new("/sitemap.xml", "GET", "/catalog/", Exact, Page, Catalog, CostClass::ExpensiveRead), // 417
+    RouteRegistration::new("/sitemaps/books/{bucket}", "GET", "/catalog/", Prefix, Page, Catalog, CostClass::ExpensiveRead), // 418
+    RouteRegistration::new("/admin/recommendations", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 419
+    RouteRegistration::new("/admin/recommendations", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 420
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

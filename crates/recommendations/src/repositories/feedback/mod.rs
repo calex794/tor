@@ -16,6 +16,11 @@ mod preference_retention;
 mod preferences;
 mod retirement;
 mod serving;
+mod shelf;
+mod shelf_policy;
+mod shelf_preview;
+pub use shelf_policy::{ShelfShareAuditRow, ShelfShareSnapshot};
+pub use shelf_preview::ShelfCardPreview;
 mod sources;
 mod status;
 

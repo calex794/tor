@@ -196,3 +196,76 @@ impl PgSearch {
         .await
     }
 }
+
+const SEO_PUBLIC_FROM: &str = "
+    FROM books b
+    WHERE b.visibility='public' AND b.visibility_status='active'
+      AND b.access_level='basic'
+      AND (b.seo_index_owner='pandaolate'
+           OR (b.seo_index_owner='shadow' AND NOT b.shadow_enabled))
+      AND b.lifecycle_status<>'pending_deletion'
+      AND NOT b.admin_hold AND NOT b.is_deleted
+      AND EXISTS (
+        SELECT 1 FROM chapters c
+        JOIN chapter_publications p ON p.chapter_id=c.id
+        JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+        WHERE c.book_id=b.id AND c.visibility='public'
+          AND c.access_level='free' AND c.price_amount=0
+          AND NOT c.admin_hold AND NOT c.is_deleted
+          AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+      )";
+
+impl PgSearch {
+    /// Maximum identity of a publicly indexable book. Used only to partition
+    /// the sitemap; gaps or withdrawn books never expose their metadata.
+    pub async fn seo_max_public_book_id(&self) -> Result<u64, SearchError> {
+        if self.viewer_digest.is_some() {
+            return Err(SearchError::Invalid);
+        }
+        let sql = format!("SELECT MAX(b.id) {SEO_PUBLIC_FROM}");
+        let maximum: Option<i64> = sqlx::query_scalar(&sql)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| SearchError::Unavailable)?;
+        u64::try_from(maximum.unwrap_or(0)).map_err(|_| SearchError::Unavailable)
+    }
+
+    /// Fixed 10k-ID ranges are bounded keyset reads, not OFFSET scans. This
+    /// supports large catalogues and remains stable as older books are removed.
+    pub async fn seo_public_book_ids_in_bucket(
+        &self,
+        bucket: u32,
+    ) -> Result<Vec<u64>, SearchError> {
+        if self.viewer_digest.is_some() {
+            return Err(SearchError::Invalid);
+        }
+        let start = i64::from(bucket) * 10_000 + 1;
+        let end = start + 10_000;
+        let sql =
+            format!("SELECT b.id {SEO_PUBLIC_FROM} AND b.id >= $1 AND b.id < $2 ORDER BY b.id");
+        let rows: Vec<i64> = sqlx::query_scalar(&sql)
+            .bind(start)
+            .bind(end)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| SearchError::Unavailable)?;
+        rows.into_iter()
+            .map(|id| u64::try_from(id).map_err(|_| SearchError::Unavailable))
+            .collect()
+    }
+
+    /// The same anonymous publication gate used by sitemap rows. It is
+    /// intentionally independent from logged-in 18+/21+ catalogue access.
+    pub async fn seo_public_book_indexable(&self, book_id: u64) -> Result<bool, SearchError> {
+        if self.viewer_digest.is_some() {
+            return Err(SearchError::Invalid);
+        }
+        let id = i64::try_from(book_id).map_err(|_| SearchError::Invalid)?;
+        let sql = format!("SELECT EXISTS(SELECT 1 {SEO_PUBLIC_FROM} AND b.id=$1)");
+        sqlx::query_scalar(&sql)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| SearchError::Unavailable)
+    }
+}

@@ -41,7 +41,7 @@ pub(super) async fn submit(
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
     match state.follow_updates.set_read_state(actor, id, read).await {
-        Ok(true) => private_response(Redirect::to("/me/library#new-chapters"), &[]),
+        Ok(true) => private_response(Redirect::to("/me/library?view=updates#new-chapters"), &[]),
         Ok(false) => deny(StatusCode::NOT_FOUND),
         Err(FollowUpdatesError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(FollowUpdatesError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),

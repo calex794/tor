@@ -5,6 +5,36 @@
   const root = document.querySelector("[data-free-reader]");
   if (!root) return;
 
+  // The normal cover remains a Book link. Only the separate "i" control
+  // toggles a preview on touch or with the keyboard. No click/read telemetry.
+  const closeShelfPreviews = (except) => {
+    for (const card of root.querySelectorAll('[data-reader-shelf-card][data-flipped="true"]')) {
+      if (card === except) continue;
+      card.removeAttribute("data-flipped");
+      card.querySelector("[data-reader-shelf-info]")?.setAttribute("aria-expanded", "false");
+    }
+  };
+  root.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-reader-shelf-info]");
+    if (button) {
+      const card = button.closest("[data-reader-shelf-card]");
+      if (!card) return;
+      const open = card.getAttribute("data-flipped") !== "true";
+      closeShelfPreviews(card);
+      if (open) card.setAttribute("data-flipped", "true");
+      else card.removeAttribute("data-flipped");
+      button.setAttribute("aria-expanded", String(open));
+    } else if (!event.target.closest?.("[data-reader-shelf-card]")) {
+      closeShelfPreviews();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!root.contains(event.target)) closeShelfPreviews();
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeShelfPreviews();
+  });
+
   const panel = root.querySelector("[data-free-reader-settings]");
   const opener = root.querySelector("[data-free-settings-open]");
   const themeCycle = root.querySelector("[data-free-theme-cycle]");

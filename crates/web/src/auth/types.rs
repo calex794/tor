@@ -69,6 +69,7 @@ pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
     pub(super) purchased_after: Option<i64>,
     pub(super) updates_after: Option<String>,
+    pub(super) view: Option<String>,
     pub(super) limit: Option<u16>,
 }
 

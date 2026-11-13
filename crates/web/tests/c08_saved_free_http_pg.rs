@@ -1,11 +1,6 @@
 //! C-08/BR-060: reader opens exact private saved-free V1, not current V2.
 //! Only disposable PostgreSQL tor_ci. No normal-delete production switch.
-use axum::{
-    body::{to_bytes, Body},
-    http::{header, Request, StatusCode},
-    response::Response,
-    Router,
-};
+use axum::http::{header, StatusCode};
 use std::{
     num::NonZeroU32,
     process::Command,
@@ -17,101 +12,12 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
-use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
-fn pg(url: &str, sql: &str) -> String {
-    assert!(url.ends_with("/tor_ci"), "production DB forbidden");
-    let result = Command::new("psql")
-        .args([
-            "-X",
-            "-A",
-            "-t",
-            "-q",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "--dbname",
-            url,
-            "--command",
-            sql,
-        ])
-        .output()
-        .expect("psql client");
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    String::from_utf8(result.stdout)
-        .expect("UTF-8")
-        .trim()
-        .to_owned()
-}
-
-async fn call(app: &Router, method: &str, url: &str, cookie: &str, body: &str) -> Response {
-    let mut req = Request::builder()
-        .method(method)
-        .uri(url)
-        .header(header::COOKIE, cookie)
-        .header(header::ORIGIN, ORIGIN)
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(body.to_owned()))
-        .unwrap();
-    req.extensions_mut()
-        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
-            [127, 0, 0, 1],
-            41001,
-        ))));
-    app.clone().oneshot(req).await.unwrap()
-}
-
-async fn json_call(
-    app: &Router,
-    method: &str,
-    url: &str,
-    cookie: &str,
-    csrf: &str,
-    body: &str,
-) -> Response {
-    let mut request = Request::builder()
-        .method(method)
-        .uri(url)
-        .header(header::COOKIE, cookie)
-        .header(header::ORIGIN, ORIGIN)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header("x-csrf-token", csrf)
-        .body(Body::from(body.to_owned()))
-        .unwrap();
-    request
-        .extensions_mut()
-        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
-            [127, 0, 0, 1],
-            41002,
-        ))));
-    app.clone().oneshot(request).await.unwrap()
-}
-
-fn auth_cookie(response: &Response, prefix: &str) -> String {
-    response
-        .headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .find(|value| value.starts_with(prefix))
-        .map(|value| value.split(';').next().unwrap_or_default().to_owned())
-        .expect("auth Set-Cookie")
-}
-
-async fn html(response: Response) -> String {
-    String::from_utf8(
-        to_bytes(response.into_body(), 128 * 1024)
-            .await
-            .unwrap()
-            .to_vec(),
-    )
-    .unwrap()
-}
+#[path = "c08_saved_free_http_pg/helpers.rs"]
+mod helpers;
+use helpers::{auth_cookie, call, html, json_call, pg};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
@@ -515,7 +421,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let approved_form = html(call(&app, "GET", &deletion, &reader_cookie, "").await).await;
     assert!(!approved_form.contains("value=\"complete\""));
     assert!(approved_form.contains("удалена"));
-    let pending_library = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    let pending_library =
+        html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
     assert!(pending_library.contains("Удалена"));
     let pending = html(call(&app, "GET", &read, &reader_cookie, "").await).await;
     assert!(pending
@@ -657,7 +564,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              ordinary_deleted_at=now(),visibility='draft' WHERE id={paid_only_book}"
         ),
     );
-    let paid_only_card = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    let paid_only_card = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(paid_only_card.contains("Paid-only &lt;unsafe&gt;"));
     assert!(paid_only_card.contains("Книги с покупками"));
     assert!(paid_only_card.contains("чтение временно недоступно"));
@@ -677,7 +594,8 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    let tombstone = html(call(&app, "GET", "/me/library", &reader_cookie, "").await).await;
+    let tombstone =
+        html(call(&app, "GET", "/me/library?view=saved", &reader_cookie, "").await).await;
     assert!(tombstone.contains("Удалена"));
     assert!(tombstone.contains(&format!("/me/library/{book}/saved")));
     let archived_response = call(&app, "GET", &read, &reader_cookie, "").await;
@@ -721,12 +639,33 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     let fresh_session = auth_cookie(&logged, "tor-dev-session=");
     assert_ne!(fresh_session, format!("tor-dev-session={token}"));
     let new_reader_cookie = format!("{fresh_session}; {login_cookie}");
-    let fresh_library = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
+    let fresh_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=saved",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&format!("/me/library/{book}/saved")));
-    assert!(fresh_library.contains("Paid-only &lt;unsafe&gt;"));
-    assert!(fresh_library.contains("Книги с покупками"));
-    assert!(!fresh_library.contains(&format!("action=\"/me/library/{paid_only_book}/remove\"")));
+    let fresh_bought = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(fresh_bought.contains("Paid-only &lt;unsafe&gt;"));
+    assert!(fresh_bought.contains("Книги с покупками"));
+    assert!(!fresh_bought.contains(&format!("action=\"/me/library/{paid_only_book}/remove\"")));
     let paid_list_path = format!("/me/library/{paid_only_book}/saved");
     let paid_list_response = call(&app, "GET", &paid_list_path, &new_reader_cookie, "").await;
     assert_eq!(paid_list_response.status(), StatusCode::OK);
@@ -734,7 +673,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
     assert!(paid_list.contains("Купленная редакция 1"));
     assert!(paid_list.contains("чтение временно недоступно"));
     assert!(!paid_list.contains(&format!("/read/paid/{paid_chapter}")));
-    let outsider_library = html(call(&app, "GET", "/me/library", &outsider_cookie, "").await).await;
+    let outsider_library = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &outsider_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(!outsider_library.contains("Paid-only &lt;unsafe&gt;"));
 
     let fresh_read = html(call(&app, "GET", &read, &new_reader_cookie, "").await).await;
@@ -923,7 +872,17 @@ async fn c_08_saved_free_v1_is_private_after_v2_and_pending_deletion() {
              VALUES({paid_purchase},'br060-paid-only-refund-{marker}','refund')"
         ),
     );
-    let after_refund = html(call(&app, "GET", "/me/library", &new_reader_cookie, "").await).await;
+    let after_refund = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=purchased",
+            &new_reader_cookie,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(!after_refund.contains("Paid-only &lt;unsafe&gt;"));
     assert_eq!(
         pg(

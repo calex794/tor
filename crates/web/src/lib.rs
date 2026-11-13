@@ -51,6 +51,7 @@ mod recommendation_http;
 pub mod recommendation_worker;
 mod referral_book_http;
 pub mod seo_analytics_worker;
+mod seo_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
@@ -70,6 +71,7 @@ pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
+mod site_icons;
 mod toc_window_http;
 pub mod yandex_cdn_purge;
 #[cfg(feature = "s3-paid")]
@@ -285,10 +287,12 @@ async fn book_detail(
                 Err(status) => return book_error(&state, status).await,
             };
             let html = editorial_http::display::book(&state, &headers, id, html, observation).await;
+            let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
             return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
+        let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
         return cover_http::book_html(&state, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
@@ -455,6 +459,9 @@ fn make_router_with_paid_checkout(
     let public_pages = Router::new()
         .route("/", get(homepage_updates::page))
         .route("/catalog", get(catalog_http::catalog))
+        .route("/robots.txt", get(seo_http::robots_txt))
+        .route("/sitemap.xml", get(seo_http::sitemap_xml))
+        .route("/sitemaps/books/{bucket}", get(seo_http::sitemap_books))
         .merge(book_router)
         .route("/reader/{id}", get(reader_page));
     let mut app = Router::new()
@@ -475,6 +482,12 @@ fn make_router_with_paid_checkout(
             "/assets/newboo-free-reader.js",
             get(pages::free_reader_script),
         )
+        .route("/favicon.ico", get(site_icons::favicon_ico))
+        .route("/favicon.svg", get(site_icons::favicon_svg))
+        .route("/favicon-32x32.png", get(site_icons::favicon_png))
+        .route("/apple-touch-icon.png", get(site_icons::apple_touch_icon))
+        .route("/icon-192.png", get(site_icons::android_icon))
+        .route("/site.webmanifest", get(site_icons::manifest))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(

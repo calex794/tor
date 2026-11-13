@@ -5,6 +5,20 @@ at https://pandaolate.ru. The zero-traffic site is not an excuse to keep an
 in-memory demonstration. We retain only production essentials: least-privilege
 roles, durable schema, real HTTPS, readiness, and a working rollback.
 
+## Test VPS readiness snapshot (12 November 2026)
+
+Read-only operator checks on the existing **disposable TOR test VPS** confirmed:
+
+- `tor-web.service` and `postgresql@18-main.service` are `active`; local `/readyz` responds `ok`.
+- `/opt/tor/current` points to the previously deployed `eef317d10514f20fd0606109cb8de6e21026771a`; PostgreSQL activation marker is `PG_ACTIVATED`.
+- Release helper `/usr/local/sbin/tor-one-click-release` is `root:root` mode `0755`, and `/etc/tor/tor-release-allowed-signers` is `root:root` mode `0644`.
+- `/opt/tor/incoming` is `tor-deploy:tor-deploy` mode `0700` and writable by `tor-deploy`; the PostgreSQL systemd override is present.
+- RAM available was 558 MiB of 961 MiB; swap available approximately 2.4 GiB; filesystem had 16 GiB free of 25 GiB at the check.
+
+**Not a release authorization.** This is a manual snapshot of server health and installed bootstrap files, not a full permission/security audit or evidence of successful upgrade. The proposed target `main@c04fb0045946918f6bfdd10aed042a25ab5d4cf9` had two `push` workflows in `queued` state at the time of review. Later pull-request checks cannot substitute for successful `push` checks for the exact release SHA. Before using the one-click workflow, require an accepted exact-main build and independently assess the SQLx upgrade from the old test database. Binary rollback does not reverse SQLx migrations. Never disable or bypass release preflight because of stale Actions entries.
+
+No SSH mutations, migrations, service restarts, deployment, or updates to other projects were performed as part of this snapshot.
+
 ## A/S002 — login requests behind Nginx (28 October 2026)
 
 On the actual VPS, Nginx connects to TOR via `127.0.0.1:3000`.

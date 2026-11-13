@@ -117,6 +117,8 @@ class Fixture {
     // Remove only this fixture's rows. No historical shared source is reset.
     if (this.books.length) sql("BEGIN;" +
       "CREATE TEMP TABLE catalog_owned_events ON COMMIT DROP AS SELECT source_event_id AS id FROM reader_chapter_starts WHERE book_id=ANY(ARRAY[" + this.books + "]) UNION SELECT source_event_id FROM reader_chapter_completions WHERE book_id=ANY(ARRAY[" + this.books + "]);" +
+      // Prevent a worker from inserting new deliveries between child and parent deletes.
+      "SELECT id FROM outbox_events WHERE id IN(SELECT id FROM catalog_owned_events) ORDER BY id FOR UPDATE;" +
       "DELETE FROM event_deliveries WHERE event_id IN(SELECT id FROM catalog_owned_events);" +
       "DELETE FROM outbox_events WHERE id IN(SELECT id FROM catalog_owned_events);" +
       "DELETE FROM reader_book_positions WHERE book_id=ANY(ARRAY[" + this.books + "]);" +

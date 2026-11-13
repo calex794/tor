@@ -122,6 +122,10 @@ NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
   TOR_EXPOSURE_BASE=http://127.0.0.1:3108 TOR_EXPOSURE_SHOTS="$root/shots" \
   node tools/exposure_report_pg_browser.cjs
 ci_rec_step_done "exposure_report_browser_acceptance"
+NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" \
+  TOR_REC_BASE=http://127.0.0.1:3108 TOR_REC_SHOTS="$root/shots" \
+  node tools/rec_shares_admin_pg_browser.cjs
+ci_rec_step_done "rec_shares_admin_browser_acceptance"
 NODE_PATH="$node_path" APP_URL="$TEST_DATABASE_URL" TOR_EDITORIAL_EXPECT_OBSERVATIONS=1 \
   TOR_EDITORIAL_BASE=http://127.0.0.1:3108 TOR_EDITORIAL_SHOTS="$root/shots" \
   node tools/editorial_pg_browser.cjs
