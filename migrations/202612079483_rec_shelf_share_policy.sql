@@ -182,7 +182,7 @@ REVOKE ALL ON FUNCTION public.rec_shelf_share_update(bigint,integer,integer,inte
 
 -- The migration-only smoke installs schema before provisioning the runtime
 -- login role. Never create a role or assign broad privileges in a migration.
-DO $
+DO $rec_policy_grants$
 BEGIN
     IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
         REVOKE ALL ON TABLE public.rec_shelf_share_policy FROM tor_app;
@@ -193,7 +193,7 @@ BEGIN
             public.rec_shelf_share_update(bigint,integer,integer,integer,integer,integer)
             TO tor_app;
     END IF;
-END $;
+END $rec_policy_grants$;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_administrator() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_policy_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_audit_immutable() FROM PUBLIC;
