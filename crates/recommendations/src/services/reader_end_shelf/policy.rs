@@ -95,9 +95,7 @@ impl ShelfSharePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::reader_end_shelf::{
-        select_shelf_with_policy, ShelfCandidate,
-    };
+    use crate::services::reader_end_shelf::{select_shelf_with_policy, ShelfCandidate};
     use std::collections::BTreeSet;
 
     #[test]
