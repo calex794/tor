@@ -3,12 +3,11 @@
 -- The caller advances past ineligible paths and continues until 51 visible
 -- results (50 + lookahead) or the source is exhausted.
 WITH candidate_paths AS MATERIALIZED (
-  SELECT path
+  SELECT DISTINCT ON (path) path
   FROM flow_seo_pages
   WHERE source_id=$1 AND day >= $2::text::date AND day < $3::text::date AND path>$4
-  GROUP BY path
   ORDER BY path
-  LIMIT 256
+  LIMIT 64
 ), grouped AS MATERIALIZED (
   SELECT p.path,sum(p.clicks)::bigint AS clicks,sum(p.impressions)::bigint AS impressions,
     CASE WHEN count(*) FILTER(WHERE p.impressions>0 AND p.position IS NULL)=0
