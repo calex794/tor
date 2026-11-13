@@ -428,6 +428,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/icon-192.png"), "GET") => Some(413),
         (Some("/site.webmanifest"), "GET") => Some(414),
         (Some("/me/recommendations/shelf-preview"), "GET") => Some(415),
+        (Some("/robots.txt"), "GET") => Some(416),
+        (Some("/sitemap.xml"), "GET") => Some(417),
+        (Some("/sitemaps/books/{bucket}"), "GET") => Some(418),
         _ => None,
     };
     index

@@ -147,6 +147,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - name: Disk usage after cache restore
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -564,6 +570,10 @@ jobs:
             ${{ runner.temp }}/rec13-browser/shots/recommendation-preferences*.png
           if-no-files-found: warn
           retention-days: 14
+      - name: Disk usage after database and HTTP integration
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
@@ -667,6 +677,11 @@ jobs:
         run: |
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
+      - name: Final PostgreSQL runner disk usage
+        if: ${{ always() }}
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
   migrations:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
