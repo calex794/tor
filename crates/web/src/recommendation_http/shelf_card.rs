@@ -48,7 +48,7 @@ pub(crate) fn markup(id: i64, title: &str, preview: Option<&ShelfCardPreview>) -
 <div class="book-mini-card__flip-front">
 <a class="book-mini-card__cover-link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async" draggable="false"></div></a>
 </div>
-<div class="book-mini-card__flip-back"><strong class="book-mini-card__flip-title">{title}</strong>{details}<a class="book-mini-card__flip-open" data-flow-link href="/books/{id}">Открыть книгу</a></div>
+<div class="book-mini-card__flip-back"><a class="book-mini-card__flip-back-link" data-flow-link href="/books/{id}" aria-label="Открыть книгу: {title}"><strong class="book-mini-card__flip-title">{title}</strong>{details}<span class="book-mini-card__flip-open">Открыть книгу</span></a></div>
 </div>
 <button class="book-mini-card__flip-info" type="button" data-reader-shelf-info aria-expanded="false" aria-label="Информация о книге: {title}">i</button>
 </div><div class="book-mini-card__body"><h3 class="book-mini-card__title"><a href="/books/{id}" data-flow-link>{title}</a></h3></div>"#
