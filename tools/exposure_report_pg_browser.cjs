@@ -55,6 +55,9 @@ async function privateResponse(response, expected = 200) {
       "CASE WHEN id=" + lowBook + " THEN 0 ELSE 6 END FROM books WHERE source_identity LIKE '" + prefix +
       "%' AND source_identity<>'" + prefix + "unknown'");
     sql("UPDATE books SET tags=ARRAY['" + label + "'] WHERE source_identity LIKE '" + prefix + "%'");
+    sql("INSERT INTO flow_observation_hourly(bucket,book_id,surface,campaign_id,slot,opportunities,rendered,views,clicks)" +
+      " VALUES(date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '2 hours'," +
+      normal[1] + ",'home',891,'home_featured',3,2,1,1)");
     assert.ok(first > 0 && lowBook > 0);
     browser = await chromium.launch({headless: true});
     const context = await browser.newContext({javaScriptEnabled: false, viewport: {width: 1440, height: 900}});
@@ -82,7 +85,8 @@ async function privateResponse(response, expected = 200) {
     const matrix = page.locator('[data-testid="attention-placements"]');
     const organicHome = matrix.locator('[data-attn-surface="home"][data-attn-source="organic"]');
     assert.equal(await organicHome.count(), 1, 'one aggregate-only home/organic row');
-    assert.equal(await matrix.locator('[data-attn-source="editorial"]').count(), 0);
+    assert.equal(await matrix.locator('[data-attn-surface="home"][data-attn-source="editorial"]').count(), 1);
+    assert.match(await matrix.locator('[data-attn-source="editorial"]').innerText(), /кликов 1/);
     assert.match(await organicHome.innerText(), /показов/);
     assert.match(await organicHome.locator('a').getAttribute('href'), /source=organic/);
     const matrixText = await matrix.innerText();
