@@ -29,7 +29,9 @@ impl PgRecommendations {
         excluded: &[i64],
         slots: usize,
     ) -> Result<Feed, FeedbackError> {
-        if source_book <= 0 || chapter <= 0 || actor.is_some_and(|id| id <= 0)
+        if source_book <= 0
+            || chapter <= 0
+            || actor.is_some_and(|id| id <= 0)
             || !(1..=5).contains(&slots)
             || excluded.len() > 4
             || excluded.iter().any(|id| *id <= 0)
