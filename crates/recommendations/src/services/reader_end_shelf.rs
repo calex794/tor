@@ -291,7 +291,9 @@ mod tests {
                     .len(),
                 5
             );
-            assert!(cards.iter().all(|card| card.source == ShelfSource::OtherAuthors));
+            assert!(cards
+                .iter()
+                .all(|card| card.source == ShelfSource::OtherAuthors));
         }
     }
 
