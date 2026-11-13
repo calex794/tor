@@ -80,7 +80,10 @@ impl PgSeoAnalytics {
             for r in rows {
                 let path: String = r.try_get("path").map_err(|_| E::Unavailable)?;
                 cursor.clone_from(&path);
-                if !r.try_get::<bool, _>("eligible").map_err(|_| E::Unavailable)? {
+                if !r
+                    .try_get::<bool, _>("eligible")
+                    .map_err(|_| E::Unavailable)?
+                {
                     continue;
                 }
                 pages.push(ReportPage {
