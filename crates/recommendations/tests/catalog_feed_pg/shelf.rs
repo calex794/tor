@@ -205,7 +205,11 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
         assert_eq!(chosen.len(), 5);
         assert!(!chosen.contains(&source));
         assert_eq!(
-            chosen.iter().copied().collect::<std::collections::BTreeSet<_>>().len(),
+            chosen
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
             5
         );
         observed.extend(chosen);
