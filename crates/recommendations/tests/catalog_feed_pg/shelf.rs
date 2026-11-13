@@ -216,14 +216,22 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
          SELECT (SELECT coalesce(max(id),0) FROM books)+n,
                 'ci:shelf-depth:' || $1::text || ':' || n::text,
                 'ru','Shelf depth candidate ' || n::text,'public','basic',
-                $2,ARRAY['fantasy'],ARRAY['system']
+                NULL,ARRAY['fantasy'],ARRAY['system']
          FROM generate_series(1,1000) AS gs(n) RETURNING id",
     )
     .bind(source)
-    .bind(f.actors[1])
     .fetch_all(&mut *tx)
     .await
     .unwrap();
+    // Supply owned candidates by UPDATE before commit. Inserting owned rows
+    // would seed immutable B-10 revenue schedules, which unrelated fixture
+    // teardown must never delete.
+    sqlx::query("UPDATE books SET owner_user_id=$1 WHERE id=ANY($2::bigint[])")
+        .bind(f.actors[1])
+        .bind(&generated)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(generated.len(), 1000);
     f.books.extend(generated);
@@ -253,13 +261,6 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
     );
     // The fixture deletes actors before Books: release owner FKs first.
     sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
-        .bind(&f.books)
-        .execute(&f.pool)
-        .await
-        .unwrap();
-    // Registration of a Book with an owner also creates book_members rows.
-    // Release their RESTRICT FKs before Fixture::cleanup removes its test actors.
-    sqlx::query("DELETE FROM book_members WHERE book_id=ANY($1::bigint[])")
         .bind(&f.books)
         .execute(&f.pool)
         .await
