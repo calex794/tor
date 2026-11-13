@@ -409,7 +409,10 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates_and_layers_and_purchased_only_selected;
+pub use library::{
+    my_library_with_updates_and_layers_and_purchased_only_selected,
+    my_library_with_updates_and_layers_and_purchased_only_selected_with_covers,
+};
 mod library_saved_free;
 pub use library_saved_free::{
     saved_archive_list, saved_free_reader, saved_free_reader_with_paginated_toc,
