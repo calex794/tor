@@ -108,7 +108,11 @@ impl DisplayRuntime {
             // This optional read uses exactly the same ACL as organic shelf
             // metadata. Slow enrichment never suppresses accepted campaigns.
             let previews = if slot == PromotionSlot::ChapterEndFree {
-                let ids = cards.iter().take(4).map(|card| card.book_id).collect::<Vec<_>>();
+                let ids = cards
+                    .iter()
+                    .take(4)
+                    .map(|card| card.book_id)
+                    .collect::<Vec<_>>();
                 tokio::time::timeout(
                     Duration::from_millis(150),
                     self.previews
@@ -133,7 +137,6 @@ impl DisplayRuntime {
             MARKER,
             &render_cards_with_previews(&cards, &previews, observation),
         ))
-
     }
 }
 
@@ -171,7 +174,9 @@ fn render_cards_with_previews(
             let markup = crate::recommendation_http::shelf_card::markup(
                 card.book_id,
                 &card.title,
-                previews.iter().find(|preview| preview.book_id == card.book_id),
+                previews
+                    .iter()
+                    .find(|preview| preview.book_id == card.book_id),
             );
             items.push_str(&format!(
                 r#"<article class="book-mini-card book-mini-card--shelf editorial-card" data-editorial-campaign="{}" data-editorial-book="{}"{proof}>{markup}</article>"#,
