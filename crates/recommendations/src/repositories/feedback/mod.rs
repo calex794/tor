@@ -19,8 +19,6 @@ mod serving;
 mod shelf;
 mod shelf_policy;
 pub use shelf_policy::{ShelfShareAuditRow, ShelfShareSnapshot};
-mod shelf_policy;
-pub use shelf_policy::ShelfShareSnapshot;
 mod sources;
 mod status;
 
