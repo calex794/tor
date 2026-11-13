@@ -177,13 +177,16 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         return Response::from_parts(parts, Body::from(bytes));
     }
     let feed_result = if let Some((book, chapter)) = shelf_book {
-        state.store.reader_end_shelf_excluding(
-            identity.as_ref().map(|(id, _)| *id),
-            book,
-            chapter,
-            &editorial_ids,
-            5 - editorial_ids.len(),
-        ).await
+        state
+            .store
+            .reader_end_shelf_excluding(
+                identity.as_ref().map(|(id, _)| *id),
+                book,
+                chapter,
+                &editorial_ids,
+                5 - editorial_ids.len(),
+            )
+            .await
     } else {
         api::load(&state, identity, surface, seed, 10).await
     };
@@ -295,6 +298,8 @@ mod shelf_precedence_tests {
         assert!(!reader_shelf_slot_available(
             "<section data-editorial-campaign=\"42\"></section><!--READER_END_SHELF-->"
         ));
-        assert!(!reader_shelf_slot_available("<section>paid reader</section>"));
+        assert!(!reader_shelf_slot_available(
+            "<section>paid reader</section>"
+        ));
     }
 }
