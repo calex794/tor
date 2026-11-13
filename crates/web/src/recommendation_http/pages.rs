@@ -111,10 +111,18 @@ pub(super) fn shelf_panel_observed(
     feed: &Feed,
     issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
 ) -> String {
+    shelf_panel_with_previews(feed, &[], issuer)
+}
+
+pub(super) fn shelf_panel_with_previews(
+    feed: &Feed,
+    previews: &[tor_recommendations::repositories::feedback::ShelfCardPreview],
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
     if feed.items.is_empty() {
         return String::new();
     }
-    let cards = shelf_cards_observed(feed, issuer);
+    let cards = shelf_cards_with_previews(feed, previews, issuer);
     format!(
         r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Ещё книги</h2><div class="home-shelf__track" aria-label="Подборка книг">{cards}</div></div></section>"#
     )
@@ -126,12 +134,19 @@ pub(super) fn shelf_cards_observed(
     feed: &Feed,
     issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
 ) -> String {
+    shelf_cards_with_previews(feed, &[], issuer)
+}
+
+pub(super) fn shelf_cards_with_previews(
+    feed: &Feed,
+    previews: &[tor_recommendations::repositories::feedback::ShelfCardPreview],
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
     let mut out = String::new();
     for item in &feed.items {
         let Ok(id) = book_id(&item.book_id) else {
             continue;
         };
-        let title = html::escape_html(&item.title);
         let source = html::escape_html(&item.source);
         let observation = crate::flow_exposure::attributes(
             issuer,
@@ -141,9 +156,14 @@ pub(super) fn shelf_cards_observed(
                 editorial: None,
             },
         );
+        let markup = super::shelf_card::markup(
+            id,
+            &item.title,
+            previews.iter().find(|preview| preview.book_id == id),
+        );
         let _ = write!(
             out,
-            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3></div></a></article>"#,
+            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}>{markup}</article>"#,
         );
     }
 
