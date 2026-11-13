@@ -114,9 +114,19 @@ pub(super) fn shelf_panel_observed(
     if feed.items.is_empty() {
         return String::new();
     }
-    let mut out = String::from(
-        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">"#,
-    );
+    let cards = shelf_cards_observed(feed, issuer);
+    format!(
+        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">{cards}</div></div></section>"#
+    )
+}
+
+/// Emit only organic cards for the reader's already-open editorial shelf.
+/// The enclosing panel is shared; FLOW receives one proof per delivered card.
+pub(super) fn shelf_cards_observed(
+    feed: &Feed,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
+    let mut out = String::new();
     for item in &feed.items {
         let Ok(id) = book_id(&item.book_id) else {
             continue;
@@ -142,7 +152,7 @@ pub(super) fn shelf_panel_observed(
             r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3><small class="book-mini-card__meta">{relation}</small></div></a></article>"#,
         );
     }
-    out.push_str("</div></div></section>");
+
     out
 }
 
