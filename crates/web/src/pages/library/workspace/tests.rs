@@ -72,7 +72,7 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
     .0;
     assert!(html.contains("href=\"/me/library/saved/23#saved-resume\""));
     assert!(html.contains("&lt;hidden&gt;"));
-    assert!(!html.contains("href=\"/covers/9/card.webp\""));
+    assert!(!html.contains("src=\"/covers/9/card.webp\""));
     let saved_html = my_library_with_updates_and_layers_and_purchased_only_selected(
         &items,
         &blank_saved(),
@@ -88,15 +88,19 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
 }
 
 #[test]
-fn public_library_cover_keeps_script_free_visual_fallback() {
-    let with_cover = book_art(13, true);
-    assert!(with_cover.contains("class=\"library-book-art__cover\""));
-    assert!(with_cover.contains("<image href=\"/covers/13/card.webp\""));
-    assert!(with_cover.contains("library-book-art__glyph"));
-    assert!(!with_cover.contains("<img"));
-    assert!(!with_cover.contains("onerror="));
+fn public_library_cover_requires_confirmed_public_slot() {
+    let mut published = std::collections::HashSet::new();
+    let fallback = book_art(13, true, Some(&published));
+    assert!(!fallback.contains("<img"));
+    assert!(fallback.contains("library-book-art__glyph"));
+    assert!(!fallback.contains("onerror="));
 
-    let private = book_art(13, false);
+    published.insert(13);
+    let with_cover = book_art(13, true, Some(&published));
+    assert!(with_cover.contains("src=\"/covers/13/card.webp\""));
+    assert!(with_cover.contains("library-book-art__glyph"));
+
+    let private = book_art(13, false, Some(&published));
     assert!(!private.contains("/covers/13/card.webp"));
     assert!(private.contains("library-book-art__glyph"));
 }
