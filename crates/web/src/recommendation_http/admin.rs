@@ -222,27 +222,33 @@ pub(super) struct ShareForm {
     csrf_token: String,
     expected_revision: i64,
     action: ShareAction,
-    author_pct: Option<i32>,
-    teammate_pct: Option<i32>,
-    other_authors_pct: Option<i32>,
-    no_team_author_pct: Option<i32>,
-    no_team_other_authors_pct: Option<i32>,
+    author_pct: Option<String>,
+    teammate_pct: Option<String>,
+    other_authors_pct: Option<String>,
+    no_team_author_pct: Option<String>,
+    no_team_other_authors_pct: Option<String>,
     target_revision: Option<i64>,
 }
 
 impl ShareForm {
     fn shares(&self) -> Result<([i32; 3], [i32; 2]), FeedbackError> {
+        fn parse(value: &Option<String>) -> Result<i32, FeedbackError> {
+            value
+                .as_deref()
+                .ok_or(FeedbackError::Invalid)?
+                .parse::<i32>()
+                .map_err(|_| FeedbackError::Invalid)
+        }
         let values = match self.action {
             ShareAction::Save => (
                 [
-                    self.author_pct.ok_or(FeedbackError::Invalid)?,
-                    self.teammate_pct.ok_or(FeedbackError::Invalid)?,
-                    self.other_authors_pct.ok_or(FeedbackError::Invalid)?,
+                    parse(&self.author_pct)?,
+                    parse(&self.teammate_pct)?,
+                    parse(&self.other_authors_pct)?,
                 ],
                 [
-                    self.no_team_author_pct.ok_or(FeedbackError::Invalid)?,
-                    self.no_team_other_authors_pct
-                        .ok_or(FeedbackError::Invalid)?,
+                    parse(&self.no_team_author_pct)?,
+                    parse(&self.no_team_other_authors_pct)?,
                 ],
             ),
             ShareAction::Defaults => ([50, 40, 10], [70, 30]),
@@ -475,18 +481,20 @@ mod share_panel_tests {
             csrf_token: "server-only".into(),
             expected_revision: 1,
             action: ShareAction::Save,
-            author_pct: Some(50),
-            teammate_pct: Some(40),
-            other_authors_pct: Some(20),
-            no_team_author_pct: Some(70),
-            no_team_other_authors_pct: Some(30),
+            author_pct: Some("50".into()),
+            teammate_pct: Some("40".into()),
+            other_authors_pct: Some("20".into()),
+            no_team_author_pct: Some("70".into()),
+            no_team_other_authors_pct: Some("30".into()),
             target_revision: None,
         };
         assert_eq!(form.shares(), Err(FeedbackError::Invalid));
-        form.other_authors_pct = Some(10);
+        form.other_authors_pct = Some("10".into());
         assert_eq!(form.shares(), Ok(([50, 40, 10], [70, 30])));
         form.action = ShareAction::Defaults;
-        form.author_pct = Some(-1);
+        form.author_pct = Some("broken".into());
         assert_eq!(form.shares(), Ok(([50, 40, 10], [70, 30])));
+        form.action = ShareAction::Save;
+        assert_eq!(form.shares(), Err(FeedbackError::Invalid));
     }
 }
