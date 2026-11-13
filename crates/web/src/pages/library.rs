@@ -37,7 +37,7 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
 /// A public cover is attempted only for books without private deletion state.
 fn book_art(book_id: i64, public_visible: bool) -> String {
     let image = if public_visible && book_id > 0 {
-        format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
+        format!("<svg class=\"library-book-art__cover\" viewBox=\"0 0 100 150\" aria-hidden=\"true\" focusable=\"false\"><image href=\"/covers/{book_id}/card.webp\" width=\"100\" height=\"150\" preserveAspectRatio=\"xMidYMid slice\"/></svg>")
     } else {
         String::new()
     };
