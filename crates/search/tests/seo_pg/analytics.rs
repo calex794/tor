@@ -266,18 +266,23 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
         })
         .await
         .unwrap();
-    let mut setup = pool.begin().await.unwrap();
-    sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
-        .execute(&mut *setup)
+    // Never hand-assign 50k book IDs: doing so outruns the identity sequence
+    // and makes later independent fixtures fail with books_pkey collisions.
+    let nonce: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
+        .fetch_one(&pool)
         .await
         .unwrap();
-    let first: i64 = sqlx::query_scalar("SELECT coalesce(max(id),0)+1 FROM books")
-        .fetch_one(&mut *setup)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) SELECT $1+n,'ci:seo:scale:'||($1+n),'ru','SEO scale','public','basic' FROM generate_series(0,49999)n")
-        .bind(first).execute(&mut *setup).await.unwrap();
-    setup.commit().await.unwrap();
+    let prefix = format!("ci:seo:scale:{nonce}:");
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+         SELECT $1 || n::text,'ru','SEO scale','public','basic'
+         FROM generate_series(0,49999)n RETURNING id",
+    )
+    .bind(&prefix)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ids.len(), 50_000);
     store.request_refresh(Provider::Google).await.unwrap();
     let job = store.claim(&source).await.unwrap().unwrap();
     let data = Snapshot {
@@ -286,7 +291,8 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
             impressions: 100,
             position: Some(2.0),
         }),
-        pages: (first..first + 50000)
+        pages: ids
+            .iter()
             .map(|id| PageMetrics {
                 path: format!("/books/{id}"),
                 metrics: Metrics {
@@ -347,12 +353,39 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
         Some(25)
     );
     reader.close().await;
+
+    // Multiple full 64-path scan windows can be withdrawn. The next
+    // visible page must continue past it without leaking its titles.
+    let mut ordered: Vec<(String, i64)> =
+        ids.iter().map(|id| (format!("/books/{id}"), *id)).collect();
+    ordered.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let hidden_ids: Vec<i64> = ordered.iter().take(320).map(|(_, id)| *id).collect();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=ANY($1)")
+        .bind(&hidden_ids)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let filtered = store.report(90, Provider::Google, None).await.unwrap();
+    assert_eq!(
+        filtered.pages.len(),
+        50,
+        "hidden prefix must not truncate the page"
+    );
+    assert!(filtered
+        .pages
+        .iter()
+        .all(|p| !ordered[..320].iter().any(|(path, _)| path == &p.path)));
+
     sqlx::query("DELETE FROM flow_seo_sources WHERE id=$1")
         .bind(source.id)
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("DELETE FROM books WHERE id >=$1 AND id <$1+50000 AND source_identity LIKE 'ci:seo:scale:%'").bind(first).execute(&pool).await.unwrap();
+    sqlx::query("DELETE FROM books WHERE source_identity LIKE $1")
+        .bind(format!("{prefix}%"))
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }
 
