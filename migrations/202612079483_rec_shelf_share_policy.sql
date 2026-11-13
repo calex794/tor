@@ -175,14 +175,25 @@ END $$;
 
 -- The serving role can read both snapshots but can only write by calling
 -- the guarded SECURITY DEFINER CAS. No direct INSERT/UPDATE/DELETE rights.
-REVOKE ALL ON TABLE public.rec_shelf_share_policy FROM PUBLIC,tor_app;
-REVOKE ALL ON TABLE public.rec_shelf_share_policy_audit FROM PUBLIC,tor_app;
-GRANT SELECT ON TABLE public.rec_shelf_share_policy TO tor_app;
-GRANT SELECT ON TABLE public.rec_shelf_share_policy_audit TO tor_app;
+REVOKE ALL ON TABLE public.rec_shelf_share_policy FROM PUBLIC;
+REVOKE ALL ON TABLE public.rec_shelf_share_policy_audit FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_update(bigint,integer,integer,integer,integer,integer)
     FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.rec_shelf_share_update(bigint,integer,integer,integer,integer,integer)
-    TO tor_app;
+
+-- The migration-only smoke installs schema before provisioning the runtime
+-- login role. Never create a role or assign broad privileges in a migration.
+DO $
+BEGIN
+    IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
+        REVOKE ALL ON TABLE public.rec_shelf_share_policy FROM tor_app;
+        REVOKE ALL ON TABLE public.rec_shelf_share_policy_audit FROM tor_app;
+        GRANT SELECT ON TABLE public.rec_shelf_share_policy TO tor_app;
+        GRANT SELECT ON TABLE public.rec_shelf_share_policy_audit TO tor_app;
+        GRANT EXECUTE ON FUNCTION
+            public.rec_shelf_share_update(bigint,integer,integer,integer,integer,integer)
+            TO tor_app;
+    END IF;
+END $;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_administrator() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_policy_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rec_shelf_share_audit_immutable() FROM PUBLIC;
