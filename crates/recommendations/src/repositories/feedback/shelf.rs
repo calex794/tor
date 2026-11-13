@@ -196,7 +196,8 @@ impl PgRecommendations {
         // A fixed rotation per chapter would skew quotas when a popular
         // first chapter is opened many times.
         let rotation = (chapter as u64) ^ rand::random::<u64>();
-        let cards = select_shelf_with_policy(source_book, pools, slots, rotation, &share_policy.policy);
+        let cards =
+            select_shelf_with_policy(source_book, pools, slots, rotation, &share_policy.policy);
         let items = cards
             .into_iter()
             .filter_map(|card| {
