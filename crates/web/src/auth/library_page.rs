@@ -78,9 +78,8 @@ pub(super) async fn my_library(
     cover_book_ids.dedup();
     let mut confirmed_covers = std::collections::HashSet::new();
     if state.cover_preview_storage.is_some() {
-        let slots = tor_books::repositories::cover_slots::PgCoverSlots::new(
-            state.accounts.pool().clone(),
-        );
+        let slots =
+            tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
         for batch in cover_book_ids.chunks(100) {
             match slots.public_card_ids(batch).await {
                 Ok(ids) => confirmed_covers.extend(ids),
