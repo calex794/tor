@@ -61,7 +61,7 @@ impl PgSeoAnalytics {
         // The source may contain 50k rows and many no-longer-public paths.
         // Scan a bounded index-ordered batch before consulting public
         // projections; a hidden prefix cannot truncate the visible page.
-        const SCAN_BATCH: usize = 256; // matches LIMIT in pages.sql
+        const SCAN_BATCH: usize = 64; // matches LIMIT in pages.sql
         let mut cursor = after.unwrap_or("").to_owned();
         let mut pages = Vec::new();
         loop {
