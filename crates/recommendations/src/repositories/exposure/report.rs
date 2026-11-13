@@ -66,6 +66,27 @@ fn sum_columns(prefix: &str) -> String {
     .collect::<Vec<_>>()
     .join(",")
 }
+// Keep the source/surface matrix on the same canonical book and UTC window
+// as the existing report. There is no visitor, actor or cross-page linkage.
+fn period_columns(prefix: &str, previous: bool) -> String {
+    let op = if previous { "<" } else { ">=" };
+    [
+        "opportunities",
+        "rendered",
+        "views",
+        "clicks",
+        "expired_unobserved",
+        "replayed",
+    ]
+    .into_iter()
+    .map(|name| {
+        format!(
+            "coalesce(sum(h.{name}) FILTER (WHERE h.bucket {op} a.until-make_interval(hours=>$1*24)),0)::bigint AS {prefix}{name}"
+        )
+    })
+    .collect::<Vec<_>>()
+    .join(",")
+}
 impl PgExposure {
     pub async fn report(&self, filter: &ExposureFilter) -> Result<ExposureReport, ExposureError> {
         self.report_with_anchor(filter, false, None).await
@@ -198,6 +219,45 @@ async fn report_in(
             })
         })
         .collect::<Result<Vec<_>, ExposureError>>()?;
+    // Current and previous placement splits are computed in the same
+    // REPEATABLE READ snapshot as totals, before keyset pagination.
+    // No independent reader identity, guessed attribution or extra event store.
+    let placement_sql = format!(
+        r#"{BASE}
+          SELECT h.surface,(h.campaign_id>0) AS is_editorial,{},{}
+          FROM flow_observation_hourly h
+          JOIN eligible e ON e.id=h.book_id CROSS JOIN bounds a
+          WHERE h.bucket>=a.until-make_interval(hours=>$1*48) AND h.bucket<a.until
+            AND ($2::text IS NULL OR h.surface=$2)
+            AND ($5::bigint IS NULL OR h.campaign_id=$5)
+            AND ($6::boolean IS NULL OR (h.campaign_id>0)=$6)
+          GROUP BY h.surface,(h.campaign_id>0)
+          ORDER BY h.surface COLLATE "C",is_editorial LIMIT 11"#,
+        period_columns("", false),
+        period_columns("previous_", true)
+    );
+    let placement_rows = bind(&placement_sql, filter, closed, book)
+        .fetch_all(&mut **tx)
+        .await?;
+    // Five fixed surfaces x two sources; fail instead of silently truncating
+    // an unexpected new category.
+    if placement_rows.len() > 10 {
+        return Err(ExposureError::Unavailable);
+    }
+    let placements = placement_rows
+        .into_iter()
+        .map(|row| {
+            Ok(ExposurePlacement {
+                surface: row
+                    .try_get::<String, _>("surface")?
+                    .parse()
+                    .map_err(|_| ExposureError::Unavailable)?,
+                editorial: row.try_get("is_editorial")?,
+                current: counts(&row, "")?,
+                previous: counts(&row, "previous_")?,
+            })
+        })
+        .collect::<Result<Vec<_>, ExposureError>>()?;
     let genre_sql = format!(
         r#"{BASE}, genre_counts AS (
             SELECT g.label,sum(opportunities) AS opportunities,sum(rendered) AS rendered,sum(views) AS views
@@ -232,5 +292,6 @@ async fn report_in(
         rows,
         next,
         groups,
+        placements,
     })
 }
