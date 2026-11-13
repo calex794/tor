@@ -6,13 +6,16 @@
 //! The allocator chooses up to five DISTINCT cards after a free chapter.
 use std::collections::BTreeSet;
 
+mod policy;
+pub use policy::{ShelfShareError, ShelfSharePolicy};
+
 /// Owner of the current publication takes precedence over team membership;
-/// team membership takes precedence over the rest of the public catalogue.
+/// team membership takes precedence over books by other owners (legacy `site`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfSource {
     Author,
     Teammate,
-    Site,
+    OtherAuthors,
 }
 
 impl ShelfSource {
@@ -20,7 +23,7 @@ impl ShelfSource {
         match self {
             Self::Author => 0,
             Self::Teammate => 1,
-            Self::Site => 2,
+            Self::OtherAuthors => 2,
         }
     }
 }
@@ -49,25 +52,14 @@ pub struct ShelfCard {
 const SOURCES: [ShelfSource; 3] = [
     ShelfSource::Author,
     ShelfSource::Teammate,
-    ShelfSource::Site,
+    ShelfSource::OtherAuthors,
 ];
 const MAX_POOL: usize = 100;
 
-/// Nominal ratio 50/40/10. If no teammate Books exist, the *product-defined*
-/// fallback is 70/0/30 (not mathematical proportional redistribution).
-/// With no author Books, author inventory transfers to the site. If the site
-/// is empty, the remaining author/team shares retain their 5:4 ratio.
+/// Existing 50/40/10 behavior until the versioned PostgreSQL policy is connected.
+/// No reader or browser data influences these pure weights.
 pub fn weights_for_availability(available: [bool; 3]) -> [i64; 3] {
-    match available {
-        [true, true, true] => [50, 40, 10],
-        [true, false, true] => [70, 0, 30],
-        [false, true, true] => [0, 40, 60],
-        [true, true, false] => [5, 4, 0],
-        [true, false, false] => [1, 0, 0],
-        [false, true, false] => [0, 1, 0],
-        [false, false, true] => [0, 0, 1],
-        [false, false, false] => [0, 0, 0],
-    }
+    ShelfSharePolicy::default().weights_for_availability(available)
 }
 
 fn next_source(weights: [i64; 3], debt: &mut [i64; 3]) -> Option<usize> {
@@ -111,9 +103,27 @@ fn order_pool(pool: &mut [ShelfCandidate], rotation: u64) {
 /// caller; the function is pure and does not store per-reader observations.
 pub fn select_shelf(
     source_book_id: i64,
+    pools: [Vec<ShelfCandidate>; 3],
+    cards: usize,
+    rotation: u64,
+) -> Vec<ShelfCard> {
+    select_shelf_with_policy(
+        source_book_id,
+        pools,
+        cards,
+        rotation,
+        &ShelfSharePolicy::default(),
+    )
+}
+
+/// Pure allocator for a validated future administrator policy. This does not
+/// read, persist, or change runtime settings and never mints observation proofs.
+pub fn select_shelf_with_policy(
+    source_book_id: i64,
     mut pools: [Vec<ShelfCandidate>; 3],
     cards: usize,
     rotation: u64,
+    policy: &ShelfSharePolicy,
 ) -> Vec<ShelfCard> {
     if source_book_id <= 0 || !(1..=5).contains(&cards) {
         return Vec::new();
@@ -129,9 +139,9 @@ pub fn select_shelf(
     }
 
     let mut debt = [0_i64; 3];
-    let initial = weights_for_availability(pools.clone().map(|p| !p.is_empty()));
+    let initial = policy.weights_for_availability(pools.clone().map(|p| !p.is_empty()));
     // Advance the smooth weighted wheel before emitting a shelf. Different
-    // chapter/request rotations therefore realize fractional 10% site share
+    // chapter/request rotations therefore realize fractional 10% other-author share
     // even when one shelf has only five positions.
     for _ in 0..rotation % 100 {
         let _ = next_source(initial, &mut debt);
@@ -140,7 +150,7 @@ pub fn select_shelf(
     let mut output = Vec::with_capacity(cards);
     for _ in 0..cards {
         let available = pools.each_ref().map(|pool| !pool.is_empty());
-        let weights = weights_for_availability(available);
+        let weights = policy.weights_for_availability(available);
         let Some(index) = next_source(weights, &mut debt) else {
             break;
         };
@@ -198,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn no_author_transfers_its_share_to_site() {
+    fn no_author_transfers_its_share_to_other_authors() {
         assert_eq!(
             count_across_rotations([vec![], pool(100, 20), pool(1000, 20)]),
             [0, 200, 300]
@@ -229,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicates_are_owned_by_author_before_team_before_site() {
+    fn duplicates_are_owned_by_author_before_team_before_other_authors() {
         let cards = select_shelf(1, [pool(2, 1), pool(2, 2), pool(2, 3)], 5, 2);
         assert_eq!(cards.len(), 3);
         assert_eq!(
@@ -279,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn a_large_site_catalogue_fills_all_five_slots_without_duplicates() {
+    fn a_large_other_authors_pool_fills_all_five_slots_without_duplicates() {
         for rotation in [0, 1, 27, 99, 110] {
             let cards = select_shelf(1, [vec![], vec![], pool(2, 1000)], 5, rotation);
             assert_eq!(cards.len(), 5);
@@ -291,7 +301,9 @@ mod tests {
                     .len(),
                 5
             );
-            assert!(cards.iter().all(|card| card.source == ShelfSource::Site));
+            assert!(cards
+                .iter()
+                .all(|card| card.source == ShelfSource::OtherAuthors));
         }
     }
 

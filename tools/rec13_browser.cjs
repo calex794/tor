@@ -88,6 +88,15 @@ async function completeFreeChapter(page, chapter, version) {
     });
     await register(page,email);
     const user=scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
+    // Historical SQL fixtures may be unowned, but this browser test models
+    // ordinary Book records: an accountable actor and matching B09 owner rows.
+    sql(`BEGIN;
+      UPDATE books SET owner_user_id=${user} WHERE id IN(${books.join(',')});
+      INSERT INTO book_members(book_id,user_id,role)
+        SELECT id,${user},'owner' FROM books WHERE id IN(${books.join(',')})
+        ON CONFLICT(book_id,user_id) DO NOTHING;
+      COMMIT;`);
+    assert.equal(scalar(`SELECT count(*) FROM books WHERE id IN(${books.join(',')}) AND owner_user_id=${user}`),books.length);
     await assertNoControls(page);
     assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${user}`),0);
     assert.equal(scalar(`SELECT count(*) FROM rec_public_books WHERE id IN(${books.join(',')})`),books.length);
@@ -216,7 +225,10 @@ async function completeFreeChapter(page, chapter, version) {
   } finally {
     if (browser) await browser.close();
     // Fixtures live only in tor_ci; preserve unrelated data and immutable events.
-    if (books.length) sql(`DELETE FROM books WHERE id IN(${books.join(',')})`);
+    if (books.length) sql(`BEGIN;
+      DELETE FROM book_members WHERE book_id IN(${books.join(',')});
+      DELETE FROM books WHERE id IN(${books.join(',')});
+      COMMIT;`);
     sql(`DELETE FROM users WHERE email_normalized IN('${email}','${mobileEmail}')`);
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});
