@@ -431,6 +431,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/robots.txt"), "GET") => Some(416),
         (Some("/sitemap.xml"), "GET") => Some(417),
         (Some("/sitemaps/books/{bucket}"), "GET") => Some(418),
+        (Some("/admin/recommendations"), "GET") => Some(419),
+        (Some("/admin/recommendations"), "POST") => Some(420),
         _ => None,
     };
     index
