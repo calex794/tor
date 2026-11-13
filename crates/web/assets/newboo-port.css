@@ -1213,9 +1213,13 @@ img.home-spotlight-card__cover {
 .reader-end-shelf .book-mini-card__visual[data-flipped="true"] .book-mini-card__flip-inner {
   transform: rotateY(180deg);
 }
+/* Keyboard focus on the front cover must not hide its own link.
+   Focusing the reverse link instead reveals that side even without JS. */
+.reader-end-shelf .book-mini-card__visual:has(.book-mini-card__flip-back-link:focus-visible) .book-mini-card__flip-inner {
+  transform: rotateY(180deg);
+}
 @media (hover: hover) and (pointer: fine) {
-  .reader-end-shelf .book-mini-card__visual:hover .book-mini-card__flip-inner,
-  .reader-end-shelf .book-mini-card__visual:focus-within .book-mini-card__flip-inner {
+  .reader-end-shelf .book-mini-card__visual:hover .book-mini-card__flip-inner {
     transform: rotateY(180deg);
   }
 }
