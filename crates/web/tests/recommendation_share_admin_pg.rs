@@ -7,7 +7,10 @@ use axum::{
     response::Response,
     Router,
 };
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -59,7 +62,13 @@ fn assert_private(response: &Response) {
 }
 
 async fn body(response: Response) -> String {
-    String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -77,7 +86,10 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
         .unwrap();
 
     let accounts = PgAccounts::from_pool(pool.clone());
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let password = hash_password("RecommendationAdmin2026Fixture").unwrap();
     let mut users = Vec::new();
     let mut tokens = Vec::new();
@@ -155,15 +167,28 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     let new_shares = [40, 30, 30, 60, 40];
     let good = form(&csrf, initial.0, new_shares, "save");
     let bad_csrf = form("wrong", initial.0, new_shares, "save");
-    for (origin, data) in [(ORIGIN, bad_csrf.as_str()), ("https://evil.example", good.as_str())] {
+    for (origin, data) in [
+        (ORIGIN, bad_csrf.as_str()),
+        ("https://evil.example", good.as_str()),
+    ] {
         let response = call(&app, "POST", &admin_cookie, origin, data).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_private(&response);
     }
     let invalid_sum = form(&csrf, initial.0, [50, 40, 20, 70, 30], "save");
-    assert_eq!(call(&app, "POST", &admin_cookie, ORIGIN, &invalid_sum).await.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        call(&app, "POST", &admin_cookie, ORIGIN, &invalid_sum)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
     let invalid_number = good.replace("author_pct=40", "author_pct=invalid");
-    assert_eq!(call(&app, "POST", &admin_cookie, ORIGIN, &invalid_number).await.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        call(&app, "POST", &admin_cookie, ORIGIN, &invalid_number)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
 
     let response = call(&app, "POST", &admin_cookie, ORIGIN, &good).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -178,13 +203,26 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     .await
     .unwrap();
     assert_eq!(after.0, initial.0 + 1);
-    assert_eq!([after.1, after.2, after.3, after.4, after.5], [40, 30, 30, 60, 40]);
-    assert_eq!(call(&app, "POST", &admin_cookie, ORIGIN, &good).await.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        [after.1, after.2, after.3, after.4, after.5],
+        [40, 30, 30, 60, 40]
+    );
+    assert_eq!(
+        call(&app, "POST", &admin_cookie, ORIGIN, &good)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
 
     // Return the singleton to its original values; test must not contaminate
     // subsequent REC fixtures, even when original differs from defaults.
     let restore = form(&csrf, after.0, previous, "save");
-    assert_eq!(call(&app, "POST", &admin_cookie, ORIGIN, &restore).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        call(&app, "POST", &admin_cookie, ORIGIN, &restore)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
     let after_flow: i64 = sqlx::query_scalar("SELECT count(*) FROM flow_observation_proofs")
         .fetch_one(&pool)
         .await
@@ -192,9 +230,17 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     assert_eq!(before_flow, after_flow);
 
     sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='administrator'")
-        .bind(users[0]).execute(&pool).await.unwrap();
+        .bind(users[0])
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE id=ANY($1::bigint[])")
-        .bind(&users).execute(&pool).await.unwrap();
+        .bind(&users)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("SELECT pg_advisory_unlock(864863)")
-        .execute(&mut *guard).await.unwrap();
+        .execute(&mut *guard)
+        .await
+        .unwrap();
 }
