@@ -21,22 +21,11 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 419);
+    assert_eq!(unique.len(), 421);
 }
 
-#[test]
-fn per_chapter_moderation_has_no_registered_routes() {
-    assert!(classify(Some("/moderation/books"), "GET").route_known);
-    for (route, method) in [
-        ("/moderation/chapters", "GET"),
-        ("/moderation/chapters/{id}/hold", "POST"),
-    ] {
-        assert!(
-            !classify(Some(route), method).route_known,
-            "chapter-level moderation is not a product capability"
-        );
-    }
-}
+#[path = "tests/route_guardrails.rs"]
+mod route_guardrails;
 
 #[test]
 fn public_private_and_write_routes_are_distinct() {
