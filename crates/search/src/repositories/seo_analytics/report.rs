@@ -58,24 +58,46 @@ impl PgSeoAnalytics {
             .unwrap_or(0);
         let current = period(&mut tx, id, &anchor, days, 0).await?;
         let previous = period(&mut tx, id, &anchor, days, 1).await?;
-        let rows = sqlx::query(include_str!("pages.sql"))
-            .bind(id)
-            .bind(&current.from)
-            .bind(&current.until)
-            .bind(after.unwrap_or(""))
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|_| E::Unavailable)?;
+        // The source may contain 50k rows and many no-longer-public paths.
+        // Scan a bounded index-ordered batch before consulting public
+        // projections; a hidden prefix cannot truncate the visible page.
+        const SCAN_BATCH: usize = 256; // matches LIMIT in pages.sql
+        let mut cursor = after.unwrap_or("").to_owned();
         let mut pages = Vec::new();
-        for r in rows {
-            pages.push(ReportPage {
-                path: r.try_get("path").map_err(|_| E::Unavailable)?,
-                title: r.try_get("title").map_err(|_| E::Unavailable)?,
-                clicks: r.try_get("clicks").map_err(|_| E::Unavailable)?,
-                impressions: r.try_get("impressions").map_err(|_| E::Unavailable)?,
-                position: r.try_get("position").map_err(|_| E::Unavailable)?,
-                measured_days: r.try_get("measured_days").map_err(|_| E::Unavailable)?,
-            });
+        loop {
+            let rows = sqlx::query(include_str!("pages.sql"))
+                .bind(id)
+                .bind(&current.from)
+                .bind(&current.until)
+                .bind(&cursor)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|_| E::Unavailable)?;
+            let scanned = rows.len();
+            if scanned == 0 {
+                break;
+            }
+            for r in rows {
+                let path: String = r.try_get("path").map_err(|_| E::Unavailable)?;
+                cursor.clone_from(&path);
+                if !r.try_get::<bool, _>("eligible").map_err(|_| E::Unavailable)? {
+                    continue;
+                }
+                pages.push(ReportPage {
+                    path,
+                    title: r.try_get("title").map_err(|_| E::Unavailable)?,
+                    clicks: r.try_get("clicks").map_err(|_| E::Unavailable)?,
+                    impressions: r.try_get("impressions").map_err(|_| E::Unavailable)?,
+                    position: r.try_get("position").map_err(|_| E::Unavailable)?,
+                    measured_days: r.try_get("measured_days").map_err(|_| E::Unavailable)?,
+                });
+                if pages.len() > 50 {
+                    break;
+                }
+            }
+            if pages.len() > 50 || scanned < SCAN_BATCH {
+                break;
+            }
         }
         let next = if pages.len() > 50 {
             pages.truncate(50);

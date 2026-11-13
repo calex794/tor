@@ -1,13 +1,23 @@
--- Group only the requested provider/range, then use numeric indexed identities.
--- Never concatenate the catalogue key into an unindexed join expression.
-WITH grouped AS (
-  SELECT path,sum(clicks)::bigint AS clicks,sum(impressions)::bigint AS impressions,
-    CASE WHEN count(*) FILTER(WHERE impressions>0 AND position IS NULL)=0
-      THEN sum(position*impressions)/nullif(sum(impressions),0) END AS position,
-    count(DISTINCT day) AS measured_days
+-- Bounded keyset first: never join fifty thousand source paths to the public
+-- book/chapter projections before applying a page-sized scan window.
+-- The caller advances past ineligible paths and continues until 51 visible
+-- results (50 + lookahead) or the source is exhausted.
+WITH candidate_paths AS MATERIALIZED (
+  SELECT path
   FROM flow_seo_pages
   WHERE source_id=$1 AND day >= $2::text::date AND day < $3::text::date AND path>$4
   GROUP BY path
+  ORDER BY path
+  LIMIT 256
+), grouped AS MATERIALIZED (
+  SELECT p.path,sum(p.clicks)::bigint AS clicks,sum(p.impressions)::bigint AS impressions,
+    CASE WHEN count(*) FILTER(WHERE p.impressions>0 AND p.position IS NULL)=0
+      THEN sum(p.position*p.impressions)/nullif(sum(p.impressions),0) END AS position,
+    count(DISTINCT p.day) AS measured_days
+  FROM candidate_paths c
+  JOIN flow_seo_pages p ON p.source_id=$1 AND p.path=c.path
+    AND p.day >= $2::text::date AND p.day < $3::text::date
+  GROUP BY p.path
 ), parsed AS (
   SELECT g.*,substring(path from '^/(?:books|reader)/([1-9][0-9]{0,18})$')::numeric AS raw_id
   FROM grouped g
@@ -16,7 +26,8 @@ WITH grouped AS (
   FROM parsed p
 )
 SELECT p.path,CASE WHEN p.path='/' THEN 'Main page' WHEN p.path='/catalog' THEN 'Catalogue'
-  ELSE coalesce(b.title,cb.title) END AS title,p.clicks,p.impressions,p.position,p.measured_days
+  ELSE coalesce(b.title,cb.title) END AS title,p.clicks,p.impressions,p.position,p.measured_days,
+  (p.path IN ('/','/catalog') OR b.id IS NOT NULL OR cb.id IS NOT NULL) AS eligible
 FROM ids p
 LEFT JOIN LATERAL (
   SELECT id,title FROM rec_public_books WHERE id=p.object_id AND p.path LIKE '/books/%' OFFSET 0
@@ -27,5 +38,4 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
   SELECT id,title FROM rec_public_books WHERE id=c.book_id OFFSET 0
 ) cb ON true
-WHERE p.path IN ('/','/catalog') OR b.id IS NOT NULL OR cb.id IS NOT NULL
-ORDER BY p.path LIMIT 51
+ORDER BY p.path
