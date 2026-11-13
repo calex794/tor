@@ -88,6 +88,9 @@ async function privateResponse(response, expected = 200) {
     assert.equal(await matrix.locator('[data-attn-surface="home"][data-attn-source="editorial"]').count(), 1);
     assert.match(await matrix.locator('[data-attn-source="editorial"]').innerText(), /кликов 1/);
     assert.match(await organicHome.innerText(), /показов/);
+    assert.equal(await organicHome.getAttribute('data-attn-quality'), 'unknown', 'missing health cannot certify a placement');
+    assert.equal(await organicHome.getAttribute('data-attn-delta'), 'unknown', 'unverified windows cannot be compared');
+    assert.match(await organicHome.innerText(), /Изменение подтверждённых показов: неизвестно/);
     assert.match(await organicHome.locator('a').getAttribute('href'), /source=organic/);
     const matrixText = await matrix.innerText();
     const summary = page.locator('[data-testid="exposure-genres"]');
