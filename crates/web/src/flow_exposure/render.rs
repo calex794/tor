@@ -99,7 +99,7 @@ fn attention_placement_row(
     let previous = known(row.previous.known_views());
     write!(
         out,
-        r#"<tr data-attn-surface="{}" data-attn-source="{}"><th scope="row"><a href="{}">{label}</a></th><td>{source}</td><td>{}</td><td>{}</td><td>{views}</td><td>{clicks}</td><td>{previous}</td></tr>"#,
+        r#"<li data-attn-surface="{}" data-attn-source="{}"><a href="{}">{label}</a> — {source}: карточек {}, DOM {}, показов {views}, кликов {clicks}; в предыдущем окне показов {previous}.</li>"#,
         row.surface.as_str(),
         if row.editorial { "editorial" } else { "organic" },
         e(&url(&drill, window, 0)),
@@ -118,11 +118,11 @@ fn attention_placements(
     if report.placements.is_empty() {
         out.push_str("<p>Зарегистрированных карточек по выбранным фильтрам нет; охват всего трафика неизвестен.</p>");
     } else {
-        out.push_str(r#"<div class="table-scroll"><table><thead><tr><th scope="col">Место</th><th scope="col">Источник</th><th scope="col">Карточки</th><th scope="col">DOM</th><th scope="col">Показы</th><th scope="col">Клики</th><th scope="col">Показы в предыдущем окне</th></tr></thead><tbody>"#);
+        out.push_str(r#"<ul class="audience-attention-list">"#);
         for placement in &report.placements {
             attention_placement_row(out, q, window, placement);
         }
-        out.push_str("</tbody></table></div>");
+        out.push_str("</ul>");
     }
     out.push_str("</section>");
 }
@@ -378,7 +378,7 @@ mod attention_tests {
         assert!(html.contains("data-attn-surface=\"reader_end\""));
         assert!(html.contains("data-attn-source=\"editorial\""));
         assert!(html.contains("days=7&amp;window=closed&amp;surface=reader_end&amp;source=editorial"));
-        assert!(html.contains("<td>14</td><td>0</td><td>неизвестно</td><td>неизвестно</td>"));
+        assert!(html.contains("карточек 14, DOM 0, показов неизвестно, кликов неизвестно"));
         assert!(!html.contains("конверсия"));
     }
 }
