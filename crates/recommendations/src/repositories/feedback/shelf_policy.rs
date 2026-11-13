@@ -174,5 +174,4 @@ impl PgRecommendations {
             })
             .transpose()
     }
-
 }
