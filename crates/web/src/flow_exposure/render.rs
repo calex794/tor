@@ -377,7 +377,9 @@ mod attention_tests {
         );
         assert!(html.contains("data-attn-surface=\"reader_end\""));
         assert!(html.contains("data-attn-source=\"editorial\""));
-        assert!(html.contains("days=7&amp;window=closed&amp;surface=reader_end&amp;source=editorial"));
+        assert!(
+            html.contains("days=7&amp;window=closed&amp;surface=reader_end&amp;source=editorial")
+        );
         assert!(html.contains("карточек 14, DOM 0, показов неизвестно, кликов неизвестно"));
         assert!(!html.contains("конверсия"));
     }
