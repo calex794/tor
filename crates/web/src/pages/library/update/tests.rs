@@ -19,7 +19,7 @@ fn free_update_opens_the_authenticated_completion_capable_reader() {
         }],
         next_cursor: None,
     };
-    let html = update_cards(&page, false, false, &[], "csrf-token");
+    let html = update_cards(&page, false, false, &[], "csrf-token", None);
     assert!(html.contains("href=\"/read/12\""));
     assert!(!html.contains("href=\"/reader/12\""));
     assert!(html.contains("action=\"/me/updates/12/read-state\""));
@@ -46,7 +46,7 @@ fn paid_update_is_escaped_and_points_to_enabled_checkout() {
             chapter_id: 12,
         }),
     };
-    let enabled = update_cards(&page, true, true, &[], "csrf-token");
+    let enabled = update_cards(&page, true, true, &[], "csrf-token", None);
     assert!(enabled.contains("/me/books/9/buy-chapters"));
     assert!(enabled.contains("199,00 ₽"));
     assert!(enabled.contains("&lt;script&gt;title"));
@@ -57,23 +57,23 @@ fn paid_update_is_escaped_and_points_to_enabled_checkout() {
     assert!(enabled.contains("value=\"csrf-token\""));
     assert!(enabled.contains("value=\"read\""));
     assert!(enabled.contains("Новое"));
-    let disabled = update_cards(&page, false, true, &[], "csrf-token");
+    let disabled = update_cards(&page, false, true, &[], "csrf-token", None);
     assert!(!disabled.contains("/me/books/9/buy-chapters"));
     assert!(disabled.contains("/reader/12"));
     let owned = [tor_commerce::services::reader_views::ReadablePurchaseLink {
         chapter_id: 12,
         purchase_id: 77,
     }];
-    let purchased = update_cards(&page, true, true, &owned, "csrf-token");
+    let purchased = update_cards(&page, true, true, &owned, "csrf-token", None);
     assert!(purchased.contains("/read/paid/12?purchase_id=77"));
     assert!(!purchased.contains("/me/books/9/buy-chapters"));
-    let unavailable = update_cards(&page, true, false, &owned, "csrf-token");
+    let unavailable = update_cards(&page, true, false, &owned, "csrf-token", None);
     assert!(unavailable.contains("Чтение временно недоступно"));
     assert!(!unavailable.contains("/read/paid/12"));
     assert!(!unavailable.contains("/me/books/9/buy-chapters"));
     let mut acknowledged = page.clone();
     acknowledged.items[0].is_read = true;
-    let seen = update_cards(&acknowledged, true, true, &owned, "csrf-token");
+    let seen = update_cards(&acknowledged, true, true, &owned, "csrf-token", None);
     assert!(seen.contains("value=\"unread\""));
     assert!(seen.contains("Просмотрено"));
     assert!(seen.contains("Отметить непрочитанной"));
