@@ -188,7 +188,7 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
          SELECT (SELECT coalesce(max(id),0) FROM books)+n,
                 'ci:shelf-depth:' || $1::text || ':' || n::text,
                 'ru','Shelf depth candidate ' || n::text,'public','basic'
-         FROM generate_series(1,1000) AS n RETURNING id",
+         FROM generate_series(1,1000) AS gs(n) RETURNING id",
     )
     .bind(source)
     .fetch_all(&mut *tx)
