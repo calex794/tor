@@ -5,6 +5,12 @@ use super::*;
 #[ignore = "requires disposable tor_ci PostgreSQL with S028 teams"]
 async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides() {
     let f = fixture("reader-end-shelf").await;
+    // The share policy is a global singleton: serialize tests that read or mutate it.
+    let mut policy_guard = f.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
     let (owner, teammate) = (f.actors[0], f.actors[1]);
     let (source, author_book, team_book, site_book) =
         (f.books[0], f.books[1], f.books[2], f.books[3]);
@@ -183,5 +189,10 @@ async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides()
         .execute(&f.pool)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    drop(policy_guard);
     f.cleanup().await;
-}
+
