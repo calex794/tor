@@ -4,7 +4,7 @@
 use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::domain::feedback::{Feed, FeedItem};
-use crate::services::reader_end_shelf::{select_shelf, ShelfCandidate};
+use crate::services::reader_end_shelf::{select_shelf_with_policy, ShelfCandidate};
 use sqlx::Row;
 use std::collections::BTreeMap;
 
@@ -38,6 +38,10 @@ impl PgRecommendations {
         {
             return Err(FeedbackError::Invalid);
         }
+        // One fresh, bounded F-owned policy read per organic shelf. No
+        // request-local caching can keep an obsolete administrator revision.
+        // A missing or unavailable policy omits optional cards, never text.
+        let share_policy = self.shelf_share_policy().await?;
         // Reuse the exact actor-scoped discoverability predicate of the
         // existing REC serving path. No private title/metadata is selected.
         // The three independently bounded branches protect the owner and team
@@ -192,7 +196,7 @@ impl PgRecommendations {
         // A fixed rotation per chapter would skew quotas when a popular
         // first chapter is opened many times.
         let rotation = (chapter as u64) ^ rand::random::<u64>();
-        let cards = select_shelf(source_book, pools, slots, rotation);
+        let cards = select_shelf_with_policy(source_book, pools, slots, rotation, &share_policy.policy);
         let items = cards
             .into_iter()
             .filter_map(|card| {
