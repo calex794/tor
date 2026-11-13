@@ -13,17 +13,15 @@ async fn set_shares(
         .bind(digest)
         .execute(&mut *tx)
         .await?;
-    let result = sqlx::query_scalar::<_, i64>(
-        "SELECT rec_shelf_share_update($1,$2,$3,$4,$5,$6)",
-    )
-    .bind(expected)
-    .bind(ratios[0])
-    .bind(ratios[1])
-    .bind(ratios[2])
-    .bind(ratios[3])
-    .bind(ratios[4])
-    .fetch_one(&mut *tx)
-    .await;
+    let result = sqlx::query_scalar::<_, i64>("SELECT rec_shelf_share_update($1,$2,$3,$4,$5,$6)")
+        .bind(expected)
+        .bind(ratios[0])
+        .bind(ratios[1])
+        .bind(ratios[2])
+        .bind(ratios[3])
+        .bind(ratios[4])
+        .fetch_one(&mut *tx)
+        .await;
     match result {
         Ok(revision) => {
             tx.commit().await?;
@@ -48,8 +46,8 @@ fn db_code(error: &sqlx::Error) -> Option<String> {
 async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     let f = fixture("share-policy").await;
     let actor = f.actors[0];
-    let digest = tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap())
-        .unwrap();
+    let digest =
+        tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap()).unwrap();
 
     sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
         .bind(actor)
@@ -66,8 +64,14 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     .await
     .unwrap();
 
-    let (initial, author, team, other, no_team_author, no_team_other):
-        (i64, i16, i16, i16, i16, i16) = sqlx::query_as(
+    let (initial, author, team, other, no_team_author, no_team_other): (
+        i64,
+        i16,
+        i16,
+        i16,
+        i16,
+        i16,
+    ) = sqlx::query_as(
         "SELECT revision,author_pct,teammate_pct,other_authors_pct,
                 no_team_author_pct,no_team_other_authors_pct
          FROM rec_shelf_share_policy WHERE singleton",
@@ -79,13 +83,12 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     assert_eq!([no_team_author, no_team_other], [70, 30]);
 
     // Neither a caller-provided user ID nor direct SQL is an admin capability.
-    let unauthorized = sqlx::query_scalar::<_, i64>(
-        "SELECT rec_shelf_share_update($1,40,30,30,60,40)",
-    )
-    .bind(initial)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap_err();
+    let unauthorized =
+        sqlx::query_scalar::<_, i64>("SELECT rec_shelf_share_update($1,40,30,30,60,40)")
+            .bind(initial)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap_err();
     assert_eq!(db_code(&unauthorized).as_deref(), Some("42501"));
     let direct = sqlx::query("UPDATE rec_shelf_share_policy SET revision=revision+1")
         .execute(&f.pool)
@@ -93,7 +96,11 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
         .unwrap_err();
     assert_eq!(db_code(&direct).as_deref(), Some("42501"));
 
-    for invalid in [[50, 40, 20, 70, 30], [-1, 51, 50, 70, 30], [50, 40, 10, 60, 39]] {
+    for invalid in [
+        [50, 40, 20, 70, 30],
+        [-1, 51, 50, 70, 30],
+        [50, 40, 10, 60, 39],
+    ] {
         let error = set_shares(&f.pool, digest.as_slice(), initial, invalid)
             .await
             .unwrap_err();
@@ -155,13 +162,11 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     assert_eq!(auditor, actor);
     assert_eq!(changes, 2);
 
-    let audit_delete = sqlx::query(
-        "DELETE FROM rec_shelf_share_policy_audit WHERE revision=$1",
-    )
-    .bind(revision)
-    .execute(&f.pool)
-    .await
-    .unwrap_err();
+    let audit_delete = sqlx::query("DELETE FROM rec_shelf_share_policy_audit WHERE revision=$1")
+        .bind(revision)
+        .execute(&f.pool)
+        .await
+        .unwrap_err();
     assert_eq!(db_code(&audit_delete).as_deref(), Some("42501"));
 
     sqlx::query(
@@ -198,10 +203,9 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
         .await
         .unwrap();
 
-    let final_revision =
-        set_shares(&f.pool, digest.as_slice(), revision, [50, 40, 10, 70, 30])
-            .await
-            .unwrap();
+    let final_revision = set_shares(&f.pool, digest.as_slice(), revision, [50, 40, 10, 70, 30])
+        .await
+        .unwrap();
     assert_eq!(final_revision, initial + 3);
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM rec_shelf_share_policy_audit
