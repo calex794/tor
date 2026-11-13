@@ -195,4 +195,4 @@ async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides()
         .unwrap();
     drop(policy_guard);
     f.cleanup().await;
-
+}
