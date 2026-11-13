@@ -356,10 +356,8 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
 
     // An entire first 256-path scan window can be withdrawn. The next
     // visible page must continue past it without leaking its titles.
-    let mut ordered: Vec<(String, i64)> = ids
-        .iter()
-        .map(|id| (format!("/books/{id}"), *id))
-        .collect();
+    let mut ordered: Vec<(String, i64)> =
+        ids.iter().map(|id| (format!("/books/{id}"), *id)).collect();
     ordered.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     let hidden_ids: Vec<i64> = ordered.iter().take(320).map(|(_, id)| *id).collect();
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=ANY($1)")
@@ -368,7 +366,11 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
         .await
         .unwrap();
     let filtered = store.report(90, Provider::Google, None).await.unwrap();
-    assert_eq!(filtered.pages.len(), 50, "hidden prefix must not truncate the page");
+    assert_eq!(
+        filtered.pages.len(),
+        50,
+        "hidden prefix must not truncate the page"
+    );
     assert!(filtered
         .pages
         .iter()
