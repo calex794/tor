@@ -39,4 +39,57 @@ impl PgRecommendations {
             policy,
         })
     }
+
+    /// Commit an administrator-approved policy in one CAS transaction.
+    /// The SQL SECURITY DEFINER function revalidates the live A session and
+    /// role; this API never trusts a caller-supplied actor id.
+    pub async fn set_shelf_share_policy(
+        &self,
+        session_digest: &[u8; 32],
+        expected_revision: i64,
+        with_team: [i32; 3],
+        without_team: [i32; 2],
+    ) -> Result<ShelfShareSnapshot, FeedbackError> {
+        let policy = ShelfSharePolicy::validated(with_team, without_team)
+            .map_err(|_| FeedbackError::Invalid)?;
+        if expected_revision < 1 {
+            return Err(FeedbackError::Invalid);
+        }
+        let transaction = async {
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("SET LOCAL lock_timeout='75ms'")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("SET LOCAL statement_timeout='750ms'")
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("SELECT set_config('tor.rec_share_session',encode($1::bytea,'hex'),true)")
+                .bind(session_digest.as_slice())
+                .execute(&mut *tx)
+                .await?;
+            let revision = sqlx::query_scalar::<_, i64>(
+                "SELECT rec_shelf_share_update($1,$2,$3,$4,$5,$6)",
+            )
+            .bind(expected_revision)
+            .bind(with_team[0])
+            .bind(with_team[1])
+            .bind(with_team[2])
+            .bind(without_team[0])
+            .bind(without_team[1])
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|error| match error.as_database_error().and_then(|db| db.code()).as_deref() {
+                Some("42501") => FeedbackError::Forbidden,
+                Some("22023") => FeedbackError::Invalid,
+                Some("P4090") => FeedbackError::Conflict,
+                _ => FeedbackError::Unavailable,
+            })?;
+            tx.commit().await.map_err(FeedbackError::from)?;
+            Ok::<i64, FeedbackError>(revision)
+        };
+        let revision = tokio::time::timeout(Duration::from_millis(950), transaction)
+            .await
+            .map_err(|_| FeedbackError::Unavailable)??;
+        Ok(ShelfShareSnapshot { revision, policy })
+    }
 }
