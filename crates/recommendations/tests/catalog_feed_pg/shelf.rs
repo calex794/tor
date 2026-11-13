@@ -5,7 +5,7 @@ use super::*;
 #[ignore = "requires disposable tor_ci PostgreSQL with S028 teams"]
 async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides() {
     let f = fixture("reader-end-shelf").await;
-    // The share policy is a global singleton: serialize tests that read or mutate it.
+    // Serialize the global singleton policy tests without constraining Book inventories.
     let mut policy_guard = f.pool.acquire().await.unwrap();
     sqlx::query("SELECT pg_advisory_lock(864863)")
         .execute(&mut *policy_guard)
@@ -194,5 +194,87 @@ async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides()
         .await
         .unwrap();
     drop(policy_guard);
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with 1000 discoverable books"]
+async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
+    let mut f = fixture("shelf-depth").await;
+    let source = f.books[0];
+    // Every ordinary Book in the candidate pool has a real owner.
+    // The 1,000 candidates all belong to another author, not the seed owner.
+    sqlx::query(
+        "UPDATE books SET owner_user_id=$1,genres=ARRAY['fantasy'],tags=ARRAY['system']
+         WHERE id=$2",
+    )
+    .bind(f.actors[0])
+    .bind(source)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    // The extra titles have the same language and relevance as the seed.
+    // Insert in a single transaction; no real or shared database is touched.
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let generated: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO books
+            (id,source_identity,target_language,title,visibility,access_level,
+             owner_user_id,genres,tags)
+         SELECT (SELECT coalesce(max(id),0) FROM books)+n,
+                'ci:shelf-depth:' || $1::text || ':' || n::text,
+                'ru','Shelf depth candidate ' || n::text,'public','basic',
+                NULL,ARRAY['fantasy'],ARRAY['system']
+         FROM generate_series(1,1000) AS gs(n) RETURNING id",
+    )
+    .bind(source)
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    // Supply owned candidates by UPDATE before commit. Inserting owned rows
+    // would seed immutable B-10 revenue schedules, which unrelated fixture
+    // teardown must never delete.
+    sqlx::query("UPDATE books SET owner_user_id=$1 WHERE id=ANY($2::bigint[])")
+        .bind(f.actors[1])
+        .bind(&generated)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(generated.len(), 1000);
+    f.books.extend(generated);
+
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..50 {
+        let feed = f.store.reader_end_shelf(None, source, 199).await.unwrap();
+        let chosen = ids(&feed);
+        assert_eq!(chosen.len(), 5);
+        assert!(!chosen.contains(&source));
+        assert_eq!(
+            chosen
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            5
+        );
+        observed.extend(chosen);
+    }
+    // A SQL candidate window permanently capped at the newest 100 can
+    // never pass this assertion, regardless of Rust-side tie shuffling.
+    assert!(
+        observed.len() > 100,
+        "only {} distinct books were ever reachable across 50 requests",
+        observed.len()
+    );
+    // The fixture deletes actors before Books: release owner FKs first.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
+        .bind(&f.books)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     f.cleanup().await;
 }
