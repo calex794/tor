@@ -37,11 +37,7 @@ pub(crate) fn markup(id: i64, title: &str, preview: Option<&ShelfCardPreview>) -
                 );
             }
             if preview.published_chapters > 0 {
-                let _ = write!(
-                    details,
-                    "<span>Глав: {}</span>",
-                    preview.published_chapters
-                );
+                let _ = write!(details, "<span>Глав: {}</span>", preview.published_chapters);
             }
             details.push_str("</div>");
         }
