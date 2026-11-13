@@ -144,8 +144,16 @@ async function completeFreeChapter(page, chapter, version) {
     for (const target of ['/', '/catalog', `/books/${book}`, '/me/library', `/read/${chapter}`]) {
       assert.equal((await page.goto(base+target)).status(),200,target);
       assert.ok(await page.locator('[data-rec-panel]').count(),'panel absent on '+target);
+      if (target === `/read/${chapter}`) {
+        assert.equal(await page.locator('.reader-end-shelf[data-rec-panel]').count(),1,'free /read must use one relation-weighted shelf');
+        assert.equal(await page.locator('[data-rec-panel]').count(),1,'free /read has duplicate placement');
+      }
       await assertNoControls(page);
     }
+    assert.equal((await page.goto(base+`/reader/${chapter}`)).status(),200);
+    assert.equal(await page.locator('.reader-end-shelf[data-rec-panel]').count(),1,'free /reader must use one relation-weighted shelf');
+    assert.equal(await page.locator('[data-rec-panel]').count(),1,'free /reader has duplicate placement');
+    await assertNoControls(page);
     await page.goto(base+'/');
     const card=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
     await card.scrollIntoViewIfNeeded();
