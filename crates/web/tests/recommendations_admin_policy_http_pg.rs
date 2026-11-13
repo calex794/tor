@@ -184,7 +184,7 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
     assert!(markup.contains("data-testid=\"rec-shares-form\""));
     assert!(markup.contains("name=\"expected_revision\""));
     assert!(markup.contains("name=\"no_team_other_authors_pct\""));
-    assert!(markup.contains("Другие авторы"));
+    assert!(markup.contains("Книги других авторов"));
     assert!(markup.contains("data-testid=\"rec-policy-history\""));
     assert!(!markup.contains("data-flow-proof="));
 
