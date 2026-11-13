@@ -79,6 +79,13 @@ async function privateResponse(response, expected = 200) {
     assert.equal(await page.locator('[data-testid="exposure-closed-window"]').count(), 1);
     assert.equal(await page.locator('[data-testid="exposure-health-unknown"]').count(), 1);
     assert.equal(await page.locator('[data-testid="exposure-health-complete"]').count(), 0);
+    const matrix = page.locator('[data-testid="attention-placements"]');
+    const organicHome = matrix.locator('[data-attn-surface="home"][data-attn-source="organic"]');
+    assert.equal(await organicHome.count(), 1, 'one aggregate-only home/organic row');
+    assert.equal(await matrix.locator('[data-attn-source="editorial"]').count(), 0);
+    assert.match(await organicHome.innerText(), /показов/);
+    assert.match(await organicHome.locator('a').getAttribute('href'), /source=organic/);
+    const matrixText = await matrix.innerText();
     const summary = page.locator('[data-testid="exposure-genres"]');
     assert.equal(await summary.locator('[data-metric="genres"]').innerText(), '103');
     assert.equal(await summary.locator('[data-metric="low-genres"]').innerText(), '1');
@@ -90,6 +97,7 @@ async function privateResponse(response, expected = 200) {
     await page.waitForURL(/after=\d+/);
     assert.equal(new URL(page.url()).searchParams.get('window'), 'closed');
     assert.equal(await summary.innerText(), summaryText);
+    assert.equal(await matrix.innerText(), matrixText, 'aggregate breakdown must not change with keyset pagination');
     await summary.getByRole('link', {name: low, exact: true}).click();
     await page.waitForURL(url => url.searchParams.get('label') === low);
     assert.equal(new URL(page.url()).searchParams.get('window'), 'closed');
