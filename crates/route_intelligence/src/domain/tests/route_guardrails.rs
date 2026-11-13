@@ -30,4 +30,3 @@ fn per_chapter_moderation_has_no_registered_routes() {
         );
     }
 }
-
