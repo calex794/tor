@@ -32,7 +32,7 @@ for executable in age rclone sha256sum mktemp stat python3; do
   command -v "$executable" >/dev/null || refuse 'missing executable'
 done
 rclone --config "$TOR_DR_RCLONE_CONFIG" config dump |
-  python3 -c 'import json,sys; c=json.load(sys.stdin).get("tor-offsite-read",{}); sys.exit(0 if c.get("type") == "crypt" and bool(c.get("remote")) else 2)' ||
+  python3 -c 'import json,sys; c=json.load(sys.stdin); x=c.get("tor-offsite-read",{}); r=x.get("remote",""); base=r.split(":",1)[0]; sys.exit(0 if x.get("type") == "crypt" and ":" in r and bool(r.split(":",1)[1].strip("/")) and base != "tor-offsite-read" and c.get(base,{}).get("type") == "s3" else 2)' ||
   refuse 'offsite restore remote must be a crypt backend'
 # Never place decrypted recovery keys on persistent /var/tmp.
 [[ $(stat -f -c '%T' /run) == tmpfs ]] ||

@@ -31,6 +31,56 @@ class Dr03OperatorSafety(unittest.TestCase):
                           "GITHUB_TOKEN", "pg_restore"):
             self.assertNotIn(forbidden, data)
 
+    def test_crypt_backing_must_be_real_s3_and_not_local(self):
+        import json
+        cases = (
+            (BACKUP, "tor-offsite-crypt", {
+                "tor-primary-ro": {"type": "s3"},
+                "tor-offsite-s3": {"type": "s3"},
+                "tor-offsite-crypt": {"type": "crypt", "remote": "tor-offsite-s3:bucket/prefix"},
+            }),
+            (RESTORE, "tor-offsite-read", {
+                "offsite-store": {"type": "s3"},
+                "tor-offsite-read": {"type": "crypt", "remote": "offsite-store:bucket/prefix"},
+            }),
+        )
+        for path, alias, valid in cases:
+            data = path.read_text(encoding="utf-8")
+            self.assertIn("config dump |", data)
+            code = data.split("config dump |", 1)[1].split("python3 -c '", 1)[1].split("' ||", 1)[0]
+            def check(cfg):
+                return subprocess.run(
+                    ["python3", "-c", code], input=json.dumps(cfg),
+                    text=True, capture_output=True).returncode == 0
+            with self.subTest(path=path, case="valid"):
+                self.assertTrue(check(valid))
+            backing = "tor-offsite-s3" if path == BACKUP else "offsite-store"
+            wrong = json.loads(json.dumps(valid))
+            wrong[backing]["type"] = "local"
+            with self.subTest(path=path, case="local_backend"):
+                self.assertFalse(check(wrong))
+            wrong = json.loads(json.dumps(valid))
+            wrong[alias]["remote"] = "localfolder:/home/backups"
+            with self.subTest(path=path, case="unconfigured_alias"):
+                self.assertFalse(check(wrong))
+            wrong = json.loads(json.dumps(valid))
+            wrong[alias]["remote"] = backing + ":"
+            with self.subTest(path=path, case="missing_bucket"):
+                self.assertFalse(check(wrong))
+            wrong = json.loads(json.dumps(valid))
+            wrong[alias]["type"] = "s3"
+            with self.subTest(path=path, case="not_crypt"):
+                self.assertFalse(check(wrong))
+            if path == BACKUP:
+                wrong = json.loads(json.dumps(valid))
+                wrong[alias]["remote"] = "tor-primary-ro:bucket"
+                with self.subTest(path=path, case="same_alias_as_primary"):
+                    self.assertFalse(check(wrong))
+                wrong = json.loads(json.dumps(valid))
+                wrong["tor-primary-ro"]["type"] = "local"
+                with self.subTest(path=path, case="primary_is_local"):
+                    self.assertFalse(check(wrong))
+
     def test_empty_s3_source_cannot_look_like_success(self):
         data = BACKUP.read_text(encoding="utf-8")
         self.assertIn('source_inventory=$(rclone --config', data)

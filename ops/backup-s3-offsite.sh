@@ -29,7 +29,7 @@ for executable in age rclone flock mktemp stat sha256sum cmp python3; do
 done
 # An alias name alone does not guarantee encryption. Reject plaintext remotes.
 rclone --config "$TOR_DR_RCLONE_CONFIG" config dump |
-  python3 -c 'import json,sys; c=json.load(sys.stdin).get("tor-offsite-crypt",{}); r=c.get("remote",""); sys.exit(0 if c.get("type") == "crypt" and r.split(":")[0] not in ("", "tor-primary-ro", "tor-offsite-crypt") else 2)' ||
+  python3 -c 'import json,sys; c=json.load(sys.stdin); x=c.get("tor-offsite-crypt",{}); r=x.get("remote",""); base=r.split(":",1)[0]; sys.exit(0 if x.get("type") == "crypt" and ":" in r and bool(r.split(":",1)[1].strip("/")) and base not in ("tor-primary-ro","tor-offsite-crypt") and c.get("tor-primary-ro",{}).get("type") == "s3" and c.get(base,{}).get("type") == "s3" else 2)' ||
   refuse 'offsite remote must be a crypt backend on a separate underlying alias'
 # Never open a predictable root-owned lock in a potentially shared /run/lock.
 lock_dir=/run/tor-dr03
