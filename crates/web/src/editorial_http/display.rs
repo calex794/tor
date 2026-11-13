@@ -10,6 +10,7 @@ use tor_ads::{
 use tor_contracts::exposure::{
     CardObservation, EditorialPlacement, ObservationIssuer, PromotionSlot,
 };
+use tor_recommendations::repositories::{feedback::ShelfCardPreview, PgRecommendations};
 
 pub(crate) const MARKER: &str = "<!--EDITORIAL_PROMOTION-->";
 pub(crate) type Issuer = Option<axum::Extension<Arc<dyn ObservationIssuer>>>;
@@ -27,6 +28,7 @@ pub(crate) fn configured(
     });
     Some(DisplayRuntime::new(
         PgEditorial::new(catalog.pool()),
+        PgRecommendations::new(catalog.pool().clone()),
         authority,
     ))
 }
@@ -56,13 +58,19 @@ pub(crate) async fn book(
 #[derive(Clone)]
 pub(crate) struct DisplayRuntime {
     store: PgEditorial,
+    previews: PgRecommendations,
     authority: Option<(PgAccounts, CookiePolicy)>,
     enabled: bool,
 }
 impl DisplayRuntime {
-    pub(crate) fn new(store: PgEditorial, authority: Option<(PgAccounts, CookiePolicy)>) -> Self {
+    pub(crate) fn new(
+        store: PgEditorial,
+        previews: PgRecommendations,
+        authority: Option<(PgAccounts, CookiePolicy)>,
+    ) -> Self {
         Self {
             store,
+            previews,
             authority,
             enabled: super::enabled(),
         }
@@ -93,18 +101,39 @@ impl DisplayRuntime {
             } else {
                 None
             };
-            Editorial::new(&self.store)
+            let cards = Editorial::new(&self.store)
                 .cards(viewer.as_ref(), slot, host)
                 .await
+                .ok()?;
+            // This optional read uses exactly the same ACL as organic shelf
+            // metadata. Slow enrichment never suppresses accepted campaigns.
+            let previews = if slot == PromotionSlot::ChapterEndFree {
+                let ids = cards.iter().take(4).map(|card| card.book_id).collect::<Vec<_>>();
+                tokio::time::timeout(
+                    Duration::from_millis(150),
+                    self.previews
+                        .shelf_card_previews(viewer.as_ref().map(|v| v.user_id), &ids),
+                )
+                .await
                 .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            Some((cards, previews))
         };
         // Optional promotion never changes availability or latency budget of the reader.
-        let cards = tokio::time::timeout(Duration::from_millis(400), operation)
+        let (cards, previews) = tokio::time::timeout(Duration::from_millis(400), operation)
             .await
             .ok()
             .flatten()
             .unwrap_or_default();
-        Html(html.0.replace(MARKER, &render_cards(&cards, observation)))
+        Html(html.0.replace(
+            MARKER,
+            &render_cards_with_previews(&cards, &previews, observation),
+        ))
+
     }
 }
 
@@ -112,6 +141,14 @@ impl DisplayRuntime {
 /// Preview deliberately supplies None; arbitrary HTML data attributes are not read.
 pub(super) fn render_cards(
     cards: &[EditorialCard],
+    issuer: Option<&dyn ObservationIssuer>,
+) -> String {
+    render_cards_with_previews(cards, &[], issuer)
+}
+
+fn render_cards_with_previews(
+    cards: &[EditorialCard],
+    previews: &[ShelfCardPreview],
     issuer: Option<&dyn ObservationIssuer>,
 ) -> String {
     let mut items = String::new();
@@ -131,9 +168,14 @@ pub(super) fn render_cards(
             .map(|proof| format!(" data-flow-proof=\"{}\"", pages::escape_html(&proof)))
             .unwrap_or_default();
         if card.slot == PromotionSlot::ChapterEndFree {
+            let markup = crate::recommendation_http::shelf_card::markup(
+                card.book_id,
+                &card.title,
+                previews.iter().find(|preview| preview.book_id == card.book_id),
+            );
             items.push_str(&format!(
-                r#"<article class="book-mini-card book-mini-card--shelf editorial-card" data-editorial-campaign="{}" data-editorial-book="{}"{proof}><a class="book-mini-card__link" data-flow-link href="/books/{}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{}</h3></div></a></article>"#,
-                card.campaign_id, card.book_id, card.book_id, card.book_id, pages::escape_html(&card.title)
+                r#"<article class="book-mini-card book-mini-card--shelf editorial-card" data-editorial-campaign="{}" data-editorial-book="{}"{proof}>{markup}</article>"#,
+                card.campaign_id, card.book_id
             ));
         } else {
             items.push_str(&format!("<article class=\"book-section-card editorial-card\" data-editorial-campaign=\"{}\"{proof}><p class=\"book-section-card__kicker\">Выбор редакции</p><h3 class=\"book-section-card__title\"><a data-flow-link href=\"/books/{}\">{}</a></h3><p>Открыть книгу</p></article>",card.campaign_id,card.book_id,pages::escape_html(&card.title)));
