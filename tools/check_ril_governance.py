@@ -875,11 +875,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "PgSurprises::new" in body
         ):
             errors.append(f"{label}: missing origin/CSRF and actor-bound surprise mutation")
+    audited_ratio_admin = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+        and admin_key in {
+            ("GET", "/admin/recommendations", "admin::shares_page"),
+            ("POST", "/admin/recommendations", "admin::shares_submit"),
+        }
+        and "actor(&state, &headers).await" in body
+        and "session_actor(" in evidence
+        and "!verified.administrator" in evidence
+        and "StatusCode::FORBIDDEN" in evidence
+    )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
+            or audited_ratio_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
