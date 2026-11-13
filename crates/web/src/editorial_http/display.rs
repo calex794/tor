@@ -161,6 +161,23 @@ mod tests {
         }
     }
     #[test]
+    fn chapter_end_editorial_card_is_plain_cover_title_without_source_badge() {
+        let cards = vec![EditorialCard {
+            campaign_id: 4,
+            revision: 2,
+            book_id: 9,
+            title: "Пробная книга".into(),
+            slot: PromotionSlot::ChapterEndFree,
+        }];
+        let markup = render_cards(&cards, None);
+        assert!(markup.contains("<h2>Ещё книги</h2>"));
+        assert!(markup.contains("/covers/9/card.webp"));
+        assert!(markup.contains("Пробная книга"));
+        assert!(!markup.contains("book-mini-card__meta"));
+        assert!(!markup.contains("Выбор редакции"));
+        assert!(markup.contains("<!--READER_END_ORGANIC_CARDS-->"));
+    }
+    #[test]
     fn preview_does_not_mint_measurements_and_markup_is_escaped() {
         let cards = vec![EditorialCard {
             campaign_id: 4,
