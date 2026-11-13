@@ -288,19 +288,17 @@ async fn shelf_serving_observes_committed_policy_revisions_without_cache() {
         .iter()
         .all(|item| item.source == "site" && item.book_id != author_book.to_string()));
 
-    let reset = set_shares(
-        &f.pool,
-        digest.as_slice(),
-        set,
-        [50, 40, 10, 70, 30],
-    )
-    .await
-    .unwrap();
+    let reset = set_shares(&f.pool, digest.as_slice(), set, [50, 40, 10, 70, 30])
+        .await
+        .unwrap();
     let restored = f.store.shelf_share_policy().await.unwrap();
     assert_eq!(restored.revision, reset);
     assert_eq!(restored.policy.without_team(), [70, 30]);
     let default_shelf = f.store.reader_end_shelf(None, source, 177).await.unwrap();
-    assert!(default_shelf.items.iter().any(|item| item.book_id == author_book.to_string()));
+    assert!(default_shelf
+        .items
+        .iter()
+        .any(|item| item.book_id == author_book.to_string()));
 
     sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
         .bind(digest.as_slice())
