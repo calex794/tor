@@ -473,6 +473,20 @@
     },
     {
       "method": "GET",
+      "template": "/admin/recommendations",
+      "handler": "admin::shares_page",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/recommendations",
+      "handler": "admin::shares_submit",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
       "template": "/me/recommendations/manage",
       "handler": "admin::page",
       "policy": "administrator",
