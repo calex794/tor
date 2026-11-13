@@ -4,7 +4,7 @@
 use super::discovery::ACTOR_DISCOVERY_CTE;
 use super::*;
 use crate::domain::feedback::{Feed, FeedItem};
-use crate::services::reader_end_shelf::{select_shelf, ShelfCandidate};
+use crate::services::reader_end_shelf::{select_shelf_with_policy, ShelfCandidate};
 use sqlx::Row;
 use std::collections::BTreeMap;
 
@@ -42,6 +42,9 @@ impl PgRecommendations {
         // Rotate the SQL candidate window and Rust quota wheel together.
         let rotation = (chapter as u64) ^ rand::random::<u64>();
         let tie_seed = (rotation & i64::MAX as u64) as i64;
+        // Read one committed administrator revision per request. Keep the
+        // SQL candidate rotation from #859 and the live quota policy from #864.
+        let share_policy = self.shelf_share_policy().await?;
         // Reuse the exact actor-scoped discoverability predicate of the
         // existing REC serving path. No private title/metadata is selected.
         // The three independently bounded branches protect the owner and team
@@ -193,7 +196,8 @@ impl PgRecommendations {
             });
         }
         // The SQL tie-break and the weighted shelf share one request rotation.
-        let cards = select_shelf(source_book, pools, slots, rotation);
+        let cards =
+            select_shelf_with_policy(source_book, pools, slots, rotation, &share_policy.policy);
         let items = cards
             .into_iter()
             .filter_map(|card| {

@@ -45,6 +45,12 @@ fn db_code(error: &sqlx::Error) -> Option<String> {
 #[ignore = "requires disposable tor_ci PostgreSQL with REC-POLICY-01B migration"]
 async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     let f = fixture("share-policy").await;
+    // The share policy is a global singleton: serialize tests that read or mutate it.
+    let mut policy_guard = f.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
     let actor = f.actors[0];
     let digest =
         tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap()).unwrap();
@@ -228,5 +234,112 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
         .execute(&f.pool)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    drop(policy_guard);
+    f.cleanup().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with REC-POLICY-01B migration"]
+async fn shelf_serving_observes_committed_policy_revisions_without_cache() {
+    let f = fixture("share-serving").await;
+    // The share policy is a global singleton: serialize tests that read or mutate it.
+    let mut policy_guard = f.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    let (owner, other_owner) = (f.actors[0], f.actors[1]);
+    let (source, author_book) = (f.books[0], f.books[1]);
+    sqlx::query(
+        "UPDATE books SET owner_user_id=CASE WHEN id=ANY($1::bigint[]) THEN $2 ELSE $3 END,
+            genres=ARRAY['fantasy'],tags=ARRAY['system']
+         WHERE id=ANY($4::bigint[])",
+    )
+    .bind([source, author_book])
+    .bind(owner)
+    .bind(other_owner)
+    .bind(&f.books)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let digest =
+        tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap()).unwrap();
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
+        .bind(owner)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO sessions(token_hash,user_id,expires_at)
+         VALUES($1,$2,clock_timestamp()+interval '1 hour')",
+    )
+    .bind(digest.as_slice())
+    .bind(owner)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let before = f.store.shelf_share_policy().await.unwrap();
+    assert_eq!(before.policy.without_team(), [70, 30]);
+    let set = set_shares(
+        &f.pool,
+        digest.as_slice(),
+        before.revision,
+        [0, 0, 100, 0, 100],
+    )
+    .await
+    .unwrap();
+    let current = f.store.shelf_share_policy().await.unwrap();
+    assert_eq!(current.revision, set);
+    assert_eq!(current.policy.without_team(), [0, 100]);
+
+    let exclusively_other = f.store.reader_end_shelf(None, source, 177).await.unwrap();
+
+    // Restore the shared global policy before assertions, so a test failure
+    // never contaminates the next fixture with an administrator's 0% settings.
+    let reset = set_shares(&f.pool, digest.as_slice(), set, [50, 40, 10, 70, 30])
+        .await
+        .unwrap();
+    // Other disposable fixtures may also have eligible Books: there are at
+    // least three owned candidates in this fixture, not exactly three in tor_ci.
+    assert!((3..=5).contains(&exclusively_other.items.len()));
+    assert!(exclusively_other
+        .items
+        .iter()
+        .all(|item| item.source == "site" && item.book_id != author_book.to_string()));
+    let restored = f.store.shelf_share_policy().await.unwrap();
+    assert_eq!(restored.revision, reset);
+    assert_eq!(restored.policy.without_team(), [70, 30]);
+    let default_shelf = f.store.reader_end_shelf(None, source, 177).await.unwrap();
+    assert!(default_shelf
+        .items
+        .iter()
+        .any(|item| item.book_id == author_book.to_string()));
+
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='administrator'")
+        .bind(owner)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
+        .bind(&f.books)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    drop(policy_guard);
     f.cleanup().await;
 }
