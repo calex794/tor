@@ -101,6 +101,7 @@ async function observedCard(page,card,campaign,before,response,events){
    const privateBefore=expectObservations?sums(campaigns[2])[2]:0;
    await vp.bringToFront();const privatePageResponse=await vp.goto(base+`/read/${chapter}`);assert.equal(privatePageResponse.status(),200);
    const privateCard=vp.locator(`[data-editorial-campaign="${campaigns[2]}"]`);assert.equal(await privateCard.count(),1);await privateCard.scrollIntoViewIfNeeded();
+   assert.equal(await vp.locator('[data-rec-panel]').count(),0,'active /read editorial must preempt the organic shelf');
    assert.match(await vp.locator('.reader-private__content').innerText(),/EDITORIAL FREE CHAPTER TEXT/);
    assert.equal(await vp.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
    if(expectObservations)await observedCard(vp,privateCard,campaigns[2],privateBefore,privatePageResponse,privateEvents);
@@ -112,7 +113,10 @@ async function observedCard(page,card,campaign,before,response,events){
     const card=publicPage.locator(`[data-editorial-campaign="${campaign}"]`);assert.equal(await card.count(),1);await card.scrollIntoViewIfNeeded();
     assert.equal(await publicPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.equal(await card.locator('script').count(),0);assert.match(await card.innerText(),/<script>safe<\/script>/);
-    if(route.startsWith('/reader/'))assert.equal(await publicPage.evaluate(()=>Boolean(document.getElementById('chapter-text').compareDocumentPosition(document.querySelector('.editorial-promotion'))&Node.DOCUMENT_POSITION_FOLLOWING)),true);
+    if(route.startsWith('/reader/')){
+     assert.equal(await publicPage.locator('[data-rec-panel]').count(),0,'active /reader editorial must preempt the organic shelf');
+     assert.equal(await publicPage.evaluate(()=>Boolean(document.getElementById('chapter-text').compareDocumentPosition(document.querySelector('.editorial-promotion'))&Node.DOCUMENT_POSITION_FOLLOWING)),true);
+    }
     if(expectObservations)await observedCard(publicPage,card,campaign,before,publicResponse,publicEvents);
     await card.screenshot({path:path.join(shots,`editorial-${campaign}-${width}.png`)});
    }
