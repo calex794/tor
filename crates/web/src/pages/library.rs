@@ -16,37 +16,10 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
     purchased_and_view: (
         &tor_reading::services::library::PurchasedOnlyBookPage,
         Option<&str>,
+        Option<&std::collections::HashSet<u64>>,
     ),
 ) -> Html<String> {
-    my_library_with_updates_and_layers_and_purchased_only_selected_with_covers(
-        items,
-        saved,
-        csrf,
-        availability,
-        checkout_enabled,
-        updates_and_owned,
-        purchased_and_view,
-        None,
-    )
-}
-
-pub fn my_library_with_updates_and_layers_and_purchased_only_selected_with_covers(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    availability: (bool, bool),
-    checkout_enabled: bool,
-    updates_and_owned: (
-        &tor_reading::repositories::follow_updates::FollowedReleasePage,
-        &[tor_commerce::services::reader_views::ReadablePurchaseLink],
-    ),
-    purchased_and_view: (
-        &tor_reading::services::library::PurchasedOnlyBookPage,
-        Option<&str>,
-    ),
-    confirmed_covers: Option<&std::collections::HashSet<u64>>,
-) -> Html<String> {
-    let (purchased_only, view) = purchased_and_view;
+    let (purchased_only, view, confirmed_covers) = purchased_and_view;
     let (updates, owned) = updates_and_owned;
     let (purchased_available, layers_available) = availability;
     let updates_html = update_cards(
@@ -66,8 +39,7 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected_with_cover
         (purchased_available, layers_available),
         &updates_html,
         &purchased_only_html,
-        (!updates.items.is_empty(), view),
-        confirmed_covers,
+        (!updates.items.is_empty(), view, confirmed_covers),
     )
 }
 
@@ -147,11 +119,10 @@ fn my_library_inner(
     availability: (bool, bool),
     updates_html: &str,
     purchased_only_html: &str,
-    selection: (bool, Option<&str>),
-    confirmed_covers: Option<&std::collections::HashSet<u64>>,
+    selection: (bool, Option<&str>, Option<&std::collections::HashSet<u64>>),
 ) -> Html<String> {
     let (purchased_available, layers_available) = availability;
-    let (has_updates, view) = selection;
+    let (has_updates, view, confirmed_covers) = selection;
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-placeholder\"><h2>Вы ещё не сохраняли место чтения</h2><p>Выберите книгу и сохраните позицию в главе, чтобы продолжить позже.</p><a class=\"button button--small\" href=\"/catalog\">Выбрать книгу</a></div>");
@@ -455,6 +426,7 @@ mod archived_continue_tests {
                     next_cursor: None,
                 },
                 Some("reading"),
+                None,
             ),
         )
         .0;
@@ -480,6 +452,7 @@ mod archived_continue_tests {
                     next_cursor: None,
                 },
                 Some("reading"),
+                None,
             ),
         )
         .0;
@@ -530,7 +503,7 @@ mod purchase_only_book_tests {
             (true, false),
             false,
             (&updates, &[]),
-            (&only_bought, Some("purchased")),
+            (&only_bought, Some("purchased"), None),
         )
         .0;
         assert!(html.contains("aria-label=\"Книги с покупками\""));
@@ -551,7 +524,7 @@ mod purchase_only_book_tests {
             (false, false),
             false,
             (&updates, &[]),
-            (&only_bought, Some("purchased")),
+            (&only_bought, Some("purchased"), None),
         )
         .0;
         assert!(unavailable.contains("чтение временно недоступно"));
