@@ -172,6 +172,23 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal((await page.goto(base+`/reader/${chapter}`)).status(),200);
     assert.equal(await page.locator('.reader-end-shelf[data-rec-panel]').count(),1,'free /reader must use one relation-weighted shelf');
     assert.equal(await page.locator('[data-rec-panel]').count(),1,'free /reader has duplicate placement');
+    await page.goto(base+'/');
+    const card=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
+    await card.scrollIntoViewIfNeeded();
+    assert.equal(await card.getAttribute('data-rec-ticket'),null);
+    await page.screenshot({path:path.join(shots,'rec13-desktop.png'),fullPage:true});
+    await preview(page,'rec13-desktop','[data-rec-panel]');
+    await card.locator('a[data-rec-link]').click();
+    await page.waitForURL(base+`/books/${book}`);
+    await page.goto(base+`/read/${chapter}`);
+    await completeFreeChapter(page,chapter,version);
+    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${user}`),3);
+    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user}`),3);
+    assert.deepEqual(optionalSnapshot(user),before);
+
+    // Hover scrolls the reader. Check preview after the canonical free-progress
+    // CAS flow so native scroll persistence cannot race our explicit revision 0.
+    assert.equal((await page.goto(base+`/reader/${chapter}`)).status(),200);
     const flipped=page.locator('.reader-end-shelf [data-reader-shelf-card]')
       .filter({has:page.locator(`a.book-mini-card__cover-link[href='/books/${books[0]}']`)}).first();
     assert.equal(await flipped.count(),1,'source-owned candidate must have a cover');
@@ -198,19 +215,6 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(await info.getAttribute('aria-expanded'),'false');
     assert.equal(await touchCard.getAttribute('data-flipped'),null);
     await touch.close();
-    await page.goto(base+'/');
-    const card=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
-    await card.scrollIntoViewIfNeeded();
-    assert.equal(await card.getAttribute('data-rec-ticket'),null);
-    await page.screenshot({path:path.join(shots,'rec13-desktop.png'),fullPage:true});
-    await preview(page,'rec13-desktop','[data-rec-panel]');
-    await card.locator('a[data-rec-link]').click();
-    await page.waitForURL(base+`/books/${book}`);
-    await page.goto(base+`/read/${chapter}`);
-    await completeFreeChapter(page,chapter,version);
-    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${user}`),3);
-    assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user}`),3);
-    assert.deepEqual(optionalSnapshot(user),before);
 
     await page.goto(base+'/');
     const hiding=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
