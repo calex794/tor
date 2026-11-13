@@ -71,6 +71,7 @@ KNOWN_PACKAGES = CRITICAL_PACKAGES | {
 TEST_SUITES = {
     "tools/rec13_browser_acceptance.sh": {"postgres"},
     "tools/rec13_browser.cjs": {"postgres"},
+    "tools/rec_shares_admin_pg_browser.cjs": {"postgres"},
     "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
     "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
