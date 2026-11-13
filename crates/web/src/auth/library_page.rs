@@ -105,15 +105,14 @@ pub(super) async fn my_library(
             None
         }
     });
-    let page = pages::my_library_with_updates_and_layers_and_purchased_only_selected_with_covers(
+    let page = pages::my_library_with_updates_and_layers_and_purchased_only_selected(
         &books,
         &saved,
         &csrf,
         (state.paid_reader_available, state.layer_pages_enabled),
         state.paid_checkout_enabled,
         (&updates, &owned),
-        (&purchase_books, view),
-        Some(&confirmed_covers),
+        (&purchase_books, view, Some(&confirmed_covers)),
     );
     private_response(page, &cookies)
 }
