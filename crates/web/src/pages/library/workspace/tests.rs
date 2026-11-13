@@ -37,7 +37,7 @@ fn empty_library_has_one_onboarding_state_and_csp_safe_navigation() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, None),
+        (&purchases, None, None),
     )
     .0;
     assert_eq!(html.matches("Ваша книжная полка пока пуста").count(), 1);
@@ -67,7 +67,7 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, Some("reading")),
+        (&purchases, Some("reading"), None),
     )
     .0;
     assert!(html.contains("href=\"/me/library/saved/23#saved-resume\""));
@@ -80,7 +80,7 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, Some("saved")),
+        (&purchases, Some("saved"), None),
     )
     .0;
     assert!(saved_html.contains("id=\"saved-books\""));
