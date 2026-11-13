@@ -110,14 +110,6 @@ async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides()
             .len()
     );
 
-    // A Book without a known owner is not a book by another author.
-    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
-        .bind(site_book)
-        .execute(&f.pool)
-        .await
-        .unwrap();
-    assert!(!ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
-
     f.store
         .set_feedback(
             owner,
@@ -135,6 +127,15 @@ async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides()
         .unwrap())
     .contains(&site_book));
     assert!(ids(&f.store.reader_end_shelf(None, source, 201).await.unwrap()).contains(&site_book));
+
+    // Historical nullable-owner fixtures are not eligible "other authors".
+    // Do this after checking viewer-local hides against a valid owned Book.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
+        .bind(site_book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(!ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
 
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(team_book)
