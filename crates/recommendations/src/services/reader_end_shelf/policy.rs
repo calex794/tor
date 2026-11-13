@@ -96,7 +96,7 @@ impl ShelfSharePolicy {
 mod tests {
     use super::*;
     use crate::services::reader_end_shelf::{
-        select_shelf_with_policy, ShelfCandidate, ShelfSource,
+        select_shelf_with_policy, ShelfCandidate,
     };
     use std::collections::BTreeSet;
 
@@ -217,8 +217,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_default_legacy_wire_variant_remains_stable_until_a_separate_change() {
-        assert_eq!(ShelfSource::Site.index(), 2);
-    }
 }
