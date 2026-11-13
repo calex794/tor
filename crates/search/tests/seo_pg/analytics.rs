@@ -354,7 +354,7 @@ async fn flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report() {
     );
     reader.close().await;
 
-    // An entire first 256-path scan window can be withdrawn. The next
+    // Multiple full 64-path scan windows can be withdrawn. The next
     // visible page must continue past it without leaking its titles.
     let mut ordered: Vec<(String, i64)> =
         ids.iter().map(|id| (format!("/books/{id}"), *id)).collect();
