@@ -633,10 +633,17 @@ async fn chapter_end_editorial_skips_disjoint_genres_but_preserves_other_slots()
     assert_eq!(cards.len(), 3);
     assert!(!cards.iter().any(|card| card.book_id == host));
 
-    for other in [PromotionSlot::HomeFeatured, PromotionSlot::BookDetailRelated] {
+    for other in [
+        PromotionSlot::HomeFeatured,
+        PromotionSlot::BookDetailRelated,
+    ] {
         f.active(unrelated, other, 6050 + other as u32 * 2).await;
         assert!(service
-            .cards(None, other, (other != PromotionSlot::HomeFeatured).then_some(host))
+            .cards(
+                None,
+                other,
+                (other != PromotionSlot::HomeFeatured).then_some(host)
+            )
             .await
             .unwrap()
             .iter()
