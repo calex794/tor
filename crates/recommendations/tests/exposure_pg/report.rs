@@ -164,3 +164,83 @@ async fn minted_editorial_context_is_bound_and_retired_tables_are_not_required()
     );
     f.cleanup().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+async fn attention_matrix_matches_totals_and_scopes_without_reader_attribution() {
+    let f = Fixture::new(3).await;
+    let entries = [
+        (f.books[0], "home", 0_i64, "", 10_i64, 8_i64, 3_i64, 2_i64, 1_i32),
+        (f.books[1], "reader_end", 0, "", 40, 35, 5, 2, 1),
+        (f.books[2], "reader_end", 891, "chapter_end_free", 8, 8, 3, 4, 1),
+        (f.books[1], "reader_end", 0, "", 20, 18, 2, 1, 192),
+    ];
+    for (book, surface, campaign, slot, opportunities, rendered, views, clicks, hours) in entries {
+        sqlx::query(
+            "INSERT INTO flow_observation_hourly
+             (bucket,book_id,surface,campaign_id,slot,opportunities,rendered,views,clicks)
+             VALUES (
+               (date_trunc('hour',(now()-interval '15 minutes') AT TIME ZONE 'UTC')
+                 AT TIME ZONE 'UTC')-make_interval(hours=>$9),
+               $1,$2,$3,$4,$5,$6,$7,$8
+             )",
+        )
+        .bind(book)
+        .bind(surface)
+        .bind(campaign)
+        .bind(slot)
+        .bind(opportunities)
+        .bind(rendered)
+        .bind(views)
+        .bind(clicks)
+        .bind(hours)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    }
+    let filter = f.filter();
+    let whole = f.store.report_closed(&filter).await.unwrap();
+    assert_eq!((whole.current.opportunities,whole.current.views,whole.current.clicks), (58,11,8));
+    assert_eq!((whole.previous.opportunities,whole.previous.views), (20,2));
+    assert_eq!(whole.placements.len(),3);
+    let find = |surface: ExposureSurface, editorial: bool| {
+        whole.placements.iter().find(|r| r.surface==surface && r.editorial==editorial).unwrap()
+    };
+    assert_eq!(find(ExposureSurface::Home,false).current.opportunities,10);
+    assert_eq!(find(ExposureSurface::ReaderEnd,false).current.views,5);
+    assert_eq!(find(ExposureSurface::ReaderEnd,false).previous.views,2);
+    assert_eq!(find(ExposureSurface::ReaderEnd,true).current.views,3);
+    assert_eq!(whole.placements.iter().map(|r|r.current.views).sum::<i64>(),whole.current.views);
+    assert_eq!(whole.placements.iter().map(|r|r.previous.views).sum::<i64>(),whole.previous.views);
+
+    let mut by_surface = filter.clone();
+    by_surface.surface = Some(ExposureSurface::ReaderEnd);
+    let reader = f.store.report_closed(&by_surface).await.unwrap();
+    assert_eq!(reader.current.views,8);
+    assert_eq!(reader.placements.len(),2);
+
+    let mut by_source = filter.clone();
+    by_source.editorial = Some(true);
+    let editorial = f.store.report_closed(&by_source).await.unwrap();
+    assert_eq!(editorial.current.views,3);
+    assert_eq!(editorial.placements.len(),1);
+    assert!(editorial.placements[0].editorial);
+
+    by_source.surface = Some(ExposureSurface::Home);
+    let empty = f.store.report_closed(&by_source).await.unwrap();
+    assert!(empty.placements.is_empty());
+    assert_eq!(empty.current.views,0);
+
+    let mut paged = filter.clone();
+    paged.after = f.books[1];
+    let page = f.store.report_closed(&paged).await.unwrap();
+    assert_eq!(page.placements.len(),3);
+    assert_eq!(page.current.views,whole.current.views);
+
+    f.book_change("visibility_status='hidden'").await;
+    let hidden = f.store.report_closed(&filter).await.unwrap();
+    assert_eq!(hidden.current.views,8);
+    assert!(hidden.placements.iter().all(|p|p.surface!=ExposureSurface::Home));
+    f.cleanup().await;
+}
