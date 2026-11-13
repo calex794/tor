@@ -632,7 +632,13 @@ async fn authority_lock_fails_closed_and_releases_the_production_reader_pool() {
         "0"
     );
     println!("authority lock: three 503 responses in {} ms, zero blocked authority SQL, shared pool reusable before unlock", elapsed.as_millis());
-    assert!(!f.runtime.queue_snapshot().ready);
+    // Collector health can independently re-acknowledge a healthy epoch while
+    // the users table remains locked. Gate readiness is not the A-auth invariant:
+    // authenticated ingestion must still fail closed under the held lock.
+    private(
+        &f.send("POST", API, &f.cookie, ORIGIN, &body).await,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
     drop(held);
     // Reader recovery is immediate; optional observation issuance waits for the
     // next bounded durable-health acknowledgement before reopening its gate.
