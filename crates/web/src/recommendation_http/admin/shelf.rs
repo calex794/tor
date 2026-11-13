@@ -27,7 +27,7 @@ pub(crate) async fn page(
         return pages::secure_page(deny(code), &[]);
     }
     let mut out = String::from(
-        r#"<section class="section"><div class="container"><h1>Полка после бесплатной главы</h1><p>Правила: другие книги владельца 50%, книги других участников привязанной команды 40%, остальные книги сайта 10%. При отсутствии команды: 70% / 30%. Пропорции распределяются между выдачами, а не в одной полке из пяти карточек.</p><p>Предпросмотр использует анонимный basic-доступ. Он не выдаёт персональную информацию и не записывает показы.</p><form method="get" action="/me/recommendations/shelf-preview" class="author-form"><label>Исходная книга (ID)<input type="number" name="book" min="1" required></label><label>ID бесплатной главы для ротации<input type="number" name="chapter" min="1" required></label><button type="submit" class="button">Показать полку</button></form>"#,
+        r#"<section class="section"><div class="container"><h1>Полка после бесплатной главы</h1><p>Правила: другие книги владельца 50%, книги других участников привязанной команды 40%, книги других авторов вне команды 10%. При отсутствии команды: 70% / 30%. Пропорции распределяются между выдачами, а не в одной полке из пяти карточек.</p><p>Предпросмотр использует анонимный basic-доступ. Он не выдаёт персональную информацию и не записывает показы.</p><form method="get" action="/me/recommendations/shelf-preview" class="author-form"><label>Исходная книга (ID)<input type="number" name="book" min="1" required></label><label>ID бесплатной главы для ротации<input type="number" name="chapter" min="1" required></label><button type="submit" class="button">Показать полку</button></form>"#,
     );
     if !state.enabled {
         out.push_str(r#"<p role="status">Рекомендательный блок сейчас отключён флагом TOR_RECOMMENDATIONS_ENABLED.</p>"#);
@@ -47,7 +47,7 @@ pub(crate) async fn page(
                     });
                     let _ = write!(
                         out,
-                        "<p data-testid=\"shelf-preview-counts\">Автор: {}, команда: {}, сайт: {}. Всего: {}.</p>",
+                        "<p data-testid=\"shelf-preview-counts\">Автор: {}, команда: {}, другие авторы: {}. Всего: {}.</p>",
                         counts[0],
                         counts[1],
                         counts[2],

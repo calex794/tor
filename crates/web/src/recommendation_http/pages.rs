@@ -104,7 +104,7 @@ pub(super) fn panel_observed(
     out
 }
 
-/// Cross-promotion of discoverable owner/team/site Books after free chapters.
+/// Cross-promotion of discoverable owner/team/other-author Books after free chapters.
 /// Browser-visible observation uses the shared bounded FLOW collector, not a
 /// reader history or a second paid placement.
 pub(super) fn shelf_panel_observed(
@@ -136,7 +136,7 @@ pub(super) fn shelf_cards_observed(
         let relation = match item.source.as_str() {
             "author" => "Ещё у автора",
             "teammate" => "Из команды автора",
-            "site" => "Другие книги сайта",
+            "site" | "other_authors" => "Другие авторы",
             _ => "Рекомендуем",
         };
         let observation = crate::flow_exposure::attributes(
@@ -376,6 +376,11 @@ mod tests {
         let delivered = shelf_panel_observed(&feed, Some(&ProofIssuer));
         assert!(delivered.contains(&format!("data-flow-proof=\"{}\"", "A".repeat(43))));
         assert!(delivered.contains("data-flow-link"));
+        let mut legacy = feed;
+        legacy.items[0].source = "site".into();
+        let other_authors = shelf_panel_observed(&legacy, None);
+        assert!(other_authors.contains("data-rec-source=\"site\""));
+        assert!(other_authors.contains("Другие авторы"));
     }
 
     #[test]
