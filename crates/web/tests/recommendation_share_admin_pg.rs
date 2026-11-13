@@ -1,4 +1,5 @@
-//! REC-ADMIN-01: real Axum, PostgreSQL CAS and authorization for organic shelf ratios.
+//! REC-ADMIN-01: live Axum, PostgreSQL CAS and authorization, disposable tor_ci only.
+//! PostgreSQL is accessed through psql in tests. The web crate must not depend on SQLx.
 #![forbid(unsafe_code)]
 
 use axum::{
@@ -8,7 +9,9 @@ use axum::{
     Router,
 };
 use std::{
+    io::{BufRead, BufReader, Write},
     num::NonZeroU32,
+    process::{Child, ChildStdin, Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -21,6 +24,84 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const PAGE: &str = "/admin/recommendations";
+
+fn pg(url: &str, query: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:") && url.contains("@127.0.0.1:5432/tor_ci"));
+    let result = Command::new("psql")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c lock_timeout=2000",
+        )
+        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url, "-c", query])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "psql: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
+// The global quota policy is a singleton shared across PostgreSQL test fixtures.
+// Hold the same session-level advisory lock as the recommendation tests.
+struct PolicyLock {
+    child: Child,
+    stdin: ChildStdin,
+}
+impl PolicyLock {
+    fn acquire(url: &str) -> Self {
+        let mut child = Command::new("psql")
+            .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
+            .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        writeln!(
+            stdin,
+            "SELECT 'rec-policy-locked' FROM pg_advisory_lock(864863);"
+        )
+        .unwrap();
+        stdin.flush().unwrap();
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(line.trim(), "rec-policy-locked");
+        Self { child, stdin }
+    }
+}
+impl Drop for PolicyLock {
+    fn drop(&mut self) {
+        let _ = writeln!(self.stdin, "\\q");
+        let _ = self.stdin.flush();
+        let _ = self.child.wait();
+    }
+}
+
+fn policy(url: &str) -> (i64, [i32; 5]) {
+    let row = pg(
+        url,
+        "SELECT revision||'|'||author_pct||'|'||teammate_pct||'|'||
+                 other_authors_pct||'|'||no_team_author_pct||'|'||
+                 no_team_other_authors_pct
+         FROM rec_shelf_share_policy WHERE singleton",
+    );
+    let fields: Vec<i64> = row.split('|').map(|value| value.parse().unwrap()).collect();
+    assert_eq!(fields.len(), 6);
+    (
+        fields[0],
+        [
+            fields[1] as i32,
+            fields[2] as i32,
+            fields[3] as i32,
+            fields[4] as i32,
+            fields[5] as i32,
+        ],
+    )
+}
 
 async fn call(app: &Router, method: &str, cookie: &str, origin: &str, body: &str) -> Response {
     app.clone()
@@ -76,15 +157,9 @@ async fn body(response: Response) -> String {
 async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG required");
     assert!(url.starts_with("postgresql://tor_app:") && url.contains("@127.0.0.1:5432/tor_ci"));
+    let _lock = PolicyLock::acquire(&url);
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
-    // Share policy is one global singleton. Coordinate with REC fixture tests.
-    let mut guard = pool.acquire().await.unwrap();
-    sqlx::query("SELECT pg_advisory_lock(864863)")
-        .execute(&mut *guard)
-        .await
-        .unwrap();
-
     let accounts = PgAccounts::from_pool(pool.clone());
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -106,11 +181,12 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
             .await
             .unwrap();
         if is_admin {
-            sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
-                .bind(id)
-                .execute(&pool)
-                .await
-                .unwrap();
+            pg(
+                &url,
+                &format!(
+                    "INSERT INTO account_roles(user_id,role) VALUES({id},'administrator')"
+                ),
+            );
         }
         users.push(id);
         tokens.push(token);
@@ -126,25 +202,8 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
         ORIGIN.into(),
     );
 
-    let initial: (i64, i16, i16, i16, i16, i16) = sqlx::query_as(
-        "SELECT revision,author_pct,teammate_pct,other_authors_pct,
-                no_team_author_pct,no_team_other_authors_pct
-         FROM rec_shelf_share_policy WHERE singleton",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let previous = [
-        i32::from(initial.1),
-        i32::from(initial.2),
-        i32::from(initial.3),
-        i32::from(initial.4),
-        i32::from(initial.5),
-    ];
-    let before_flow: i64 = sqlx::query_scalar("SELECT count(*) FROM flow_observation_proofs")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let (initial_revision, previous) = policy(&url);
+    let before_flow = pg(&url, "SELECT count(*) FROM flow_observation_proofs");
 
     for (cookie, code) in [
         ("", StatusCode::UNAUTHORIZED),
@@ -161,12 +220,12 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     assert_private(&response);
     let html = body(response).await;
     assert!(html.contains(r#"data-testid="rec-shares-form""#));
-    assert!(html.contains(&format!(r#"data-revision="{}""#, initial.0)));
+    assert!(html.contains(&format!(r#"data-revision="{initial_revision}""#)));
     assert!(!html.contains("data-flow-proof"));
 
     let new_shares = [40, 30, 30, 60, 40];
-    let good = form(&csrf, initial.0, new_shares, "save");
-    let bad_csrf = form("wrong", initial.0, new_shares, "save");
+    let good = form(&csrf, initial_revision, new_shares, "save");
+    let bad_csrf = form("wrong", initial_revision, new_shares, "save");
     for (origin, data) in [
         (ORIGIN, bad_csrf.as_str()),
         ("https://evil.example", good.as_str()),
@@ -175,7 +234,7 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_private(&response);
     }
-    let invalid_sum = form(&csrf, initial.0, [50, 40, 20, 70, 30], "save");
+    let invalid_sum = form(&csrf, initial_revision, [50, 40, 20, 70, 30], "save");
     assert_eq!(
         call(&app, "POST", &admin_cookie, ORIGIN, &invalid_sum)
             .await
@@ -194,53 +253,36 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_private(&response);
     assert_eq!(response.headers()[header::LOCATION], PAGE);
-    let after: (i64, i16, i16, i16, i16, i16) = sqlx::query_as(
-        "SELECT revision,author_pct,teammate_pct,other_authors_pct,
-                no_team_author_pct,no_team_other_authors_pct
-         FROM rec_shelf_share_policy WHERE singleton",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(after.0, initial.0 + 1);
-    assert_eq!(
-        [after.1, after.2, after.3, after.4, after.5],
-        [40, 30, 30, 60, 40]
-    );
+    let (next_revision, next_policy) = policy(&url);
+    // Restore before assertions to avoid contaminating other singleton fixtures.
+    let restore = form(&csrf, next_revision, previous, "save");
+    let restored = call(&app, "POST", &admin_cookie, ORIGIN, &restore).await;
+    assert_eq!(restored.status(), StatusCode::SEE_OTHER);
+    assert_eq!(next_revision, initial_revision + 1);
+    assert_eq!(next_policy, new_shares);
+    assert_eq!(policy(&url).1, previous);
     assert_eq!(
         call(&app, "POST", &admin_cookie, ORIGIN, &good)
             .await
             .status(),
         StatusCode::CONFLICT
     );
-
-    // Return the singleton to its original values; test must not contaminate
-    // subsequent REC fixtures, even when original differs from defaults.
-    let restore = form(&csrf, after.0, previous, "save");
-    assert_eq!(
-        call(&app, "POST", &admin_cookie, ORIGIN, &restore)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
-    );
-    let after_flow: i64 = sqlx::query_scalar("SELECT count(*) FROM flow_observation_proofs")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let after_flow = pg(&url, "SELECT count(*) FROM flow_observation_proofs");
     assert_eq!(before_flow, after_flow);
 
-    sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='administrator'")
-        .bind(users[0])
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id=ANY($1::bigint[])")
-        .bind(&users)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_advisory_unlock(864863)")
-        .execute(&mut *guard)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "DELETE FROM account_roles WHERE user_id={} AND role='administrator'",
+            users[0]
+        ),
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM sessions WHERE user_id IN({},{})", users[0], users[1]),
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN({},{})", users[0], users[1]),
+    );
 }
