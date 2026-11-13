@@ -208,7 +208,9 @@ async function snapshot(page, name, target) {
     // An owned canonical row without its matching C receipt is unknown, not zero.
     const missingReceipt = sql('SELECT source_event_id FROM reader_chapter_completions WHERE chapter_id=' + newer.chapter);
     assert.match(missingReceipt, /^[0-9a-f-]{36}$/);
-    sql("BEGIN;DELETE FROM event_deliveries WHERE event_id='" + missingReceipt + "';" +
+    // Lock the parent first: concurrent FK deliveries need KEY SHARE on this row.
+    sql("BEGIN;SELECT id FROM outbox_events WHERE id='" + missingReceipt + "' FOR UPDATE;" +
+      "DELETE FROM event_deliveries WHERE event_id='" + missingReceipt + "';" +
       "DELETE FROM outbox_events WHERE id='" + missingReceipt + "';COMMIT", owner);
     await privateResponse(await page.goto(closed));
     assert.equal(await readingState(page, f.books[0]), 'unknown');
