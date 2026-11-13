@@ -1,0 +1,15 @@
+[Unit]
+Description=TOR PostgreSQL 18 offsite WAL archive and backup health check
+After=postgresql@18-main.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/tor/check-pgbackrest-archive-health.py
+TimeoutStartSec=90s
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
