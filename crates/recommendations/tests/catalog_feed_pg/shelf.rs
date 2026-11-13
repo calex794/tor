@@ -257,5 +257,12 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
         .execute(&f.pool)
         .await
         .unwrap();
+    // Registration of a Book with an owner also creates book_members rows.
+    // Release their RESTRICT FKs before Fixture::cleanup removes its test actors.
+    sqlx::query("DELETE FROM book_members WHERE book_id=ANY($1::bigint[])")
+        .bind(&f.books)
+        .execute(&f.pool)
+        .await
+        .unwrap();
     f.cleanup().await;
 }
