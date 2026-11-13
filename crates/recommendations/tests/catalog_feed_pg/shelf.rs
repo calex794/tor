@@ -3,7 +3,7 @@ use super::*;
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL with S028 teams"]
-async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
+async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides() {
     let f = fixture("reader-end-shelf").await;
     let (owner, teammate) = (f.actors[0], f.actors[1]);
     let (source, author_book, team_book, site_book) =
@@ -100,7 +100,7 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
             .collect::<std::collections::BTreeSet<_>>()
             .len()
     );
-    // A site candidate is not guaranteed in any particular two-card
+    // An other-author candidate is not guaranteed in any particular two-card
     // allocation: source quotas are averaged across rotations, not per shelf.
     assert_eq!(
         ids(&result).len(),
@@ -109,14 +109,6 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
             .collect::<std::collections::BTreeSet<_>>()
             .len()
     );
-
-    // Catalog entries with no owner are still eligible for the site pool.
-    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
-        .bind(site_book)
-        .execute(&f.pool)
-        .await
-        .unwrap();
-    assert!(ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
 
     f.store
         .set_feedback(
@@ -135,6 +127,15 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
         .unwrap())
     .contains(&site_book));
     assert!(ids(&f.store.reader_end_shelf(None, source, 201).await.unwrap()).contains(&site_book));
+
+    // Historical nullable-owner fixtures are not eligible "other authors".
+    // Do this after checking viewer-local hides against a valid owned Book.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
+        .bind(site_book)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(!ids(&f.store.reader_end_shelf(None, source, 203).await.unwrap()).contains(&site_book));
 
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(team_book)
@@ -163,6 +164,20 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
         .execute(&f.pool)
         .await
         .unwrap();
+    // An unowned source cannot establish owner/team/other-author categories.
+    sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=$1")
+        .bind(source)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert!(f
+        .store
+        .reader_end_shelf(None, source, 205)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+
     sqlx::query("UPDATE books SET owner_user_id=NULL WHERE id=ANY($1::bigint[])")
         .bind(&f.books)
         .execute(&f.pool)
@@ -176,6 +191,17 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
 async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
     let mut f = fixture("shelf-depth").await;
     let source = f.books[0];
+    // Every ordinary Book in the candidate pool has a real owner.
+    // The 1,000 candidates all belong to another author, not the seed owner.
+    sqlx::query(
+        "UPDATE books SET owner_user_id=$1,genres=ARRAY['fantasy'],tags=ARRAY['system']
+         WHERE id=$2",
+    )
+    .bind(f.actors[0])
+    .bind(source)
+    .execute(&f.pool)
+    .await
+    .unwrap();
     // The extra titles have the same language and relevance as the seed.
     // Insert in a single transaction; no real or shared database is touched.
     let mut tx = f.pool.begin().await.unwrap();
@@ -184,13 +210,17 @@ async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
         .await
         .unwrap();
     let generated: Vec<i64> = sqlx::query_scalar(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+        "INSERT INTO books
+            (id,source_identity,target_language,title,visibility,access_level,
+             owner_user_id,genres,tags)
          SELECT (SELECT coalesce(max(id),0) FROM books)+n,
                 'ci:shelf-depth:' || $1::text || ':' || n::text,
-                'ru','Shelf depth candidate ' || n::text,'public','basic'
+                'ru','Shelf depth candidate ' || n::text,'public','basic',
+                $2,ARRAY['fantasy'],ARRAY['system']
          FROM generate_series(1,1000) AS gs(n) RETURNING id",
     )
     .bind(source)
+    .bind(f.actors[1])
     .fetch_all(&mut *tx)
     .await
     .unwrap();

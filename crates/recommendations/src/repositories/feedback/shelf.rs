@@ -1,4 +1,4 @@
-//! Reader-end 50/40/10 shelf: read-only, bounded, viewer-aware.
+//! Reader-end 50/40/10 shelf: owner/team/other owners (legacy `site`), read-only.
 //! Unlike paid advertising, the shelf has no financial transaction or
 //! individual impressions. Every candidate passes live Book discovery ACL.
 use super::discovery::ACTOR_DISCOVERY_CTE;
@@ -38,20 +38,20 @@ impl PgRecommendations {
         {
             return Err(FeedbackError::Invalid);
         }
-        // One request-scoped salt rotates equal-relevance candidates across
-        // the whole discoverable catalogue, not just the newest 100 books.
-        // It contains no reader identifier, history or persisted observations.
+        // Salt is independent of reader identity and never persisted.
+        // Rotate the SQL candidate window and Rust quota wheel together.
         let rotation = (chapter as u64) ^ rand::random::<u64>();
         let tie_seed = (rotation & i64::MAX as u64) as i64;
         // Reuse the exact actor-scoped discoverability predicate of the
         // existing REC serving path. No private title/metadata is selected.
         // The three independently bounded branches protect the owner and team
-        // pools from being crowded out by the much larger site catalogue.
+        // pools from being crowded out by the much larger other-owner catalogue.
         let sql = format!(
             "{ACTOR_DISCOVERY_CTE},
             origin AS (
               SELECT b.id,b.owner_user_id,b.genres,b.tags,b.target_language
-              FROM books b JOIN rec_actor_books access ON access.id=b.id WHERE b.id=$2
+              FROM books b JOIN rec_actor_books access ON access.id=b.id
+              WHERE b.id=$2 AND b.owner_user_id IS NOT NULL
             ),
             source_teams AS (
               SELECT tb.team_id FROM translation_team_books tb
@@ -128,7 +128,8 @@ impl PgRecommendations {
               FROM rec_actor_books visible
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
+              WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND candidate.owner_user_id IS NOT NULL
+                AND candidate.owner_user_id IS DISTINCT FROM o.owner_user_id
                 AND NOT EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -191,8 +192,7 @@ impl PgRecommendations {
                 preference_boost: row.try_get("preference_boost")?,
             });
         }
-        // Reuse the same request rotation for source quotas and card order.
-        // Fixed chapter-only rotations would skew shares on popular chapters.
+        // The SQL tie-break and the weighted shelf share one request rotation.
         let cards = select_shelf(source_book, pools, slots, rotation);
         let items = cards
             .into_iter()
@@ -201,7 +201,7 @@ impl PgRecommendations {
                 let source = match card.source {
                     crate::services::reader_end_shelf::ShelfSource::Author => "author",
                     crate::services::reader_end_shelf::ShelfSource::Teammate => "teammate",
-                    crate::services::reader_end_shelf::ShelfSource::Site => "site",
+                    crate::services::reader_end_shelf::ShelfSource::OtherAuthors => "site", // legacy wire name
                 };
                 Some(FeedItem {
                     book_id: card.book_id.to_string(),
