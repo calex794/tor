@@ -225,7 +225,10 @@ async function completeFreeChapter(page, chapter, version) {
   } finally {
     if (browser) await browser.close();
     // Fixtures live only in tor_ci; preserve unrelated data and immutable events.
-    if (books.length) sql(`DELETE FROM books WHERE id IN(${books.join(',')})`);
+    if (books.length) sql(`BEGIN;
+      DELETE FROM book_members WHERE book_id IN(${books.join(',')});
+      DELETE FROM books WHERE id IN(${books.join(',')});
+      COMMIT;`);
     sql(`DELETE FROM users WHERE email_normalized IN('${email}','${mobileEmail}')`);
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});
