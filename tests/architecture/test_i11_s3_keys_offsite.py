@@ -31,6 +31,29 @@ class Dr03OperatorSafety(unittest.TestCase):
                           "GITHUB_TOKEN", "pg_restore"):
             self.assertNotIn(forbidden, data)
 
+    def test_empty_s3_source_cannot_look_like_success(self):
+        data = BACKUP.read_text(encoding="utf-8")
+        self.assertIn('size "$TOR_DR_PRIMARY_REMOTE" --json', data)
+        anchor = "printf '%s' \"$source_inventory\" | python3 -c '"
+        self.assertIn(anchor, data)
+        validator = data.split(anchor, 1)[1].split("' ||", 1)[0]
+        samples = (
+            ('{"count":1,"bytes":20}', True),
+            ('{"count":0,"bytes":0}', False),
+            ('{"count":0,"bytes":20}', False),
+            ('{"count":"1","bytes":20}', False),
+            ('{"count":1,"bytes":0}', False),
+            ('{"count":-1,"bytes":20}', False),
+            ('{}', False),
+            ('not json', False),
+        )
+        for payload, expected in samples:
+            with self.subTest(payload=payload):
+                result = subprocess.run(
+                    ["python3", "-c", validator],
+                    input=payload, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, expected)
+
     def test_restore_is_read_only_and_checks_offline_proof(self):
         data = RESTORE.read_text(encoding="utf-8")
         for token in ("[[ ! -v GITHUB_ACTIONS ]]", "tor-offsite-read:",

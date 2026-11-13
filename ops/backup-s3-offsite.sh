@@ -40,6 +40,14 @@ mkdir -m 700 "$lock_dir" 2>/dev/null || true
 [[ ! -L "$lock_dir/offsite-objects.lock" ]] || refuse 'symlink lock refused'
 exec 9>"$lock_dir/offsite-objects.lock"
 flock -n 9 || refuse 'already running'
+# An empty/misdirected primary S3 bucket would make copy/check trivially succeed.
+# Refuse to report a backup of zero files, even if a sealed key bundle exists.
+source_inventory=$(rclone --config "$TOR_DR_RCLONE_CONFIG" size \
+  "$TOR_DR_PRIMARY_REMOTE" --json 2>/dev/null) ||
+  refuse 'primary S3 inventory unreadable'
+printf '%s' "$source_inventory" | python3 -c 'import json,sys; x=json.load(sys.stdin); sys.exit(0 if isinstance(x,dict) and type(x.get("count")) is int and x["count"]>0 and type(x.get("bytes")) is int and x["bytes"]>0 else 2)' ||
+  refuse 'primary S3 inventory missing or empty'
+
 work=$(mktemp -d /run/tor-offsite-objects.XXXXXXXX)
 cleanup() {
   code=$?
