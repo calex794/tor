@@ -409,7 +409,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates_and_layers_and_purchased_only;
+pub use library::my_library_with_updates_and_layers_and_purchased_only_selected;
 mod library_saved_free;
 pub use library_saved_free::{
     saved_archive_list, saved_free_reader, saved_free_reader_with_paginated_toc,
@@ -448,6 +448,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/account-ui.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-library.css"));
         css
     });
     (

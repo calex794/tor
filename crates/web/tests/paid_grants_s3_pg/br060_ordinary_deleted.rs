@@ -364,7 +364,8 @@ pub(super) async fn verify(
     let free_html = html_body(saved).await;
     assert!(free_html.contains("Real public free content"));
     assert!(!free_html.contains("UNPINNED FREE V2"));
-    let buyer_library = html_body(private_get(app, "/me/library", Some(buyer_cookie)).await).await;
+    let buyer_library =
+        html_body(private_get(app, "/me/library?view=saved", Some(buyer_cookie)).await).await;
     assert!(buyer_library.contains("Удалена"));
     assert!(buyer_library.contains(&archive));
 
@@ -400,7 +401,7 @@ pub(super) async fn verify(
         .await
         .contains("data-paid-chapter-reader"));
     let fresh_library =
-        html_body(private_get(app, "/me/library", Some(&fresh.session)).await).await;
+        html_body(private_get(app, "/me/library?view=saved", Some(&fresh.session)).await).await;
     assert!(fresh_library.contains("Удалена"));
     assert!(fresh_library.contains(&archive));
 
