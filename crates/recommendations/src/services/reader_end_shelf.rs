@@ -6,6 +6,9 @@
 //! The allocator chooses up to five DISTINCT cards after a free chapter.
 use std::collections::BTreeSet;
 
+mod policy;
+pub use policy::{ShelfShareError, ShelfSharePolicy};
+
 /// Owner of the current publication takes precedence over team membership;
 /// team membership takes precedence over books by other owners (legacy `site`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,21 +56,10 @@ const SOURCES: [ShelfSource; 3] = [
 ];
 const MAX_POOL: usize = 100;
 
-/// Nominal ratio 50/40/10. If no teammate Books exist, the *product-defined*
-/// fallback is 70/0/30 (not mathematical proportional redistribution).
-/// With no author Books, the author quota transfers to other owners. If no
-/// other authors are available, the remaining author/team shares retain 5:4.
+/// Existing 50/40/10 behavior until the versioned PostgreSQL policy is connected.
+/// No reader or browser data influences these pure weights.
 pub fn weights_for_availability(available: [bool; 3]) -> [i64; 3] {
-    match available {
-        [true, true, true] => [50, 40, 10],
-        [true, false, true] => [70, 0, 30],
-        [false, true, true] => [0, 40, 60],
-        [true, true, false] => [5, 4, 0],
-        [true, false, false] => [1, 0, 0],
-        [false, true, false] => [0, 1, 0],
-        [false, false, true] => [0, 0, 1],
-        [false, false, false] => [0, 0, 0],
-    }
+    ShelfSharePolicy::default().weights_for_availability(available)
 }
 
 fn next_source(weights: [i64; 3], debt: &mut [i64; 3]) -> Option<usize> {
@@ -111,9 +103,27 @@ fn order_pool(pool: &mut [ShelfCandidate], rotation: u64) {
 /// caller; the function is pure and does not store per-reader observations.
 pub fn select_shelf(
     source_book_id: i64,
+    pools: [Vec<ShelfCandidate>; 3],
+    cards: usize,
+    rotation: u64,
+) -> Vec<ShelfCard> {
+    select_shelf_with_policy(
+        source_book_id,
+        pools,
+        cards,
+        rotation,
+        &ShelfSharePolicy::default(),
+    )
+}
+
+/// Pure allocator for a validated future administrator policy. This does not
+/// read, persist, or change runtime settings and never mints observation proofs.
+pub fn select_shelf_with_policy(
+    source_book_id: i64,
     mut pools: [Vec<ShelfCandidate>; 3],
     cards: usize,
     rotation: u64,
+    policy: &ShelfSharePolicy,
 ) -> Vec<ShelfCard> {
     if source_book_id <= 0 || !(1..=5).contains(&cards) {
         return Vec::new();
@@ -129,7 +139,7 @@ pub fn select_shelf(
     }
 
     let mut debt = [0_i64; 3];
-    let initial = weights_for_availability(pools.clone().map(|p| !p.is_empty()));
+    let initial = policy.weights_for_availability(pools.clone().map(|p| !p.is_empty()));
     // Advance the smooth weighted wheel before emitting a shelf. Different
     // chapter/request rotations therefore realize fractional 10% other-author share
     // even when one shelf has only five positions.
@@ -140,7 +150,7 @@ pub fn select_shelf(
     let mut output = Vec::with_capacity(cards);
     for _ in 0..cards {
         let available = pools.each_ref().map(|pool| !pool.is_empty());
-        let weights = weights_for_availability(available);
+        let weights = policy.weights_for_availability(available);
         let Some(index) = next_source(weights, &mut debt) else {
             break;
         };
