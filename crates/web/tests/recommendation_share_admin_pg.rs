@@ -32,7 +32,15 @@ fn pg(url: &str, query: &str) -> String {
             "PGOPTIONS",
             "-c statement_timeout=5000 -c lock_timeout=2000",
         )
-        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url, "-c", query])
+        .args([
+            "-XAtq",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "-c",
+            query,
+        ])
         .output()
         .unwrap();
     assert!(
@@ -52,7 +60,10 @@ struct PolicyLock {
 impl PolicyLock {
     fn acquire(url: &str) -> Self {
         let mut child = Command::new("psql")
-            .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
+            .env(
+                "PGOPTIONS",
+                "-c statement_timeout=5000 -c lock_timeout=2000",
+            )
             .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -183,9 +194,7 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
         if is_admin {
             pg(
                 &url,
-                &format!(
-                    "INSERT INTO account_roles(user_id,role) VALUES({id},'administrator')"
-                ),
+                &format!("INSERT INTO account_roles(user_id,role) VALUES({id},'administrator')"),
             );
         }
         users.push(id);
@@ -279,7 +288,10 @@ async fn admin_shares_http_requires_live_role_csrf_and_atomic_revision() {
     );
     pg(
         &url,
-        &format!("DELETE FROM sessions WHERE user_id IN({},{})", users[0], users[1]),
+        &format!(
+            "DELETE FROM sessions WHERE user_id IN({},{})",
+            users[0], users[1]
+        ),
     );
     pg(
         &url,
