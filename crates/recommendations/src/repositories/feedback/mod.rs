@@ -18,7 +18,7 @@ mod retirement;
 mod serving;
 mod shelf;
 mod shelf_policy;
-pub use shelf_policy::ShelfShareSnapshot;
+pub use shelf_policy::{ShelfShareAuditRow, ShelfShareSnapshot};
 mod sources;
 mod status;
 

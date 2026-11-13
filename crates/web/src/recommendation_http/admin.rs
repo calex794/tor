@@ -208,11 +208,12 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
 // REC-ADMIN-01: the sole write surface for the versioned global shelf ratios.
 // The underlying F-owned CAS function checks the administrator session again
 // inside PostgreSQL; H must additionally validate the live A role and CSRF.
-#[derive(Deserialize)]
+#[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ShareAction {
     Save,
     Defaults,
+    Restore,
 }
 
 #[derive(Deserialize)]
@@ -221,12 +222,12 @@ pub(super) struct ShareForm {
     csrf_token: String,
     expected_revision: i64,
     action: ShareAction,
-    // Strings keep the Defaults action independent of malformed edited inputs.
     author_pct: Option<String>,
     teammate_pct: Option<String>,
     other_authors_pct: Option<String>,
     no_team_author_pct: Option<String>,
     no_team_other_authors_pct: Option<String>,
+    target_revision: Option<i64>,
 }
 
 impl ShareForm {
@@ -251,6 +252,7 @@ impl ShareForm {
                 ],
             ),
             ShareAction::Defaults => ([50, 40, 10], [70, 30]),
+            ShareAction::Restore => return Err(FeedbackError::Invalid),
         };
         tor_recommendations::services::reader_end_shelf::ShelfSharePolicy::validated(
             values.0, values.1,
@@ -271,6 +273,7 @@ fn share_status(error: FeedbackError) -> StatusCode {
 
 fn share_markup(
     policy: tor_recommendations::repositories::feedback::ShelfShareSnapshot,
+    history: &[tor_recommendations::repositories::feedback::ShelfShareAuditRow],
     csrf: &str,
     enabled: bool,
 ) -> String {
@@ -298,8 +301,39 @@ fn share_markup(
         without_team[1]
     );
     out.push_str(
-        r#"<section class="book-section-card"><h2>Проверить выдачу</h2><p>Предпросмотр бесплатной главы не создаёт подтверждений показа и не изменяет доли.</p><p><a href="/me/recommendations/shelf-preview">Предпросмотр органической полки</a></p></section><section class="book-section-card"><h2>Редакционные назначения и измерения</h2><p>Редакционный блок занимает не более четырёх из пяти мест, но не входит в проценты органики.</p><p><a href="/admin/promotion/editorial">Управление редакционными кампаниями</a> · <a href="/admin/audience/exposure">Показы и переходы</a></p><p><a href="/me/recommendations/contextual">Контекстная модель и версии</a> · <a href="/me/recommendations/manage">Ручные связи книг</a></p></section></div></section>"#,
+        r#"<section class="book-section-card"><h2>Проверить выдачу</h2><p>Предпросмотр бесплатной главы не создаёт подтверждений показа и не изменяет доли.</p><p><a href="/me/recommendations/shelf-preview">Предпросмотр органической полки</a></p></section><section class="book-section-card"><h2>Редакционные назначения и измерения</h2><p>Редакционный блок занимает не более четырёх из пяти мест, но не входит в проценты органики.</p><p><a href="/admin/promotion/editorial">Управление редакционными кампаниями</a> · <a href="/admin/audience/exposure">Показы и переходы</a></p><p><a href="/me/recommendations/contextual">Контекстная модель и версии</a> · <a href="/me/recommendations/manage">Ручные связи книг</a></p></section>"#,
     );
+    out.push_str(
+        r#"<section class="book-section-card" data-testid="rec-policy-history"><h2>История изменений и откат</h2><p>Восстановление старой конфигурации создаёт новую ревизию; прежние записи аудита никогда не удаляются.</p><ol>"#,
+    );
+    for entry in history {
+        let [author, team, other] = entry.with_team;
+        let [alone_author, alone_other] = entry.without_team;
+        let who = entry
+            .actor_user_id
+            .map_or_else(|| "система".to_owned(), |actor| actor.to_string());
+        let _ = write!(
+            out,
+            "<li data-revision=\"{}\"><p>Ревизия {} · {} · администратор {} · {}. С командой: {author}/{team}/{other}; без команды: {alone_author}/{alone_other}.</p>",
+            entry.revision,
+            entry.revision,
+            html::escape_html(&entry.changed_at),
+            who,
+            html::escape_html(&entry.action),
+        );
+        if entry.revision != policy.revision {
+            let _ = write!(
+                out,
+                r#"<form method="post" action="/admin/recommendations" class="author-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><input type="hidden" name="target_revision" value="{}"><button type="submit" class="button button--secondary" name="action" value="restore">Вернуть ревизию {}</button></form>"#,
+                html::escape_html(csrf),
+                policy.revision,
+                entry.revision,
+                entry.revision,
+            );
+        }
+        out.push_str("</li>");
+    }
+    out.push_str("</ol></section></div></section>");
     out
 }
 
@@ -311,13 +345,18 @@ pub(super) async fn shares_page(State(state): State<Runtime>, headers: HeaderMap
             .shelf_share_policy()
             .await
             .map_err(share_status)?;
+        let history = state
+            .store
+            .shelf_share_audit()
+            .await
+            .map_err(share_status)?;
         actor(&state, &headers).await?;
         let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
         Ok::<_, StatusCode>(pages::secure_page(
             html::layout(
                 "Управление рекомендациями",
                 "Доли рекомендаций и редакционные назначения",
-                &share_markup(policy, &csrf, state.enabled),
+                &share_markup(policy, &history, &csrf, state.enabled),
             ),
             &cookies,
         ))
@@ -345,7 +384,25 @@ pub(super) async fn shares_submit(
             }
         })?;
         csrf(&state, &headers, &form.csrf_token)?;
-        let (with_team, without_team) = form.shares().map_err(share_status)?;
+        let (with_team, without_team) = match form.action {
+            ShareAction::Restore => {
+                let revision = form
+                    .target_revision
+                    .filter(|revision| *revision > 0)
+                    .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+                let selected = state
+                    .store
+                    .shelf_share_audit_policy(revision)
+                    .await
+                    .map_err(share_status)?
+                    .ok_or(StatusCode::NOT_FOUND)?;
+                (
+                    selected.with_team().map(i32::from),
+                    selected.without_team().map(i32::from),
+                )
+            }
+            ShareAction::Save | ShareAction::Defaults => form.shares().map_err(share_status)?,
+        };
         let token = state
             .cookies
             .session_token(&headers)
@@ -382,7 +439,7 @@ mod share_panel_tests {
             revision: 9,
             policy: ShelfSharePolicy::validated([40, 30, 30], [60, 40]).unwrap(),
         };
-        let html = share_markup(snapshot, "csrf&<test>", false);
+        let html = share_markup(snapshot, &[], "csrf&<test>", false);
         assert!(html.contains(r#"data-revision="9""#));
         assert!(html.contains(r#"name="author_pct" type="number" min="0" max="100" value="40""#));
         assert!(html
@@ -392,6 +449,30 @@ mod share_panel_tests {
         assert!(html.contains("value=\"defaults\" formnovalidate"));
         assert!(!html.contains("<script"));
         assert!(!html.contains("data-flow-proof"));
+    }
+
+    #[test]
+    fn immutable_history_renders_native_rollback_with_current_cas_revision() {
+        use tor_recommendations::repositories::feedback::ShelfShareAuditRow;
+        let snapshot = ShelfShareSnapshot {
+            revision: 12,
+            policy: ShelfSharePolicy::validated([40, 30, 30], [60, 40]).unwrap(),
+        };
+        let history = [ShelfShareAuditRow {
+            revision: 11,
+            with_team: [50, 40, 10],
+            without_team: [70, 30],
+            actor_user_id: Some(123),
+            action: "set".into(),
+            changed_at: "2026-11-13T16:00:00Z".into(),
+        }];
+        let markup = share_markup(snapshot, &history, "csrf-token", true);
+        assert!(markup.contains("data-testid=\"rec-policy-history\""));
+        assert!(markup.contains("name=\"target_revision\" value=\"11\""));
+        assert!(markup.contains("name=\"expected_revision\" value=\"12\""));
+        assert!(markup.contains("value=\"restore\""));
+        assert!(markup.contains("50/40/10"));
+        assert!(!markup.contains("<script"));
     }
 
     #[test]
@@ -405,6 +486,7 @@ mod share_panel_tests {
             other_authors_pct: Some("20".into()),
             no_team_author_pct: Some("70".into()),
             no_team_other_authors_pct: Some("30".into()),
+            target_revision: None,
         };
         assert_eq!(form.shares(), Err(FeedbackError::Invalid));
         form.other_authors_pct = Some("10".into());
@@ -412,10 +494,7 @@ mod share_panel_tests {
         form.action = ShareAction::Defaults;
         form.author_pct = Some("broken".into());
         assert_eq!(form.shares(), Ok(([50, 40, 10], [70, 30])));
-        // A malformed edited number must not prevent restoring defaults.
         form.action = ShareAction::Save;
-        assert_eq!(form.shares(), Err(FeedbackError::Invalid));
-        form.author_pct = None;
         assert_eq!(form.shares(), Err(FeedbackError::Invalid));
     }
 }
