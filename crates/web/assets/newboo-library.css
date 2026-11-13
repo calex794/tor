@@ -79,6 +79,7 @@
 .library-v2 .library-book-art__glyph {
   position: relative; z-index: 0; font: 700 34px/1 Georgia, serif; color: #e8d8b7;
 }
+/* Only render an image when the server confirmed an attached public cover. */
 .library-v2 .library-book-art img {
   position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%;
   object-fit: cover; font-size: 0; color: transparent;

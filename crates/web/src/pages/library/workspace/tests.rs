@@ -37,7 +37,7 @@ fn empty_library_has_one_onboarding_state_and_csp_safe_navigation() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, None),
+        (&purchases, None, None),
     )
     .0;
     assert_eq!(html.matches("Ваша книжная полка пока пуста").count(), 1);
@@ -67,7 +67,7 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, Some("reading")),
+        (&purchases, Some("reading"), None),
     )
     .0;
     assert!(html.contains("href=\"/me/library/saved/23#saved-resume\""));
@@ -80,9 +80,27 @@ fn selected_panels_preserve_private_archive_link_and_cover_boundary() {
         (false, false),
         false,
         (&updates, &[]),
-        (&purchases, Some("saved")),
+        (&purchases, Some("saved"), None),
     )
     .0;
     assert!(saved_html.contains("id=\"saved-books\""));
     assert!(!saved_html.contains("href=\"/me/library/saved/23#saved-resume\""));
+}
+
+#[test]
+fn public_library_cover_requires_confirmed_public_slot() {
+    let mut published = std::collections::HashSet::new();
+    let fallback = book_art(13, true, Some(&published));
+    assert!(!fallback.contains("<img"));
+    assert!(fallback.contains("library-book-art__glyph"));
+    assert!(!fallback.contains("onerror="));
+
+    published.insert(13);
+    let with_cover = book_art(13, true, Some(&published));
+    assert!(with_cover.contains("src=\"/covers/13/card.webp\""));
+    assert!(with_cover.contains("library-book-art__glyph"));
+
+    let private = book_art(13, false, Some(&published));
+    assert!(!private.contains("/covers/13/card.webp"));
+    assert!(private.contains("library-book-art__glyph"));
 }

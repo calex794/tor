@@ -16,13 +16,22 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
     purchased_and_view: (
         &tor_reading::services::library::PurchasedOnlyBookPage,
         Option<&str>,
+        Option<&std::collections::HashSet<u64>>,
     ),
 ) -> Html<String> {
-    let (purchased_only, view) = purchased_and_view;
+    let (purchased_only, view, confirmed_covers) = purchased_and_view;
     let (updates, owned) = updates_and_owned;
     let (purchased_available, layers_available) = availability;
-    let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available);
+    let updates_html = update_cards(
+        updates,
+        checkout_enabled,
+        purchased_available,
+        owned,
+        csrf,
+        confirmed_covers,
+    );
+    let purchased_only_html =
+        purchase_only_book_cards(purchased_only, purchased_available, confirmed_covers);
     my_library_inner(
         items,
         saved,
@@ -30,13 +39,19 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected(
         (purchased_available, layers_available),
         &updates_html,
         &purchased_only_html,
-        (!updates.items.is_empty(), view),
+        (!updates.items.is_empty(), view, confirmed_covers),
     )
 }
 
-/// A public cover is attempted only for books without private deletion state.
-fn book_art(book_id: i64, public_visible: bool) -> String {
-    let image = if public_visible && book_id > 0 {
+/// Never request a missing cover. Private/withdrawn books must not expose a public image.
+fn book_art(
+    book_id: i64,
+    public_visible: bool,
+    confirmed_covers: Option<&std::collections::HashSet<u64>>,
+) -> String {
+    let confirmed =
+        confirmed_covers.is_none_or(|ids| u64::try_from(book_id).is_ok_and(|id| ids.contains(&id)));
+    let image = if public_visible && book_id > 0 && confirmed {
         format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
     } else {
         String::new()
@@ -47,6 +62,7 @@ fn book_art(book_id: i64, public_visible: bool) -> String {
 fn purchase_only_book_cards(
     page: &tor_reading::services::library::PurchasedOnlyBookPage,
     paid_reader_available: bool,
+    confirmed_covers: Option<&std::collections::HashSet<u64>>,
 ) -> String {
     if page.items.is_empty() {
         return String::new();
@@ -72,6 +88,7 @@ fn purchase_only_book_cards(
         let art = book_art(
             book.book_id,
             !book.ordinary_deleted && !book.pending_deletion,
+            confirmed_covers,
         );
         write!(
             cards,
@@ -102,10 +119,10 @@ fn my_library_inner(
     availability: (bool, bool),
     updates_html: &str,
     purchased_only_html: &str,
-    selection: (bool, Option<&str>),
+    selection: (bool, Option<&str>, Option<&std::collections::HashSet<u64>>),
 ) -> Html<String> {
     let (purchased_available, layers_available) = availability;
-    let (has_updates, view) = selection;
+    let (has_updates, view, confirmed_covers) = selection;
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-placeholder\"><h2>Вы ещё не сохраняли место чтения</h2><p>Выберите книгу и сохраните позицию в главе, чтобы продолжить позже.</p><a class=\"button button--small\" href=\"/catalog\">Выбрать книгу</a></div>");
@@ -141,7 +158,7 @@ fn my_library_inner(
                     "Продолжить чтение",
                 )
             };
-            let art = book_art(item.book_id, !item.archived_saved);
+            let art = book_art(item.book_id, !item.archived_saved, confirmed_covers);
             write!(cards, "<article class=\"library-reading-card\">{art}<div class=\"library-reading-card__copy\"><span class=\"library-status\">{mode}</span><h3>{book}</h3><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"{target}\">Продолжить</a></article>", item.chapter_no).expect("write HTML");
         }
     }
@@ -169,6 +186,7 @@ fn my_library_inner(
             let art = book_art(
                 book.book_id,
                 !book.ordinary_deleted && !book.pending_deletion,
+                confirmed_covers,
             );
             write!(
                 saved_html,
@@ -259,6 +277,7 @@ fn update_cards(
     paid_reader_available: bool,
     owned: &[tor_commerce::services::reader_views::ReadablePurchaseLink],
     csrf: &str,
+    confirmed_covers: Option<&std::collections::HashSet<u64>>,
 ) -> String {
     let mut body = String::new();
     if updates.items.is_empty() {
@@ -328,7 +347,7 @@ fn update_cards(
                 item.chapter_id,
                 escape_html(csrf),
             );
-            let art = book_art(item.book_id, true);
+            let art = book_art(item.book_id, true, confirmed_covers);
             write!(
                 body,
                 "<article class=\"library-update-card\">{art}<div class=\"library-update-card__copy\"><span class=\"library-status\">{state} · {read_hint}</span><h3>{book}</h3><p>Глава {}. {chapter}</p></div><div class=\"library-card__actions\">{action}{read_control}</div></article>",
@@ -407,6 +426,7 @@ mod archived_continue_tests {
                     next_cursor: None,
                 },
                 Some("reading"),
+                None,
             ),
         )
         .0;
@@ -432,6 +452,7 @@ mod archived_continue_tests {
                     next_cursor: None,
                 },
                 Some("reading"),
+                None,
             ),
         )
         .0;
@@ -482,7 +503,7 @@ mod purchase_only_book_tests {
             (true, false),
             false,
             (&updates, &[]),
-            (&only_bought, Some("purchased")),
+            (&only_bought, Some("purchased"), None),
         )
         .0;
         assert!(html.contains("aria-label=\"Книги с покупками\""));
@@ -503,7 +524,7 @@ mod purchase_only_book_tests {
             (false, false),
             false,
             (&updates, &[]),
-            (&only_bought, Some("purchased")),
+            (&only_bought, Some("purchased"), None),
         )
         .0;
         assert!(unavailable.contains("чтение временно недоступно"));

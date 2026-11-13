@@ -42,6 +42,7 @@ fn pending_deletion_book_is_private_visible_and_distinct_from_deleted() {
                 next_cursor: None,
             },
             Some("saved"),
+            None,
         ),
     );
     let html = page.0;
