@@ -1653,6 +1653,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
         ("GET", "/me/recommendations/manage", "admin::page"),
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
         ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
@@ -1702,6 +1704,36 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
+    if entry["source"] == "crates/web/src/recommendation_http/mod.rs" and route_key in {
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
+    }:
+        expected = (
+            "actor(&state, &headers).await",
+            "tokio::time::timeout(",
+            "Duration::from_millis(950)",
+            "pages::secure_page(",
+        )
+        if not all(marker in body for marker in expected):
+            errors.append(f"{label}: shares dashboard lost bounded admin authentication")
+        if entry["method"] == "GET":
+            if not all(marker in body for marker in (
+                ".shelf_share_policy()", "actor(&state, &headers).await",
+                "csrf_for_page(&headers)",
+            )):
+                errors.append(f"{label}: share policy read must be authenticated and CSRF-bound")
+        else:
+            required = (
+                "csrf(&state, &headers, &form.csrf_token)",
+                "form.shares()",
+                "session_token_digest(&token)",
+                ".set_shelf_share_policy(",
+                "form.expected_revision",
+                "share_status",
+            )
+            if not all(marker in body for marker in required):
+                errors.append(f"{label}: share policy mutation lost CSRF, CAS or session-bound write")
+
     if policy == "admin_reader":
         # Only the exact read-only shell and one session-bound CSRF POST for
         # current unsealed bodies. Never permit a generic paid grant, wallet
