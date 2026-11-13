@@ -170,3 +170,52 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
         .unwrap();
     f.cleanup().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with 1000 discoverable books"]
+async fn thousand_equal_relevance_books_are_not_limited_to_newest_hundred() {
+    let mut f = fixture("shelf-depth").await;
+    let source = f.books[0];
+    // The extra titles have the same language and relevance as the seed.
+    // Insert in a single transaction; no real or shared database is touched.
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let generated: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+         SELECT (SELECT coalesce(max(id),0) FROM books)+n,
+                'ci:shelf-depth:' || $1::text || ':' || n::text,
+                'ru','Shelf depth candidate ' || n::text,'public','basic'
+         FROM generate_series(1,1000) AS n RETURNING id",
+    )
+    .bind(source)
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(generated.len(), 1000);
+    f.books.extend(generated);
+
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..50 {
+        let feed = f.store.reader_end_shelf(None, source, 199).await.unwrap();
+        let chosen = ids(&feed);
+        assert_eq!(chosen.len(), 5);
+        assert!(!chosen.contains(&source));
+        assert_eq!(
+            chosen.iter().copied().collect::<std::collections::BTreeSet<_>>().len(),
+            5
+        );
+        observed.extend(chosen);
+    }
+    // A SQL candidate window permanently capped at the newest 100 can
+    // never pass this assertion, regardless of Rust-side tie shuffling.
+    assert!(
+        observed.len() > 100,
+        "only {} distinct books were ever reachable across 50 requests",
+        observed.len()
+    );
+    f.cleanup().await;
+}
