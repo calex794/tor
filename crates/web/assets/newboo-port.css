@@ -1105,6 +1105,18 @@ img.home-spotlight-card__cover {
   color: #f7f9fc;
   text-align: left;
 }
+.reader-end-shelf .book-mini-card__flip-back-link {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.reader-end-shelf .book-mini-card__flip-back-link:hover .book-mini-card__flip-open {
+  background: #dce9fc;
+}
 .reader-end-shelf .book-mini-card__flip-title {
   display: -webkit-box;
   max-height: 3.6em;
@@ -1163,7 +1175,7 @@ img.home-spotlight-card__cover {
   line-height: 1.2;
   text-decoration: none;
 }
-.reader-end-shelf .book-mini-card__flip-open:focus-visible,
+.reader-end-shelf .book-mini-card__flip-back-link:focus-visible,
 .reader-end-shelf .book-mini-card__cover-link:focus-visible,
 .reader-end-shelf .book-mini-card__flip-info:focus-visible {
   outline: 3px solid #f4ca73;
