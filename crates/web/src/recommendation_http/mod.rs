@@ -59,6 +59,10 @@ pub(crate) fn routes(state: Runtime) -> Router {
             get(api::feedback_list).post(api::feedback),
         )
         .route("/me/recommendations", get(pages::page))
+        .route(
+            "/admin/recommendations",
+            get(admin::policy::page).post(admin::policy::save),
+        )
         .route("/me/recommendations/shelf-preview", get(admin::shelf::page))
         .route("/me/recommendations/consent", post(pages::consent))
         .route("/me/recommendations/flow-consent", post(pages::consent))

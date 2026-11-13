@@ -1,5 +1,6 @@
 //! Retired analytics controls still require the original live administrator and CSRF gates.
 pub(super) mod contextual;
+pub(super) mod policy;
 pub(super) mod shelf;
 use super::{api, pages, Runtime};
 use crate::{auth_cookies::deny, pages as html};
@@ -197,6 +198,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         );
     }
     body.push_str("</ul><p><a data-testid=\"contextual-manage-link\" href=\"/me/recommendations/contextual\">\u{41a}\u{43e}\u{43d}\u{442}\u{435}\u{43a}\u{441}\u{442}\u{43d}\u{430}\u{44f} \u{43c}\u{43e}\u{434}\u{435}\u{43b}\u{44c} \u{440}\u{435}\u{43a}\u{43e}\u{43c}\u{435}\u{43d}\u{434}\u{430}\u{446}\u{438}\u{439}</a></p></div></section>");
+    body.push_str("<p><a href=\"/admin/recommendations\">Единая панель рекомендаций</a></p>");
     body.push_str("<p><a href=\"/me/recommendations/shelf-preview\">Предпросмотр полки после бесплатной главы</a></p>");
     pages::secure_page(
         html::layout("Настройки рекомендаций", "Явные настройки книг", &body),

@@ -12,5 +12,5 @@ pub mod feedback;
 pub mod flow_funnel;
 pub mod surprises;
 pub mod visits;
-pub use feedback::PgRecommendations;
+pub use feedback::{PgRecommendations, ShelfShareAuditRow, ShelfShareSnapshot};
 pub mod flow_signals;
