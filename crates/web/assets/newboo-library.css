@@ -79,9 +79,11 @@
 .library-v2 .library-book-art__glyph {
   position: relative; z-index: 0; font: 700 34px/1 Georgia, serif; color: #e8d8b7;
 }
-.library-v2 .library-book-art img {
+/* A missing public cover leaves the drawn fallback visible. An SVG image
+   paints nothing on HTTP 404, unlike a broken HTML <img> glyph. */
+.library-v2 .library-book-art__cover {
   position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%;
-  object-fit: cover; font-size: 0; color: transparent;
+  overflow: hidden;
 }
 .library-v2 .library-books-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(195px, 1fr)); gap: 18px;
