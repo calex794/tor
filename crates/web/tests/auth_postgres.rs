@@ -105,7 +105,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         ORIGIN.to_owned(),
         Arc::new(cover_store.clone()),
     );
-    let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    let page = h_account_cases::registration_after_library(&app).await;
     assert_eq!(page.status(), StatusCode::OK);
     assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
@@ -116,7 +116,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("register-password-hint"));
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
-    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&csrf_token=".to_owned() + csrf;
+    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
     assert_eq!(
         send(&app, request("POST", "/register", &form, "", ORIGIN))
             .await
@@ -146,7 +146,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    assert_eq!(created.headers()[header::LOCATION], "/me");
+    assert_eq!(created.headers()[header::LOCATION], "/me/library");
     let session = cookie(&created, "tor-dev-session=");
     assert!(session.contains("tor-dev-session="));
     assert!(created
@@ -944,13 +944,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
     h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
-    let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
+    let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&next=%2Freader%2F101&csrf_token={login_csrf}");
     let logged = send(
         &app,
         request("POST", "/login", &good_login, &login_csrf_cookie, ORIGIN),
     )
     .await;
-    assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    h_account_cases::login_returns_to_public_reader(&app, &logged).await;
     c11_cases::resume_after_login(&app, &logged).await;
     let second_session = cookie(&logged, "tor-dev-session=");
     c11_cases::second_session_reads_saved_progress(&app, &second_session).await;

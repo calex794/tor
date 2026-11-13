@@ -1344,7 +1344,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 or (audited_s049 and "session_digest(&s, &headers)" in evidence
                     and "session_token_digest(&token)" in evidence)):
             errors.append(f"{label}: missing verified PG session guard")
-        # Only the typed private reader may redirect to a specific local chapter.
+        # Only reviewed reader/library routes may carry their own fixed return.
         # Never allow an arbitrary dynamic redirect to satisfy a session guard.
         fixed_reader_return = (
             entry["template"] == "/read/{id}"
@@ -1354,10 +1354,25 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and 'format!("/login?next=/read/{id}")' in evidence
             and "return private_response(Redirect::to(&destination), &[])" in evidence
         )
+        library_return_route = (
+            entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+                == ("GET", "/me/library", "library_page::my_library")
+        )
+        fixed_library_return = (
+            library_return_route
+            and "let Some(token) = state.cookies.session_token(&headers) else {" in evidence
+            and evidence.count('Redirect::to("/login?next=/me/library")') == 2
+            and 'Ok(None) => return private_response(Redirect::to("/login?next=/me/library"), &[])'
+                in evidence
+        )
         # The private reader needs its fixed chapter-local login redirect.
         # An unrelated unauthorized branch must not mask removal of that guard.
         if entry["template"] == "/read/{id}" and entry["handler"] == "private_reader::page":
             if not fixed_reader_return:
+                errors.append(f"{label}: session failure does not explicitly deny/redirect")
+        elif library_return_route:
+            if not fixed_library_return:
                 errors.append(f"{label}: session failure does not explicitly deny/redirect")
         elif not (
             "StatusCode::UNAUTHORIZED" in evidence

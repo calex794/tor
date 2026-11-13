@@ -1,6 +1,48 @@
 //! Dedicated real-PostgreSQL account validation checks. Never tests production data.
 use super::*;
 
+pub(super) async fn registration_after_library(app: &Router) -> Response {
+    let library = send(app, request("GET", "/me/library", "", "", ORIGIN)).await;
+    assert_eq!(library.status(), StatusCode::SEE_OTHER);
+    assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(library.headers()[header::LOCATION], "/login?next=/me/library");
+    for target in ["/me/library", "/read/101", "/reader/101"] {
+        let path = format!("/login?next={target}");
+        let login = send(app, request("GET", &path, "", "", ORIGIN)).await;
+        assert_eq!(login.status(), StatusCode::OK);
+        let html = body_of(login).await;
+        assert!(html.contains(&format!("name=\"next\" value=\"{target}\"")));
+        assert!(html.contains(&format!("href=\"/register?next={target}\"")));
+    }
+    for target in ["https://evil.test", "//evil.test", "/admin", "/reader/0"] {
+        let login = send(
+            app,
+            request("GET", &format!("/login?next={target}"), "", "", ORIGIN),
+        )
+        .await;
+        assert_eq!(login.status(), StatusCode::OK);
+        assert!(!body_of(login).await.contains("name=\"next\""));
+    }
+    let registration = send(
+        app,
+        request("GET", "/register?next=/me/library", "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(registration.status(), StatusCode::OK);
+    registration
+}
+
+pub(super) async fn login_returns_to_public_reader(app: &Router, logged: &Response) {
+    assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    assert_eq!(logged.headers()[header::LOCATION], "/reader/101");
+    let session = cookie(logged, "tor-dev-session=");
+    let reader = send(app, request("GET", "/reader/101", "", &session, ORIGIN)).await;
+    assert_eq!(reader.status(), StatusCode::OK);
+    let html = body_of(reader).await;
+    assert!(html.contains("data-chapter-comment-form"));
+    assert!(!html.contains("PRIVATE-PAID-MARKER"));
+}
+
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
     let weak_password = format!(
         "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"

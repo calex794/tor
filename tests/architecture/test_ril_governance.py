@@ -473,6 +473,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("session failure does not explicitly deny/redirect")
 
+    def test_library_return_must_remain_a_fixed_local_route(self):
+        self.mutate(
+            "crates/web/src/auth/library_page.rs",
+            'Redirect::to("/login?next=/me/library")',
+            'Redirect::to("/login?next=/admin")',
+            start="pub(super) async fn my_library(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
+    def test_library_return_cannot_skip_the_missing_session_redirect(self):
+        self.mutate(
+            "crates/web/src/auth/library_page.rs",
+            'return private_response(Redirect::to("/login?next=/me/library"), &[])',
+            'return private_response(StatusCode::OK, &[])',
+            start="pub(super) async fn my_library(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
     def test_owner_guard_removal_fails(self):
         self.mutate(
             "crates/web/src/author_chapter_http.rs",

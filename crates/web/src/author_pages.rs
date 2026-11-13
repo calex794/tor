@@ -4,7 +4,7 @@ use std::fmt::Write;
 use tor_books::services::authoring::OwnedBook;
 use tor_commerce::domain::layers::OwnedLayerSummary;
 
-use crate::pages::{escape_html, layout};
+use crate::pages::{escape_html, private_account_layout as layout};
 
 pub fn index(books: &[OwnedBook]) -> Html<String> {
     render_index(books, None)
