@@ -45,6 +45,12 @@ fn db_code(error: &sqlx::Error) -> Option<String> {
 #[ignore = "requires disposable tor_ci PostgreSQL with REC-POLICY-01B migration"]
 async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
     let f = fixture("share-policy").await;
+    // The share policy is a global singleton: serialize tests that read or mutate it.
+    let mut policy_guard = f.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
     let actor = f.actors[0];
     let digest =
         tor_recommendations::domain::feedback::token_digest(&new_ticket().unwrap()).unwrap();
@@ -228,13 +234,24 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
         .execute(&f.pool)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    drop(policy_guard);
     f.cleanup().await;
-}
+
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL with REC-POLICY-01B migration"]
 async fn shelf_serving_observes_committed_policy_revisions_without_cache() {
     let f = fixture("share-serving").await;
+    // The share policy is a global singleton: serialize tests that read or mutate it.
+    let mut policy_guard = f.pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
     let (owner, other_owner) = (f.actors[0], f.actors[1]);
     let (source, author_book) = (f.books[0], f.books[1]);
     sqlx::query(
@@ -315,5 +332,10 @@ async fn shelf_serving_observes_committed_policy_revisions_without_cache() {
         .execute(&f.pool)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(864863)")
+        .execute(&mut *policy_guard)
+        .await
+        .unwrap();
+    drop(policy_guard);
     f.cleanup().await;
-}
+
