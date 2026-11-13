@@ -428,6 +428,30 @@ mod share_panel_tests {
     }
 
     #[test]
+    fn immutable_history_renders_native_rollback_with_current_cas_revision() {
+        use tor_recommendations::repositories::feedback::ShelfShareAuditRow;
+        let snapshot = ShelfShareSnapshot {
+            revision: 12,
+            policy: ShelfSharePolicy::validated([40, 30, 30], [60, 40]).unwrap(),
+        };
+        let history = [ShelfShareAuditRow {
+            revision: 11,
+            with_team: [50, 40, 10],
+            without_team: [70, 30],
+            actor_user_id: Some(123),
+            action: "set".into(),
+            changed_at: "2026-11-13T16:00:00Z".into(),
+        }];
+        let markup = share_markup(snapshot, &history, "csrf-token", true);
+        assert!(markup.contains("data-testid=\"rec-policy-history\""));
+        assert!(markup.contains("name=\"target_revision\" value=\"11\""));
+        assert!(markup.contains("name=\"expected_revision\" value=\"12\""));
+        assert!(markup.contains("value=\"restore\""));
+        assert!(markup.contains("50/40/10"));
+        assert!(!markup.contains("<script"));
+    }
+
+    #[test]
     fn admin_form_rejects_invalid_shares_and_defaults_are_explicit() {
         let mut form = ShareForm {
             csrf_token: "server-only".into(),
