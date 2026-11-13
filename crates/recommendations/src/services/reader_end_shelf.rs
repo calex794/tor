@@ -284,7 +284,11 @@ mod tests {
             let cards = select_shelf(1, [vec![], vec![], pool(2, 1000)], 5, rotation);
             assert_eq!(cards.len(), 5);
             assert_eq!(
-                cards.iter().map(|card| card.book_id).collect::<BTreeSet<_>>().len(),
+                cards
+                    .iter()
+                    .map(|card| card.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
                 5
             );
             assert!(cards.iter().all(|card| card.source == ShelfSource::Site));
@@ -294,15 +298,14 @@ mod tests {
     #[test]
     fn editorial_reservation_can_request_one_to_four_organic_cards() {
         for organic_slots in 1..=4 {
-            let cards = select_shelf(
-                1,
-                [pool(2, 1), vec![], pool(1000, 30)],
-                organic_slots,
-                42,
-            );
+            let cards = select_shelf(1, [pool(2, 1), vec![], pool(1000, 30)], organic_slots, 42);
             assert_eq!(cards.len(), organic_slots);
             assert_eq!(
-                cards.iter().map(|card| card.book_id).collect::<BTreeSet<_>>().len(),
+                cards
+                    .iter()
+                    .map(|card| card.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
                 organic_slots
             );
         }
