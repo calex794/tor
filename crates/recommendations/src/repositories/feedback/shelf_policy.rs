@@ -1,5 +1,5 @@
 //! F-owned persisted share policy for organic reader-end Books.
- //! A policy read never collects viewer activity or grants access to a Book.
+//! A policy read never collects viewer activity or grants access to a Book.
 use super::*;
 use crate::services::reader_end_shelf::ShelfSharePolicy;
 use std::time::Duration;
@@ -26,7 +26,11 @@ impl PgRecommendations {
         .await
         .map_err(|_| FeedbackError::Unavailable)??;
         let policy = ShelfSharePolicy::validated(
-            [i32::from(values.1), i32::from(values.2), i32::from(values.3)],
+            [
+                i32::from(values.1),
+                i32::from(values.2),
+                i32::from(values.3),
+            ],
             [i32::from(values.4), i32::from(values.5)],
         )
         .map_err(|_| FeedbackError::Unavailable)?;
