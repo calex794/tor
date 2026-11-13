@@ -83,6 +83,17 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
     assert_eq!(source_for(team_book), Some("teammate"));
     assert_eq!(source_for(site_book), Some("site"));
     assert!(!ids(&result).contains(&source));
+    // An active editorial book is excluded in SQL before the organic
+    // request fills the two reserved positions, without duplicating it.
+    let mixed = f
+        .store
+        .reader_end_shelf_excluding(None, source, 204, &[author_book], 2)
+        .await
+        .unwrap();
+    assert_eq!(mixed.items.len(), 2);
+    assert!(!ids(&mixed).contains(&author_book));
+    assert!(ids(&mixed).contains(&team_book));
+    assert!(ids(&mixed).contains(&site_book));
     assert_eq!(
         ids(&result).len(),
         ids(&result)
