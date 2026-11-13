@@ -15,7 +15,25 @@ impl PgRecommendations {
         source_book: i64,
         chapter: i64,
     ) -> Result<Feed, FeedbackError> {
-        if source_book <= 0 || chapter <= 0 || actor.is_some_and(|id| id <= 0) {
+        self.reader_end_shelf_excluding(actor, source_book, chapter, &[], 5)
+            .await
+    }
+
+    /// Reserve up to four chapter-end positions for live editorial assignments.
+    /// Exclusions are server-generated, never supplied by reader input.
+    pub async fn reader_end_shelf_excluding(
+        &self,
+        actor: Option<i64>,
+        source_book: i64,
+        chapter: i64,
+        excluded: &[i64],
+        slots: usize,
+    ) -> Result<Feed, FeedbackError> {
+        if source_book <= 0 || chapter <= 0 || actor.is_some_and(|id| id <= 0)
+            || !(1..=5).contains(&slots)
+            || excluded.len() > 4
+            || excluded.iter().any(|id| *id <= 0)
+        {
             return Err(FeedbackError::Invalid);
         }
         // Reuse the exact actor-scoped discoverability predicate of the
@@ -66,7 +84,7 @@ impl PgRecommendations {
               FROM rec_actor_books visible
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE visible.id<>o.id AND candidate.owner_user_id=o.owner_user_id
+              WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND candidate.owner_user_id=o.owner_user_id
               ORDER BY relevance DESC, preference_boost DESC, visible.created_at DESC, visible.id DESC LIMIT 100
             ),
             teammate_pool AS (
@@ -79,7 +97,7 @@ impl PgRecommendations {
               FROM rec_actor_books visible
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE visible.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
+              WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -103,7 +121,7 @@ impl PgRecommendations {
               FROM rec_actor_books visible
               JOIN books candidate ON candidate.id=visible.id
               CROSS JOIN origin o CROSS JOIN interests prefs
-              WHERE visible.id<>o.id AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
+              WHERE visible.id<>o.id AND NOT (visible.id=ANY($4::bigint[])) AND (o.owner_user_id IS NULL OR candidate.owner_user_id IS DISTINCT FROM o.owner_user_id)
                 AND NOT EXISTS (
                   SELECT 1 FROM translation_team_books tb
                   JOIN source_teams st ON st.team_id=tb.team_id
@@ -131,6 +149,7 @@ impl PgRecommendations {
                 .bind(actor)
                 .bind(source_book)
                 .bind(REVISION_STRIDE)
+                .bind(excluded)
                 .fetch_all(&self.pool),
         )
         .await
@@ -169,7 +188,7 @@ impl PgRecommendations {
         // A fixed rotation per chapter would skew quotas when a popular
         // first chapter is opened many times.
         let rotation = (chapter as u64) ^ rand::random::<u64>();
-        let cards = select_shelf(source_book, pools, 5, rotation);
+        let cards = select_shelf(source_book, pools, slots, rotation);
         let items = cards
             .into_iter()
             .filter_map(|card| {
