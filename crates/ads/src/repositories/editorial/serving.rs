@@ -50,6 +50,20 @@ impl PgEditorial {
           FROM editorial_campaigns c JOIN visible b ON b.id=c.book_id
           WHERE c.slot=$2 AND c.status='active' AND c.starts_at<=now() AND c.ends_at>now()
             AND ($3::bigint IS NULL OR (c.book_id<>$3 AND EXISTS(SELECT 1 FROM visible WHERE id=$3)))
+            -- Only the free-chapter shelf has an editorial genre guard.
+            -- With complete, explicitly disjoint genres and no shared tags,
+            -- an administrator's priority cannot displace relevant organic books.
+            -- Missing metadata is not proof of incompatibility, so fall back.
+            AND (c.slot<>'chapter_end_free' OR NOT EXISTS (
+              SELECT 1 FROM books host_book
+              JOIN books promoted_book ON promoted_book.id=c.book_id
+              WHERE host_book.id=$3
+                AND COALESCE(cardinality(host_book.genres),0)>0
+                AND COALESCE(cardinality(promoted_book.genres),0)>0
+                AND NOT(host_book.genres && promoted_book.genres)
+                AND NOT(COALESCE(host_book.tags,ARRAY[]::text[])
+                        && COALESCE(promoted_book.tags,ARRAY[]::text[]))
+            ))
         ) SELECT * FROM choices WHERE duplicate_rank=1 ORDER BY priority DESC,id LIMIT 4")
             .bind(viewer.map(|v|v.user_id)).bind(slot.as_str()).bind(host)
             .bind(viewer.map(|v|v.session_digest.as_slice())).fetch_all(&mut *tx).await?;
