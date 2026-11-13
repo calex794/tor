@@ -218,10 +218,26 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         }
     };
     let observer = issuer.as_deref().zip(observed);
+    // A read-only, actor-authorized projection of the five already selected
+    // Books. Metadata failure never removes cards or blocks normal navigation.
+    let previews = if shelf_book.is_some() {
+        let ids = feed
+            .items
+            .iter()
+            .filter_map(|item| book_id(&item.book_id).ok())
+            .collect::<Vec<_>>();
+        state
+            .store
+            .shelf_card_previews(identity.as_ref().map(|(id, _)| *id), &ids)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let panel = if editorial_slot {
-        pages::shelf_cards_observed(&feed, issuer.as_deref())
+        pages::shelf_cards_with_previews(&feed, &previews, issuer.as_deref())
     } else if shelf_book.is_some() {
-        pages::shelf_panel_observed(&feed, issuer.as_deref())
+        pages::shelf_panel_with_previews(&feed, &previews, issuer.as_deref())
     } else {
         pages::panel_observed(&feed, &csrf, observer)
     };

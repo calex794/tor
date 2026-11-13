@@ -18,6 +18,7 @@ mod author;
 mod decorate;
 mod organic;
 mod pages;
+pub(crate) mod shelf_card;
 pub(crate) use api::retired;
 pub(crate) mod visits;
 

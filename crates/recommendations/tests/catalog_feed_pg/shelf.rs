@@ -2,6 +2,81 @@
 use super::*;
 
 #[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL with book metadata"]
+async fn shelf_backside_metadata_is_real_read_only_and_actor_authorized() {
+    let f = fixture("shelf-flip-metadata").await;
+    let visible = f.books[0];
+    let restricted = f.books[1];
+    let actor = f.actors[0];
+    sqlx::query("UPDATE books SET description=$2, genres=ARRAY['Фэнтези','Система'] WHERE id=$1")
+        .bind(visible)
+        .bind("Главный герой попадает в иной мир.")
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_book_star_ratings(user_id,book_id,rating_kind,rating)
+         VALUES($1,$2,'work',5)",
+    )
+    .bind(actor)
+    .bind(visible)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(restricted)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+
+    let anonymous = f
+        .store
+        .shelf_card_previews(None, &[visible, restricted])
+        .await
+        .unwrap();
+    assert_eq!(anonymous.len(), 1);
+    assert_eq!(anonymous[0].book_id, visible);
+    assert_eq!(
+        anonymous[0].description,
+        "Главный герой попадает в иной мир."
+    );
+    assert_eq!(anonymous[0].genres, vec!["Фэнтези", "Система"]);
+    assert_eq!(anonymous[0].work_rating.as_deref(), Some("5.0"));
+    assert_eq!(anonymous[0].published_chapters, 0);
+
+    sqlx::query("UPDATE users SET adult_enabled=true WHERE id=$1")
+        .bind(actor)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let adult = f
+        .store
+        .shelf_card_previews(Some(actor), &[visible, restricted])
+        .await
+        .unwrap();
+    assert_eq!(adult.len(), 2);
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(visible)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let held = f.store.shelf_card_previews(None, &[visible]).await.unwrap();
+    assert!(held.is_empty());
+    assert_eq!(
+        f.store.shelf_card_previews(None, &[0]).await.err(),
+        Some(FeedbackError::Invalid)
+    );
+    assert_eq!(
+        f.store
+            .shelf_card_previews(None, &[1, 2, 3, 4, 5, 6])
+            .await
+            .err(),
+        Some(FeedbackError::Invalid)
+    );
+    f.cleanup().await;
+}
+
+#[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL with S028 teams"]
 async fn reader_end_shelf_uses_live_author_team_other_authors_and_viewer_hides() {
     let f = fixture("reader-end-shelf").await;

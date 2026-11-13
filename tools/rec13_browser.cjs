@@ -97,6 +97,8 @@ async function completeFreeChapter(page, chapter, version) {
         ON CONFLICT(book_id,user_id) DO NOTHING;
       COMMIT;`);
     assert.equal(scalar(`SELECT count(*) FROM books WHERE id IN(${books.join(',')}) AND owner_user_id=${user}`),books.length);
+    sql(`UPDATE books SET description='Герой исследует мир и развивает систему.',
+      genres=ARRAY['Фэнтези','Система'] WHERE id=${books[0]}`);
     await assertNoControls(page);
     assert.equal(scalar(`SELECT count(*) FROM rec_subjects WHERE user_id=${user}`),0);
     assert.equal(scalar(`SELECT count(*) FROM rec_public_books WHERE id IN(${books.join(',')})`),books.length);
@@ -147,6 +149,14 @@ async function completeFreeChapter(page, chapter, version) {
     assert.ok(await nativeOrganic.count());
     await nativeOrganic.click();
     await plain.waitForURL(base+`/books/${books[0]}`);
+    await plain.goto(base+`/reader/${chapter}`);
+    const nativeShelfCover=plain.locator('.reader-end-shelf a.book-mini-card__cover-link').first();
+    assert.ok(await nativeShelfCover.count(), 'no-JS cover remains a direct Book link');
+    assert.match(await nativeShelfCover.getAttribute('href'), /^\/books\/\d+$/);
+    await nativeShelfCover.hover();
+    await plain.waitForTimeout(380);
+    await plain.locator('.reader-end-shelf a.book-mini-card__flip-back-link').first().click();
+    await plain.waitForURL(/\/books\/\d+$/);
     assert.deepEqual(optionalSnapshot(user),before);
     await disabledJS.close();
 
@@ -162,7 +172,6 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal((await page.goto(base+`/reader/${chapter}`)).status(),200);
     assert.equal(await page.locator('.reader-end-shelf[data-rec-panel]').count(),1,'free /reader must use one relation-weighted shelf');
     assert.equal(await page.locator('[data-rec-panel]').count(),1,'free /reader has duplicate placement');
-    await assertNoControls(page);
     await page.goto(base+'/');
     const card=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
     await card.scrollIntoViewIfNeeded();
@@ -176,6 +185,36 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_starts WHERE user_id=${user}`),3);
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user}`),3);
     assert.deepEqual(optionalSnapshot(user),before);
+
+    // Hover scrolls the reader. Check preview after the canonical free-progress
+    // CAS flow so native scroll persistence cannot race our explicit revision 0.
+    assert.equal((await page.goto(base+`/reader/${chapter}`)).status(),200);
+    const flipped=page.locator('.reader-end-shelf [data-reader-shelf-card]')
+      .filter({has:page.locator(`a.book-mini-card__cover-link[href='/books/${books[0]}']`)}).first();
+    assert.equal(await flipped.count(),1,'source-owned candidate must have a cover');
+    assert.match(await flipped.locator('.book-mini-card__flip-back').textContent(),
+      /Герой исследует мир и развивает систему/);
+    assert.match(await flipped.locator('.book-mini-card__flip-back').textContent(),/Фэнтези/);
+    assert.equal(await flipped.locator('.book-mini-card__flip-info').getAttribute('aria-expanded'),'false');
+    await flipped.locator('.book-mini-card__cover-link').hover();
+    await page.waitForTimeout(420);
+    const transform=await flipped.locator('.book-mini-card__flip-inner')
+      .evaluate(el=>getComputedStyle(el).transform);
+    assert.notEqual(transform,'none','desktop hover must rotate cover');
+    await assertNoControls(page);
+    const touch=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+    const touchPage=await touch.newPage();
+    assert.equal((await touchPage.goto(base+`/reader/${chapter}`)).status(),200);
+    const touchCard=touchPage.locator('.reader-end-shelf [data-reader-shelf-card]').first();
+    assert.ok(await touchCard.count(),'touch shelf must be visible');
+    const info=touchCard.locator('[data-reader-shelf-info]');
+    await info.tap();
+    assert.equal(await info.getAttribute('aria-expanded'),'true');
+    assert.equal(await touchCard.getAttribute('data-flipped'),'true');
+    await info.tap();
+    assert.equal(await info.getAttribute('aria-expanded'),'false');
+    assert.equal(await touchCard.getAttribute('data-flipped'),null);
+    await touch.close();
 
     await page.goto(base+'/');
     const hiding=page.locator('[data-rec-card]').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
