@@ -116,7 +116,7 @@ pub(super) fn shelf_panel_observed(
     }
     let cards = shelf_cards_observed(feed, issuer);
     format!(
-        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">{cards}</div></div></section>"#
+        r#"<section class="section reader-end-shelf" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Ещё книги</h2><div class="home-shelf__track" aria-label="Подборка книг">{cards}</div></div></section>"#
     )
 }
 
@@ -133,12 +133,6 @@ pub(super) fn shelf_cards_observed(
         };
         let title = html::escape_html(&item.title);
         let source = html::escape_html(&item.source);
-        let relation = match item.source.as_str() {
-            "author" => "Ещё у автора",
-            "teammate" => "Из команды автора",
-            "site" | "other_authors" => "Другие авторы",
-            _ => "Рекомендуем",
-        };
         let observation = crate::flow_exposure::attributes(
             issuer,
             tor_contracts::exposure::CardObservation {
@@ -149,7 +143,7 @@ pub(super) fn shelf_cards_observed(
         );
         let _ = write!(
             out,
-            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3><small class="book-mini-card__meta">{relation}</small></div></a></article>"#,
+            r#"<article class="book-mini-card book-mini-card--shelf" data-rec-card data-rec-source="{source}"{observation}><a class="book-mini-card__link" data-flow-link href="/books/{id}" aria-label="{title}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{title}</h3></div></a></article>"#,
         );
     }
 
@@ -380,7 +374,10 @@ mod tests {
         legacy.items[0].source = "site".into();
         let other_authors = shelf_panel_observed(&legacy, None);
         assert!(other_authors.contains("data-rec-source=\"site\""));
-        assert!(other_authors.contains("Другие авторы"));
+        assert!(!other_authors.contains("Другие авторы"));
+        assert!(!preview.contains("Из команды автора"));
+        assert!(preview.contains("<h2>Ещё книги</h2>"));
+        assert!(!preview.contains("book-mini-card__meta"));
     }
 
     #[test]
