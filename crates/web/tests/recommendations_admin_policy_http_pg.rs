@@ -25,8 +25,19 @@ const PATH: &str = "/admin/recommendations";
 fn pg(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci") && url.contains("@127.0.0.1:5432/"));
     let out = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=5000 -c lock_timeout=2000")
-        .args(["-XAtq", "-v", "ON_ERROR_STOP=1", "--dbname", url, "-c", statement])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=5000 -c lock_timeout=2000",
+        )
+        .args([
+            "-XAtq",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "-c",
+            statement,
+        ])
         .output()
         .unwrap();
     assert!(
@@ -162,12 +173,9 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
     )
     .parse()
     .unwrap();
-    let initial_audit: i64 = pg(
-        &url,
-        "SELECT count(*) FROM rec_shelf_share_policy_audit",
-    )
-    .parse()
-    .unwrap();
+    let initial_audit: i64 = pg(&url, "SELECT count(*) FROM rec_shelf_share_policy_audit")
+        .parse()
+        .unwrap();
     let page = request(&site, "GET", PATH, &admin_cookie, ORIGIN, "").await;
     assert_eq!(page.status(), StatusCode::OK);
     assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
@@ -199,7 +207,10 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
         assert_eq!(response.status(), status);
     }
     assert_eq!(
-        pg(&url, "SELECT revision FROM rec_shelf_share_policy WHERE singleton"),
+        pg(
+            &url,
+            "SELECT revision FROM rec_shelf_share_policy WHERE singleton"
+        ),
         initial.to_string()
     );
     let good = save_form(&csrf, initial, [40, 30, 30, 60, 40]);
@@ -300,7 +311,10 @@ async fn policy_html_administrator_csrf_cas_audit_and_rollback() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    pg(&url, &format!("DELETE FROM account_roles WHERE user_id={admin}"));
+    pg(
+        &url,
+        &format!("DELETE FROM account_roles WHERE user_id={admin}"),
+    );
     pg(
         &url,
         &format!("DELETE FROM sessions WHERE user_id IN({admin},{reader})"),
