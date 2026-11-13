@@ -86,6 +86,7 @@ impl DisplayRuntime {
         if !self.enabled {
             return Html(html.0.replace(MARKER, ""));
         }
+        let started = tokio::time::Instant::now();
         let operation = async {
             let viewer = if let Some((accounts, cookies)) = &self.authority {
                 if let Some(token) = cookies.session_token(headers) {
@@ -101,38 +102,42 @@ impl DisplayRuntime {
             } else {
                 None
             };
-            let cards = Editorial::new(&self.store)
+            Editorial::new(&self.store)
                 .cards(viewer.as_ref(), slot, host)
                 .await
-                .ok()?;
-            // This optional read uses exactly the same ACL as organic shelf
-            // metadata. Slow enrichment never suppresses accepted campaigns.
-            let previews = if slot == PromotionSlot::ChapterEndFree {
-                let ids = cards
-                    .iter()
-                    .take(4)
-                    .map(|card| card.book_id)
-                    .collect::<Vec<_>>();
-                tokio::time::timeout(
-                    Duration::from_millis(150),
-                    self.previews
-                        .shelf_card_previews(viewer.as_ref().map(|v| v.user_id), &ids),
-                )
-                .await
                 .ok()
-                .and_then(Result::ok)
-                .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            Some((cards, previews))
+                .map(|cards| (cards, viewer))
         };
-        // Optional promotion never changes availability or latency budget of the reader.
-        let (cards, previews) = tokio::time::timeout(Duration::from_millis(400), operation)
+        // The 400 ms reader budget belongs to the core editorial selection.
+        // Once eligible cards exist, optional metadata can never erase them.
+        let (cards, viewer) = tokio::time::timeout(Duration::from_millis(400), operation)
             .await
             .ok()
             .flatten()
             .unwrap_or_default();
+        let remaining = Duration::from_millis(400).saturating_sub(started.elapsed());
+        let preview_budget = remaining.min(Duration::from_millis(150));
+        let previews = if slot == PromotionSlot::ChapterEndFree
+            && !cards.is_empty()
+            && !preview_budget.is_zero()
+        {
+            let ids = cards
+                .iter()
+                .take(4)
+                .map(|card| card.book_id)
+                .collect::<Vec<_>>();
+            tokio::time::timeout(
+                preview_budget,
+                self.previews
+                    .shelf_card_previews(viewer.as_ref().map(|v| v.user_id), &ids),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         Html(html.0.replace(
             MARKER,
             &render_cards_with_previews(&cards, &previews, observation),
