@@ -317,4 +317,3 @@ async fn shelf_serving_observes_committed_policy_revisions_without_cache() {
         .unwrap();
     f.cleanup().await;
 }
-
