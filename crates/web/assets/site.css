@@ -1,7 +1,7 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  color: #233229;
-  background: #f9faf7;
+  color: var(--text-main, #111827);
+  background: var(--bg-main, #f7f7f8);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -9,9 +9,9 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; min-width: 320px; }
 a { color: inherit; }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button:disabled, input:disabled { cursor: not-allowed; }
-:focus-visible { outline: 3px solid #926c35; outline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--primary-color, #4f46e5); outline-offset: 3px; }
 .container { width: min(1120px, calc(100% - 44px)); margin-inline: auto; }
 .skip-link {
   position: absolute; top: -60px; left: 12px; z-index: 100;
@@ -140,11 +140,11 @@ button:disabled, input:disabled { cursor: not-allowed; }
 }
 .page-description { max-width: 620px; color: #657167; line-height: 1.7; }
 .book-grid--catalog { margin-top: 35px; }
-.auth-section { min-height: 65vh; background: #f4f7f2; }
+.auth-section { min-height: 65vh; background: var(--bg-main, #f7f7f8); }
 .auth-card {
   width: min(440px, 100%); margin: 0 auto; padding: 34px;
-  border: 1px solid #e0e8de; border-radius: 18px; background: #fff;
-  box-shadow: 0 18px 42px rgba(34, 66, 43, .06);
+  border: 1px solid var(--border-color, #e5e7eb); border-radius: var(--radius-lg, 16px); background: var(--bg-surface, #fff);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .06);
 }
 .auth-form { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
 .auth-form label { font-size: 13px; font-weight: 700; }
@@ -162,7 +162,6 @@ button:disabled, input:disabled { cursor: not-allowed; }
   display: flex; justify-content: space-between; flex-wrap: wrap; gap: 20px;
   padding-block: 27px; color: #607064; font-size: 13px;
 }
-.site-footer a { color: #326b4b; }
 @media (max-width: 900px) {
   .hero__grid { grid-template-columns: 1fr .7fr; gap: 20px; }
   .book-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -201,10 +200,12 @@ button:disabled, input:disabled { cursor: not-allowed; }
 /* Narrow, keyboard-friendly author forms; the reader uses the same layout. */
 .author-width { width: min(820px, 100%); margin-inline: auto; }
 .author-form { max-width: 100%; }
-.author-form textarea, .author-form select {
-  width: 100%; padding: 12px; border: 1px solid #d2dcd1; border-radius: 9px;
-  background: #fff; font: inherit; line-height: 1.6;
+.auth-form textarea, .auth-form select, .author-form textarea, .author-form select {
+  min-width: 0; width: 100%; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--border-dark, #d1d5db); border-radius: var(--radius-sm, 8px);
+  background: var(--bg-surface, #fff); color: var(--text-main, #111827); font: inherit; line-height: 1.6;
 }
+.auth-form textarea { resize: vertical; }
 .author-form textarea { resize: vertical; min-height: 220px; white-space: pre-wrap; }
 .author-chapters { padding-left: 25px; line-height: 2.25; overflow-wrap: anywhere; }
 
@@ -370,12 +371,12 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .auth-section { min-height: min(700px, 78vh); }
 .auth-card { margin-inline: auto; }
 .auth-form { display: grid; gap: 10px; }
-.auth-form label { font-size: 14px; font-weight: 700; color: #33473a; }
-.auth-form input { width: 100%; min-height: 46px; padding: 11px 14px; background: #fff; color: #1d3122; border-radius: 9px; border: 1px solid #bdcbbf; margin-bottom: 11px; }
-.auth-form input:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.auth-form label { font-size: 14px; font-weight: 700; color: var(--text-main, #111827); }
+.auth-form input { width: 100%; min-height: 44px; padding: 10px 12px; background: var(--bg-surface, #fff); color: var(--text-main, #111827); border-radius: var(--radius-sm, 8px); border: 1px solid var(--border-dark, #d1d5db); margin-bottom: 11px; }
+.auth-form input:focus-visible, .auth-form select:focus-visible, .auth-form textarea:focus-visible, .author-form select:focus-visible, .author-form textarea:focus-visible { border-color: var(--primary-color, #4f46e5); outline: 3px solid var(--focus-ring-color, rgba(79,70,229,.28)); outline-offset: 2px; }
 .auth-form .button { width: 100%; min-height: 48px; justify-content: center; }
-.auth-card__footer { margin-top: 20px; color: #68776b; }
-.auth-card__footer a { color: #27613f; text-underline-offset: 4px; }
+.auth-card__footer { margin-top: 20px; color: var(--text-muted, #6b7280); }
+.auth-card__footer a { color: var(--primary-color, #4f46e5); text-underline-offset: 4px; }
 .account-profile__state { display: inline-flex; align-items: center; gap: 9px; padding: 7px 13px; border-radius: 18px; background: #eef5ed; color: #2b6540; font-size: 13px; font-weight: 600; }
 .account-profile__status { background: #4b9f67; width: 7px; height: 7px; border-radius: 50%; }
 .account-profile__hint { color: #68776b; font-size: 14px; line-height: 1.65; }
@@ -435,10 +436,10 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .author-chapter-card .author-form { display: grid; gap: 11px; }
 .author-chapter-card .author-form textarea {
   display: block; width: 100%; min-height: 320px; resize: vertical;
-  padding: 15px; border: 1px solid #bdcbbf; border-radius: 10px;
-  background: #fff; color: #1d3122; font: 16px/1.7 ui-monospace, Consolas, monospace;
+  padding: 15px; border: 1px solid var(--border-dark, #d1d5db); border-radius: var(--radius-sm, 8px);
+  background: var(--bg-surface, #fff); color: var(--text-main, #111827); font: 16px/1.7 ui-monospace, Consolas, monospace;
 }
-.author-chapter-card .author-form textarea:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.author-chapter-card .author-form textarea:focus-visible { border-color: var(--primary-color, #4f46e5); outline: 3px solid var(--focus-ring-color, rgba(79,70,229,.28)); outline-offset: 2px; }
 .author-chapter-card .author-form .button { width: 100%; min-height: 48px; }
 @media (max-width: 680px) {
   .auth-card.author-chapter-card { padding: 24px 18px; }
@@ -450,9 +451,9 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .author-card > h1 { overflow-wrap: anywhere; }
 .author-book-list { list-style: none; padding: 0; margin: 24px 0; display: grid; gap: 12px; }
 .author-book-list li { min-width: 0; }
-.author-book-link { display: block; padding: 16px 18px; border-radius: 12px; border: 1px solid #dce7dd; background: #f8fbf7; color: #26583a; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
-.author-book-link:hover { border-color: #6b9674; background: #edf5eb; }
-.author-card .auth-form input { background: #fff; }
+.author-book-link { display: block; padding: 16px 18px; border-radius: var(--radius-md, 12px); border: 1px solid var(--border-color, #e5e7eb); background: var(--bg-secondary, #f9fafb); color: var(--text-main, #111827); font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.author-book-link:hover { border-color: var(--primary-color, #4f46e5); background: var(--bg-secondary, #f9fafb); }
+.author-card .auth-form input { background: var(--bg-surface, #fff); }
 @media (max-width: 680px) {
   .auth-card.author-card { padding: 24px 20px; }
   .author-book-link { padding: 15px; }
@@ -495,7 +496,7 @@ button:disabled, input:disabled { cursor: not-allowed; }
 /* A/H: Russian, script-free account feedback and a standalone error screen. */
 .auth-form__help {
   margin: -8px 0 7px;
-  color: #607566;
+  color: var(--text-muted, #6b7280);
   font-size: 12px;
   line-height: 1.5;
 }
