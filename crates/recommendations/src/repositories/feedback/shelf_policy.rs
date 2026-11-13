@@ -98,3 +98,81 @@ impl PgRecommendations {
         Ok(ShelfShareSnapshot { revision, policy })
     }
 }
+
+/// Bounded administrative snapshots; no reader or impression identifiers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShelfShareAuditRow {
+    pub revision: i64,
+    pub with_team: [u8; 3],
+    pub without_team: [u8; 2],
+    pub actor_user_id: Option<i64>,
+    pub action: String,
+    pub changed_at: String,
+}
+
+impl PgRecommendations {
+    /// The audit is append-only. Keep the result finite and do not expose it to readers.
+    pub async fn shelf_share_audit(&self) -> Result<Vec<ShelfShareAuditRow>, FeedbackError> {
+        use sqlx::Row;
+        let rows = sqlx::query(
+            "SELECT revision,author_pct,teammate_pct,other_authors_pct,
+                    no_team_author_pct,no_team_other_authors_pct,actor_user_id,action,
+                    to_char(changed_at AT TIME ZONE 'UTC',
+                            'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS changed_at
+             FROM rec_shelf_share_policy_audit ORDER BY revision DESC LIMIT 25",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let ordinary = [
+                    i32::from(row.try_get::<i16, _>("author_pct")?),
+                    i32::from(row.try_get::<i16, _>("teammate_pct")?),
+                    i32::from(row.try_get::<i16, _>("other_authors_pct")?),
+                ];
+                let alone = [
+                    i32::from(row.try_get::<i16, _>("no_team_author_pct")?),
+                    i32::from(row.try_get::<i16, _>("no_team_other_authors_pct")?),
+                ];
+                let policy = ShelfSharePolicy::validated(ordinary, alone)
+                    .map_err(|_| FeedbackError::Unavailable)?;
+                Ok(ShelfShareAuditRow {
+                    revision: row.try_get("revision")?,
+                    with_team: policy.with_team(),
+                    without_team: policy.without_team(),
+                    actor_user_id: row.try_get("actor_user_id")?,
+                    action: row.try_get("action")?,
+                    changed_at: row.try_get("changed_at")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Immutable audit revision used for rollback; it is never edited or deleted.
+    pub async fn shelf_share_audit_policy(
+        &self,
+        revision: i64,
+    ) -> Result<Option<ShelfSharePolicy>, FeedbackError> {
+        if revision < 1 {
+            return Err(FeedbackError::Invalid);
+        }
+        let values: Option<(i16, i16, i16, i16, i16)> = sqlx::query_as(
+            "SELECT author_pct,teammate_pct,other_authors_pct,
+                    no_team_author_pct,no_team_other_authors_pct
+             FROM rec_shelf_share_policy_audit WHERE revision=$1",
+        )
+        .bind(revision)
+        .fetch_optional(&self.pool)
+        .await?;
+        values
+            .map(|v| {
+                ShelfSharePolicy::validated(
+                    [i32::from(v.0), i32::from(v.1), i32::from(v.2)],
+                    [i32::from(v.3), i32::from(v.4)],
+                )
+                .map_err(|_| FeedbackError::Unavailable)
+            })
+            .transpose()
+    }
+
+}
