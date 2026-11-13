@@ -241,7 +241,8 @@ impl ShareForm {
                 ],
                 [
                     self.no_team_author_pct.ok_or(FeedbackError::Invalid)?,
-                    self.no_team_other_authors_pct.ok_or(FeedbackError::Invalid)?,
+                    self.no_team_other_authors_pct
+                        .ok_or(FeedbackError::Invalid)?,
                 ],
             ),
             ShareAction::Defaults => ([50, 40, 10], [70, 30]),
@@ -302,7 +303,9 @@ fn share_markup(
     for entry in history {
         let [author, team, other] = entry.with_team;
         let [alone_author, alone_other] = entry.without_team;
-        let who = entry.actor_user_id.map_or_else(|| "система".to_owned(), |actor| actor.to_string());
+        let who = entry
+            .actor_user_id
+            .map_or_else(|| "система".to_owned(), |actor| actor.to_string());
         let _ = write!(
             out,
             "<li data-revision=\"{}\"><p>Ревизия {} · {} · администратор {} · {}. С командой: {author}/{team}/{other}; без команды: {alone_author}/{alone_other}.</p>",
@@ -336,7 +339,11 @@ pub(super) async fn shares_page(State(state): State<Runtime>, headers: HeaderMap
             .shelf_share_policy()
             .await
             .map_err(share_status)?;
-        let history = state.store.shelf_share_audit().await.map_err(share_status)?;
+        let history = state
+            .store
+            .shelf_share_audit()
+            .await
+            .map_err(share_status)?;
         actor(&state, &headers).await?;
         let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
         Ok::<_, StatusCode>(pages::secure_page(
@@ -376,7 +383,10 @@ pub(super) async fn shares_submit(
                     .await
                     .map_err(share_status)?
                     .ok_or(StatusCode::NOT_FOUND)?;
-                (selected.with_team().map(i32::from), selected.without_team().map(i32::from))
+                (
+                    selected.with_team().map(i32::from),
+                    selected.without_team().map(i32::from),
+                )
             }
             ShareAction::Save | ShareAction::Defaults => form.shares().map_err(share_status)?,
         };
