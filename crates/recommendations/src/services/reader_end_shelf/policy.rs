@@ -25,11 +25,11 @@ impl Default for ShelfSharePolicy {
 }
 
 impl ShelfSharePolicy {
-    pub fn validated(
-        with_team: [i32; 3],
-        without_team: [i32; 2],
-    ) -> Result<Self, ShelfShareError> {
-        if with_team.iter().chain(without_team.iter()).any(|v| !(0..=100).contains(v))
+    pub fn validated(with_team: [i32; 3], without_team: [i32; 2]) -> Result<Self, ShelfShareError> {
+        if with_team
+            .iter()
+            .chain(without_team.iter())
+            .any(|v| !(0..=100).contains(v))
             || with_team.iter().sum::<i32>() != 100
             || without_team.iter().sum::<i32>() != 100
         {
@@ -79,11 +79,12 @@ impl ShelfSharePolicy {
                 // Existing default: with no owner Books, the 50% owner quota
                 // transfers to the other-author source (40/60).
                 // A configured 0% other-author quota, however, is a hard stop.
-                other + if !author_exists && other > 0 {
-                    author
-                } else {
-                    0
-                }
+                other
+                    + if !author_exists && other > 0 {
+                        author
+                    } else {
+                        0
+                    }
             } else {
                 0
             },
@@ -104,10 +105,22 @@ mod tests {
         let policy = ShelfSharePolicy::default();
         assert_eq!(policy.with_team(), [50, 40, 10]);
         assert_eq!(policy.without_team(), [70, 30]);
-        assert_eq!(policy.weights_for_availability([true, true, true]), [50, 40, 10]);
-        assert_eq!(policy.weights_for_availability([true, false, true]), [70, 0, 30]);
-        assert_eq!(policy.weights_for_availability([false, true, true]), [0, 40, 60]);
-        assert_eq!(policy.weights_for_availability([false, false, false]), [0, 0, 0]);
+        assert_eq!(
+            policy.weights_for_availability([true, true, true]),
+            [50, 40, 10]
+        );
+        assert_eq!(
+            policy.weights_for_availability([true, false, true]),
+            [70, 0, 30]
+        );
+        assert_eq!(
+            policy.weights_for_availability([false, true, true]),
+            [0, 40, 60]
+        );
+        assert_eq!(
+            policy.weights_for_availability([false, false, false]),
+            [0, 0, 0]
+        );
     }
 
     #[test]
@@ -152,7 +165,11 @@ mod tests {
             );
             assert_eq!(cards.len(), 5);
             assert_eq!(
-                cards.iter().map(|c| c.book_id).collect::<BTreeSet<_>>().len(),
+                cards
+                    .iter()
+                    .map(|c| c.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
                 5
             );
             for card in cards {
@@ -172,33 +189,32 @@ mod tests {
     #[test]
     fn explicit_zero_is_not_silently_backfilled_by_an_empty_category() {
         let policy = ShelfSharePolicy::validated([0, 100, 0], [0, 100]).unwrap();
-        assert_eq!(policy.weights_for_availability([false, true, true]), [0, 100, 0]);
-        assert_eq!(policy.weights_for_availability([true, false, false]), [0, 0, 0]);
-        assert!(select_shelf_with_policy(
-            1,
-            [pool(10), vec![], vec![]],
-            5,
-            3,
-            &policy,
-        )
-        .is_empty());
-        assert!(select_shelf_with_policy(
-            1,
-            [vec![], pool(100), vec![]],
-            5,
-            3,
-            &policy,
-        )
-        .len()
-            == 5);
+        assert_eq!(
+            policy.weights_for_availability([false, true, true]),
+            [0, 100, 0]
+        );
+        assert_eq!(
+            policy.weights_for_availability([true, false, false]),
+            [0, 0, 0]
+        );
+        assert!(select_shelf_with_policy(1, [pool(10), vec![], vec![]], 5, 3, &policy,).is_empty());
+        assert!(
+            select_shelf_with_policy(1, [vec![], pool(100), vec![]], 5, 3, &policy,).len() == 5
+        );
     }
 
     #[test]
     fn absent_owner_transfers_only_to_enabled_other_author_quota() {
         let policy = ShelfSharePolicy::validated([40, 30, 30], [60, 40]).unwrap();
-        assert_eq!(policy.weights_for_availability([false, true, true]), [0, 30, 70]);
+        assert_eq!(
+            policy.weights_for_availability([false, true, true]),
+            [0, 30, 70]
+        );
         let forbidden = ShelfSharePolicy::validated([40, 60, 0], [100, 0]).unwrap();
-        assert_eq!(forbidden.weights_for_availability([false, true, true]), [0, 60, 0]);
+        assert_eq!(
+            forbidden.weights_for_availability([false, true, true]),
+            [0, 60, 0]
+        );
     }
 
     #[test]
