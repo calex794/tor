@@ -130,10 +130,22 @@ pub(super) fn render_cards(
             })
             .map(|proof| format!(" data-flow-proof=\"{}\"", pages::escape_html(&proof)))
             .unwrap_or_default();
-        items.push_str(&format!("<article class=\"book-section-card editorial-card\" data-editorial-campaign=\"{}\"{proof}><p class=\"book-section-card__kicker\">Выбор редакции</p><h3 class=\"book-section-card__title\"><a data-flow-link href=\"/books/{}\">{}</a></h3><p>Открыть книгу</p></article>",card.campaign_id,card.book_id,pages::escape_html(&card.title)));
+        if card.slot == PromotionSlot::ChapterEndFree {
+            items.push_str(&format!(
+                r#"<article class="book-mini-card book-mini-card--shelf editorial-card" data-editorial-campaign="{}" data-editorial-book="{}"{proof}><a class="book-mini-card__link" data-flow-link href="/books/{}"><div class="book-mini-card__cover book-shimmer"><img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async"></div><div class="book-mini-card__body"><h3 class="book-mini-card__title">{}</h3><small class="book-mini-card__meta">Выбор редакции</small></div></a></article>"#,
+                card.campaign_id, card.book_id, card.book_id, card.book_id, pages::escape_html(&card.title)
+            ));
+        } else {
+            items.push_str(&format!("<article class=\"book-section-card editorial-card\" data-editorial-campaign=\"{}\"{proof}><p class=\"book-section-card__kicker\">Выбор редакции</p><h3 class=\"book-section-card__title\"><a data-flow-link href=\"/books/{}\">{}</a></h3><p>Открыть книгу</p></article>",card.campaign_id,card.book_id,pages::escape_html(&card.title)));
+        }
     }
     if items.is_empty() {
         return items;
+    }
+    if cards[0].slot == PromotionSlot::ChapterEndFree {
+        return format!(
+            r#"<section class="section reader-end-shelf editorial-promotion" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Что почитать дальше</h2><div class="home-shelf__track" aria-label="Подборка других книг">{items}<!--READER_END_ORGANIC_CARDS--></div></div></section>"#
+        );
     }
     format!("<section class=\"section editorial-promotion\" aria-label=\"Редакционное продвижение\"><div class=\"container\"><h2>Выбор редакции</h2><div class=\"book-related-grid\">{items}</div></div></section>")
 }
