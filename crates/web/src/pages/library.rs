@@ -49,8 +49,16 @@ pub fn my_library_with_updates_and_layers_and_purchased_only_selected_with_cover
     let (purchased_only, view) = purchased_and_view;
     let (updates, owned) = updates_and_owned;
     let (purchased_available, layers_available) = availability;
-    let updates_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf, confirmed_covers);
-    let purchased_only_html = purchase_only_book_cards(purchased_only, purchased_available, confirmed_covers);
+    let updates_html = update_cards(
+        updates,
+        checkout_enabled,
+        purchased_available,
+        owned,
+        csrf,
+        confirmed_covers,
+    );
+    let purchased_only_html =
+        purchase_only_book_cards(purchased_only, purchased_available, confirmed_covers);
     my_library_inner(
         items,
         saved,
@@ -69,9 +77,8 @@ fn book_art(
     public_visible: bool,
     confirmed_covers: Option<&std::collections::HashSet<u64>>,
 ) -> String {
-    let confirmed = confirmed_covers.is_none_or(|ids| {
-        u64::try_from(book_id).is_ok_and(|id| ids.contains(&id))
-    });
+    let confirmed =
+        confirmed_covers.is_none_or(|ids| u64::try_from(book_id).is_ok_and(|id| ids.contains(&id)));
     let image = if public_visible && book_id > 0 && confirmed {
         format!("<img src=\"/covers/{book_id}/card.webp\" alt=\"\" loading=\"lazy\" decoding=\"async\">")
     } else {
