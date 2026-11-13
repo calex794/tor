@@ -130,13 +130,6 @@ pub(super) fn shelf_panel_with_previews(
 
 /// Emit only organic cards for the reader's already-open editorial shelf.
 /// The enclosing panel is shared; FLOW receives one proof per delivered card.
-pub(super) fn shelf_cards_observed(
-    feed: &Feed,
-    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
-) -> String {
-    shelf_cards_with_previews(feed, &[], issuer)
-}
-
 pub(super) fn shelf_cards_with_previews(
     feed: &Feed,
     previews: &[tor_recommendations::repositories::feedback::ShelfCardPreview],
