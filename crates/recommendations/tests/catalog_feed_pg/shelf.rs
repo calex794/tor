@@ -83,6 +83,25 @@ async fn reader_end_shelf_uses_live_author_team_site_and_viewer_hides() {
     assert_eq!(source_for(team_book), Some("teammate"));
     assert_eq!(source_for(site_book), Some("site"));
     assert!(!ids(&result).contains(&source));
+    // An active editorial book is excluded in SQL before the organic
+    // request fills the two reserved positions, without duplicating it.
+    let mixed = f
+        .store
+        .reader_end_shelf_excluding(None, source, 204, &[author_book], 2)
+        .await
+        .unwrap();
+    assert_eq!(mixed.items.len(), 2);
+    assert!(!ids(&mixed).contains(&source));
+    assert!(!ids(&mixed).contains(&author_book));
+    assert_eq!(
+        ids(&mixed).len(),
+        ids(&mixed)
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    );
+    // A site candidate is not guaranteed in any particular two-card
+    // allocation: source quotas are averaged across rotations, not per shelf.
     assert_eq!(
         ids(&result).len(),
         ids(&result)

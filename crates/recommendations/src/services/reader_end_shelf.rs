@@ -104,7 +104,8 @@ fn order_pool(pool: &mut [ShelfCandidate], rotation: u64) {
     });
 }
 
-/// Select 4 or 5 cards. No placeholder is fabricated when the union is small.
+/// Select up to five cards; a mixed editorial shelf may reserve 1-4 slots.
+/// No placeholder is fabricated when the union is small.
 /// A repeated Book is assigned to its strongest relationship category only.
 /// `rotation` is a stable bounded request/chapter variation supplied by the
 /// caller; the function is pure and does not store per-reader observations.
@@ -114,7 +115,7 @@ pub fn select_shelf(
     cards: usize,
     rotation: u64,
 ) -> Vec<ShelfCard> {
-    if source_book_id <= 0 || !(4..=5).contains(&cards) {
+    if source_book_id <= 0 || !(1..=5).contains(&cards) {
         return Vec::new();
     }
 
@@ -278,8 +279,41 @@ mod tests {
     }
 
     #[test]
+    fn a_large_site_catalogue_fills_all_five_slots_without_duplicates() {
+        for rotation in [0, 1, 27, 99, 110] {
+            let cards = select_shelf(1, [vec![], vec![], pool(2, 1000)], 5, rotation);
+            assert_eq!(cards.len(), 5);
+            assert_eq!(
+                cards
+                    .iter()
+                    .map(|card| card.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+                5
+            );
+            assert!(cards.iter().all(|card| card.source == ShelfSource::Site));
+        }
+    }
+
+    #[test]
+    fn editorial_reservation_can_request_one_to_four_organic_cards() {
+        for organic_slots in 1..=4 {
+            let cards = select_shelf(1, [pool(2, 1), vec![], pool(1000, 30)], organic_slots, 42);
+            assert_eq!(cards.len(), organic_slots);
+            assert_eq!(
+                cards
+                    .iter()
+                    .map(|card| card.book_id)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
+                organic_slots
+            );
+        }
+    }
+    #[test]
     fn no_ineligible_placeholder_or_unbounded_requested_shelf() {
         assert!(select_shelf(1, [vec![], vec![], vec![]], 5, 0).is_empty());
+        assert!(select_shelf(1, [pool(10, 5), vec![], vec![]], 0, 0).is_empty());
         assert!(select_shelf(1, [pool(10, 5), vec![], vec![]], 10, 0).is_empty());
         assert_eq!(
             select_shelf(1, [pool(10, 8), vec![], vec![]], 4, 0).len(),
