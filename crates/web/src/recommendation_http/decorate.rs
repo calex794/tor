@@ -52,6 +52,20 @@ fn reader_shelf_slot_available(html: &str) -> bool {
     html.contains("<!--READER_END_SHELF-->") && !html.contains("data-editorial-campaign=")
 }
 
+// Both public-free reader spellings share the same single placement. Other
+// /read/* paths include paid and private readers; they must never fall back
+// to the generic recommendation panel at the end of <main>.
+fn shelf_book_for_route(surface: Surface, path: &str, seed: Option<i64>) -> Option<(i64, i64)> {
+    if surface != Surface::ReaderEnd {
+        return None;
+    }
+    let chapter = path
+        .strip_prefix("/reader/")
+        .or_else(|| path.strip_prefix("/read/"))
+        .and_then(|id| book_id(id).ok())?;
+    seed.map(|book| (book, chapter))
+}
+
 pub(super) async fn append(State(state): State<Runtime>, request: Request, next: Next) -> Response {
     let issuer = request
         .extensions()
@@ -109,14 +123,12 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     };
     // On public free chapters the relation-weighted shelf replaces REC's
     // generic grid. Other surfaces keep the existing observed REC cards.
-    let shelf_book = if surface == Surface::ReaderEnd {
-        seed.zip(
-            path.strip_prefix("/reader/")
-                .and_then(|id| book_id(id).ok()),
-        )
-    } else {
-        None
-    };
+    let shelf_book = shelf_book_for_route(surface, &path, seed);
+    // A paid/private reader has no free-chapter placement. Do not append the
+    // generic grid through its <main> fallback, even with REC enabled.
+    if surface == Surface::ReaderEnd && shelf_book.is_none() {
+        return response;
+    }
     let feed_result = if let Some((book, chapter)) = shelf_book {
         state
             .store
@@ -201,7 +213,41 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
 
 #[cfg(test)]
 mod shelf_precedence_tests {
-    use super::reader_shelf_slot_available;
+    use super::{reader_shelf_slot_available, shelf_book_for_route};
+    use tor_recommendations::domain::feedback::Surface;
+
+    #[test]
+    fn only_free_chapter_route_shapes_can_own_the_shelf() {
+        for path in ["/reader/41", "/read/41"] {
+            assert_eq!(
+                shelf_book_for_route(Surface::ReaderEnd, path, Some(7)),
+                Some((7, 41)),
+                "{path}"
+            );
+        }
+        for path in [
+            "/read/paid/41",
+            "/read/admin/41",
+            "/read/0",
+            "/reader/0",
+            "/reader/41/extra",
+            "/books/41",
+        ] {
+            assert_eq!(
+                shelf_book_for_route(Surface::ReaderEnd, path, Some(7)),
+                None,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            shelf_book_for_route(Surface::ReaderEnd, "/reader/41", None),
+            None
+        );
+        assert_eq!(
+            shelf_book_for_route(Surface::BookDetail, "/reader/41", Some(7)),
+            None
+        );
+    }
 
     #[test]
     fn editorial_campaign_preempts_organic_shelf_at_reader_end() {
