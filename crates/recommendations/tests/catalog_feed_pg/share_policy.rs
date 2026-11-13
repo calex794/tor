@@ -240,7 +240,7 @@ async fn shelf_shares_cas_enforces_admin_and_records_every_revision() {
         .unwrap();
     drop(policy_guard);
     f.cleanup().await;
-
+}
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL with REC-POLICY-01B migration"]
