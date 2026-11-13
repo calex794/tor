@@ -152,7 +152,10 @@ async function completeFreeChapter(page, chapter, version) {
     await plain.goto(base+`/reader/${chapter}`);
     const nativeShelfCover=plain.locator('.reader-end-shelf a.book-mini-card__cover-link').first();
     assert.ok(await nativeShelfCover.count(), 'no-JS cover remains a direct Book link');
-    await nativeShelfCover.click();
+    assert.match(await nativeShelfCover.getAttribute('href'), /^\/books\/\d+$/);
+    await nativeShelfCover.hover();
+    await plain.waitForTimeout(380);
+    await plain.locator('.reader-end-shelf a.book-mini-card__flip-back-link').first().click();
     await plain.waitForURL(/\/books\/\d+$/);
     assert.deepEqual(optionalSnapshot(user),before);
     await disabledJS.close();
