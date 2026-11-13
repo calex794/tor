@@ -588,6 +588,11 @@ async function inspect(page, name, where) {
       await page.goto(base + '/me/library');
       assert(await page.getByRole('link', { name: 'Продолжить' }).isVisible(), name + ': resume card missing');
       assert(await page.getByText('Фрагмент 1').isVisible(), name + ': saved anchor missing');
+      // Missing public covers render the illustrated fallback, not a broken <img>.
+      assert(await page.locator('.library-reading-card .library-book-art__cover image').count() === 1,
+        name + ': public library cover missing the script-free fallback surface');
+      assert(await page.locator('.library-reading-card .library-book-art img').count() === 0,
+        name + ': broken HTML image icon can leak through missing covers');
       await inspect(page, name, 'library-saved');
       await page.getByRole('link', { name: 'Продолжить' }).click();
       await page.waitForURL('**/read/101#p-1');
