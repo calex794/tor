@@ -33,7 +33,8 @@ class Dr03OperatorSafety(unittest.TestCase):
 
     def test_empty_s3_source_cannot_look_like_success(self):
         data = BACKUP.read_text(encoding="utf-8")
-        self.assertIn('size "$TOR_DR_PRIMARY_REMOTE" --json', data)
+        self.assertIn('source_inventory=$(rclone --config', data)
+        self.assertIn('"$TOR_DR_PRIMARY_REMOTE" --json', data)
         anchor = "printf '%s' \"$source_inventory\" | python3 -c '"
         self.assertIn(anchor, data)
         validator = data.split(anchor, 1)[1].split("' ||", 1)[0]
