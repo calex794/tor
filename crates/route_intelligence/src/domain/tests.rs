@@ -21,7 +21,22 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 419);
+    assert_eq!(unique.len(), 421);
+}
+
+#[test]
+fn rec_share_admin_has_only_private_bounded_get_and_post_routes() {
+    let page = classify(Some("/admin/recommendations"), "GET");
+    assert!(page.route_known);
+    assert_eq!(page.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(page.product_area, ProductArea::Admin);
+    assert_eq!(page.cost_class, CostClass::CheapRead);
+    let save = classify(Some("/admin/recommendations"), "POST");
+    assert!(save.route_known);
+    assert_eq!(save.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(save.product_area, ProductArea::Admin);
+    assert_eq!(save.cost_class, CostClass::Write);
+    assert!(!classify(Some("/admin/recommendations"), "DELETE").route_known);
 }
 
 #[test]
