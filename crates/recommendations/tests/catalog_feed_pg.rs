@@ -230,3 +230,6 @@ mod contextual_scale;
 
 #[path = "catalog_feed_pg/shelf.rs"]
 mod shelf;
+
+#[path = "catalog_feed_pg/share_policy.rs"]
+mod share_policy;
