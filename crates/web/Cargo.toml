@@ -46,6 +46,8 @@ sha2 = "0.10"
 zeroize = "1"
 
 [dev-dependencies]
+# Used solely by disposable PostgreSQL HTTP acceptance tests; never linked into the runtime.
+sqlx.workspace = true
 hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 
