@@ -283,7 +283,7 @@ fn share_markup(
     }
     let _ = write!(
         out,
-        r#"<section class="book-section-card" data-testid="rec-share-policy" data-revision="{}"><h2>Доли органических рекомендаций</h2><p>Версия настройки: {}. Проценты рассчитаны на множество органических показов, а не на отдельную полку из пяти книг. Редакционные размещения занимают свои места отдельно.</p><form method="post" action="/admin/recommendations" class="auth-form author-form" data-testid="rec-shares-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><fieldset><legend>Когда есть доступные книги команды (сумма 100%)</legend><label>Другие книги владельца, %<input name="author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги команды, %<input name="teammate_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><fieldset><legend>Когда нет доступных командных книг (сумма 100%)</legend><label>Другие книги владельца, %<input name="no_team_author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="no_team_other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><p>Установленные 0% запрещают соответствующую категорию, даже когда другая категория пуста. Отсутствующие книги не заменяются фиктивными.</p><button class="button" type="submit" name="action" value="save">Сохранить доли</button><button class="button button--secondary" type="submit" name="action" value="defaults">Восстановить 50/40/10 и 70/30</button></form></section>"#,
+        r#"<section class="book-section-card" data-testid="rec-share-policy" data-revision="{}"><h2>Доли органических рекомендаций</h2><p>Версия настройки: {}. Проценты рассчитаны на множество органических показов, а не на отдельную полку из пяти книг. Редакционные размещения занимают свои места отдельно.</p><form method="post" action="/admin/recommendations" class="auth-form author-form" data-testid="rec-shares-form"><input type="hidden" name="csrf_token" value="{}"><input type="hidden" name="expected_revision" value="{}"><fieldset><legend>Когда есть доступные книги команды (сумма 100%)</legend><label>Другие книги владельца, %<input name="author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги команды, %<input name="teammate_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><fieldset><legend>Когда нет доступных командных книг (сумма 100%)</legend><label>Другие книги владельца, %<input name="no_team_author_pct" type="number" min="0" max="100" value="{}" required></label><label>Книги других авторов, %<input name="no_team_other_authors_pct" type="number" min="0" max="100" value="{}" required></label></fieldset><p>Установленные 0% запрещают соответствующую категорию, даже когда другая категория пуста. Отсутствующие книги не заменяются фиктивными.</p><button class="button" type="submit" name="action" value="save">Сохранить доли</button><button class="button button--secondary" type="submit" name="action" value="defaults" formnovalidate>Восстановить 50/40/10 и 70/30</button></form></section>"#,
         policy.revision,
         policy.revision,
         html::escape_html(csrf),
@@ -369,7 +369,14 @@ pub(super) async fn shares_submit(
 ) -> Response {
     let operation = async {
         actor(&state, &headers).await?;
-        let Form(form) = form.map_err(|error| error.status())?;
+        let Form(form) = form.map_err(|error| {
+            let status = error.status();
+            if status == StatusCode::BAD_REQUEST {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                status
+            }
+        })?;
         csrf(&state, &headers, &form.csrf_token)?;
         let (with_team, without_team) = match form.action {
             ShareAction::Restore => {
@@ -433,6 +440,7 @@ mod share_panel_tests {
             .contains(r#"name="no_team_author_pct" type="number" min="0" max="100" value="60""#));
         assert!(html.contains("csrf&amp;&lt;test&gt;"));
         assert!(html.contains("rec-policy-off"));
+        assert!(html.contains("value=\"defaults\" formnovalidate"));
         assert!(!html.contains("<script"));
         assert!(!html.contains("data-flow-proof"));
     }
