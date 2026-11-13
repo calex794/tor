@@ -95,7 +95,12 @@ fn row(
     let cover = coverage(item.current);
     let current_quality = quality(item.current, health.map(|h| h.current), q.days);
     let previous_quality = quality(item.previous, health.map(|h| h.previous), q.days);
-    let delta = change(item.current, item.previous, current_quality, previous_quality);
+    let delta = change(
+        item.current,
+        item.previous,
+        current_quality,
+        previous_quality,
+    );
     let delta_label = delta.map_or_else(|| "неизвестно".into(), |n| format!("{n:+}"));
     let delta_state = if delta.is_some() { "known" } else { "unknown" };
     write!(
@@ -196,7 +201,9 @@ mod tests {
         assert!(html.contains(r#"data-attn-surface="reader_end""#));
         assert!(html.contains(r#"data-attn-source="editorial""#));
         assert!(html.contains(r#"data-attn-quality="unknown" data-attn-delta="unknown""#));
-        assert!(html.contains("days=1&amp;window=closed&amp;surface=reader_end&amp;source=editorial"));
+        assert!(
+            html.contains("days=1&amp;window=closed&amp;surface=reader_end&amp;source=editorial")
+        );
         assert!(html.contains("карточек 14, DOM 0, показов неизвестно, кликов неизвестно"));
         assert!(html.contains("Изменение подтверждённых показов: неизвестно"));
         assert!(!html.contains("конверсия"));
@@ -243,11 +250,25 @@ mod tests {
             Signal::Unknown
         );
         assert_eq!(
-            quality(Counts { rendered: 19, ..sample(9) }, Some(full.current), 1),
+            quality(
+                Counts {
+                    rendered: 19,
+                    ..sample(9)
+                },
+                Some(full.current),
+                1
+            ),
             Signal::Unknown
         );
         assert_eq!(
-            quality(Counts { rendered: 26, ..sample(9) }, Some(full.current), 1),
+            quality(
+                Counts {
+                    rendered: 26,
+                    ..sample(9)
+                },
+                Some(full.current),
+                1
+            ),
             Signal::Unknown
         );
         assert_eq!(coverage(Counts::default()), "неизвестно");
@@ -273,10 +294,22 @@ mod tests {
             }],
         };
         let mut html = String::new();
-        placements(&mut html, &filter(), ReportWindow::Closed, &report, Some(&full));
+        placements(
+            &mut html,
+            &filter(),
+            ReportWindow::Closed,
+            &report,
+            Some(&full),
+        );
         assert!(html.contains(r#"data-attn-quality="unknown" data-attn-delta="unknown""#));
         html.clear();
-        placements(&mut html, &filter(), ReportWindow::Calendar, &report, Some(&full));
+        placements(
+            &mut html,
+            &filter(),
+            ReportWindow::Calendar,
+            &report,
+            Some(&full),
+        );
         assert!(html.contains(r#"data-attn-quality="unknown" data-attn-delta="unknown""#));
     }
 }
