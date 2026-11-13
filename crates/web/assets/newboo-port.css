@@ -1027,3 +1027,35 @@ img.home-spotlight-card__cover {
 .site-nav__create { white-space: nowrap; min-height: 40px; }
 .site-mobile-nav__link--create { background: var(--primary-color); color: #fff; }
 .site-mobile-nav__link--create:hover,.site-mobile-nav__link--create:focus-visible { color: #fff; background: var(--primary-color); filter: brightness(.9); }
+
+/* REC: a single compact book-cover shelf under free chapters. No source labels
+   or editorial badges are displayed; attribution remains in server data. */
+.reader-end-shelf .home-shelf__track {
+  gap: 12px;
+}
+.reader-end-shelf .home-shelf__track .book-mini-card--shelf {
+  flex: 0 0 calc((100% - 48px) / 5);
+  width: calc((100% - 48px) / 5);
+  min-width: 0;
+}
+.reader-end-shelf .book-mini-card__link {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.reader-end-shelf .book-mini-card__body {
+  padding-top: 7px;
+}
+.reader-end-shelf .book-mini-card__title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+@media (max-width: 640px) {
+  .reader-end-shelf .home-shelf__track .book-mini-card--shelf {
+    flex: 0 0 136px;
+    width: 136px;
+    min-width: 136px;
+  }
+}
