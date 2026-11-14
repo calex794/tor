@@ -38,7 +38,14 @@ def metric(data, name, field, **options):
     if not isinstance(item, dict):
         return None
     values = item.get("values", item)
-    return finite(values.get(field), **options) if isinstance(values, dict) else None
+    if not isinstance(values, dict):
+        return None
+    # k6's real summary-export schema stores Rate as {"value": ratio,
+    # "passes": N, "fails": N}; Counter and Trend use count/rate/med/p(95).
+    # Accept the legacy rate field used by earlier synthetic fixtures too.
+    if name == "http_req_failed" and field == "rate":
+        return finite(values.get("value", values.get("rate")), **options)
+    return finite(values.get(field), **options)
 
 
 def load_summary(path):
