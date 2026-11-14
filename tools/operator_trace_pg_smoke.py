@@ -2,6 +2,7 @@
 """S059: real HTTP -> SQLx -> independent SQLite -> operator browser, CI only."""
 import base64
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -26,8 +27,10 @@ def require(value, message):
         raise RuntimeError(message)
 
 
-def request(path, password=None):
+def request(path, password=None, session=None):
     headers = {"x-request-id": "CLIENT-SUPPLIED-TRACE-MUST-NOT-SURVIVE"}
+    if session is not None:
+        headers["Cookie"] = "tor-dev-session=" + session
     if password:
         credential = base64.b64encode(f"operator:{password}".encode()).decode()
         headers["Authorization"] = "Basic " + credential
@@ -113,11 +116,15 @@ def main():
         require(re.fullmatch("[0-9a-f]{32}", trace_id), "server trace ID missing")
         return trace_id, elapsed
 
-    def guest_book(book_id):
-        # Fixed disposable public BASIC book. No account cookies or personal data.
-        code, headers, body, elapsed = request(f"/books/{book_id}")
+    def guest_book(book_id, session=None):
+        # Fixed disposable public BASIC book. No identity or SQL text is reported.
+        code, headers, body, elapsed = request(f"/books/{book_id}", session=session)
         require(code == 200 and "S059 dataset 1" in body,
-                "isolated guest book detail did not render")
+                "isolated book detail did not render")
+        if session is not None:
+            require(f'/me/books/{book_id}/' in body
+                    and "book-hero-actions__follow" in body,
+                    "session was not authenticated for book controls")
         trace_id = headers.get("x-request-id", "")
         require(re.fullmatch("[0-9a-f]{32}", trace_id),
                 "server book-detail trace ID missing")
@@ -254,12 +261,85 @@ def main():
                            TOR_TEST_OPERATOR_PASSWORD=password, TOR_S059_OUTPUT=str(output))
         subprocess.run(["node", "tools/operator_trace_pg_browser.cjs"], env=browser_env,
                        check=True, timeout=60)
+        # PERF-02b: compare the exact same book page in the same auth-enabled
+        # process for an anonymous guest and an actual server-verified session.
+        # The session is synthetic, random, and stored only as its SHA-256 digest
+        # in disposable tor_ci. The password cannot be used for a login.
+        secret = secrets.token_urlsafe(32)
+        session_hash = hashlib.sha256(secret.encode("ascii")).hexdigest()
+        auth_fixture_sql = f"""WITH actor AS (
+            INSERT INTO users(email_normalized,display_name,password_hash)
+            VALUES ('s059-perf02-ci@example.invalid','S059 PERF02 Reader',
+                    '$argon2id$ci-test-session-only-not-for-login')
+            RETURNING id
+        ) INSERT INTO sessions(user_id,token_hash,expires_at)
+          SELECT id, decode('{session_hash}', 'hex'), now() + interval '1 hour'
+          FROM actor;"""
+        created = subprocess.run(
+            ["psql", database, "-X", "-q", "-v", "ON_ERROR_STOP=1"],
+            input=auth_fixture_sql, text=True, capture_output=True, timeout=15,
+        )
+        require(created.returncode == 0, "isolated authenticated fixture failed")
+        stop(server)
+        auth_env = dict(env, TOR_AUTH_ENABLED="1")
+        server = launch(["./target/debug/tor-web"], env=auth_env, label="web-auth")
+        wait_for(ready, "authenticated TOR server did not start", 30)
+
+        def measure_book_mode(label, token):
+            # Trace sampling is deterministic, based on server-issued IDs.
+            # Record every request count, not merely the chosen 16 traces.
+            for _ in range(3):
+                guest_book(book_id, token)
+            attempts, samples = 0, []
+            while len(samples) < 16 and attempts < 640:
+                attempts += 1
+                trace_id, http_ms = guest_book(book_id, token)
+                if int(trace_id, 16) % 16:
+                    continue
+                wait_for(lambda trace_id=trace_id: stored(trace_id) is not None,
+                         "sampled book SQLx trace was not delivered")
+                measurement = stored(trace_id)
+                require(measurement[1] == 1 and measurement[2] >= 1
+                        and measurement[3] >= 0,
+                        "book SQLx observation was unknown")
+                samples.append((measurement[2], measurement[3], http_ms))
+            require(len(samples) == 16, "insufficient book SQLx measurements")
+            return {
+                "mode": label,
+                "sampled_requests": len(samples),
+                "total_http_requests": attempts,
+                "sqlx_known_fraction_of_sampled": 1.0,
+                "sqlx_queries_p50": percentile([x[0] for x in samples], .5),
+                "sqlx_queries_p95": percentile([x[0] for x in samples], .95),
+                "sqlx_elapsed_us_p50": percentile([x[1] for x in samples], .5),
+                "sqlx_elapsed_us_p95": percentile([x[1] for x in samples], .95),
+                "http_elapsed_ms_p95": percentile([x[2] for x in samples], .95),
+            }
+
+        auth_guest = measure_book_mode("guest_auth_enabled", None)
+        auth_reader = measure_book_mode("authenticated_basic", secret)
+        auth_comparison = {
+            "route_family": "books",
+            "auth_enabled": True,
+            "same_book_same_process": True,
+            "guest": auth_guest,
+            "reader": auth_reader,
+            "p50_query_delta_reader_minus_guest": (
+                auth_reader["sqlx_queries_p50"] - auth_guest["sqlx_queries_p50"]
+            ),
+            "scope": "16 recorded sampled HTTP-task SQLx traces per mode; "
+                     "actual cookie verified by book follow controls; "
+                     "no active reader load or production CPU estimate",
+        }
+        secret = None
+
         for phase, values in [("normal", normal), ("writer_down", down)]:
             require(percentile(values, .95) < P95_BUDGET_MS, phase + " p95 exceeded CI budget")
         report = {
             "scenario": "S059+PERF02a", "sha": os.environ.get("GITHUB_SHA"),
             "dataset_added_books": 1000, "samples_per_phase": SAMPLES,
             "perf02_guest_book_sqlx_baseline": guest_book_baseline,
+            "perf02_auth_enabled_book_comparison": auth_comparison,
             "debug_ci_p95_budget_ms": P95_BUDGET_MS,
             "normal_p95_ms": percentile(normal, .95),
             "writer_down_p95_ms": percentile(down, .95),
