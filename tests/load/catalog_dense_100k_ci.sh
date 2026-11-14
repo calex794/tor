@@ -108,7 +108,7 @@ if (( successes == 0 )); then echo 'No stage passed' >&2; exit 1; fi
 # This never reaches production: hard PR/localhost/tor_ci/tor_app guard above.
 psql -X -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c \
   "UPDATE books SET access_level='basic'
-   WHERE source_identity LIKE 'ci:load:book:%' AND access_level <> 'basic'"
+   WHERE source_identity LIKE 'ci:load:book:%' AND access_level IS DISTINCT FROM 'basic'"
 psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" -c 'ANALYZE books'
 basic_visible="$(psql -X -qAt -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c \
   "SELECT COUNT(*) FROM books WHERE visibility='public'
