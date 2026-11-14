@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::auth_cookies::CookiePolicy;
+use crate::book_rating_context::VerifiedBookViewer;
 use axum::http::{HeaderMap, StatusCode};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_social::services::follow::PgCreatorFollows;
@@ -49,6 +50,7 @@ impl FollowBookControl {
         &self,
         headers: &HeaderMap,
         book_id: u64,
+        verified_viewer: Option<VerifiedBookViewer>,
     ) -> Result<(String, Vec<String>, bool), StatusCode> {
         let login = || {
             (
@@ -58,14 +60,20 @@ impl FollowBookControl {
                 false,
             )
         };
-        let Some(token) = self.cookies.session_token(headers) else {
-            return Ok(login());
+        // The book detail already performed one live A session check for the
+        // rating/like projection. Reuse that verified actor only for GET UI;
+        // POST handlers always recheck sessions, rights and CSRF independently.
+        // Other callers keep their original fresh session lookup.
+        let user_id = if let Some(viewer) = verified_viewer {
+            viewer.user_id()
+        } else if let Some(token) = self.cookies.session_token(headers) {
+            self.accounts
+                .active_session_user(&session_token_digest(&token))
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        } else {
+            None
         };
-        let user_id = self
-            .accounts
-            .active_session_user(&session_token_digest(&token))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         let Some(user_id) = user_id else {
             return Ok(login());
         };
@@ -167,13 +175,14 @@ pub(super) async fn attach(
     headers: &HeaderMap,
     book_id: u64,
     html: axum::response::Html<String>,
+    verified_viewer: Option<VerifiedBookViewer>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     let Some(control) = control else {
         return axum::response::Html(personalize_book_detail(&html.0, book_id, "", false))
             .into_response();
     };
-    match control.render(headers, book_id).await {
+    match control.render(headers, book_id, verified_viewer).await {
         Ok((action, cookies, is_owner)) => crate::auth_cookies::private_response(
             axum::response::Html(personalize_book_detail(&html.0, book_id, &action, is_owner)),
             &cookies,
