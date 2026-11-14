@@ -95,6 +95,24 @@ class IndependentInventory(unittest.TestCase):
         (self.restore / "linked").symlink_to(self.source / "private", target_is_directory=True)
         self.assertEqual(self.check().returncode, 2)
 
+    def test_duplicate_json_field_refused(self):
+        original = self.manifest.read_text()
+        malformed = original.replace('"schema_version":1', '"schema_version":1,"schema_version":1', 1)
+        self.assertNotEqual(malformed, original)
+        self.manifest.write_text(malformed)
+        digest = hashlib.sha256(self.manifest.read_bytes()).hexdigest()
+        r = self.check(digest=digest)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("duplicate manifest field", r.stderr)
+
+    def test_manifest_0600_and_no_overwrite(self):
+        import stat
+        self.assertEqual(stat.S_IMODE(self.manifest.stat().st_mode), 0o600)
+        original = self.manifest.read_bytes()
+        r = self.run_script("snapshot", "--root", str(self.source), "--output", str(self.manifest))
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(self.manifest.read_bytes(), original)
+
     def test_empty_source_and_output_inside_tree_refused(self):
         empty = Path(self.tmp.name) / "empty"
         empty.mkdir()
