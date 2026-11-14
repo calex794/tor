@@ -23,6 +23,12 @@ psql -X -A -t "$TEST_DATABASE_URL" -c \
  "SELECT COUNT(*), COUNT(*) FILTER(WHERE cardinality(genres)>0) FROM books" \
  > "$out/fixture-counts.txt"
 
+# PERF-04b: read-only paired search plans with the same prepared SQL at 100k.
+# The existing script guard above confines this profile to disposable tor_ci.
+psql -X -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" \
+  -f tests/load/perf04_search_plan_ab.sql \
+  | tee "$out/perf04-fts-100k-ab.txt"
+
 server_pid=""
 monitors=()
 cleanup() {
@@ -94,3 +100,27 @@ run_profile catalog 50 60
 } >> "$GITHUB_STEP_SUMMARY"
 cat "$out/results.tsv"
 if (( successes == 0 )); then echo 'No stage passed' >&2; exit 1; fi
+
+# PERF-04b control: the existing 100k catalogue fixture includes non-basic
+# books and is intentionally unchanged for its original k6 capacity stages.
+# Only AFTER those stages, make the disposable fixture truly 100k eligible BASIC
+# books so dense FTS can be compared across 10k and 100k visible matches.
+# This never reaches production: hard PR/localhost/tor_ci/tor_app guard above.
+psql -X -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c \
+  "UPDATE books SET access_level='basic'
+   WHERE source_identity LIKE 'ci:load:book:%' AND access_level IS DISTINCT FROM 'basic'"
+psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" -c 'ANALYZE books'
+basic_visible="$(psql -X -qAt -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" -c \
+  "SELECT COUNT(*) FROM books WHERE visibility='public'
+   AND visibility_status='active' AND access_level='basic'
+   AND lifecycle_status <> 'pending_deletion' AND NOT admin_hold AND NOT is_deleted
+   AND source_identity LIKE 'ci:load:book:%'")"
+printf 'eligible_public_basic_books=%s\n' "$basic_visible" \
+  > "$out/perf04-100k-basic-visible-count.txt"
+[[ "$basic_visible" =~ ^[0-9]+$ && "$basic_visible" -ge 100000 ]] || {
+  echo 'PERF-04b all-basic control fixture incomplete' >&2
+  exit 1
+}
+psql -X -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" \
+  -f tests/load/perf04_search_plan_ab.sql \
+  | tee "$out/perf04-fts-100k-basic-visible-ab.txt"

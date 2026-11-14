@@ -115,6 +115,10 @@ jobs:
           PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
             | tee "$RUNNER_TEMP/tor-load/catalog-10k-sql.txt"
+          # PERF-04b: same public FTS SQL, two planner strategies, 10k only.
+          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/perf04_search_plan_ab.sql \
+            | tee "$RUNNER_TEMP/tor-load/perf04-fts-10k-ab.txt"
       - name: Build optimised TOR web
         run: cargo build --release -p tor-web
       - name: Run local server and benchmark
