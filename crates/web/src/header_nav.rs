@@ -67,11 +67,7 @@ fn html_route(method: &Method, path: &str) -> bool {
 
 /// Make a freshly minted CSRF cookie visible to both the header and the
 /// downstream page form. Mutating routes never pass through this GET-only helper.
-fn install_page_csrf(
-    headers: &mut HeaderMap,
-    name: &str,
-    token: &str,
-) -> Result<(), StatusCode> {
+fn install_page_csrf(headers: &mut HeaderMap, name: &str, token: &str) -> Result<(), StatusCode> {
     let mut cookies = Vec::new();
     for value in headers.get_all(header::COOKIE) {
         let value = value.to_str().map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -126,11 +122,9 @@ async fn with_visitor(
     let (csrf, csrf_cookies) = if authenticated {
         let (token, cookies) = state.cookies.csrf_for_page(request.headers());
         if !cookies.is_empty() {
-            if let Err(status) = install_page_csrf(
-                request.headers_mut(),
-                state.cookies.csrf_name(),
-                &token,
-            ) {
+            if let Err(status) =
+                install_page_csrf(request.headers_mut(), state.cookies.csrf_name(), &token)
+            {
                 return Response::builder()
                     .status(status)
                     .body(axum::body::Body::empty())
