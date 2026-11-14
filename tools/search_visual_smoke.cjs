@@ -242,7 +242,7 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
 
     // An existing account also retains the exact same chapter after login.
     await reader.goto(base + '/me');
-    await reader.getByRole('button', { name: 'Выйти' }).click();
+    await reader.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
     await reader.waitForURL(base + '/login');
     await reader.goto(base + href);
     await reader.getByRole('link', {

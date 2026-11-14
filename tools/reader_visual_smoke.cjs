@@ -680,7 +680,7 @@ async function inspect(page, name, where) {
         assert(response && response.status() === 404, name + ': private denied ' + denied);
       }
       await page.goto(base + '/me');
-      await page.getByRole('button', { name: 'Выйти' }).click();
+      await page.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль').fill('TestPassphrase2026');

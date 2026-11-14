@@ -84,7 +84,7 @@ function makeDocxXml(xml) {
         await page.getByLabel('Пароль (12–128 символов)').fill('H09ImportBrowser2026');
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
-        await page.getByRole('link', { name: 'Мои книги' }).click();
+        await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
         await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
         await page.getByLabel('Название книги').fill('Импортированный сборник ' + name);
         await page.getByLabel('Язык', { exact: true }).fill('ru');

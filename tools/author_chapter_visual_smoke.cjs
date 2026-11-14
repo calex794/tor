@@ -42,7 +42,7 @@ async function inspect(page, viewport, name) {
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
       await page.waitForURL('**/me');
 
-      await page.getByRole('link', { name: 'Мои книги' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
       await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
@@ -418,7 +418,7 @@ async function inspect(page, viewport, name) {
         await inspect(reader, viewport, 'bookmark-removed');
 
         await reader.goto(base + '/me');
-        await reader.getByRole('button', { name: 'Выйти' }).click();
+        await reader.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
         await reader.waitForURL('**/login');
         await reader.goto(base + '/me/library');
         assert(new URL(reader.url()).pathname === '/login',

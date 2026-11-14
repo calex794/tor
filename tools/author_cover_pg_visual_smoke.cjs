@@ -274,7 +274,7 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
 
-        await page.getByRole('link', { name: 'Мои книги' }).click();
+        await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
         // S019: exercise the header action at both viewport sizes.
         if (viewport === 'desktop') {
           const create = page.getByRole('navigation', { name: 'Основная навигация' })
