@@ -32,8 +32,9 @@ The existing `.github/workflows/tor-http-load.yml` stores outputs at:
 
 - `perf04-fts-10k-ab.txt`
 - `dense100k/perf04-fts-100k-ab.txt`
+- `dense100k/perf04-fts-100k-basic-visible-ab.txt` — **additional control after existing 100k k6 measurements**, when all 100k `ci:load:book:` rows have `access_level=basic`. The script records `dense100k/perf04-100k-basic-visible-count.txt` and refuses fewer than 100k eligible public/basic books.
 
-Both files are included in the existing 14-day `tor-http-load-up-to-500rps` artifact. No new runner or service is added.
+All plan files are included in the existing 14-day `tor-http-load-up-to-500rps` artifact. No new runner or service is added.
 
 The 100k profile reuses `tests/load/catalog_dense_100k_ci.sh`, whose mandatory guard checks that the workflow is a PR, host is `127.0.0.1`, database is `tor_ci`, and the connection role is `tor_app`. The 10k profile uses the same isolated CI PostgreSQL setup. The SQL script contains no DML, DDL or global planner settings, and rolls back the read-only transaction. A 15-second per-statement timeout avoids hanging the runner on a deliberately bad alternative plan.
 
@@ -46,3 +47,7 @@ The 100k profile reuses `tests/load/catalog_dense_100k_ci.sh`, whose mandatory g
 - **Next:** If the A/B suggests a robust win, implement a separate semantically safe query-level option and re-run search Unicode, private/age ACL, cursor, 10k/100k, PostgreSQL concurrency and HTTP p95 tests before any merge. Do not alter indexes without evidence and migration review.
 
 No deployment, production PostgreSQL, real S3, financial data, timer or migration is touched by this diagnostic.
+
+### Fixture validity discovered after the first run
+
+The original 100k k6 fixture is **mixed**: the 90k newly appended books have a different default `access_level`; the actual GIN plan rejected 90k rows via access/visibility filters. It is **not equivalent** to 100k eligible BASIC search matches. Preserve that existing mixed-facet k6 benchmark unchanged for comparability. After all its HTTP stages, the disposable `tor_app` script changes only `ci:load:book:` fixture rows to `basic`, runs `ANALYZE books` and executes a second all-BASIC read-only A/B. The 100k threshold is checked before reporting. This fixture-only DML is confined by the preexisting PR/local `tor_ci` guard; no migrations or live data are touched. Results must distinguish `mixed` from `100k eligible BASIC`.
