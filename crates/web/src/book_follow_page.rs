@@ -4,29 +4,21 @@
 use crate::auth_cookies::CookiePolicy;
 use axum::http::{HeaderMap, StatusCode};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_books::repositories::postgres::PgAuthoring;
-use tor_reading::repositories::PgBookFollows;
 use tor_social::services::follow::PgCreatorFollows;
 
 #[derive(Clone)]
 pub(super) struct FollowBookControl {
     accounts: PgAccounts,
-    follows: PgBookFollows,
     creator_follows: PgCreatorFollows,
-    authoring: PgAuthoring,
     cookies: CookiePolicy,
 }
 
 impl FollowBookControl {
     pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
-        let follows = PgBookFollows::new(accounts.pool().clone());
         let creator_follows = PgCreatorFollows::new(accounts.pool().clone());
-        let authoring = PgAuthoring::new(accounts.pool().clone());
         Self {
             accounts,
-            follows,
             creator_follows,
-            authoring,
             cookies: CookiePolicy { secure, origin },
         }
     }
@@ -78,21 +70,15 @@ impl FollowBookControl {
             return Ok(login());
         };
         let book_id_sql = i64::try_from(book_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-        let following = self
-            .follows
-            .is_following(user_id, book_id_sql)
+        // The caller already passed B-owned book authorization; this single
+        // projection only renders controls. Every POST rechecks live rights.
+        let state = self
+            .creator_follows
+            .book_page_follow_state(user_id, book_id_sql)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        // B owns authorization. An authenticated session alone is not an
-        // authoring right. The public page was already visibility-checked.
-        let is_owner = self
-            .authoring
-            .owned_book(user_id, book_id_sql)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .is_some();
         let (csrf, cookies) = self.cookies.csrf_for_page(headers);
-        let (action, label) = if following {
+        let (action, label) = if state.following_book {
             ("unfollow", "Отписаться от книги")
         } else {
             ("follow", "Следить за книгой")
@@ -102,18 +88,8 @@ impl FollowBookControl {
         );
         // Creator identity comes from the B-owned row, never from a credit
         // string or client-supplied author id. A BookFollow remains separate.
-        let creator = self
-            .creator_follows
-            .creator_for_public_book(book_id_sql)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        if let Some(creator) = creator.filter(|owner| *owner != user_id) {
-            let active = self
-                .creator_follows
-                .is_following(user_id, creator)
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-            let (route, text) = if active {
+        if let Some(creator) = state.creator_user_id.filter(|owner| *owner != user_id) {
+            let (route, text) = if state.following_creator {
                 (
                     format!("/me/creators/{creator}/unfollow"),
                     "Отписаться от автора",
@@ -128,7 +104,7 @@ impl FollowBookControl {
                 "<form method=\"post\" action=\"{route}\" class=\"book-hero-actions__follow\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{text}</button></form>"
             ));
         }
-        Ok((html, cookies, is_owner))
+        Ok((html, cookies, state.is_owner))
     }
 }
 
