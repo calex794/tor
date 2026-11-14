@@ -179,7 +179,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert_eq!(destination, "/login?next=/me/books/new");
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
-    assert_eq!(new_page.headers().get_all(header::SET_COOKIE).iter().count(), 1);
+    let cookie_count = new_page.headers().get_all(header::SET_COOKIE).iter().count();
+    assert_eq!(cookie_count, 1);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
     let new_html = body_of(new_page).await;
     let author_csrf = csrf_token(&new_html);
