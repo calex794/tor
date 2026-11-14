@@ -113,6 +113,16 @@ def main():
         require(re.fullmatch("[0-9a-f]{32}", trace_id), "server trace ID missing")
         return trace_id, elapsed
 
+    def guest_book(book_id):
+        # Fixed disposable public BASIC book. No account cookies or personal data.
+        code, headers, body, elapsed = request(f"/books/{book_id}")
+        require(code == 200 and "S059 dataset 1" in body,
+                "isolated guest book detail did not render")
+        trace_id = headers.get("x-request-id", "")
+        require(re.fullmatch("[0-9a-f]{32}", trace_id),
+                "server book-detail trace ID missing")
+        return trace_id, elapsed
+
     try:
         # Seed only this ephemeral database. No production fixture or migration changes.
         sql = """INSERT INTO books(source_identity,target_language,title,visibility,access_level)
@@ -121,6 +131,13 @@ def main():
         seed = subprocess.run(["psql", database, "-X", "-q", "-v", "ON_ERROR_STOP=1"],
                               input=sql, text=True, capture_output=True, timeout=30)
         require(seed.returncode == 0, "disposable dataset setup failed")
+        book_raw = subprocess.check_output(
+            ["psql", database, "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-c",
+             "SELECT id FROM books WHERE source_identity='ci:s059:1' LIMIT 1"],
+            text=True, timeout=10).strip()
+        require(book_raw.isdecimal() and int(book_raw) > 0,
+                "isolated book fixture id missing")
+        book_id = int(book_raw)
         store = writer("writer-before")
         env = dict(os.environ, DATABASE_URL=database, TOR_DEMO_MODE="0",
                    TOR_LISTEN_ADDR="127.0.0.1:3094", TOR_PUBLIC_ORIGIN=BASE,
@@ -139,6 +156,42 @@ def main():
         for _ in range(5):
             catalog()
         normal = [catalog()[1] for _ in range(SAMPLES)]
+
+        # PERF-02a: reuse S059 SQLx -> SQLite trace evidence for the real
+        # anonymous book page. The trace publisher samples ~1/16 requests;
+        # select using only the independently generated server trace ID.
+        # No route URL, book id, SQL text, token or body is persisted.
+        for _ in range(3):
+            guest_book(book_id)
+        book_sql_samples = []
+        book_attempts = 0
+        while len(book_sql_samples) < 16 and book_attempts < 640:
+            book_attempts += 1
+            trace_id, http_ms = guest_book(book_id)
+            if int(trace_id, 16) % 16:
+                continue
+            wait_for(lambda trace_id=trace_id: stored(trace_id) is not None,
+                     "sampled guest book trace was not delivered")
+            row = stored(trace_id)
+            require(row[1] == 1 and row[2] >= 1 and row[3] >= 0,
+                    "guest book SQLx attribution unavailable")
+            book_sql_samples.append((row[2], row[3], http_ms))
+        require(len(book_sql_samples) == 16,
+                "insufficient sampled guest book SQLx traces")
+        guest_book_baseline = {
+            "route_family": "books",
+            "mode": "anonymous_basic",
+            "sampled_requests": len(book_sql_samples),
+            "total_http_requests": book_attempts,
+            "sqlx_known_fraction": 1.0,
+            "sqlx_queries_p50": percentile([s[0] for s in book_sql_samples], .5),
+            "sqlx_queries_p95": percentile([s[0] for s in book_sql_samples], .95),
+            "sqlx_elapsed_us_p50": percentile([s[1] for s in book_sql_samples], .5),
+            "sqlx_elapsed_us_p95": percentile([s[1] for s in book_sql_samples], .95),
+            "http_elapsed_ms_p95": percentile([s[2] for s in book_sql_samples], .95),
+            "scope": "HTTP task-local completed SQLx, 1/16 sampled traces; "
+                     "debug isolated GitHub runner only, not PG server CPU",
+        }
 
         # Synchronize on an actual acquired PostgreSQL lock, not a guessed sleep.
         lock = subprocess.Popen(["psql", database, "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
@@ -204,8 +257,9 @@ def main():
         for phase, values in [("normal", normal), ("writer_down", down)]:
             require(percentile(values, .95) < P95_BUDGET_MS, phase + " p95 exceeded CI budget")
         report = {
-            "scenario": "S059", "sha": os.environ.get("GITHUB_SHA"),
+            "scenario": "S059+PERF02a", "sha": os.environ.get("GITHUB_SHA"),
             "dataset_added_books": 1000, "samples_per_phase": SAMPLES,
+            "perf02_guest_book_sqlx_baseline": guest_book_baseline,
             "debug_ci_p95_budget_ms": P95_BUDGET_MS,
             "normal_p95_ms": percentile(normal, .95),
             "writer_down_p95_ms": percentile(down, .95),
