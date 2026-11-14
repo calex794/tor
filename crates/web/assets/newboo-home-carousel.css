@@ -100,12 +100,12 @@
 @media (max-width: 640px) {
   .home-special-carousel .home-spotlight-card { height: 240px; min-height: 240px; }
   .home-special-carousel .home-spotlight-card__inner {
-    grid-template-columns: minmax(0, 1fr) 100px;
+    grid-template-columns: minmax(0, 1fr) 88px;
     gap: 12px;
     padding: 20px;
   }
-  .home-special-carousel .home-spotlight-card__cover { width: 100px; }
-  .home-special-carousel .home-spotlight-card__title { font-size: 26px; -webkit-line-clamp: 2; }
+  .home-special-carousel .home-spotlight-card__cover { width: 88px; }
+  .home-special-carousel .home-spotlight-card__title { font-size: 24px; hyphens: auto; -webkit-line-clamp: 2; }
   .home-special-carousel .home-spotlight-card__text { margin-top: 12px; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {

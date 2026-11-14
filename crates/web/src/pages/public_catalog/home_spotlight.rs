@@ -31,8 +31,13 @@ pub(super) fn render_observed(
             .author_name
             .as_deref()
             .filter(|author| !author.trim().is_empty())
-            .map(escape_html)
-            .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
+            .map(|author| {
+                format!(
+                    r#"<p class="home-spotlight-card__text">{}</p>"#,
+                    escape_html(author)
+                )
+            })
+            .unwrap_or_default();
         // Only callers' verified same-origin cover IDs are rendered.
         let bg = if covers.contains(&book.id) {
             format!(
@@ -67,7 +72,7 @@ pub(super) fn render_observed(
                <div class="home-spotlight-card__content">
                <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
                <h2 class="home-spotlight-card__title">{title}</h2>
-               <p class="home-spotlight-card__text">{details}</p></div>
+               {details}</div>
                <div class="home-spotlight-card__cover-wrap">{cover}</div>
                </div></a>"#
         )
