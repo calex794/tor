@@ -5,7 +5,10 @@ pub(super) async fn registration_after_library(app: &Router) -> Response {
     let library = send(app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(library.status(), StatusCode::SEE_OTHER);
     assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(library.headers()[header::LOCATION], "/login?next=/me/library");
+    assert_eq!(
+        library.headers()[header::LOCATION],
+        "/login?next=/me/library"
+    );
     for target in ["/me/library", "/read/101", "/reader/101"] {
         let path = format!("/login?next={target}");
         let login = send(app, request("GET", &path, "", "", ORIGIN)).await;

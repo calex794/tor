@@ -40,6 +40,9 @@ const path = require('node:path');
     await page.goto('http://127.0.0.1:3099/catalog');
     if (await page.getByText('Закрытый черновик').count()) throw new Error('Draft leaked');
     await page.close();
+    await require('./shared_controls_visual.cjs').checkSharedControls(
+      browser, 'http://127.0.0.1:3099', out
+    );
     console.log('Visual smoke PASS: desktop + mobile, 8 screenshots, no horizontal overflow');
   } finally {
     await browser.close();
