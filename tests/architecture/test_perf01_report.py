@@ -92,7 +92,7 @@ class PerfEvidence(unittest.TestCase):
     def test_invalid_number_rejected(self):
         data = sample()
         data["metrics"]["http_req_duration"]["values"]["p(95)"] = float("nan")
-        data["metrics"]["http_req_failed"]["values"]["rate"] = -0.5
+        data["metrics"]["http_req_failed"]["value"] = -0.5
         (self.root / "summary-25.json").write_text(json.dumps(data), encoding="utf-8")
         stage = report.build(self.root, SHA)["stages"][0]
         self.assertEqual(stage["evidence"], "INCOMPLETE")
