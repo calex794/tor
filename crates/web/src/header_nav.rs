@@ -65,6 +65,12 @@ fn html_route(method: &Method, path: &str) -> bool {
         .contains(&path)
 }
 
+// Read-only administrative reports must never issue a new CSRF cookie on GET.
+// Reuse an existing token if present; logout stays available from /me otherwise.
+fn may_issue_header_csrf(path: &str) -> bool {
+    path != "/admin" && !path.starts_with("/admin/")
+}
+
 /// Make a freshly minted CSRF cookie visible to both the header and the
 /// downstream page form. Mutating routes never pass through this GET-only helper.
 fn install_page_csrf(headers: &mut HeaderMap, name: &str, token: &str) -> Result<(), StatusCode> {
@@ -120,18 +126,27 @@ async fn with_visitor(
     };
     // Only a verified session may receive a working logout form.
     let (csrf, csrf_cookies) = if authenticated {
-        let (token, cookies) = state.cookies.csrf_for_page(request.headers());
-        if !cookies.is_empty() {
-            if let Err(status) =
-                install_page_csrf(request.headers_mut(), state.cookies.csrf_name(), &token)
-            {
-                return Response::builder()
-                    .status(status)
-                    .body(axum::body::Body::empty())
-                    .expect("valid status");
+        if may_issue_header_csrf(request.uri().path()) {
+            let (token, cookies) = state.cookies.csrf_for_page(request.headers());
+            if !cookies.is_empty() {
+                if let Err(status) =
+                    install_page_csrf(request.headers_mut(), state.cookies.csrf_name(), &token)
+                {
+                    return Response::builder()
+                        .status(status)
+                        .body(axum::body::Body::empty())
+                        .expect("valid status");
+                }
             }
+            (Some(token), cookies)
+        } else {
+            let token = crate::auth_cookies::cookie_value(
+                request.headers(),
+                state.cookies.csrf_name(),
+            )
+            .filter(|value| state.cookies.valid_csrf(request.headers(), value));
+            (token, Vec::new())
         }
-        (Some(token), cookies)
     } else {
         (None, Vec::new())
     };
@@ -172,24 +187,38 @@ pub(crate) fn render(html: String) -> String {
 }
 
 fn render_for(html: &str, visitor: &Visitor) -> String {
-    let csrf = crate::pages::escape_html(visitor.csrf.as_deref().unwrap_or(""));
     let (mobile, desktop) = if visitor.authenticated {
+        let (mobile_logout, desktop_logout) = visitor
+            .csrf
+            .as_deref()
+            .map(crate::pages::escape_html)
+            .map(|csrf| {
+                (
+                    format!(
+                        r#"<form class="site-header__logout" method="post" action="/logout">
+<input type="hidden" name="csrf_token" value="{csrf}">
+<button class="site-mobile-nav__link" type="submit">Выйти</button>
+</form>"#
+                    ),
+                    format!(
+                        r#"<form class="site-header__logout" method="post" action="/logout">
+<input type="hidden" name="csrf_token" value="{csrf}">
+<button class="site-nav__link" type="submit">Выйти</button>
+</form>"#
+                    ),
+                )
+            })
+            .unwrap_or_default();
         (
             format!(
                 r#"<a class="site-mobile-nav__link" href="/me">Кабинет</a>
 <a class="site-mobile-nav__link" href="/me/books">Мои книги</a>
-<form class="site-header__logout" method="post" action="/logout">
-<input type="hidden" name="csrf_token" value="{csrf}">
-<button class="site-mobile-nav__link" type="submit">Выйти</button>
-</form>"#
+{mobile_logout}"#
             ),
             format!(
                 r#"<a class="site-nav__link" href="/me/books">Мои книги</a>
 <a class="button button--small" href="/me">Кабинет</a>
-<form class="site-header__logout" method="post" action="/logout">
-<input type="hidden" name="csrf_token" value="{csrf}">
-<button class="site-nav__link" type="submit">Выйти</button>
-</form>"#
+{desktop_logout}"#
             ),
         )
     } else {
@@ -217,6 +246,23 @@ mod tests {
         assert!(!html_route(&Method::POST, "/me/books"));
         assert!(!html_route(&Method::GET, "/api/v1/books"));
         assert!(!html_route(&Method::GET, "/assets/site.css"));
+    }
+
+    #[test]
+    fn admin_reports_remain_cookie_free_without_a_preexisting_csrf_token() {
+        assert!(may_issue_header_csrf("/me/books/new"));
+        assert!(!may_issue_header_csrf("/admin"));
+        assert!(!may_issue_header_csrf("/admin/audience/reading"));
+        let html = render_for(
+            include_str!("../templates/layout.html"),
+            &Visitor {
+                authenticated: true,
+                csrf: None,
+            },
+        );
+        assert!(html.contains("href=\"/me/books\">Мои книги</a>"));
+        assert!(!html.contains("action=\"/logout\""));
+        assert!(!html.contains("href=\"/login\">Войти</a>"));
     }
 
     #[test]
