@@ -115,7 +115,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
     assert!(page_body.contains("register-password-hint"));
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
-
     let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&csrf_token=".to_owned() + csrf;
     assert_eq!(
         send(&app, request("POST", "/register", &form, "", ORIGIN))
@@ -154,7 +153,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap().contains("HttpOnly")));
-
     let hash = lookup
         .find_user("tor_ci_account@example.com")
         .await
@@ -163,28 +161,26 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .password_hash;
     assert!(hash.starts_with("$argon2id$"));
     assert!(!hash.contains("LongSecurePassword2026"));
-
     let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
     assert_eq!(private.status(), StatusCode::OK);
     assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
     let new_csrf_cookie = cookie(&private, "tor-dev-csrf=");
     let private_html = body_of(private).await;
     assert!(private_html.contains("href=\"/me/library\""));
-    assert!(
-        private_html.contains("href=\"/me/books\"") && private_html.contains("action=\"/logout\"")
-    );
+    assert!(private_html.contains("href=\"/me/books\""));
+    assert!(private_html.contains("action=\"/logout\""));
     assert!(!private_html.contains("Приватность"));
     assert!(!private_html.contains("Анализ ваших переходов"));
     assert!(!private_html.contains("/me/behavior"));
     // B-01/B-02: the first genuine author journey persists a private book.
     let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
     assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        anon_new.headers()[header::LOCATION],
-        "/login?next=/me/books/new"
-    );
+    let destination = &anon_new.headers()[header::LOCATION];
+    assert_eq!(destination, "/login?next=/me/books/new");
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
+    let csrf_set = new_page.headers().get_all(header::SET_COOKIE);
+    assert_eq!(csrf_set.iter().filter(|v| v.to_str().unwrap().starts_with("tor-dev-csrf=")).count(), 1);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
     let new_html = body_of(new_page).await;
     let author_csrf = csrf_token(&new_html);
@@ -196,10 +192,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .next()
         .expect("valid key");
     assert_eq!(command_key.len(), 43);
-    assert!(
-        new_html.contains("name=\"author_name\"")
-            && new_html.contains("href=\"/me/books\">Мои книги</a>")
-    );
+    assert!(new_html.contains("name=\"author_name\""));
+    assert!(new_html.contains("href=\"/me/books\">Мои книги</a>"));
     assert!(new_html.contains("name=\"genres\""));
     let create_form = format!(
         "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&genres=fantasy%2Cadventure&command_key={command_key}&csrf_token={author_csrf}"
@@ -273,7 +267,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let anon_detail = send(&app, request("GET", &book_path, "", "", ORIGIN)).await;
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
-
     // B-03/B-04: authenticated author release; the site review is separate.
     let book_id = book_path
         .trim_start_matches("/me/books/")
@@ -558,7 +551,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         StatusCode::SEE_OTHER,
         "Publishing the same book twice is safe"
     );
-
     let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");

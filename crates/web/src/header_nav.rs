@@ -2,7 +2,7 @@
 //! The session is checked only on HTML-like GET routes, and never grants access.
 use axum::{
     extract::{Request, State},
-    http::{header, HeaderValue, Method},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::Next,
     response::Response,
     Router,
@@ -38,6 +38,10 @@ fn html_route(method: &Method, path: &str) -> bool {
     if method != &Method::GET {
         return false;
     }
+    // Login and registration always issue their own form CSRF cookie.
+    if path == "/login" || path == "/register" {
+        return false;
+    }
     ![
         "/assets/",
         "/api/",
@@ -61,9 +65,45 @@ fn html_route(method: &Method, path: &str) -> bool {
         .contains(&path)
 }
 
+/// Make a freshly minted CSRF cookie visible to both the header and the
+/// downstream page form. Mutating routes never pass through this GET-only helper.
+fn install_page_csrf(
+    headers: &mut HeaderMap,
+    name: &str,
+    token: &str,
+) -> Result<(), StatusCode> {
+    let mut cookies = Vec::new();
+    for value in headers.get_all(header::COOKIE) {
+        let value = value.to_str().map_err(|_| StatusCode::BAD_REQUEST)?;
+        for item in value.split(';') {
+            let item = item.trim();
+            if item.is_empty()
+                || item
+                    .split_once('=')
+                    .is_some_and(|(key, _)| key.trim() == name)
+            {
+                continue;
+            }
+            cookies.push(item);
+        }
+    }
+    cookies.push(token);
+    // Preserve the original cookies; replace only the invalid/missing CSRF pair.
+    let mut pairs = cookies[..cookies.len() - 1].join("; ");
+    if !pairs.is_empty() {
+        pairs.push_str("; ");
+    }
+    pairs.push_str(name);
+    pairs.push('=');
+    pairs.push_str(token);
+    let value = HeaderValue::from_str(&pairs).map_err(|_| StatusCode::BAD_REQUEST)?;
+    headers.insert(header::COOKIE, value);
+    Ok(())
+}
+
 async fn with_visitor(
     State(state): State<NavigationState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if !html_route(request.method(), request.uri().path()) {
@@ -85,6 +125,18 @@ async fn with_visitor(
     // Only a verified session may receive a working logout form.
     let (csrf, csrf_cookies) = if authenticated {
         let (token, cookies) = state.cookies.csrf_for_page(request.headers());
+        if !cookies.is_empty() {
+            if let Err(status) = install_page_csrf(
+                request.headers_mut(),
+                state.cookies.csrf_name(),
+                &token,
+            ) {
+                return Response::builder()
+                    .status(status)
+                    .body(axum::body::Body::empty())
+                    .expect("valid status");
+            }
+        }
         (Some(token), cookies)
     } else {
         (None, Vec::new())
@@ -172,6 +224,27 @@ mod tests {
         assert!(!html_route(&Method::POST, "/me/books"));
         assert!(!html_route(&Method::GET, "/api/v1/books"));
         assert!(!html_route(&Method::GET, "/assets/site.css"));
+    }
+
+    #[test]
+    fn csrf_renewal_uses_exactly_one_token_in_header_and_form() {
+        let policy = CookiePolicy {
+            secure: false,
+            origin: "https://tor.example".to_owned(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("tor-dev-session=abc; tor-dev-csrf=invalid"),
+        );
+        assert!(!policy.valid_csrf(&headers, "invalid"));
+        let (token, issued) = policy.csrf_for_page(&headers);
+        assert_eq!(issued.len(), 1);
+        install_page_csrf(&mut headers, policy.csrf_name(), &token).unwrap();
+        let (downstream, extra) = policy.csrf_for_page(&headers);
+        assert_eq!(downstream, token);
+        assert!(extra.is_empty());
+        assert!(policy.valid_csrf(&headers, &token));
     }
 
     #[test]
