@@ -271,3 +271,105 @@ fn edit_form_escapes_title_and_textarea_breakout() {
     assert!(page.0.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     assert!(!page.0.contains("<!--TITLE_HEADING-->"));
 }
+
+#[test]
+fn author_book_draft_guidance_does_not_invent_metadata_readiness() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<safe title>".to_owned(),
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        false,
+        &[],
+        "csrf",
+        OwnerChapterPageOptions {
+            uploads_enabled: false,
+            latest_job: Some("moderation_pending"),
+            demand_count: 0,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("Подготовка к публикации"));
+    assert!(html.contains("Добавьте хотя бы одну бесплатную главу"));
+    assert!(html.contains("Проверьте перед публикацией"));
+    assert!(!html.contains("action=\"/me/books/42/publish\""));
+    assert!(!html.contains("src=\"/covers/42/main.webp\""));
+    assert!(html.contains("author-book-workspace__cover-placeholder"));
+    assert!(html.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(html.contains("&lt;safe title&gt;"));
+    assert!(!html.contains("<safe title>"));
+}
+
+#[test]
+fn author_book_publishing_keeps_csrf_and_grouped_settings() {
+    let book = OwnedBook {
+        id: 42,
+        title: "Роман".to_owned(),
+    };
+    let chapter = OwnedChapterSummary {
+        id: 7,
+        number: 1,
+        title: "Первая".to_owned(),
+        access: ChapterAccess::Free,
+        published: false,
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        false,
+        &[chapter],
+        "<csrf>",
+        OwnerChapterPageOptions {
+            uploads_enabled: true,
+            latest_job: Some("moderation_approved"),
+            demand_count: 0,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("method=\"post\" action=\"/me/books/42/publish\""));
+    assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(html.contains("src=\"/covers/42/main.webp\""));
+    assert!(html.contains("Бесплатная глава есть на этой странице"));
+    assert!(html.contains("Описание и оформление"));
+    assert!(html.contains("Публикация и доступ"));
+    assert!(html.contains("Статистика и обратная связь"));
+    assert!(html.contains("id=\"author-book-chapters\""));
+    assert!(html.contains("id=\"author-book-settings\""));
+}
+
+#[test]
+fn author_book_published_state_does_not_show_draft_checklist() {
+    let book = OwnedBook {
+        id: 42,
+        title: "Книга".to_owned(),
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        true,
+        &[],
+        "csrf",
+        OwnerChapterPageOptions {
+            uploads_enabled: false,
+            latest_job: None,
+            demand_count: 5,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("Публикация включена"));
+    assert!(!html.contains("Подготовка к публикации"));
+    assert!(!html.contains("href=\"/me/books/42/chapters/import\""));
+    assert!(html.contains("Читатели ждут продолжения"));
+    assert!(html.contains("href=\"/books/42\""));
+}
