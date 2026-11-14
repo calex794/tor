@@ -140,11 +140,9 @@ async fn with_visitor(
             }
             (Some(token), cookies)
         } else {
-            let token = crate::auth_cookies::cookie_value(
-                request.headers(),
-                state.cookies.csrf_name(),
-            )
-            .filter(|value| state.cookies.valid_csrf(request.headers(), value));
+            let token =
+                crate::auth_cookies::cookie_value(request.headers(), state.cookies.csrf_name())
+                    .filter(|value| state.cookies.valid_csrf(request.headers(), value));
             (token, Vec::new())
         }
     } else {
