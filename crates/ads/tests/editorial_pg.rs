@@ -169,8 +169,22 @@ async fn atomic_replays_concurrency_terminal_states_and_no_financial_or_reading_
         service.execute(&f.admin, &key, &command),
         service.execute(&f.admin, &key, &command)
     );
-    let a = a.unwrap();
-    assert_eq!(a, b.unwrap());
+    // The command writer deliberately fails fast on row locks (75ms). A
+    // concurrent duplicate may therefore return transient Unavailable while
+    // the winner commits. Retry ONLY that result, ONCE, after both are done.
+    // If neither request committed, this is a real regression, not a pass.
+    assert!(a.is_ok() || b.is_ok(), "one concurrent command must commit");
+    let a = match a {
+        Err(EditorialError::Unavailable) => service.execute(&f.admin, &key, &command).await,
+        other => other,
+    }
+    .expect("first command or bounded retry");
+    let b = match b {
+        Err(EditorialError::Unavailable) => service.execute(&f.admin, &key, &command).await,
+        other => other,
+    }
+    .expect("second command or bounded retry");
+    assert_eq!(a, b, "replayed command must preserve exact campaign receipt");
     assert_eq!(a.revision, 1);
     assert_eq!(
         f.store.assigned_book(a.campaign_id).await.unwrap(),
