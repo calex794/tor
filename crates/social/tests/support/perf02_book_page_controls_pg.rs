@@ -50,3 +50,13 @@ async fn perf02c_controls_after_hidden(repo: &PgCreatorFollows) {
     assert_eq!(page.creator_user_id, None);
     assert!(!page.is_owner);
 }
+
+async fn e05_assert_follow_source(pool: &PgPool, id: i64) {
+    let source: (i64, String) =
+        sqlx::query_as("SELECT source_book_id,source_kind FROM creator_follow_periods WHERE id=$1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(source, (825101, "book_page".to_owned()));
+}
