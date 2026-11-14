@@ -1,0 +1,84 @@
+<section class="section auth-section author-dashboard-page">
+  <div class="container">
+    <main class="auth-card author-chapter-card author-dashboard" aria-label="Управление книгой">
+      <nav class="author-dashboard__breadcrumbs" aria-label="Путь к книге">
+        <a href="/me/books">Мои книги</a>
+        <span aria-hidden="true">/</span>
+        <span>Книга №<!--BOOK_ID--></span>
+      </nav>
+
+      <header class="author-dashboard__hero">
+        <div class="author-dashboard__cover-col">
+          <div class="author-dashboard__cover"><!--COVER_ART--></div>
+          <!--COVER_ACTION-->
+        </div>
+        <div class="author-dashboard__intro">
+          <div class="author-dashboard__badges">
+            <span class="author-dashboard__badge <!--STATUS_CLASS-->"><!--STATUS_LABEL--></span>
+            <span class="author-dashboard__badge author-dashboard__badge--neutral"><!--CHAPTER_COUNT--></span>
+          </div>
+          <h1><!--BOOK_TITLE--></h1>
+          <p class="author-dashboard__lead"><!--STATUS_DESCRIPTION--></p>
+          <div class="author-dashboard__hero-actions"><!--HERO_ACTIONS--></div>
+        </div>
+      </header>
+
+      <!--PREPARATION_SECTION-->
+      <!--DEMAND_SECTION-->
+
+      <section class="author-dashboard__panel" aria-labelledby="author-chapters-title" id="chapters">
+        <div class="author-dashboard__panel-heading">
+          <div>
+            <span class="author-dashboard__kicker">Содержание книги</span>
+            <h2 id="author-chapters-title">Главы</h2>
+          </div>
+          <div class="author-dashboard__panel-actions"><!--CHAPTER_ACTIONS--></div>
+        </div>
+        <!--CHAPTER_ITEMS-->
+        <!--CHAPTER_PAGINATION-->
+      </section>
+
+      <section class="author-dashboard__tools" aria-labelledby="author-tools-title">
+        <div class="author-dashboard__panel-heading">
+          <div>
+            <span class="author-dashboard__kicker">Дополнительные действия</span>
+            <h2 id="author-tools-title">Управление книгой</h2>
+          </div>
+          <a class="author-dashboard__all-settings" href="/me/books/<!--BOOK_ID-->/settings">Все настройки</a>
+        </div>
+        <div class="author-dashboard__tool-grid">
+          <section class="author-dashboard__tool-card" aria-labelledby="author-tools-content">
+            <h3 id="author-tools-content">Содержание и оформление</h3>
+            <ul>
+              <li><a href="/me/books/<!--BOOK_ID-->/description">Редактировать аннотацию</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/titles">Названия книги</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/sources">Ссылки на произведение</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/origin">Сведения об оригинале</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/related">Связанные книги</a></li>
+            </ul>
+          </section>
+          <section class="author-dashboard__tool-card" aria-labelledby="author-tools-publication">
+            <h3 id="author-tools-publication">Публикация и доступ</h3>
+            <ul>
+              <li><a href="/me/books/<!--BOOK_ID-->/registration-status">Проверка регистрации и причина отказа</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/project-status">Состояние работы над книгой</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/settings/lifecycle">Жизненный цикл книги</a></li>
+              <!--AGE_SETTINGS_LINK-->
+            </ul>
+          </section>
+          <section class="author-dashboard__tool-card" aria-labelledby="author-tools-statistics">
+            <h3 id="author-tools-statistics">Статистика и обратная связь</h3>
+            <ul>
+              <li><a href="/books/<!--BOOK_ID-->/stats">Статистика книги</a></li>
+              <li><a href="/me/books/<!--BOOK_ID-->/issues">Ошибки текста</a></li>
+            </ul>
+          </section>
+        </div>
+      </section>
+
+      <footer class="author-dashboard__footer">
+        <a href="/me/books">Вернуться к моим книгам</a>
+      </footer>
+    </main>
+  </div>
+</section>
