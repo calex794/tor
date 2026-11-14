@@ -455,6 +455,15 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing verified PG session guard")
 
+    def test_book_create_return_must_remain_a_fixed_local_route(self):
+        self.mutate(
+            "crates/web/src/auth/book_registration_http.rs",
+            'Redirect::to("/login?next=/me/books/new")',
+            'Redirect::to("/login?next=//evil.example")',
+            start="pub(super) async fn new_page(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
     def test_private_reader_return_must_remain_a_fixed_local_route(self):
         self.mutate(
             "crates/web/src/auth/private_reader.rs",
@@ -470,6 +479,24 @@ class RilGovernanceTests(unittest.TestCase):
             "return private_response(Redirect::to(&destination), &[])",
             'return private_response(Redirect::to("/other"), &[])',
             start="pub(super) async fn page(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
+    def test_library_return_must_remain_a_fixed_local_route(self):
+        self.mutate(
+            "crates/web/src/auth/library_page.rs",
+            'Redirect::to("/login?next=/me/library")',
+            'Redirect::to("/login?next=/admin")',
+            start="pub(super) async fn my_library(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
+    def test_library_return_cannot_skip_the_missing_session_redirect(self):
+        self.mutate(
+            "crates/web/src/auth/library_page.rs",
+            'return private_response(Redirect::to("/login?next=/me/library"), &[])',
+            'return private_response(StatusCode::OK, &[])',
+            start="pub(super) async fn my_library(",
         )
         self.assert_detected("session failure does not explicitly deny/redirect")
 

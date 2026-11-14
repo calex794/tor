@@ -1,4 +1,4 @@
-use super::{escape_html, layout};
+use super::{escape_html, private_account_layout as layout};
 use axum::response::Html;
 use tor_accounts::services::profile::Profile;
 

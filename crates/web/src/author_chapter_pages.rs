@@ -6,7 +6,7 @@ use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
 
-use crate::pages::{escape_html, layout};
+use crate::pages::{escape_html, private_account_layout as layout};
 
 /// The form exists only when a signed source store and cover worker are enabled.
 #[cfg(test)]

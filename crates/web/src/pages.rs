@@ -99,7 +99,7 @@ fn layout_with_seo(
                 "<script src=\"/assets/surprise.js\" defer></script>\\n</body>",
             );
     }
-    Html(html)
+    Html(crate::header_nav::render(html))
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.

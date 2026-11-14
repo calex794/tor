@@ -44,6 +44,7 @@ pub mod flow_exposure;
 mod flow_navigation;
 pub mod flow_runtime;
 pub mod flow_signal_worker;
+mod header_nav;
 mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;

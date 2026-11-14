@@ -1,5 +1,5 @@
 //! Signed-in reading library and book/creator-follow release feed.
-use super::{escape_html, layout};
+use super::{escape_html, private_account_layout as layout};
 use axum::response::Html;
 use std::fmt::Write;
 

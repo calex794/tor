@@ -395,7 +395,7 @@ async function inspect(page, name, where) {
         name + ': author dashboard section missing');
       assert(await page.locator('.dashboard-tile__link[href="/me/books/new"]').isVisible(),
         name + ': create book tile missing');
-      assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
+      assert(await page.locator('#main').getByRole('link', { name: 'Мои книги' }).isVisible(),
         name + ': author link missing');
       assert(!(await page.content()).includes('Анализ ваших переходов'),
         name + ': unimplemented personal analysis advertised');
@@ -680,7 +680,7 @@ async function inspect(page, name, where) {
         assert(response && response.status() === 404, name + ': private denied ' + denied);
       }
       await page.goto(base + '/me');
-      await page.getByRole('button', { name: 'Выйти' }).click();
+      await page.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль').fill('TestPassphrase2026');

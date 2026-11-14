@@ -13,12 +13,12 @@ pub(super) async fn my_library(
     Query(query): Query<LibraryQuery>,
 ) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
+        return private_response(Redirect::to("/login?next=/me/library"), &[]);
     };
     let digest = session_token_digest(&token);
     let user_id = match state.accounts.active_session_user(&digest).await {
         Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Ok(None) => return private_response(Redirect::to("/login?next=/me/library"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let books = match state.progress.continue_reading(user_id).await {
