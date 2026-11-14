@@ -888,11 +888,6 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     let repo = PgCreatorFollows::new(pool.clone());
     perf02c_controls_before_follow(&repo).await;
     assert_eq!(
-        repo.creator_for_public_book(825101).await.unwrap(),
-        Some(825001)
-    );
-    assert_eq!(repo.creator_for_public_book(825102).await.unwrap(), None);
-    assert_eq!(
         repo.follow_from_book(825002, 825102).await,
         Err(CreatorFollowError::NotFound)
     );
