@@ -150,10 +150,10 @@ async fn with_visitor(
         response
             .headers_mut()
             .append(header::VARY, HeaderValue::from_static("Cookie"));
-        if session.is_some() {
+        if session.is_some() && !response.headers().contains_key(header::CACHE_CONTROL) {
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-store"),
+                HeaderValue::from_static("no-store"),
             );
         }
         for cookie in csrf_cookies {
