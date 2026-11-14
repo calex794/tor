@@ -27,6 +27,8 @@ Required offsite assets:
 3. An age-encrypted recovery-key bundle containing **all currently needed and historical KEK versions**, plus an offline private age identity on a different trusted machine. Archive the key-bundle digest independently.
 4. An isolated TOR build with its exact Cargo features, compatible migrations/schema and disabled external side effects. All required runtime configuration must have a separately stored recovery copy.
 
+**Offline inventory tooling:** [I-11 pre-incident manifest and independent restore comparison](i11-offline-inventory-evidence.md) provides a local-only snapshot/verification CLI. Its result covers only the selected frozen object tree and does not replace external IAM validation, the recovered PostgreSQL registry or full TOR/KEK/ACL recovery.
+
 **Partial deletion trap:** `ops/backup-s3-offsite.sh` currently rejects an entirely empty source and byte-checks objects that the source **still lists**, using `rclone check --download --one-way`. That does **not** establish that objects deleted from the source *before the copy* are present. Nor does a nonempty bucket or object-count comparison prove complete recovery. The operator must verify against the independently retained pre-incident manifest and the recovered PostgreSQL `storage_objects` registry, including required prefixes and historical paid-version object IDs. An unreadable or missing manifest is **not** a successful complete-inventory check.
 
 ## 3. Execution phases — operator only
