@@ -54,14 +54,34 @@ The existing E-05 real PG test now verifies follower/owner/creator/public/hidden
 **Expected:** reader 20 → 18 SQLx operations on this fixture; guest remains 5. Real numbers must be taken from the new successful CI artifact, not assumed. Later PERF-02 slices should identify the remaining session and book-detail costs, especially active reader permission/revocation and adult/owner/paid cases, before further batching.
 
 
-## PERF-02d: reuse one verified GET actor across rating and follow UI
+## PERF-02d: one fresh A-session and follow-controls projection
 
-Code path review of `crates/accounts/src/repositories/authority.rs` identified a repeated expensive `active_session_user` call: it delegates to `session_actor`, which begins a read-only transaction, executes two setup SQL statements, retrieves the active session plus role flags and commits. The book-rating context invokes this once, then the follow-control renderer invokes it again within the same GET.
+This slice supersedes the initial attempt to pass a validated user id between
+ratings and follow rendering. An actor cached for the duration of a GET would
+miss a revocation that happens after the ratings query.
 
-This experiment (built on PERF-02c) passes the freshly verified, display-only actor from `book_rating_context::for_book` into `book_follow_page::render` through `cover_http::book_html`. If no verified actor context exists, existing direct live-session behavior is retained. The rating summary and like count still independently recheck Book visibility/age and the book TOC still has its own live session-bound B-owned SQL authorization. Follow/owner state is still fetched from PostgreSQL after the rating context. POST handlers do not consume this GET snapshot: CSRF, session, role and book permissions are verified afresh.
+Instead, `PgCreatorFollows::book_page_follow_state_for_session` receives the
+server-derived SHA-256 session digest and book id. One SELECT with a materialized
+active-session viewer and owner/creator/follow predicates returns zero rows if
+the session is absent, revoked, expired, or the account is inactive. The renderer
+shows the guest login link in that case. The creator and ownership projection
+is still B-owned and read-only; mutation endpoints keep independent A/CSRF and
+Book ACL checks. No new session cache, privilege, schema, migration, or worker.
 
-**Measurement must precede any claim:** run the same S059 HTTP/SQLx CI fixture against PERF-02c and PERF-02d. Compare actual `perf02_auth_enabled_book_comparison` counts and latency, and classify unexpected changes in error behavior. The CI 1,000-book BASIC fixture does not cover all modes; adult/pro_adult, revoked session, owner, hidden/pending deletion, and optional REC/editorial/CDN features require their existing independent integration/browser gates.
+The old `book_page_follow_state(user_id,book_id)` remains available for its
+existing domain tests; it is never used by HTTP to derive authority from a
+client-supplied id. PG tests cover missing, valid, revoked and expired synthetic
+sessions and state parity.
 
-The original S059 threshold `<=18` is retained until a fresh measured trace establishes a tighter regression value; no claim of an additional reduction is made in advance. The fallback from missing verified context is intentional so alternate book routes preserve previous behavior.
+**Benchmark:** baseline PERF-02c was measured at 5 guest / 18 reader SQLx
+completions for S059's isolated BASIC book. The new HTTP read replaces a full
+`PgAccounts::active_session_user` transaction plus a separate social-state
+SELECT with one social-state SELECT that verifies the current session. The exact
+saving must be taken from the current S059 CI artifact, not inferred from code.
+Security and latency gates remain mandatory; a cheap SQL-query count is not
+proof of lower PostgreSQL CPU or lower concurrency p95. Authenticated adult and
+owner scenarios require independent safety checks.
 
-PERF-02e candidates following this experiment: unify rating+like public aggregates in a single read-only query without losing independent age/visibility policies; improve per-stage numeric SQL tracing in disposable CI only; separately evaluate navigation, editorial and REC duplicate identity lookups. Do not cache actor identities across requests, alter `session_actor` bounded lock/statement timeouts, weaken protected-Book checks, or alter live databases.
+Existing bounded session_actor checks in the other HTTP paths are unchanged.
+This new direct read cannot be used for privileged mutations, private chapter
+delivery, entitlement grants, or financial actions.
