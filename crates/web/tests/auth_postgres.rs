@@ -254,11 +254,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         StatusCode::CONFLICT,
         "replay with altered payload must not mutate the original book"
     );
-    let book_page = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
-    assert_eq!(book_page.status(), StatusCode::OK);
-    let authored_html = body_of(book_page).await;
-    assert!(authored_html.contains("&lt;script&gt;"));
-    assert!(!authored_html.contains("<script>"));
+    h_author_index_cases::owner_workspace(&app, &session, &book_path).await;
     h_author_index_cases::owner_index(&app, &session, &book_path).await;
     let anon_detail = send(&app, request("GET", &book_path, "", "", ORIGIN)).await;
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
@@ -516,7 +512,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     );
     let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
     let published_html = body_of(published_detail).await;
-    assert!(published_html.contains("Опубликована"));
+    assert!(published_html.contains("Публикация включена"));
     assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
     assert_eq!(
         send(

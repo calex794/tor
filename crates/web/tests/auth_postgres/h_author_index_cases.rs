@@ -1,6 +1,26 @@
 //! H/UI-08: owner list, shared navigation and consistent logout CSRF.
 use super::*;
 
+pub(super) async fn owner_workspace(app: &Router, session: &str, book_path: &str) {
+    let page = send(app, request("GET", book_path, "", session, ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let token = csrf_cookie.split_once('=').unwrap().1;
+    let html = body_of(page).await;
+    assert!(html.contains("&lt;script&gt;"));
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!html.contains("aria-current=\"page\""));
+    assert!(
+        html.find("id=\"author-book-chapters\"").unwrap()
+            < html.find("id=\"author-book-settings\"").unwrap()
+    );
+    for field in html.split("name=\"csrf_token\" value=\"").skip(1) {
+        assert_eq!(field.split('"').next().unwrap(), token);
+    }
+}
+
 pub(super) async fn owner_index(app: &Router, session: &str, book_path: &str) {
     let guest = send(app, request("GET", "/me/books", "", "", ORIGIN)).await;
     assert_eq!(guest.status(), StatusCode::SEE_OTHER);

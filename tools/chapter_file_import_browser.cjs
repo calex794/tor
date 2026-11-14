@@ -121,9 +121,13 @@ function makeDocxXml(xml) {
         await page.waitForURL(base + '/me/books/' + id);
         assert(await page.getByText(/Черновик/).isVisible(),
           name + ': import published the book without consent');
-        assert(await page.getByText(/^№1\s*—/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№1', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 1: Начало', exact: true }).isVisible(),
           name + ': chapter one missing after import');
-        assert(await page.getByText(/^№2\s*—/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№2', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 2: <img src=x onerror=window.importX=1>', exact: true }).isVisible(),
           name + ': chapter two missing after import');
         assert(await page.getByRole('link', { name: 'Редактировать', exact: true }).count() === 2,
           name + ': imported draft chapters cannot be edited');
@@ -213,8 +217,12 @@ function makeDocxXml(xml) {
           name + ': ZIP members not naturally sorted');
         await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
         await page.waitForURL(base + '/me/books/' + id);
-        assert(await page.getByText(/№5 — Глава 5:/).isVisible()
-          && await page.getByText(/№10 — Глава 10:/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№5', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 5: Пятая', exact: true }).isVisible()
+          && await page.locator('.author-chapter-row').filter({
+            has: page.getByText('№10', { exact: true }),
+          }).getByRole('heading', { name: 'Глава 10: Десятая', exact: true }).isVisible(),
           name + ': ZIP chapter batch not saved');
 
         await importLink.click();

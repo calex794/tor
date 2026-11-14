@@ -70,6 +70,38 @@ async function inspectBookIndex(page, viewport, width, height, count) {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
+async function inspectBookWorkspace(page, viewport, width, height, state, count) {
+  assert(await page.locator('.account-sidebar').count() === 1, 'book workspace navigation missing');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
+    'book detail must not mark its parent list as the current page');
+  assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
+    'book detail must identify the author section');
+  assert(await page.locator('.author-chapter-row').count() === count, 'chapter list size changed');
+  const chapters = await page.locator('#author-book-chapters').boundingBox();
+  const settings = await page.locator('#author-book-settings').boundingBox();
+  assert(chapters.y < settings.y, 'settings must follow the chapter workspace');
+  for (const size of viewport === 'desktop' ? [1440,1024,768,390] : [390]) {
+    await page.setViewportSize({width:size,height:844});
+    for (const colorScheme of ['light','dark']) {
+      await page.emulateMedia({colorScheme});
+      if (size === 390) {
+        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
+          'book workspace navigation obscures the first screen');
+        const add = await page.getByRole('link',{name:'Добавить главу',exact:true}).boundingBox();
+        assert(add.y + add.height <= 844, 'add-chapter action is below the first screen');
+      }
+      await inspect(page, viewport+'-'+size+'-'+colorScheme, 'book-workspace-'+state);
+    }
+  }
+  await page.setViewportSize({width,height});
+  await page.emulateMedia({colorScheme:'light'});
+  await page.getByRole('link',{name:'Настройки',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  assert(await page.getByRole('link',{name:'Редактировать аннотацию',exact:true}).isVisible(),
+    'keyboard must reach all book settings');
+  await page.evaluate(()=>window.scrollTo(0,0));
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -108,6 +140,9 @@ async function inspectBookIndex(page, viewport, width, height, count) {
       ]);
       assert(createdLong.status() === 303, 'long-title creation returned ' + createdLong.status());
       await page.waitForURL(/\/me\/books\/\d+$/);
+      assert(await page.getByRole('heading', { level: 1 }).textContent() === longTitle,
+        'book workspace must preserve the complete escaped title');
+      await inspect(page, viewport, 'book-workspace-long-title');
       await page.goto(base + '/me/books');
       assert(await page.getByRole('link', { name: longTitle, exact: true }).count() === 1,
         'long title must remain complete and escaped');
@@ -116,6 +151,7 @@ async function inspectBookIndex(page, viewport, width, height, count) {
       await page.goto(base + '/me/books/' + bookId);
       assert(await page.getByRole('link', { name: 'Добавить главу' }).isVisible(),
         viewport + ': missing author chapter action');
+      await inspectBookWorkspace(page,viewport,width,height,'empty',0);
       await inspect(page, viewport, 'draft');
       const description = 'Аннотация ' + viewport + ': <script>window.seoInjected=true</script> & текст';
       await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
@@ -149,6 +185,7 @@ async function inspectBookIndex(page, viewport, width, height, count) {
         viewport + ': saving chapter must not publish the book');
       assert(await page.getByRole('button', { name: 'Опубликовать книгу' }).isVisible(),
         viewport + ': missing explicit publishing control');
+      await inspectBookWorkspace(page,viewport,width,height,'draft',1);
       await inspect(page, viewport, 'chapter-saved');
       await page.getByRole('link', { name: 'Редактировать', exact: true }).click();
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
@@ -212,6 +249,7 @@ async function inspectBookIndex(page, viewport, width, height, count) {
         viewport + ': saved free chapter must be released immediately');
       assert(await page.getByRole('link', { name: 'Выпустить главу' }).count() === 0,
         viewport + ': released free chapter still asks for confirmation');
+      await inspectBookWorkspace(page,viewport,width,height,'published',2);
       await inspect(page, viewport, 'second-published-author');
 
       const publicBook = await page.goto(base + '/books/' + bookId);
@@ -253,6 +291,8 @@ async function inspectBookIndex(page, viewport, width, height, count) {
         viewport + ': S058 new draft did not open release confirmation');
       assert(await page.getByText('PRIVATE S058 browser content').isVisible(),
         viewport + ': scheduled author preview lost exact private draft');
+      await page.goto(base + '/me/books/' + bookId);
+      await inspectBookWorkspace(page,viewport,width,height,'delayed',3);
       const beforeTime = await page.goto(base + '/reader/' + scheduledDraftId);
       assert(beforeTime && beforeTime.status() === 404,
         viewport + ': scheduled free chapter exposed before due time');
