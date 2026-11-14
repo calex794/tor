@@ -6,6 +6,7 @@ the tests themselves or authorize enabling the 18+/21+ editor in production.
 """
 from pathlib import Path
 import unittest
+from ci_cargo_commands import matching_cargo_test_commands
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -17,26 +18,33 @@ class S020CrossSurfaceCoverage(unittest.TestCase):
     def test_required_disposable_postgres_suites_are_in_both_workflows(self):
         # The former S020 handler was silently reverted along with its tests.
         # A future cross-line merge must not be green after deleting *either*.
-        commands = (
-            "cargo test -p tor-books --test shadow_age_visibility_pg",
-            "cargo test -p tor-search --test actor_catalog_age_pg",
-            "cargo test -p tor-books --test title_suggestions_pg",
-            "cargo test -p tor-web --test public_related_http_pg",
-            "cargo test -p tor-web --test s020_age_editor_http_pg",
-            "cargo test -p tor-web --test s020_age_editor_browser_pg",
-            "cargo test -p tor-recommendations --test slices_pg f_05_",
-            "cargo test -p tor-recommendations --test book_stars_pg",
-            "cargo test -p tor-web --test s016_book_shares_http_pg",
-            "cargo test -p tor-web --test paid_grants_http_pg",
+        required_targets = (
+            ("tor-books", "shadow_age_visibility_pg", None),
+            ("tor-search", "actor_catalog_age_pg", None),
+            ("tor-books", "title_suggestions_pg", None),
+            ("tor-web", "public_related_http_pg", None),
+            ("tor-web", "s020_age_editor_http_pg", None),
+            ("tor-web", "s020_age_editor_browser_pg", None),
+            ("tor-recommendations", "slices_pg", "f_05_"),
+            ("tor-recommendations", "book_stars_pg", None),
+            ("tor-web", "s016_book_shares_http_pg", None),
+            ("tor-web", "paid_grants_http_pg", None),
         )
         for workflow in (
             ".github/workflows/tor-integration.yml",
             ".github/workflows/tor-pg-runtime.yml",
         ):
             source = self.read(workflow)
-            for command in commands:
-                with self.subTest(workflow=workflow, command=command):
-                    self.assertEqual(source.count(command), 1)
+            for package, target, test_filter in required_targets:
+                with self.subTest(workflow=workflow, package=package, target=target):
+                    commands = matching_cargo_test_commands(source, package, target)
+                    if test_filter is not None:
+                        commands = [
+                            command for command in commands
+                            if test_filter in command.partition(" -- ")[0].split()
+                        ]
+                    self.assertEqual(len(commands), 1)
+
 
     def test_real_paid_encrypted_minio_and_live_revocation_remain_required(self):
         workflow = self.read(".github/workflows/tor-integration.yml")

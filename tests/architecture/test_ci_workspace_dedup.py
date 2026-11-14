@@ -1,6 +1,7 @@
 """Keep workspace Rust gates single-owned without weakening PostgreSQL acceptance."""
 from pathlib import Path
 import unittest
+from ci_cargo_commands import matching_cargo_test_commands
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -40,10 +41,15 @@ class WorkspaceDedupTests(unittest.TestCase):
         for command in (
             "cargo test -p tor-web --test postgres_http -- --ignored",
             "cargo test -p tor-web --test book_follow_http_pg -- --ignored",
-            "cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored",
         ):
             with self.subTest(command=command):
                 self.assertIn(command, postgres)
+        storage = matching_cargo_test_commands(
+            postgres, "tor-storage", "storage_registry_pg"
+        )
+        self.assertEqual(len(storage), 1)
+        self.assertIn("--features pg", storage[0])
+        self.assertIn("-- --ignored", storage[0])
 
 
 if __name__ == "__main__":

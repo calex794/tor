@@ -6,6 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
+from ci_cargo_commands import matching_cargo_test_commands
 from ci_test_map import (
     ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
@@ -101,12 +102,48 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertEqual((parts[0], parts[2]), ("crates", "tests"))
                 package = "tor-" + parts[1]
                 test_target = Path(path).stem
-                invocation = (r"\bcargo test -p " + re.escape(package)
-                              + r"(?: [^\n]*?)? --test " + re.escape(test_target)
-                              + r"(?=\s|$)")
-                self.assertRegex(pg, invocation)
-                self.assertRegex(manual_pg, invocation)
-                self.assertNotRegex(other_jobs, invocation)
+                # A batch may select multiple --test targets with shell
+                # continuations, but a target must still belong to exactly
+                # one Cargo command for its own crate in each PostgreSQL job.
+                required_invocations = matching_cargo_test_commands(
+                    pg, package, test_target
+                )
+                manual_invocations = matching_cargo_test_commands(
+                    manual_pg, package, test_target
+                )
+                # Some targets run repeatedly with distinct test filters.
+                # All repeats must remain, and manual/required jobs must agree.
+                self.assertTrue(required_invocations)
+                self.assertEqual(required_invocations, manual_invocations)
+                self.assertEqual(
+                    matching_cargo_test_commands(other_jobs, package, test_target), []
+                )
+
+    def test_cargo_command_parser_respects_batched_targets_and_boundaries(self):
+        source = r"""
+          cargo test -p tor-books \
+            --test first_pg \
+            --test second_pg \
+            -- --ignored --test-threads=1
+          cargo test -p tor-web --test other_pg -- --ignored
+        """
+        self.assertEqual(
+            len(matching_cargo_test_commands(source, "tor-books", "first_pg")), 1
+        )
+        self.assertEqual(
+            len(matching_cargo_test_commands(source, "tor-books", "second_pg")), 1
+        )
+        self.assertEqual(
+            matching_cargo_test_commands(source, "tor-books", "other_pg"), []
+        )
+        self.assertEqual(
+            matching_cargo_test_commands(source, "tor-web", "second_pg"), []
+        )
+        # Another command's --test token must never be attributed to this one.
+        source = "cargo test -p tor-books --test first_pg\n  --test missing_pg\n"
+        self.assertEqual(
+            matching_cargo_test_commands(source, "tor-books", "missing_pg"), []
+        )
 
     def test_postgres_chromium_installs_only_headless_shell(self):
         # Keep the real Chromium/OS dependencies; download only the browser
