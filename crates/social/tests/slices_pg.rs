@@ -958,13 +958,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
             .await
             .unwrap();
     assert_eq!(purchases, 0, "creator follow must never grant paid access");
-    let source: (i64, String) =
-        sqlx::query_as("SELECT source_book_id,source_kind FROM creator_follow_periods WHERE id=$1")
-            .bind(second)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(source, (825101, "book_page".to_owned()));
+    e05_assert_follow_source(&pool, second).await;
 
     // Book becomes private: the subscriber can still unsubscribe, but the
     // source metadata must never appear in the subscriber's listing.
