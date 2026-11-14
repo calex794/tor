@@ -31,6 +31,7 @@ fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
 }
 
 use super::*;
+use tor_books::services::authoring::ChapterAccess;
 
 #[test]
 fn b12_owner_pages_keep_navigation_for_long_books() {
