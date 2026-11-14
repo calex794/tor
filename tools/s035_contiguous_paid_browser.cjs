@@ -235,7 +235,7 @@ async function testViewport(browser, buyer, viewport) {
       pg("UPDATE chapter_publications SET version_id=" + v2 +
         " WHERE chapter_id=" + chapter.id);
       await page.goto(SITE + "/me");
-      await page.getByRole("button", { name: "Выйти", exact: true }).click();
+      await page.getByLabel("Меню личного кабинета").getByRole("button", { name: "Выйти", exact: true }).click();
       await page.waitForURL("**/login");
       const revoked = await context.request.get(SITE + progressPath);
       assert.equal(revoked.status(), 401);
