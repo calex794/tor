@@ -60,3 +60,89 @@ async fn e05_assert_follow_source(pool: &PgPool, id: i64) {
             .unwrap();
     assert_eq!(source, (825101, "book_page".to_owned()));
 }
+
+async fn perf02d_session_controls(repo: &PgCreatorFollows, pool: &PgPool) {
+    // Synthetic digest in a disposable PG fixture, never a real cookie.
+    let digest = [0xd2_u8; 32];
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES(825002,$1,now()+interval '1 hour')",
+    )
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    let (reader, state) = repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .expect("live session must render its own follow controls");
+    assert_eq!(reader, 825002);
+    assert_eq!(
+        state,
+        repo.book_page_follow_state(reader, 825101).await.unwrap()
+    );
+    let (_, hidden) = repo
+        .book_page_follow_state_for_session(&digest, 825102)
+        .await
+        .unwrap()
+        .expect("live session may read display projections");
+    assert_eq!(hidden.creator_user_id, None);
+    assert!(!hidden.is_owner);
+    let owner_digest = [0xd3_u8; 32];
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES(825001,$1,now()+interval '1 hour')",
+    )
+    .bind(owner_digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    let (owner, owner_state) = repo
+        .book_page_follow_state_for_session(&owner_digest, 825101)
+        .await
+        .unwrap()
+        .expect("live owner session may render owner controls");
+    assert_eq!(owner, 825001);
+    assert!(owner_state.is_owner);
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(owner_digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none(), "revoked sessions must not render author controls");
+    sqlx::query(
+        "UPDATE sessions SET revoked_at=NULL,
+                created_at=now()-interval '2 hours',
+                expires_at=now()-interval '1 hour'
+         WHERE token_hash=$1",
+    )
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none(), "expired sessions must not render author controls");
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+}

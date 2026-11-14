@@ -52,3 +52,36 @@ PERF-02c introduces `PgCreatorFollows::book_page_follow_state`: one parameterize
 The existing E-05 real PG test now verifies follower/owner/creator/public/hidden and follow/unfollow parity; the existing C-15 HTTP test verifies rendering and access effects; the existing S059 operator trace runs the same paired anonymous/verified-reader measurement and requires a **median at most 18 completed SQLx operations** for the verified reader in its fixed fixture (before: 20). This is an isolated regression guard and must not be interpreted as live production SLO or applied to other role/feature configurations.
 
 **Expected:** reader 20 → 18 SQLx operations on this fixture; guest remains 5. Real numbers must be taken from the new successful CI artifact, not assumed. Later PERF-02 slices should identify the remaining session and book-detail costs, especially active reader permission/revocation and adult/owner/paid cases, before further batching.
+
+
+## PERF-02d: one fresh A-session and follow-controls projection
+
+This slice supersedes the initial attempt to pass a validated user id between
+ratings and follow rendering. An actor cached for the duration of a GET would
+miss a revocation that happens after the ratings query.
+
+Instead, `PgCreatorFollows::book_page_follow_state_for_session` receives the
+server-derived SHA-256 session digest and book id. One SELECT with a materialized
+active-session viewer and owner/creator/follow predicates returns zero rows if
+the session is absent, revoked, expired, or the account is inactive. The renderer
+shows the guest login link in that case. The creator and ownership projection
+is still B-owned and read-only; mutation endpoints keep independent A/CSRF and
+Book ACL checks. No new session cache, privilege, schema, migration, or worker.
+
+The old `book_page_follow_state(user_id,book_id)` remains available for its
+existing domain tests; it is never used by HTTP to derive authority from a
+client-supplied id. PG tests cover missing, valid, revoked and expired synthetic
+sessions and state parity.
+
+**Benchmark:** baseline PERF-02c was measured at 5 guest / 18 reader SQLx
+completions for S059's isolated BASIC book. The new HTTP read replaces a full
+`PgAccounts::active_session_user` transaction plus a separate social-state
+SELECT with one social-state SELECT that verifies the current session. The exact
+saving must be taken from the current S059 CI artifact, not inferred from code.
+Security and latency gates remain mandatory; a cheap SQL-query count is not
+proof of lower PostgreSQL CPU or lower concurrency p95. Authenticated adult and
+owner scenarios require independent safety checks.
+
+Existing bounded session_actor checks in the other HTTP paths are unchanged.
+This new direct read cannot be used for privileged mutations, private chapter
+delivery, entitlement grants, or financial actions.
