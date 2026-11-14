@@ -39,7 +39,7 @@ class DenseSearchPlanProfile(unittest.TestCase):
         self.assertIn("SET LOCAL enable_bitmapscan = off;", sql)
         self.assertIn("SET LOCAL enable_seqscan = off;", sql)
         self.assertEqual(sql.count("EXPLAIN (ANALYZE, BUFFERS, SETTINGS)"), 4)
-        self.assertNotRegex(sql, r"(?im)^[ \\t]*(?:CREATE|DROP|ALTER|TRUNCATE|INSERT|UPDATE|DELETE|GRANT|REVOKE)\\b")
+        self.assertNotRegex(sql, r"(?im)^[ \t]*(?:CREATE|DROP|ALTER|TRUNCATE|INSERT|UPDATE|DELETE|GRANT|REVOKE)\b")
         for marker in (
             "PERF04_AB_DEFAULT_DENSE_LOAD", "PERF04_AB_DEFAULT_RARE_9999",
             "PERF04_AB_ORDERED_DENSE_LOAD", "PERF04_AB_ORDERED_RARE_9999",
