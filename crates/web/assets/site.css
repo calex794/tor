@@ -596,3 +596,35 @@ button:disabled, input:disabled { cursor: not-allowed; }
   font-variant-numeric: tabular-nums;
   padding: 0.5rem 0.25rem;
 }
+
+/* F-SURPRISE-04B: responsive private report, with accessible local table scrolling. */
+.surprise-admin, .surprise-admin .container, .surprise-admin section {
+  min-width: 0;
+  max-width: 100%;
+}
+.surprise-admin :is(h1, h2, p, label, li) { overflow-wrap: anywhere; }
+.surprise-admin form { max-width: 100%; }
+.surprise-admin form:not([style]) > label {
+  display: block;
+  max-width: 100%;
+  margin-block: 9px;
+}
+.surprise-admin :is(input, textarea, select) {
+  min-width: 0;
+  max-width: 100%;
+}
+.surprise-admin .surprise-experiment-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.surprise-admin .surprise-experiment-scroll table {
+  border-collapse: collapse;
+  min-width: 720px;
+}
+.surprise-admin .surprise-experiment-scroll :is(th, td) {
+  text-align: left;
+  padding: 4px 8px;
+  white-space: nowrap;
+}

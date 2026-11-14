@@ -4,6 +4,8 @@ use sqlx::PgPool;
 pub mod admin;
 mod content;
 mod decisions;
+pub mod experiment;
+mod maintenance;
 
 #[derive(Clone)]
 pub struct PgSurprises {

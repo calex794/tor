@@ -17,7 +17,7 @@ assert.match(base,/^http:\/\/127\.0\.0\.1:\d+$/);fs.mkdirSync(shots,{recursive:t
 function sql(statement){return execFileSync('psql',['-XAtq','-v','ON_ERROR_STOP=1','--dbname',db,'-c',statement],{encoding:'utf8',env:{...process.env,PGOPTIONS:'-c statement_timeout=5000 -c lock_timeout=2000'}}).trim();}
 function num(statement){const value=Number(sql(statement));assert.ok(Number.isSafeInteger(value));return value;}
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
-async function until(predicate,message){const end=Date.now()+7000;while(Date.now()<end){if(await predicate())return;await pause(40);}throw new Error(message);}
+async function until(predicate,message,timeoutMs=7000){const end=Date.now()+timeoutMs;while(Date.now()<end){if(await predicate())return;await pause(40);}throw new Error(message);}
 function digest(proof){assert.match(proof,/^[A-Za-z0-9_-]{43}$/);return createHash('sha256').update(Buffer.from(proof,'base64url')).digest('hex');}
 function counts(proof){const raw=sql(`SELECT rendered::int||','||viewed::int||','||clicked::int FROM flow_observation_proofs WHERE digest=decode('${digest(proof)}','hex')`);return raw?raw.split(',').map(Number):null;}
 async function privateResponse(response,status=200){assert.equal(response.status(),status);const h=await response.allHeaders();assert.equal(h['cache-control'],'no-store');assert.match(h['x-robots-tag'],/noindex/);}
@@ -69,7 +69,15 @@ async function position(card,left){await card.evaluate((element,x)=>{Object.assi
     await navigationCard.locator('a[data-flow-link]').click({position:{x:20,y:20}});await page.waitForURL(base+`/books/${book}`,{timeout:4000});await until(()=>!!held,'click callback was not attempted');
     assert.equal(counts(navigationProof)?.[2]||0,0);await held.abort('failed').catch(()=>{});await page.unroute('**/api/v1/flow/observations');
     // A proof cannot keep a now-unavailable book observable.
-    sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);assert.equal((await page.request.post(base+'/api/v1/flow/observations',{headers:{Origin:base,'X-Tor-Observation':'1'},data:view})).status(),403);
+    sql(`UPDATE books SET admin_hold=true WHERE id=${book}`);
+    // Under transient PostgreSQL contention the observation gate fails closed with 503
+    // and renews its health lease later. Never accept a successful callback, and
+    // require a definitive 403 for the withdrawn book once the gate recovers.
+    await until(async()=>{
+      const result=await page.request.post(base+'/api/v1/flow/observations',{headers:{Origin:base,'X-Tor-Observation':'1'},data:view});
+      assert.ok([403,503].includes(result.status()),`withdrawn book callback returned ${result.status()}`);
+      return result.status()===403;
+    },'withdrawn book remained unavailable; did not confirm forbidden 403',25000);
     await privateResponse(await ap.goto(base+`/admin/audience/exposure?group=genre&label=${label}`));assert.equal(await ap.locator('[data-testid="exposure-row"]').count(),0);
     assert.equal(sql(`SELECT count(*) FROM rec_subjects WHERE user_id=${actor}`),'0');
     console.log('EXPOSURE_BROWSER_PASS noJS unknown; native admin forms; 390/1440; actual 60%/1s reset; one-shot; replay/reorder; no identity/storage; delayed callback cannot block navigation; live book withdrawal');

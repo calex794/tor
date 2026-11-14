@@ -46,7 +46,7 @@ fn valid_content(input: &NewSurprise<'_>) -> bool {
         && input.book_id.is_none_or(|id| id > 0)
 }
 
-async fn live_admin(
+pub(super) async fn live_admin(
     tx: &mut Transaction<'_, Postgres>,
     digest: &[u8; 32],
 ) -> Result<i64, SurpriseError> {
@@ -99,9 +99,7 @@ impl PgSurprises {
         Ok((enabled, probability, experiment_enabled, content))
     }
 
-    /// Last 7 complete UTC days, only arm totals and privacy-suppressed
-    /// cohorts. These operational counters are NOT real icon impressions
-    /// and cannot establish a causal effect on reading.
+    /// Operational counts are NOT real icon impressions or reading uplift.
     pub async fn admin_experiment_summary(
         &self,
         digest: &[u8; 32],
@@ -206,8 +204,6 @@ impl PgSurprises {
         }
         let mut tx = self.pool.begin().await?;
         let actor = live_admin(&mut tx, digest).await?;
-        // Only a freshly authored draft may become approved. A disabled row
-        // cannot reactivate without an explicit new review.
         let affected = sqlx::query(
             "UPDATE surprise_content SET state=$2 WHERE id=$1
              AND ((state='draft' AND $2='approved')
@@ -246,15 +242,18 @@ impl PgSurprises {
         }
         let mut tx = self.pool.begin().await?;
         let actor = live_admin(&mut tx, digest).await?;
-        sqlx::query(
+        // A changed running protocol stops the trial. Audit the actual guarded
+        // state returned by PostgreSQL, not the unaccepted requested checkbox.
+        let (enabled, probability, experiment_enabled): (bool, i16, bool) = sqlx::query_as(
             "UPDATE surprise_runtime_policy
              SET enabled=$1,probability_per_mille=$2,experiment_enabled=$3,
-                 revision=revision+1,updated_at=now() WHERE singleton",
+                 revision=revision+1,updated_at=now() WHERE singleton
+             RETURNING enabled,probability_per_mille,experiment_enabled",
         )
         .bind(enabled)
         .bind(probability)
         .bind(experiment_enabled)
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
         sqlx::query(
             "INSERT INTO surprise_admin_events(actor_user_id,action,details)
