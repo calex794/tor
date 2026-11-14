@@ -20,6 +20,9 @@ use tor_accounts::{
 };
 use tor_observability::services::auth::LoginOutcome;
 
+mod return_target;
+use return_target::auth_return_target;
+
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
     email: String,
@@ -40,27 +43,10 @@ pub(super) struct LoginForm {
     next: Option<String>,
 }
 
-/// Only a canonical free reader or the new-book form can be an auth return target.
-/// The destination still enforces its own authentication and access policy.
+/// A bounded local return target; the destination still verifies live access.
 #[derive(Deserialize)]
 pub(super) struct AuthReturnQuery {
     next: Option<String>,
-}
-
-fn auth_return_target(raw: Option<&str>) -> Option<String> {
-    let raw = raw?;
-    if raw == "/me/books/new" {
-        return Some(raw.to_owned());
-    }
-    let raw_id = raw.strip_prefix("/read/")?;
-    if raw_id.is_empty()
-        || raw_id.starts_with('0')
-        || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return None;
-    }
-    let id = raw_id.parse::<i64>().ok().filter(|value| *value > 0)?;
-    Some(format!("/read/{id}"))
 }
 
 pub(super) async fn show_registration(
@@ -524,7 +510,7 @@ pub(super) async fn login(
             return login_storage_error(LoginOutcome::SessionUnavailable);
         }
     }
-    // Only an allowlisted local destination is accepted; otherwise /me.
+    // Only an explicitly allowed local destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(
@@ -566,7 +552,3 @@ mod login_error_tests {
         assert!(String::from_utf8_lossy(&html).contains("Вход временно недоступен"));
     }
 }
-
-#[cfg(test)]
-#[path = "account_form_http/return_tests.rs"]
-mod safe_auth_return_tests;

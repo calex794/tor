@@ -97,7 +97,7 @@ pub fn password_change_form(csrf: &str, message: Option<&str>) -> Html<String> {
     let body = include_str!("../../templates/password_change.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FORM_ERROR-->", &banner);
-    layout(
+    private_account_layout(
         "Смена пароля",
         "Настройки безопасности учётной записи.",
         &body,
@@ -259,7 +259,7 @@ pub fn private_account_layout(title: &str, description: &str, content: &str) -> 
         html.0
             .replace(
                 "<a class=\"site-nav__link\" href=\"/login\">Войти</a>",
-                "<a class=\"site-nav__link\" href=\"/me\" aria-current=\"page\">Мой кабинет</a>",
+                "<a class=\"site-nav__link\" href=\"/me\">Мой кабинет</a>",
             )
             .replace(
                 "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
@@ -494,7 +494,7 @@ mod tests {
     fn authenticated_pages_show_profile_instead_of_login_links() {
         let html =
             private_account_layout("Уведомления", "Ваши уведомления", "<p>Уведомления</p>").0;
-        assert!(html.contains("href=\"/me\" aria-current=\"page\">Мой кабинет</a>"));
+        assert!(html.contains("href=\"/me\">Мой кабинет</a>"));
         assert!(!html.contains("href=\"/login\">Войти</a>"));
         assert!(!html.contains("href=\"/register\">Регистрация</a>"));
     }

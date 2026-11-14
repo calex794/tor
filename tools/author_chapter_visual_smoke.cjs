@@ -423,11 +423,12 @@ async function inspect(page, viewport, name) {
         await reader.goto(base + '/me/library');
         assert(new URL(reader.url()).pathname === '/login',
           viewport + ': revoked reader session still accesses personal library');
+        assert(new URL(reader.url()).searchParams.get('next') === '/me/library',
+          viewport + ': library login lost its return destination');
         await reader.getByLabel('Электронная почта').fill(readerEmail);
         await reader.getByLabel('Пароль').fill('ReaderChapterPassword2026');
         await reader.getByRole('button', { name: 'Войти', exact: true }).click();
-        await reader.waitForURL('**/me');
-        await reader.goto(base + '/me/library');
+        await reader.waitForURL(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
         await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,

@@ -1,5 +1,5 @@
 //! Server-rendered controls for future external delivery cadence.
-use super::{escape_html, layout};
+use super::{escape_html, private_account_layout as layout};
 use axum::response::Html;
 use tor_reading::services::{
     notification_preferences::DeliveryMode, notification_send_time::PreferredSendHour,

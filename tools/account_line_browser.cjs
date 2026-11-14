@@ -66,6 +66,44 @@ async function inspectAccountNavigation(page,width) {
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
     const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
     const second=await login(browser,email,password);
+    for (const url of ['/me/library','/me/settings','/me/settings/password',
+      '/me/security/sessions','/me/books','/me/books/new']) {
+      await alice.page.goto(base+url);
+      const header=alice.page.locator('.site-header__auth');
+      assert.equal(await header.locator('a[href="/login"], a[href="/register"]').count(),0,
+        url+': private page must not show guest authentication');
+      assert.equal(await header.locator('a[href="/me"]').count(),1);
+      assert.equal(await alice.page.locator('.site-mobile-nav a[href="/register"]').count(),0);
+    }
+    const returning=await browser.newContext({viewport:{width:390,height:844}});
+    try {
+      const page=await returning.newPage();
+      await page.goto(base+'/me/library');
+      assert.equal(new URL(page.url()).pathname,'/login');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');
+      await page.locator('.auth-card__footer a[href^="/register"]').click();
+      await page.waitForURL('**/register?next=/me/library');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');
+      await page.locator('.auth-card__footer a[href^="/login"]').click();
+      await page.locator('[name=email]').fill(`b-browser-${nonce}@example.invalid`);
+      await page.locator('[name=password]').fill(password);
+      await Promise.all([page.waitForURL(base+'/me/library'),
+        page.locator('form[action="/login"] button').click()]);
+      assert.equal(await page.locator('.site-header__auth a[href="/login"]').count(),0);
+      await fs.mkdir(shots,{recursive:true});
+      await page.screenshot({path:path.join(shots,'library-login-return-390.png'),fullPage:true});
+      await returning.clearCookies();
+      await page.goto(base+'/me/books/new');
+      assert.equal(new URL(page.url()).pathname,'/login');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/books/new');
+      await page.locator('[name=email]').fill(`b-browser-${nonce}@example.invalid`);
+      await page.locator('[name=password]').fill(password);
+      await Promise.all([page.waitForURL(base+'/me/books/new'),
+        page.locator('form[action="/login"] button').click()]);
+      assert.equal(await page.locator('.site-header__auth a[href="/login"]').count(),0);
+      assert.equal(await page.locator('form[action="/me/books"]').count(),1);
+      await page.screenshot({path:path.join(shots,'new-book-login-return-390.png'),fullPage:true});
+    } finally {await returning.close();}
     // Account and notification layout must remain readable at desktop/mobile widths.
     await fs.mkdir(shots,{recursive:true});
     for (const width of [1440,390]) {
