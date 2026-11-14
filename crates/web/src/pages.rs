@@ -261,7 +261,15 @@ fn book_detail_body(
     batch_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&book.title);
-    let language = escape_html(&book.language);
+    let language = escape_html(match book.language.as_str() {
+        "ru" => "Русский",
+        "en" => "Английский",
+        "zh" => "Китайский",
+        "ko" => "Корейский",
+        "ja" => "Японский",
+        "vi" => "Вьетнамский",
+        other => other,
+    });
     let (description_html, meta_description) = match published_description {
         Some(raw) if !raw.trim().is_empty() => {
             let clean = raw.trim();
