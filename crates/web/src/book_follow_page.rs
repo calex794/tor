@@ -61,22 +61,18 @@ impl FollowBookControl {
         let Some(token) = self.cookies.session_token(headers) else {
             return Ok(login());
         };
-        let user_id = self
-            .accounts
-            .active_session_user(&session_token_digest(&token))
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let Some(user_id) = user_id else {
-            return Ok(login());
-        };
         let book_id_sql = i64::try_from(book_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-        // The caller already passed B-owned book authorization; this single
-        // projection only renders controls. Every POST rechecks live rights.
+        // One SQL statement rechecks the A session and reads B-owned display
+        // controls in a single snapshot, including a newly revoked session.
+        // Every POST independently rechecks live session, rights and CSRF.
         let state = self
             .creator_follows
-            .book_page_follow_state(user_id, book_id_sql)
+            .book_page_follow_state_for_session(&session_token_digest(&token), book_id_sql)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        let Some((user_id, state)) = state else {
+            return Ok(login());
+        };
         let (csrf, cookies) = self.cookies.csrf_for_page(headers);
         let (action, label) = if state.following_book {
             ("unfollow", "Отписаться от книги")
