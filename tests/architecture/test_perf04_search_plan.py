@@ -81,5 +81,21 @@ class DenseSearchPlanProfile(unittest.TestCase):
         self.assertIn("EXECUTEperf04_public_fts('9999',0,21,NULL,NULL,NULL,NULL);", prof)
 
 
+    def test_true_100k_basic_control_runs_after_original_http_profiles(self):
+        script = (ROOT / "tests/load/catalog_dense_100k_ci.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('GITHUB_EVENT_NAME" == pull_request', script)
+        self.assertIn('PGHOST" == 127.0.0.1', script)
+        self.assertIn('"/tor_ci', script)
+        http_end = script.index('cat "$out/results.tsv"')
+        control = script.index('perf04-fts-100k-basic-visible-ab.txt')
+        self.assertGreater(control, http_end)
+        self.assertIn("ANALYZE books", script)
+        self.assertIn("basic_visible", script)
+        self.assertIn('"$basic_visible" -ge 100000', script)
+
+
+
 if __name__ == "__main__":
     unittest.main()
