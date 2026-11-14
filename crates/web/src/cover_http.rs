@@ -123,14 +123,13 @@ pub(super) async fn book_html(
     headers: &axum::http::HeaderMap,
     book_id: u64,
     html: axum::response::Html<String>,
-    verified_viewer: Option<crate::book_rating_context::VerifiedBookViewer>,
 ) -> Response {
     let (html, origin) = match opt_in_cdn_html(state.covers.as_ref(), html, &[book_id]).await {
         Ok(value) => value,
         Err(status) => return book_error(state, status).await,
     };
     let mut response =
-        book_follow_page::attach(&state.follow_control, headers, book_id, html, verified_viewer).await;
+        book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
     if crate::auth::surprise_http::enabled() {
         if let Some(value) = response.headers().get("content-security-policy") {
             if let Ok(policy) = value.to_str() {
