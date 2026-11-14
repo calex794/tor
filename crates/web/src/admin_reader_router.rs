@@ -2,8 +2,7 @@
 //! This does not depend on a private G adapter or enable paid checkout.
 use super::{
     auth, auth_cookies, book_follow_page, header_nav, make_router_with_paid_checkout,
-    paid_grants_http, ril,
-    ReaderModes,
+    paid_grants_http, ril, ReaderModes,
 };
 use axum::Router;
 use std::sync::Arc;

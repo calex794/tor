@@ -7,10 +7,7 @@ use axum::{
     response::Response,
     Router,
 };
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 
 use crate::auth_cookies::CookiePolicy;
 
@@ -41,11 +38,27 @@ fn html_route(method: &Method, path: &str) -> bool {
     if method != &Method::GET {
         return false;
     }
-    !["/assets/", "/api/", "/covers/", "/sitemaps/", "/favicon", "/icon-", "/apple-touch-icon", "/ops/"]
-        .iter()
-        .any(|prefix| path.starts_with(prefix))
-        && !["/healthz", "/readyz", "/metrics", "/robots.txt", "/sitemap.xml", "/site.webmanifest"]
-            .contains(&path)
+    ![
+        "/assets/",
+        "/api/",
+        "/covers/",
+        "/sitemaps/",
+        "/favicon",
+        "/icon-",
+        "/apple-touch-icon",
+        "/ops/",
+    ]
+    .iter()
+    .any(|prefix| path.starts_with(prefix))
+        && ![
+            "/healthz",
+            "/readyz",
+            "/metrics",
+            "/robots.txt",
+            "/sitemap.xml",
+            "/site.webmanifest",
+        ]
+        .contains(&path)
 }
 
 async fn with_visitor(
@@ -137,9 +150,11 @@ fn render_for(html: &str, visitor: &Visitor) -> String {
     } else {
         (
             r#"<a class="site-mobile-nav__link" href="/login">Войти</a>
-<a class="site-mobile-nav__link" href="/register">Регистрация</a>"#.to_owned(),
+<a class="site-mobile-nav__link" href="/register">Регистрация</a>"#
+                .to_owned(),
             r#"<a class="site-nav__link" href="/login">Войти</a>
-<a class="button button--small" href="/register">Регистрация</a>"#.to_owned(),
+<a class="button button--small" href="/register">Регистрация</a>"#
+                .to_owned(),
         )
     };
     html.replace("<!--HEADER_MOBILE_AUTH-->", &mobile)
