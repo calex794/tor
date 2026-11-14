@@ -65,8 +65,8 @@ fn html_route(method: &Method, path: &str) -> bool {
         .contains(&path)
 }
 
-// Read-only administrative reports must never issue a new CSRF cookie on GET.
-// Reuse an existing token if present; logout stays available from /me otherwise.
+// Read-only administrative reports must neither issue CSRF cookies nor expose
+// a preexisting CSRF token in HTML. Logout remains available from /me.
 fn may_issue_header_csrf(path: &str) -> bool {
     path != "/admin" && !path.starts_with("/admin/")
 }
@@ -140,10 +140,9 @@ async fn with_visitor(
             }
             (Some(token), cookies)
         } else {
-            let token =
-                crate::auth_cookies::cookie_value(request.headers(), state.cookies.csrf_name())
-                    .filter(|value| state.cookies.valid_csrf(request.headers(), value));
-            (token, Vec::new())
+            // Admin report views stay token-free even when the browser already
+            // has a CSRF cookie. Logout remains reachable from /me.
+            (None, Vec::new())
         }
     } else {
         (None, Vec::new())
@@ -251,6 +250,7 @@ mod tests {
         assert!(may_issue_header_csrf("/me/books/new"));
         assert!(!may_issue_header_csrf("/admin"));
         assert!(!may_issue_header_csrf("/admin/audience/reading"));
+        assert!(!may_issue_header_csrf("/admin/mail/book-rooms"));
         let html = render_for(
             include_str!("../templates/layout.html"),
             &Visitor {
