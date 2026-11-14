@@ -943,10 +943,10 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
     h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
-    let returning_login = format!("{good_login}&next=%2Freader%2F101");
+    let with_next = format!("{good_login}&next=%2Freader%2F101");
     let logged = send(
         &app,
-        request("POST", "/login", &returning_login, &login_csrf_cookie, ORIGIN),
+        request("POST", "/login", &with_next, &login_csrf_cookie, ORIGIN),
     )
     .await;
     h_account_cases::login_returns_to_public_reader(&app, &logged).await;
