@@ -4,7 +4,6 @@
 use axum::http::StatusCode;
 use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::PgBookLikes;
 use tor_recommendations::repositories::{BookStars, PgBookStars};
 
 pub(super) async fn for_book(
@@ -21,26 +20,11 @@ pub(super) async fn for_book(
     } else {
         None
     };
-    let ratings = PgBookStars::new(catalog.pool().clone());
-    let summary = ratings
-        .visible_summary_for_actor(book_id, actor)
+    // B/C/F display gates agree for this direct Book route, including the
+    // already-readable pending_deletion case. Both aggregates must come from
+    // one current visibility/age snapshot, never from a cached session.
+    PgBookStars::new(catalog.pool().clone())
+        .book_page_summary_for_actor(book_id, actor)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let Some(summary) = summary else {
-        return Ok(None);
-    };
-
-    let likes = PgBookLikes::new(catalog.pool().clone());
-    // The already-authorized direct Book page may remain visible during
-    // pending_deletion even though catalog, public-like pages and mutations
-    // must unlist it. Independently recheck the live Book and actor age gate.
-    let count = match actor {
-        Some(actor) => likes
-            .direct_view_summary(actor, book_id)
-            .await
-            .map(|summary| summary.map(|summary| summary.count)),
-        None => likes.direct_view_count(book_id).await,
-    }
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(count.map(|count| (summary, count)))
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }

@@ -394,3 +394,96 @@ async fn s020_f05_rating_title_and_write_require_current_book_age_rights() {
         .unwrap();
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+async fn perf02e_book_page_stars_and_likes_share_visibility_and_age_gate() {
+    let (store, pool, first, second, book, _) = fixture("perf02e-book-signals").await;
+    store
+        .set_rating(first, book, StarKind::Work, 4)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO book_likes(book_id,user_id) VALUES($1,$2)")
+        .bind(book)
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (guest_stars, guest_likes) = store
+        .book_page_summary_for_actor(book, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(guest_likes, 1);
+    assert_eq!(guest_stars.work, StarTotal { sum: 4, votes: 1 });
+    assert_eq!(
+        store.visible_summary(book).await.unwrap(),
+        Some(guest_stars.clone())
+    );
+    let (reader_stars, reader_likes) = store
+        .book_page_summary_for_actor(book, Some(second))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reader_stars, guest_stars);
+    assert_eq!(reader_likes, 1);
+
+    // Direct Book views remain readable through pending_deletion but are not
+    // indexable. Like/rating writes keep their separate, stronger guards.
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .book_page_summary_for_actor(book, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+        1
+    );
+
+    sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .book_page_summary_for_actor(book, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .book_page_summary_for_actor(book, Some(second))
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query("UPDATE users SET adult_enabled=TRUE WHERE id=$1")
+        .bind(first)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .book_page_summary_for_actor(book, Some(first))
+            .await
+            .unwrap()
+            .unwrap()
+            .1,
+        1
+    );
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .book_page_summary_for_actor(book, Some(first))
+        .await
+        .unwrap()
+        .is_none());
+    pool.close().await;
+}
