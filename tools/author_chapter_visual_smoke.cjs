@@ -98,10 +98,15 @@ async function inspectBookIndex(page, viewport, width, height, count) {
       assert(await page.locator('.author-workspace__book').count() === 1,
         'a newly created owned book must appear in the list');
       await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
-      const longTitle = 'Длинное название '.repeat(8) + '<script>window.authorTitleInjected=true</script>';
+      const longTitle = 'Длинное название '.repeat(8) + viewport + ' <script>window.authorTitleInjected=true</script>';
       await page.getByLabel('Название книги').fill(longTitle);
       await page.getByLabel('Язык', { exact: true }).fill('ru');
-      await page.getByRole('button', { name: 'Создать книгу' }).click();
+      const [createdLong] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'POST'
+          && response.url() === base + '/me/books'),
+        page.getByRole('button', { name: 'Создать книгу' }).click(),
+      ]);
+      assert(createdLong.status() === 303, 'long-title creation returned ' + createdLong.status());
       await page.waitForURL(/\/me\/books\/\d+$/);
       await page.goto(base + '/me/books');
       assert(await page.getByRole('link', { name: longTitle, exact: true }).count() === 1,
