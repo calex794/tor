@@ -1,5 +1,5 @@
-//! PERF-02c checks for the read-only social controls snapshot.
-//! Kept out of slices_pg.rs to respect the repository file-size gate.
+// PERF-02c checks for the read-only social controls snapshot.
+// Kept out of slices_pg.rs to respect the repository file-size gate.
 
 async fn perf02c_controls_before_follow(repo: &PgCreatorFollows) {
     assert_eq!(
