@@ -106,3 +106,49 @@ SELECT 'fandom' AS kind, name FROM (
     SELECT DISTINCT unnest(fandoms) AS name FROM visible
     ORDER BY name LIMIT 100
 ) f;
+
+
+-- PERF-04 / SEARCH-DENSE: actual F-03 oldest keyset query, including the
+-- NFKC + lower + yo-to-e normalization. This is NOT the earlier raw-title
+-- index expression. Read-only EXPLAIN on isolated tor_ci, never production.
+-- These 10k fixture queries mirror the public REST endpoint with
+-- include_total=false, so no misleading COUNT is included in their timing.
+\echo 'PERF04_FTS_VISIBLE_INDEX_DEFINITIONS'
+SELECT indexname, indexdef
+  FROM pg_indexes
+ WHERE schemaname='public' AND tablename='books'
+   AND (indexdef ILIKE '%to_tsvector%' OR indexname LIKE '%public%')
+ ORDER BY indexname;
+
+\echo 'PERF04_FTS_EXACT_OLDEST_SQL_PREPARE'
+PREPARE perf04_public_fts(text, bigint, bigint, text, text, text, text) AS
+SELECT id, title, target_language, author_name, genres, tags, fandoms
+FROM books
+WHERE visibility='public' AND visibility_status='active'
+  AND access_level='basic' AND lifecycle_status<>'pending_deletion'
+  AND NOT admin_hold AND NOT is_deleted
+  AND ($1::text = '' OR
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е'))
+        || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig,
+                               translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
+  AND id > $2
+  AND ($4::text IS NULL OR target_language = $4)
+  AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
+  AND ($6::text IS NULL OR tags @> ARRAY[$6::text])
+  AND ($7::text IS NULL OR fandoms @> ARRAY[$7::text])
+ORDER BY id ASC LIMIT $3;
+
+-- The same 21-row request as Rust (20 cards + cursor probe).
+-- The seed intentionally contains roughly 10k 'Load' matches, one '9999'.
+-- EXPLAIN (ANALYZE, BUFFERS) executes the SELECT on disposable tor_ci;
+-- it cannot authorize schema changes or prove shared-runner HTTP capacity.
+\echo 'PERF04_FTS_DENSE_LOAD_EXPLAIN'
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
+EXECUTE perf04_public_fts('Load', 0, 21, NULL, NULL, NULL, NULL);
+
+\echo 'PERF04_FTS_RARE_9999_EXPLAIN'
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
+EXECUTE perf04_public_fts('9999', 0, 21, NULL, NULL, NULL, NULL);
+
+DEALLOCATE perf04_public_fts;
