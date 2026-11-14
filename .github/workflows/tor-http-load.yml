@@ -4,6 +4,8 @@ on:
     paths:
       - .github/workflows/tor-http-load.yml
       - tests/load/**
+      - tools/perf01_report.py
+      - tests/architecture/test_perf01_report.py
       - crates/search/src/repositories/catalog.rs
       - migrations/202610300021_public_catalog_exact_projection.sql
       # Workflow wiring is checked by unconditional Repository rules.
@@ -397,6 +399,18 @@ jobs:
           # Test script refuses any database other than the disposable tor_ci,
           # and the k6 harness hardcodes a localhost-only HTTP target.
           bash tests/load/catalog_dense_100k_ci.sh
+      - name: PERF-01 normalize existing k6 evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load"
+          python3 tools/perf01_report.py \
+            --root "$RUNNER_TEMP/tor-load" \
+            --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --json "$RUNNER_TEMP/tor-load/perf01-evidence.json" \
+            --markdown "$RUNNER_TEMP/tor-load/perf01-summary.md"
+          cat "$RUNNER_TEMP/tor-load/perf01-summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve isolated benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
