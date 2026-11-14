@@ -887,6 +887,22 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     .unwrap();
     let repo = PgCreatorFollows::new(pool.clone());
     assert_eq!(
+        repo.book_page_follow_state(0, 825101).await,
+        Err(CreatorFollowError::Invalid),
+    );
+    let page = repo.book_page_follow_state(825002, 825101).await.unwrap();
+    assert!(!page.following_book);
+    assert!(!page.is_owner);
+    assert_eq!(page.creator_user_id, Some(825001));
+    assert!(!page.following_creator);
+    let owner_page = repo.book_page_follow_state(825001, 825101).await.unwrap();
+    assert!(owner_page.is_owner);
+    assert_eq!(owner_page.creator_user_id, Some(825001));
+    assert!(!owner_page.following_creator);
+    let draft = repo.book_page_follow_state(825003, 825102).await.unwrap();
+    assert!(draft.is_owner, "legacy owner projection includes drafts");
+    assert_eq!(draft.creator_user_id, None, "hidden book cannot expose creator");
+    assert_eq!(
         repo.creator_for_public_book(825101).await.unwrap(),
         Some(825001)
     );
@@ -917,6 +933,14 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     .unwrap();
     assert_eq!(first, same, "repeat follow must not reset 90-day tenure");
     assert!(repo.is_following(825002, 825001).await.unwrap());
+    let page = repo.book_page_follow_state(825002, 825101).await.unwrap();
+    assert!(page.following_creator);
+    assert!(!page.following_book, "creator following is not a book follow");
+    sqlx::query("INSERT INTO reader_book_follows(user_id, book_id) VALUES (825002, 825101)")
+        .execute(&pool).await.unwrap();
+    assert!(repo.book_page_follow_state(825002, 825101).await.unwrap().following_book);
+    sqlx::query("DELETE FROM reader_book_follows WHERE user_id=825002 AND book_id=825101")
+        .execute(&pool).await.unwrap();
     let visible = repo.list_active(825002, None).await.unwrap();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].creator_user_id, 825001);
@@ -975,6 +999,9 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
         .execute(&pool)
         .await
         .unwrap();
+    let hidden_page = repo.book_page_follow_state(825002, 825101).await.unwrap();
+    assert_eq!(hidden_page.creator_user_id, None);
+    assert!(!hidden_page.is_owner);
     let private = repo.list_active(825002, None).await.unwrap();
     assert!(private[0].source_book.is_none());
     assert_eq!(repo.unfollow(825002, 825001).await, Ok(()));
