@@ -32,6 +32,32 @@ async function login(browser,mail,secret) {
   return {context,page};
 }
 
+async function inspectAccountNavigation(page,width) {
+  const reading=await page.locator('#me-reading-title').boundingBox();
+  const achievements=await page.locator('#me-achievements-title').boundingBox();
+  assert(reading.y<achievements.y,'reading shortcuts must precede the achievement collection');
+  if(width>800)return;
+  const sidebar=page.locator('.account-sidebar');
+  assert((await sidebar.boundingBox()).height<=230,'mobile navigation obscures the account');
+  const resume=await page.locator('.me-now-item--reading').boundingBox();
+  assert(resume.y+resume.height<=844,'continue reading is below the first mobile viewport');
+  const primary=page.locator('.account-nav-primary');
+  const last=primary.locator('a').last();
+  await last.focus();
+  const row=await primary.boundingBox(), link=await last.boundingBox();
+  assert(link.x>=row.x-1&&link.x+link.width<=row.x+row.width+1,
+    'keyboard focus must reveal every primary navigation link');
+  const author=sidebar.locator('.account-nav-group').first();
+  await author.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  assert(await author.getByRole('link',{name:'Финансы автора',exact:true}).isVisible(),
+    'author actions must remain accessible through the native menu');
+  await page.keyboard.press('Enter');
+  assert.equal(await author.getAttribute('open'),null);
+  await primary.evaluate(node=>{node.scrollLeft=0;});
+  await page.evaluate(()=>window.scrollTo(0,0));
+}
+
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try {
@@ -43,7 +69,7 @@ async function login(browser,mail,secret) {
     // Account and notification layout must remain readable at desktop/mobile widths.
     await fs.mkdir(shots,{recursive:true});
     for (const width of [1440,390]) {
-      await alice.page.setViewportSize({width,height:1000});
+      await alice.page.setViewportSize({width,height:width===390?844:1000});
       await alice.page.goto(base+'/me');
       assert.equal(await alice.page.locator('.account-sidebar').count(),1);
       assert.equal(await alice.page.locator('.account-main').count(),1);
@@ -53,6 +79,7 @@ async function login(browser,mail,secret) {
       assert(await achievementCards.count()>=1,'achievement cards are visible');
       assert.equal(await achievementCards.locator('progress').count(),await achievementCards.count());
       assert(await alice.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'account overflows at '+width);
+      await inspectAccountNavigation(alice.page,width);
       await alice.page.screenshot({path:path.join(shots,'account-overview-'+width+'.png'),fullPage:true});
       await alice.page.goto(base+'/notifications');
       assert.equal(await alice.page.locator('.account-sidebar').count(),1);
