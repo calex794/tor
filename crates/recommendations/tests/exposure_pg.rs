@@ -74,7 +74,27 @@ async fn events_are_atomic_restart_safe_and_never_create_reader_identity() {
         f.store.record(&view, &context, None),
         f.store.record(&view, &context, None)
     );
-    assert!([a.unwrap(), b.unwrap()].contains(&ObservationReceipt::Recorded));
+    // The real writer intentionally caps row-lock waiting at 50ms. One of
+    // two concurrent identical commands must commit; its loser may return
+    // transient Unavailable. Retry that loser ONCE after both have finished,
+    // then require a genuine replay and exactly one accounted view.
+    assert!(
+        matches!(&a, Ok(ObservationReceipt::Recorded))
+            || matches!(&b, Ok(ObservationReceipt::Recorded)),
+        "concurrent duplicate must produce one durable recorded event"
+    );
+    let a = match a {
+        Err(ExposureError::Unavailable) => f.store.record(&view, &context, None).await,
+        other => other,
+    }
+    .expect("first record or bounded retry");
+    let b = match b {
+        Err(ExposureError::Unavailable) => f.store.record(&view, &context, None).await,
+        other => other,
+    }
+    .expect("second record or bounded retry");
+    assert!([a, b].contains(&ObservationReceipt::Recorded));
+    assert!([a, b].contains(&ObservationReceipt::Replay));
     assert_eq!(f.counts(0).await, (1, 1, 1, 1, 2));
     let restarted = PgExposure::new(f.pool.clone());
     assert_eq!(
