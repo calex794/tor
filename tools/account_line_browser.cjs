@@ -130,7 +130,7 @@ async function inspectAccountNavigation(page,width) {
     assert.equal((await alice.context.request.get(`${base}/api/v1/me`)).status(),200);
     await alice.page.screenshot({path:path.join(shots,'account-active-sessions.png'),fullPage:true});
     await alice.page.goto(`${base}/forgot-password`);
-    const csrf=await alice.page.locator('[name=csrf_token]').inputValue();
+    const csrf=await alice.page.locator('#main [name=csrf_token]').inputValue();
     const known=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email,csrf_token:csrf}});
     const unknown=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email:`missing-${nonce}@example.invalid`,csrf_token:csrf}});
     assert.equal(known.status(),200);assert.equal(unknown.status(),200);assert.equal(await known.text(),await unknown.text());
