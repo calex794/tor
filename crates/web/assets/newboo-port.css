@@ -1267,3 +1267,21 @@ img.home-spotlight-card__cover {
     transition: none;
   }
 }
+
+/* The account menu uses the existing CSRF-protected POST /logout. */
+.site-header__logout { margin: 0; }
+.site-header__logout button.site-nav__link,
+.site-header__logout button.site-mobile-nav__link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+}
+.site-header__logout button.site-nav__link { padding: 0; }
+.site-header__logout button.site-mobile-nav__link {
+  width: 100%;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 750;
+}

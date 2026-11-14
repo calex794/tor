@@ -40,15 +40,19 @@ pub(super) struct LoginForm {
     next: Option<String>,
 }
 
-/// The only post-auth return destination is a canonical local free reader.
-/// The target chapter is still verified by the actual reader after login.
+/// Only a canonical free reader or the new-book form can be an auth return target.
+/// The destination still enforces its own authentication and access policy.
 #[derive(Deserialize)]
 pub(super) struct AuthReturnQuery {
     next: Option<String>,
 }
 
-fn reader_return_target(raw: Option<&str>) -> Option<String> {
-    let raw_id = raw?.strip_prefix("/read/")?;
+fn auth_return_target(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    if raw == "/me/books/new" {
+        return Some(raw.to_owned());
+    }
+    let raw_id = raw.strip_prefix("/read/")?;
     if raw_id.is_empty()
         || raw_id.starts_with('0')
         || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
@@ -64,7 +68,7 @@ pub(super) async fn show_registration(
     Query(query): Query<AuthReturnQuery>,
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
-    let next = reader_return_target(query.next.as_deref());
+    let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::registration_form_with_next(&token, next.as_deref()),
         &[cookie],
@@ -76,7 +80,7 @@ pub(super) async fn show_login(
     Query(query): Query<AuthReturnQuery>,
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
-    let next = reader_return_target(query.next.as_deref());
+    let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::login_form_with_next(&token, next.as_deref()),
         &[cookie],
@@ -95,7 +99,7 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
 
 fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
     // A failed manual code never changes the existing guest referral capture.
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     private_response(
         (
             StatusCode::BAD_REQUEST,
@@ -192,7 +196,7 @@ pub(super) async fn register(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<RegisterForm>,
 ) -> Response {
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     if !state.cookies.same_origin(&headers)
         || !state
             .cookies
@@ -366,7 +370,7 @@ pub(super) async fn login(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     let source = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
     let mut observed = auth_observation::RequestObservation::new(&state, &form.email, source);
     if !state.cookies.same_origin(&headers)
@@ -520,7 +524,7 @@ pub(super) async fn login(
             return login_storage_error(LoginOutcome::SessionUnavailable);
         }
     }
-    // Only a validated local /read/{id} destination is accepted; otherwise /me.
+    // Only an allowlisted local destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(
@@ -565,13 +569,17 @@ mod login_error_tests {
 
 #[cfg(test)]
 mod safe_auth_return_tests {
-    use super::reader_return_target;
+    use super::auth_return_target;
 
     #[test]
-    fn only_canonical_private_reader_paths_can_be_used_after_login() {
-        assert_eq!(reader_return_target(None), None);
+    fn only_allowlisted_local_paths_can_be_used_after_login() {
+        assert_eq!(auth_return_target(None), None);
         assert_eq!(
-            reader_return_target(Some("/read/42")),
+            auth_return_target(Some("/me/books/new")),
+            Some("/me/books/new".to_owned())
+        );
+        assert_eq!(
+            auth_return_target(Some("/read/42")),
             Some("/read/42".to_owned())
         );
         for candidate in [
@@ -591,8 +599,12 @@ mod safe_auth_return_tests {
             "/read/42\\other",
             "/read/42\r\nLocation: https://evil.test",
             "/read/9223372036854775808",
+            "/me/books/new/",
+            "/me/books/new?next=//evil.test",
+            "/me/books/new#fragment",
+            "/me/books/new%2F..",
         ] {
-            assert_eq!(reader_return_target(Some(candidate)), None, "{candidate}");
+            assert_eq!(auth_return_target(Some(candidate)), None, "{candidate}");
         }
     }
 }

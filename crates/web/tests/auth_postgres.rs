@@ -174,10 +174,12 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(!private_html.contains("Приватность"));
     assert!(!private_html.contains("Анализ ваших переходов"));
     assert!(!private_html.contains("/me/behavior"));
+    assert!(private_html.contains("action=\"/logout\""));
+    assert!(!private_html.contains("href=\"/login\">Войти</a>"));
     // B-01/B-02: the first genuine author journey persists a private book.
     let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
     assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
-    assert_eq!(anon_new.headers()[header::LOCATION], "/login");
+    assert_eq!(anon_new.headers()[header::LOCATION], "/login?next=/me/books/new");
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
@@ -192,6 +194,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .expect("valid key");
     assert_eq!(command_key.len(), 43);
     assert!(new_html.contains("name=\"author_name\""));
+    assert!(new_html.contains("href=\"/me/books\">Мои книги</a>"));
+    assert!(!new_html.contains("href=\"/register\">Регистрация</a>"));
     assert!(new_html.contains("name=\"genres\""));
     let create_form = format!(
         "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&genres=fantasy%2Cadventure&command_key={command_key}&csrf_token={author_csrf}"

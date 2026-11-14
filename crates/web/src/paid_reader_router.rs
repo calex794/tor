@@ -135,6 +135,11 @@ fn paid_grants_router(
         public_origin.clone(),
     );
     let auth_reader = reader.clone();
+    let navigation_accounts = accounts.clone();
+    let navigation_cookies = auth_cookies::CookiePolicy {
+        secure,
+        origin: public_origin.clone(),
+    };
     let cookies = auth_cookies::CookiePolicy {
         secure,
         origin: public_origin.clone(),
@@ -192,6 +197,7 @@ fn paid_grants_router(
     )
     .merge(author_router)
     .merge(grants);
+    let app = crate::header_nav::instrument(app, navigation_accounts, navigation_cookies);
     Ok(ril::instrument(
         crate::recommendation_http::visits::instrument(app, flow),
     ))
