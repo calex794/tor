@@ -1,7 +1,7 @@
 //! Dedicated real-PostgreSQL account validation checks. Never tests production data.
 use super::*;
 
-pub(super) async fn registration_after_library(app: &Router) -> Response {
+pub(super) async fn assert_anonymous_library_sign_in(app: &Router) {
     let library = send(app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(library.status(), StatusCode::SEE_OTHER);
     assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
@@ -9,6 +9,10 @@ pub(super) async fn registration_after_library(app: &Router) -> Response {
         library.headers()[header::LOCATION],
         "/login?next=/me/library"
     );
+}
+
+pub(super) async fn registration_after_library(app: &Router) -> Response {
+    assert_anonymous_library_sign_in(app).await;
     for target in ["/me/library", "/read/101", "/reader/101"] {
         let path = format!("/login?next={target}");
         let login = send(app, request("GET", &path, "", "", ORIGIN)).await;

@@ -551,9 +551,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         "Publishing the same book twice is safe"
     );
 
-    let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
-    assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
-    assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
+    h_account_cases::assert_anonymous_library_sign_in(&app).await;
     let private_library = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
     assert_eq!(private_library.status(), StatusCode::OK);
     assert_eq!(private_library.headers()[header::CACHE_CONTROL], "no-store");
