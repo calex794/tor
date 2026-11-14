@@ -95,7 +95,11 @@
 .book-section-card__kicker { margin: 0 0 6px; color: var(--primary-color); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
 .book-section-card__title { margin: 0 0 16px; color: var(--text-main); font-size: 24px; font-weight: 900; letter-spacing: -.035em; }
 .book-detail-page .chapter-toc__list { min-width: 0; }
-.book-detail-page .chapter-toc__item { min-width: 0; overflow-wrap: anywhere; }
+.book-detail-page .chapter-toc__item { min-width: 0; overflow-wrap: anywhere; border-color: var(--border-color); background: var(--bg-surface); color: var(--text-main); }
+.book-detail-page .chapter-toc__item--paid { background: var(--bg-secondary); }
+.book-detail-page .chapter-toc__item a { color: var(--primary-color); }
+.book-detail-page .chapter-toc__badge { color: var(--text-secondary); }
+.book-detail-page .chapter-toc__badge--free { color: var(--primary-color); }
 .book-detail-page .chapter-toc__more { margin-top: 18px; }
 @media (max-width: 760px) {
   .book-hero-card { grid-template-columns: 100px minmax(0, 1fr); grid-template-areas: "info info" "cover actions" "secondary secondary" "description description"; padding: 18px; gap: 18px 14px; }

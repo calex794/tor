@@ -10,6 +10,28 @@ function assert(ok, why) {
   if (!ok) throw new Error(why);
 }
 
+async function inspectBookTocContrast(page, name) {
+  const failures = await page.locator('.chapter-toc__item').evaluateAll(rows => {
+    const luminance = color => {
+      const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
+        v /= 255;
+        return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
+      });
+      return .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2];
+    };
+    return rows.flatMap(row => {
+      const background = luminance(getComputedStyle(row).backgroundColor);
+      return [...row.querySelectorAll('a, .chapter-toc__badge')].flatMap(text => {
+        const foreground = luminance(getComputedStyle(text).color);
+        const ratio = (Math.max(foreground, background) + .05) /
+          (Math.min(foreground, background) + .05);
+        return ratio < 4.5 ? [{ text: text.textContent, ratio }] : [];
+      });
+    });
+  });
+  assert(failures.length === 0, name + ': unreadable TOC text ' + JSON.stringify(failures));
+}
+
 async function inspect(page, name, where) {
   const metrics = await page.evaluate(() => ({
     content: document.documentElement.scrollWidth,
@@ -47,6 +69,7 @@ async function inspect(page, name, where) {
       assert(await page.getByText('Глава 1. Начало истории').isVisible(), name + ': TOC invisible');
       assert(await page.getByText('Платная · нужен доступ').isVisible(), name + ': paywall label missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');
+      await inspectBookTocContrast(page, name);
       await inspect(page, name, 'toc');
       // S005: a visible paid TOC entry must lead to an explanatory page,
       // not an empty 404, an invented checkout, or private chapter text.
@@ -273,6 +296,7 @@ async function inspect(page, name, where) {
           name + ': still uses light page background');
         assert(css.logo.includes('pandaolate-header-dark.png'),
           name + ': original dark PNG not selected');
+        if (location === 'book') await inspectBookTocContrast(page, name + '-dark');
         await inspect(page, name + '-dark', location);
         if (location === 'catalog' && width === 390) {
           await page.locator('.site-mobile-menu__trigger').click();
