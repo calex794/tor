@@ -5,6 +5,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / "tests/load/catalog_sql_profile.sql"
+AB_PROFILE = ROOT / "tests/load/perf04_search_plan_ab.sql"
 CATALOG = ROOT / "crates/search/src/repositories/catalog.rs"
 
 
@@ -30,6 +31,36 @@ class DenseSearchPlanProfile(unittest.TestCase):
         self.assertIn("PREPARE perf04_public_fts(", self.profile)
         self.assertIn("DEALLOCATE perf04_public_fts;", self.profile)
 
+    def test_ab_profile_reuses_exact_query_and_never_changes_pg_settings_globally(self):
+        sql = AB_PROFILE.read_text(encoding="utf-8")
+        self.assertIn("BEGIN READ ONLY;", sql)
+        self.assertIn("ROLLBACK;", sql)
+        self.assertNotIn("COMMIT;", sql)
+        self.assertIn("SET LOCAL enable_bitmapscan = off;", sql)
+        self.assertIn("SET LOCAL enable_seqscan = off;", sql)
+        self.assertEqual(sql.count("EXPLAIN (ANALYZE, BUFFERS, SETTINGS)"), 4)
+        self.assertNotRegex(sql, r"(?im)^[ \t]*(?:CREATE|DROP|ALTER|TRUNCATE|INSERT|UPDATE|DELETE|GRANT|REVOKE)\b")
+        for marker in (
+            "PERF04_AB_DEFAULT_DENSE_LOAD", "PERF04_AB_DEFAULT_RARE_9999",
+            "PERF04_AB_ORDERED_DENSE_LOAD", "PERF04_AB_ORDERED_RARE_9999",
+        ):
+            self.assertEqual(sql.count(marker), 1)
+        ab = compact(sql)
+        rust = compact(self.runtime)
+        for expression in (
+            "to_tsvector('simple'::regconfig,translate(lower(normalize(title,NFKC)),'ё','е'))",
+            "to_tsvector('simple'::regconfig,translate(lower(normalize(author_name,NFKC)),'ё','е'))",
+            "plainto_tsquery('simple'::regconfig,translate(lower(normalize($1::text,NFKC)),'ё','е'))",
+            "visibility='public'ANDvisibility_status='active'",
+            "access_level='basic'ANDlifecycle_status<>'pending_deletion'",
+            "ORDERBYidASCLIMIT$3",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIn(expression, ab)
+                self.assertIn(expression, rust)
+        self.assertIn("EXECUTEperf04_ab_public_fts('Load',0,21,NULL,NULL,NULL,NULL);", ab)
+        self.assertIn("EXECUTEperf04_ab_public_fts('9999',0,21,NULL,NULL,NULL,NULL);", ab)
+
     def test_normalized_fts_contract_matches_runtime(self):
         prof = compact(self.profile)
         rust = compact(self.runtime)
@@ -48,6 +79,22 @@ class DenseSearchPlanProfile(unittest.TestCase):
         self.assertEqual(prof.count("EXPLAIN(ANALYZE,BUFFERS,SETTINGS)"), 2)
         self.assertIn("EXECUTEperf04_public_fts('Load',0,21,NULL,NULL,NULL,NULL);", prof)
         self.assertIn("EXECUTEperf04_public_fts('9999',0,21,NULL,NULL,NULL,NULL);", prof)
+
+
+    def test_true_100k_basic_control_runs_after_original_http_profiles(self):
+        script = (ROOT / "tests/load/catalog_dense_100k_ci.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('GITHUB_EVENT_NAME" == pull_request', script)
+        self.assertIn('PGHOST" == 127.0.0.1', script)
+        self.assertIn("*/tor_ci", script)
+        http_end = script.index('cat "$out/results.tsv"')
+        control = script.index('perf04-fts-100k-basic-visible-ab.txt')
+        self.assertGreater(control, http_end)
+        self.assertIn("ANALYZE books", script)
+        self.assertIn("basic_visible", script)
+        self.assertIn('"$basic_visible" -ge 100000', script)
+
 
 
 if __name__ == "__main__":
