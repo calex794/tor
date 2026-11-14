@@ -87,7 +87,7 @@ class DenseSearchPlanProfile(unittest.TestCase):
         )
         self.assertIn('GITHUB_EVENT_NAME" == pull_request', script)
         self.assertIn('PGHOST" == 127.0.0.1', script)
-        self.assertIn('"/tor_ci', script)
+        self.assertIn("*/tor_ci", script)
         http_end = script.index('cat "$out/results.tsv"')
         control = script.index('perf04-fts-100k-basic-visible-ab.txt')
         self.assertGreater(control, http_end)
