@@ -35,7 +35,7 @@ pub(crate) fn instrument(app: Router, accounts: PgAccounts, cookies: CookiePolic
 }
 
 fn html_route(method: &Method, path: &str) -> bool {
-    if method != &Method::GET {
+    if method != Method::GET {
         return false;
     }
     // Login and registration always issue their own form CSRF cookie.

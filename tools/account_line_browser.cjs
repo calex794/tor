@@ -74,7 +74,7 @@ async function inspectAccountNavigation(page,width) {
       assert.equal(await alice.page.locator('.account-sidebar').count(),1);
       assert.equal(await alice.page.locator('.account-main').count(),1);
       assert.equal(await alice.page.locator('nav.dashboard-nav a[aria-current="page"]').count(),1);
-      assert.equal(await alice.page.locator('form[action="/logout"]').count(),1);
+      assert.equal(await alice.page.locator('.account-sidebar form[action="/logout"]').count(),1);
       const achievementCards=alice.page.locator('.achievement-card');
       assert(await achievementCards.count()>=1,'achievement cards are visible');
       assert.equal(await achievementCards.locator('progress').count(),await achievementCards.count());
