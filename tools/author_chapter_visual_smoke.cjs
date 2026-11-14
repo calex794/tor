@@ -29,6 +29,47 @@ async function inspect(page, viewport, name) {
   });
 }
 
+async function inspectBookIndex(page, viewport, width, height, count) {
+  assert(await page.locator('.account-sidebar').count() === 1, 'author navigation missing');
+  const active = page.locator('.dashboard-nav a[aria-current="page"]');
+  assert(await active.count() === 1 && await active.getAttribute('href') === '/me/books',
+    'author list must have exactly one current navigation item');
+  assert(await page.locator('.author-workspace__book').count() === count,
+    'owner list leaked another account or lost an owned book');
+  const widths = viewport === 'desktop' ? [1440, 1024, 768, 390] : [390];
+  for (const size of widths) {
+    await page.setViewportSize({ width: size, height: 844 });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      if (size === 390) {
+        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
+          'mobile author navigation hides the workspace');
+        const create = await page.locator('.account-main > header .ui-button').boundingBox();
+        assert(create.y + create.height <= 844, 'create-book action is below the first screen');
+      }
+      await inspect(page, viewport + '-' + size + '-' + colorScheme, 'book-index-' + count);
+    }
+  }
+  await page.setViewportSize({ width, height });
+  await page.emulateMedia({ colorScheme: 'light' });
+  const authorMenu = page.locator('.account-nav-group').first();
+  await authorMenu.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  assert(await active.isVisible(), 'keyboard must reveal the current author page');
+  await page.keyboard.press('Enter');
+  if (count) {
+    const more = page.locator('.author-workspace__more').first();
+    assert(!await more.getByRole('link', { name: 'Удаление книги' }).isVisible(),
+      'deletion should be separate from the primary book action');
+    await more.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    assert(await more.getByRole('link', { name: 'Удаление книги' }).isVisible(),
+      'keyboard must reach the existing deletion request');
+    await page.keyboard.press('Enter');
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -44,7 +85,8 @@ async function inspect(page, viewport, name) {
 
       await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
-      await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
+      await inspectBookIndex(page, viewport, width, height, 0);
+      await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
       await page.getByLabel('Название книги').fill('Новая книга ' + viewport);
       await page.getByLabel('Язык', { exact: true }).fill('ru');
@@ -52,6 +94,21 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(/\/me\/books\/\d+$/);
 
       const bookId = page.url().split('/').pop();
+      await page.goto(base + '/me/books');
+      assert(await page.locator('.author-workspace__book').count() === 1,
+        'a newly created owned book must appear in the list');
+      await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
+      const longTitle = 'Длинное название '.repeat(8) + '<script>window.authorTitleInjected=true</script>';
+      await page.getByLabel('Название книги').fill(longTitle);
+      await page.getByLabel('Язык', { exact: true }).fill('ru');
+      await page.getByRole('button', { name: 'Создать книгу' }).click();
+      await page.waitForURL(/\/me\/books\/\d+$/);
+      await page.goto(base + '/me/books');
+      assert(await page.getByRole('link', { name: longTitle, exact: true }).count() === 1,
+        'long title must remain complete and escaped');
+      assert(await page.evaluate(() => window.authorTitleInjected === undefined), 'title executed as HTML');
+      await inspectBookIndex(page, viewport, width, height, 2);
+      await page.goto(base + '/me/books/' + bookId);
       assert(await page.getByRole('link', { name: 'Добавить главу' }).isVisible(),
         viewport + ': missing author chapter action');
       await inspect(page, viewport, 'draft');
