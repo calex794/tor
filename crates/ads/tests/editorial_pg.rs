@@ -184,7 +184,10 @@ async fn atomic_replays_concurrency_terminal_states_and_no_financial_or_reading_
         other => other,
     }
     .expect("second command or bounded retry");
-    assert_eq!(a, b, "replayed command must preserve exact campaign receipt");
+    assert_eq!(
+        a, b,
+        "replayed command must preserve exact campaign receipt"
+    );
     assert_eq!(a.revision, 1);
     assert_eq!(
         f.store.assigned_book(a.campaign_id).await.unwrap(),
