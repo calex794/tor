@@ -133,9 +133,10 @@ jobs:
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
       - name: Chromium for native fresh-schema HTML quality
         run: |
-          bash tools/ci_prepare_ubuntu_mirror.sh
+          # Ubuntu 24.04 runner provides headless Chromium system libraries.
+          # Match the lighter shell-only installation in postgres-runtime.
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps --only-shell chromium
+          npx playwright install --only-shell chromium
       - name: Native HTML quality on the fresh schema
         env:
           TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
@@ -221,6 +222,10 @@ jobs:
           cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
+        # The HTML quality step already installed the pinned Playwright and shell.
+        # Reuse them, including the script's explicit Chromium launch smoke check.
+        env:
+          TOR_REC_REUSE_PLAYWRIGHT: '1'
         run: bash tools/rec13_browser_acceptance.sh
       # The full-workspace Rust/Clippy and architecture baselines are already
       # mandatory in integration/demo and Repository rules; do not rebuild them
