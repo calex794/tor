@@ -60,13 +60,18 @@ async function setTaxonomy(page, label, value) {
 async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
   const res = await page.goto(base + '/catalog', { waitUntil: 'load' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
+  assert(!(await page.locator('.catalog-filters__advanced').evaluate(el => el.open)),
+    'initial catalog must keep extra filters collapsed');
+  const form = await page.locator('.catalog-filters').boundingBox();
+  assert(form && form.height <= 300, 'initial search panel pushes books below a long form');
   await page.getByLabel('Название или автор').fill(q);
+  await page.locator('.catalog-filters__advanced > summary').click();
   const available = [
     await setTaxonomy(page, 'Жанр', genre),
     await setTaxonomy(page, 'Тег', tag),
     await setTaxonomy(page, 'Фэндом', fandom),
+    await setTaxonomy(page, 'Язык перевода', language),
   ];
-  await page.getByLabel('Язык перевода').fill(language);
   if (available.every(Boolean)) {
     await page.getByRole('button', { name: 'Найти' }).click();
     await page.waitForLoadState('load');
@@ -336,6 +341,22 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         await verifyOriginalBookCard(guest, id, viewport);
+        const native = await browser.newContext({
+          viewport: { width, height }, javaScriptEnabled: false,
+        });
+        try {
+          const nativePage = await native.newPage();
+          await search(nativePage, filters);
+          assert(await bookLink(nativePage, id).isVisible(), 'native filters failed without JS');
+          const disclosure = nativePage.locator('.catalog-filters__advanced');
+          await disclosure.locator('summary').press('Enter');
+          assert(!(await disclosure.evaluate(el => el.open)), 'keyboard did not collapse filters');
+          assert(await nativePage.getByLabel('Язык перевода').inputValue() === 'ru',
+            'collapsing native filters discarded the selected language');
+          await snapshot(nativePage, viewport + '-native-filters-collapsed');
+        } finally {
+          await native.close();
+        }
         await discoveryToMeaningfulRead(browser, viewport, width, height, id, filters);
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
         assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 1,

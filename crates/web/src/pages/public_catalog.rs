@@ -6,6 +6,7 @@ use tor_search::services::catalog_taxonomy::CatalogTaxonomyView;
 
 mod cards;
 mod catalog_active_filters;
+mod catalog_filters;
 mod catalog_pagination;
 mod catalog_taxonomy_selects;
 mod home_spotlight;
@@ -266,48 +267,16 @@ pub fn catalog_search_observed(
     let observer = issuer.map(|issuer| (issuer, surface));
     let active_filters = catalog_active_filters::render(&request);
     let pagination = catalog_pagination::render(&request);
+    let controls = catalog_filters::render(&request);
     let CatalogPageQuery {
         query,
         language,
         genre,
         tag,
         fandom,
-        cursor: _,
-        previous_cursor: _,
-        page_number: _,
-        sort,
         total,
-        options,
+        ..
     } = request;
-    let oldest = if sort == "oldest" { " selected" } else { "" };
-    let newest = if sort == "newest" { " selected" } else { "" };
-    let title = if sort == "title" { " selected" } else { "" };
-    let author = if sort == "author" { " selected" } else { "" };
-    let mut controls = format!(
-        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" list="catalog-genres" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input" id="book-tag" type="text" name="tag" list="catalog-tags" maxlength="40" value="{}" placeholder="Тег" aria-label="Тег"><input class="ui-input" id="book-fandom" type="text" name="fandom" list="catalog-fandoms" maxlength="40" value="{}" placeholder="Фэндом" aria-label="Фэндом"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
-        escape_html(query),
-        escape_html(genre.unwrap_or("")),
-        escape_html(tag.unwrap_or("")),
-        escape_html(fandom.unwrap_or("")),
-        escape_html(language.unwrap_or("")),
-        oldest,
-        newest,
-        title,
-        author,
-    );
-    if !query.trim().is_empty()
-        || language.is_some()
-        || genre.is_some()
-        || tag.is_some()
-        || fandom.is_some()
-    {
-        controls = controls.replacen(
-            "</form>",
-            "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Сбросить</a></form>",
-            1,
-        );
-    }
-    controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
     let count_markup = total
         .map(|number| {
             format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
