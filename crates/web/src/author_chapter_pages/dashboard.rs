@@ -318,7 +318,8 @@ mod tests {
             access: ChapterAccess::Paid,
             published: true,
         };
-        let html = detail_with_covers_with_demand_page(&book(), true, &[chapter], "csrf", options()).0;
+        let html =
+            detail_with_covers_with_demand_page(&book(), true, &[chapter], "csrf", options()).0;
         assert!(html.contains("href=\"/books/42\""));
         assert!(html.contains("Читатели ждут продолжения"));
         assert!(!html.contains("/chapters/import"));
@@ -336,7 +337,8 @@ mod tests {
         assert!(page.contains("/me/books/42/settings/covers"));
         assert!(page.contains("ожидает обработки"));
         assert!(!page.contains("/covers/42/main.webp"));
-        let disabled = detail_with_covers_with_demand_page(&book(), false, &[], "csrf", options()).0;
+        let disabled =
+            detail_with_covers_with_demand_page(&book(), false, &[], "csrf", options()).0;
         assert!(!disabled.contains("/settings/covers"));
     }
 }
