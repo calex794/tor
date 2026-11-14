@@ -395,7 +395,7 @@ async function inspect(page, name, where) {
         name + ': author dashboard section missing');
       assert(await page.locator('.dashboard-tile__link[href="/me/books/new"]').isVisible(),
         name + ': create book tile missing');
-      assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
+      assert(await page.locator('#main').getByRole('link', { name: 'Мои книги' }).isVisible(),
         name + ': author link missing');
       assert(!(await page.content()).includes('Анализ ваших переходов'),
         name + ': unimplemented personal analysis advertised');
