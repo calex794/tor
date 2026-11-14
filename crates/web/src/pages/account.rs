@@ -203,7 +203,7 @@ pub fn my_account_with_achievements_refunds_and_swap(
 pub fn account_navigation(active: &str, csrf: &str) -> String {
     let mut navigation = include_str!("../../templates/account_nav.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
-    if matches!(active, "/me" | "/notifications") {
+    if matches!(active, "/me" | "/notifications" | "/me/books") {
         let needle = format!("class=\"dashboard-nav__item\" href=\"{active}\"");
         let selected = format!(
             "class=\"dashboard-nav__item is-active\" href=\"{active}\" aria-current=\"page\""

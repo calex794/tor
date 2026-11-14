@@ -26,6 +26,8 @@ mod c11_cases;
 mod f05_ranking_cases;
 #[path = "auth_postgres/h_account_cases.rs"]
 mod h_account_cases;
+#[path = "auth_postgres/h_author_index_cases.rs"]
+mod h_author_index_cases;
 #[path = "auth_postgres/h_cover_cases.rs"]
 mod h_cover_cases;
 #[path = "auth_postgres/http_helpers.rs"]
@@ -257,11 +259,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let authored_html = body_of(book_page).await;
     assert!(authored_html.contains("&lt;script&gt;"));
     assert!(!authored_html.contains("<script>"));
-    let owner_index = send(&app, request("GET", "/me/books", "", &session, ORIGIN)).await;
-    assert_eq!(owner_index.status(), StatusCode::OK);
-    let index_html = body_of(owner_index).await;
-    assert!(index_html.contains(&format!("href=\"{book_path}\"")));
-    assert!(!index_html.contains("<script>"));
+    h_author_index_cases::owner_index(&app, &session, &book_path).await;
     let anon_detail = send(&app, request("GET", &book_path, "", "", ORIGIN)).await;
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");

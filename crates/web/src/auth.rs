@@ -463,7 +463,7 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(status) => return deny(status),
     };
     match state.authoring.list_owned_books(actor).await {
-        Ok(books) => layer_routes::author_index(&state, actor, &books).await,
+        Ok(books) => layer_routes::author_index(&state, actor, &books, &headers).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
