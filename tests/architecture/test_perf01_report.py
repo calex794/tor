@@ -16,7 +16,8 @@ def sample():
         return {"values": values}
     return {"metrics": {
         "http_reqs": metric({"count": 200, "rate": 23.5}),
-        "http_req_failed": metric({"rate": 0.02}),
+        # Real k6 Rate metrics use value, not rate; successful requests are "fails".
+        "http_req_failed": {"value": 0.02, "passes": 4, "fails": 196},
         "dropped_iterations": metric({"count": 3}),
         "http_req_duration": metric({"med": 12.5, "p(95)": 39, "p(99)": 50}),
         "tor_duration_catalog": metric({"med": 20, "p(95)": 40, "p(99)": 70}),
@@ -44,6 +45,18 @@ class PerfEvidence(unittest.TestCase):
         self.assertEqual(stage["actual_rps"], 23.5)
         self.assertIsNone(stage["sqlx_queries_per_request"])
         self.assertIsNone(result["unmeasured"]["postgresql_server_cpu_ms"])
+
+    def test_real_k6_rate_value_zero_is_measured_not_missing(self):
+        data = sample()
+        data["metrics"]["http_req_failed"] = {
+            "passes": 0, "fails": 200, "value": 0,
+            "thresholds": {"rate<0.01": False},
+        }
+        (self.root / "summary-25.json").write_text(json.dumps(data), encoding="utf-8")
+        stage = report.build(self.root, SHA)["stages"][0]
+        self.assertEqual(stage["evidence"], "PASS")
+        self.assertEqual(stage["http_error_rate"], 0.0)
+        self.assertEqual(stage["dropped_iterations"], 3)
 
     def test_failed_high_rate_survives_with_complete_summary(self):
         (self.root / "diagnostic/results.tsv").write_text(
