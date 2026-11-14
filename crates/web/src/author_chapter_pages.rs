@@ -2,7 +2,7 @@
 use axum::response::Html;
 use tor_books::schemas::ScheduledChapter;
 use tor_books::services::authoring::{
-    OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
+    OwnedBook, OwnedChapter, OwnedChapterCursor, PendingChapter,
 };
 
 use crate::pages::{escape_html, private_account_layout as layout};
@@ -14,7 +14,7 @@ mod dashboard;
 pub fn detail_with_covers(
     book: &OwnedBook,
     published: bool,
-    chapters: &[OwnedChapterSummary],
+    chapters: &[tor_books::services::authoring::OwnedChapterSummary],
     csrf: &str,
     uploads_enabled: bool,
     latest_job: Option<&str>,
