@@ -52,3 +52,16 @@ PERF-02c introduces `PgCreatorFollows::book_page_follow_state`: one parameterize
 The existing E-05 real PG test now verifies follower/owner/creator/public/hidden and follow/unfollow parity; the existing C-15 HTTP test verifies rendering and access effects; the existing S059 operator trace runs the same paired anonymous/verified-reader measurement and requires a **median at most 18 completed SQLx operations** for the verified reader in its fixed fixture (before: 20). This is an isolated regression guard and must not be interpreted as live production SLO or applied to other role/feature configurations.
 
 **Expected:** reader 20 → 18 SQLx operations on this fixture; guest remains 5. Real numbers must be taken from the new successful CI artifact, not assumed. Later PERF-02 slices should identify the remaining session and book-detail costs, especially active reader permission/revocation and adult/owner/paid cases, before further batching.
+
+
+## PERF-02d: reuse one verified GET actor across rating and follow UI
+
+Code path review of `crates/accounts/src/repositories/authority.rs` identified a repeated expensive `active_session_user` call: it delegates to `session_actor`, which begins a read-only transaction, executes two setup SQL statements, retrieves the active session plus role flags and commits. The book-rating context invokes this once, then the follow-control renderer invokes it again within the same GET.
+
+This experiment (built on PERF-02c) passes the freshly verified, display-only actor from `book_rating_context::for_book` into `book_follow_page::render` through `cover_http::book_html`. If no verified actor context exists, existing direct live-session behavior is retained. The rating summary and like count still independently recheck Book visibility/age and the book TOC still has its own live session-bound B-owned SQL authorization. Follow/owner state is still fetched from PostgreSQL after the rating context. POST handlers do not consume this GET snapshot: CSRF, session, role and book permissions are verified afresh.
+
+**Measurement must precede any claim:** run the same S059 HTTP/SQLx CI fixture against PERF-02c and PERF-02d. Compare actual `perf02_auth_enabled_book_comparison` counts and latency, and classify unexpected changes in error behavior. The CI 1,000-book BASIC fixture does not cover all modes; adult/pro_adult, revoked session, owner, hidden/pending deletion, and optional REC/editorial/CDN features require their existing independent integration/browser gates.
+
+The original S059 threshold `<=18` is retained until a fresh measured trace establishes a tighter regression value; no claim of an additional reduction is made in advance. The fallback from missing verified context is intentional so alternate book routes preserve previous behavior.
+
+PERF-02e candidates following this experiment: unify rating+like public aggregates in a single read-only query without losing independent age/visibility policies; improve per-stage numeric SQL tracing in disposable CI only; separately evaluate navigation, editorial and REC duplicate identity lookups. Do not cache actor identities across requests, alter `session_actor` bounded lock/statement timeouts, weaken protected-Book checks, or alter live databases.
