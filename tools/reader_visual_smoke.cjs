@@ -29,6 +29,21 @@ async function inspect(page, name, where) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
+      const hero = await page.locator('.book-hero-card').evaluate(node => {
+        const bounds = selector => node.querySelector(selector).getBoundingClientRect().toJSON();
+        return { title: bounds('h1'), actions: bounds('.book-hero-actions'),
+          cover: bounds('.book-cover-xl'), secondary: bounds('.book-hero-secondary-actions') };
+      });
+      assert(Math.abs(hero.cover.width / hero.cover.height - 2 / 3) < .035,
+        name + ': book hero lost its 2:3 cover');
+      assert(hero.actions.y < height, name + ': reading actions are below the first viewport');
+      assert(hero.secondary.y >= hero.actions.y + hero.actions.height,
+        name + ': secondary actions precede reading');
+      if (name === 'mobile') {
+        assert(hero.title.y + hero.title.height <= hero.actions.y,
+          name + ': mobile title must precede reading and secondary controls');
+        assert(hero.cover.width <= 128, name + ': mobile cover dominates the first viewport');
+      }
       assert(await page.getByText('Глава 1. Начало истории').isVisible(), name + ': TOC invisible');
       assert(await page.getByText('Платная · нужен доступ').isVisible(), name + ': paywall label missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');

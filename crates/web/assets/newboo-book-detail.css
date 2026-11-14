@@ -1,22 +1,23 @@
-/* H-web-04: faithful public book hero from NEwBOO components/book-hero.css,
-   components/book-section.css and pages/book-detail.css. No unsupported actions. */
+/* H/UI-04: reading-first book hero adapted from NEwBOO book-hero.css,
+   book-section.css and book-detail.css. Existing TOR actions stay server-owned. */
 .book-detail-page { padding: 32px 0 56px; }
 .book-detail-page__container { display: flex; flex-direction: column; gap: 28px; }
 .book-detail-page .breadcrumbs { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; color: var(--text-muted); }
 .book-detail-page .breadcrumbs a { color: var(--primary-color); }
 .book-hero-card {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-areas: "cover info" "cover actions" "cover secondary" "cover description";
   align-items: start;
-  gap: 24px;
-  padding: 28px;
+  gap: 18px 24px;
+  padding: 24px;
   border: 1px solid var(--border-color);
-  border-radius: 28px;
+  border-radius: var(--radius-xl);
   background: var(--bg-surface);
   color: var(--text-main);
   box-shadow: 0 18px 45px color-mix(in srgb, var(--text-main) 7%, transparent);
 }
-.book-hero-card__cover-col { display: flex; flex-direction: column; gap: 16px; }
+.book-hero-card__cover-col { grid-area: cover; min-width: 0; align-self: start; }
 .book-cover-xl {
   position: relative;
   display: flex;
@@ -31,14 +32,19 @@
   font-weight: 800;
   text-align: center;
 }
-.book-hero-actions { display: flex; flex-direction: column; gap: 10px; }
-.book-hero-actions .ui-button { width: 100%; min-height: 44px; text-align: center; }
+.book-hero-actions { grid-area: actions; display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.book-hero-actions .ui-button { min-height: 44px; text-align: center; }
+.book-hero-secondary-actions { grid-area: secondary; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.book-hero-secondary-actions .ui-button { min-height: 38px; padding: 7px 11px; font-size: 13px; text-align: center; }
+.book-hero-secondary-actions form { margin: 0; }
+.book-hero-secondary-actions .book-owner-actions { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: 8px; }
+.book-hero-card__description-group { grid-area: description; min-width: 0; }
 .book-hero-actions .ui-button--ghost {
   border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
   background: color-mix(in srgb, var(--primary-color) 7%, var(--bg-surface));
   color: var(--text-main);
 }
-.book-hero-card__body { min-width: 0; padding-top: 4px; }
+.book-hero-card__body { grid-area: info; min-width: 0; }
 .book-hero-card__kicker {
   margin: 0 0 12px;
   color: var(--primary-color);
@@ -50,10 +56,10 @@
 .book-hero-card__title {
   margin: 0;
   color: var(--text-main);
-  font-size: clamp(32px, 4vw, 56px);
+  font-size: clamp(32px, 4vw, 44px);
   font-weight: 950;
-  line-height: .98;
-  letter-spacing: -.06em;
+  line-height: 1.12;
+  letter-spacing: -.035em;
   overflow-wrap: anywhere;
 }
 .book-hero-card__facts {
@@ -70,10 +76,10 @@
 .book-hero-card__credit-label { color: var(--text-muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .book-hero-card__description {
   max-width: 760px;
-  margin: 20px 0 0;
+  margin: 0;
   color: var(--text-secondary);
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 400;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -92,9 +98,12 @@
 .book-detail-page .chapter-toc__item { min-width: 0; overflow-wrap: anywhere; }
 .book-detail-page .chapter-toc__more { margin-top: 18px; }
 @media (max-width: 760px) {
-  .book-hero-card { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 20px; border-radius: 20px; }
-  .book-hero-card__cover-col { width: min(220px, 100%); margin-inline: auto; }
-  .book-hero-card__title { font-size: clamp(30px, 8vw, 44px); }
+  .book-hero-card { grid-template-columns: 100px minmax(0, 1fr); grid-template-areas: "info info" "cover actions" "secondary secondary" "description description"; padding: 18px; gap: 18px 14px; }
+  .book-hero-card__title { font-size: clamp(28px, 6vw, 36px); }
+  .book-hero-actions { flex-direction: column; align-self: start; }
+  .book-hero-actions .ui-button { width: 100%; padding-inline: 10px; }
+  .book-hero-secondary-actions .ui-button { min-height: 44px; }
+  .book-hero-card__credits { margin-top: 12px; }
   .book-detail-page { padding: 20px 0 40px; }
   .book-section-card { padding: 14px; }
   .book-section-card__title { font-size: 22px; }
