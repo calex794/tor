@@ -1,0 +1,33 @@
+<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога">
+  <div class="catalog-filters__toolbar">
+    <label class="catalog-filters__search" for="book-query">Название или автор
+      <input class="ui-input" id="book-query" type="search" name="q" maxlength="80" value="<!--QUERY-->" placeholder="Найти книгу" aria-label="Название или автор">
+    </label>
+    <label for="book-sort">Сортировка
+      <select class="ui-select" id="book-sort" name="sort" aria-label="Сортировка">
+        <!--SORT_OPTIONS-->
+      </select>
+    </label>
+    <button class="ui-button catalog-filters__submit" type="submit">Найти</button>
+  </div>
+  <details class="catalog-filters__advanced"<!--ADVANCED_OPEN-->>
+    <summary>Дополнительные фильтры<!--FILTER_COUNT--></summary>
+    <div class="catalog-filters__fields">
+      <label for="book-genre">Жанр
+        <input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="<!--GENRE-->" aria-label="Жанр">
+      </label>
+      <label for="book-tag">Тег
+        <input class="ui-input" id="book-tag" type="text" name="tag" maxlength="40" value="<!--TAG-->" aria-label="Тег">
+      </label>
+      <label for="book-fandom">Фэндом
+        <input class="ui-input" id="book-fandom" type="text" name="fandom" maxlength="40" value="<!--FANDOM-->" aria-label="Фэндом">
+      </label>
+      <label for="book-language">Язык перевода
+        <select class="ui-select" id="book-language" name="language" aria-label="Язык перевода">
+          <!--LANGUAGE_OPTIONS-->
+        </select>
+      </label>
+    </div>
+  </details>
+  <!--RESET_LINK-->
+</form>
