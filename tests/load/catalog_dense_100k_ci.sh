@@ -23,6 +23,12 @@ psql -X -A -t "$TEST_DATABASE_URL" -c \
  "SELECT COUNT(*), COUNT(*) FILTER(WHERE cardinality(genres)>0) FROM books" \
  > "$out/fixture-counts.txt"
 
+# PERF-04b: read-only paired search plans with the same prepared SQL at 100k.
+# The existing script guard above confines this profile to disposable tor_ci.
+psql -X -v ON_ERROR_STOP=1 "$TEST_DATABASE_URL" \
+  -f tests/load/perf04_search_plan_ab.sql \
+  | tee "$out/perf04-fts-100k-ab.txt"
+
 server_pid=""
 monitors=()
 cleanup() {
