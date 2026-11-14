@@ -30,7 +30,11 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         "author-dashboard__badge--draft"
     };
-    let status_label = if published { "Опубликована" } else { "Черновик" };
+    let status_label = if published {
+        "Опубликована"
+    } else {
+        "Черновик"
+    };
     let status_description = if published {
         "Книга опубликована. Управляйте главами и настройками, не покидая кабинет автора."
     } else {
@@ -63,12 +67,12 @@ pub fn detail_with_covers_with_demand_page(
     let hero_actions = if published {
         format!(
             r#"<a class="ui-button ui-button--primary" href="/books/{id}">Открыть книгу</a>
-<a class="ui-button ui-button--ghost" href="#chapters">Управлять главами</a>"#
+        <a class="ui-button ui-button--ghost" href="#chapters">Управлять главами</a>"#
         )
     } else {
         format!(
             r#"<a class="ui-button ui-button--primary" href="/me/books/{id}/chapters/new">Добавить главу</a>
-<a class="ui-button ui-button--ghost" href="#preparation">Подготовка к публикации</a>"#
+        <a class="ui-button ui-button--ghost" href="#preparation">Подготовка к публикации</a>"#
         )
     };
 
@@ -198,9 +202,8 @@ pub fn detail_with_covers_with_demand_page(
     }
     let mut pagination = String::new();
     if has_previous_page || next.is_some() {
-        pagination.push_str(
-            r#"<nav class="author-dashboard__pagination" aria-label="Страницы глав">"#,
-        );
+        pagination
+            .push_str(r#"<nav class="author-dashboard__pagination" aria-label="Страницы глав">"#);
         if has_previous_page {
             write!(
                 &mut pagination,
@@ -235,7 +238,8 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
-    let chapter_count = if has_previous_page || pagination.contains("Следующие главы") {
+    let chapter_count = if has_previous_page || pagination.contains("Следующие главы")
+    {
         format!("На странице: {}", chapters.len())
     } else {
         format!("Глав: {}", chapters.len())
