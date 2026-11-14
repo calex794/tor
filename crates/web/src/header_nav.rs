@@ -38,7 +38,7 @@ pub(crate) fn instrument(app: Router, accounts: PgAccounts, cookies: CookiePolic
 }
 
 fn html_route(method: &Method, path: &str) -> bool {
-    if method != Method::GET {
+    if method != &Method::GET {
         return false;
     }
     !["/assets/", "/api/", "/covers/", "/sitemaps/", "/favicon", "/icon-", "/apple-touch-icon", "/ops/"]
