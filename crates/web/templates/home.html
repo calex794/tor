@@ -1,7 +1,16 @@
 <!-- NEwBOO backend/app/web/templates/home/index.html, reduced to shipped data. -->
 <section class="home-hero">
   <div class="container">
-    <h1 class="home-page__title">Пандаолейт — книги и переводы для чтения онлайн</h1>
+    <div class="home-entry">
+      <h1 class="home-page__title">Книги и переводы онлайн</h1>
+      <form class="home-search" action="/catalog" method="get" role="search" aria-label="Поиск книг">
+        <label for="home-search-query">Название книги или автор</label>
+        <div class="home-search__controls">
+          <input class="ui-input" id="home-search-query" type="search" name="q" placeholder="Что будем читать?" maxlength="80">
+          <button class="ui-button" type="submit">Найти</button>
+        </div>
+      </form>
+    </div>
     <div class="home-special">
       <!--HOME_SPOTLIGHT-->
     </div>
