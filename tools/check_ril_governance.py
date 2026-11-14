@@ -1354,6 +1354,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and 'format!("/login?next=/read/{id}")' in evidence
             and "return private_response(Redirect::to(&destination), &[])" in evidence
         )
+        # The new-book form may only return to its exact local path.
+        fixed_book_create_return = (
+            entry["template"] == "/me/books/new"
+            and entry["handler"] == "book_registration_http::new_page"
+            and "Ok(None) =>" in evidence
+            and 'Redirect::to("/login?next=/me/books/new")' in evidence
+        )
         # The private reader needs its fixed chapter-local login redirect.
         # An unrelated unauthorized branch must not mask removal of that guard.
         if entry["template"] == "/read/{id}" and entry["handler"] == "private_reader::page":
@@ -1362,6 +1369,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         elif not (
             "StatusCode::UNAUTHORIZED" in evidence
             or 'Redirect::to("/login")' in evidence
+            or fixed_book_create_return
             or collection_detail_guarded
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
