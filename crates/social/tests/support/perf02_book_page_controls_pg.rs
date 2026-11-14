@@ -18,6 +18,11 @@ async fn perf02c_controls_before_follow(repo: &PgCreatorFollows) {
     let draft = repo.book_page_follow_state(825003, 825102).await.unwrap();
     assert!(draft.is_owner, "legacy owner projection includes drafts");
     assert_eq!(draft.creator_user_id, None, "hidden book cannot expose creator");
+    assert_eq!(
+        repo.creator_for_public_book(825101).await.unwrap(),
+        Some(825001)
+    );
+    assert_eq!(repo.creator_for_public_book(825102).await.unwrap(), None);
 }
 
 async fn perf02c_controls_after_creator_follow(repo: &PgCreatorFollows, pool: &PgPool) {
