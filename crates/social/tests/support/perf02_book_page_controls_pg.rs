@@ -60,3 +60,64 @@ async fn e05_assert_follow_source(pool: &PgPool, id: i64) {
             .unwrap();
     assert_eq!(source, (825101, "book_page".to_owned()));
 }
+
+async fn perf02d_session_controls(repo: &PgCreatorFollows, pool: &PgPool) {
+    // Synthetic digest in a disposable PG fixture, never a real cookie.
+    let digest = [0xd2_u8; 32];
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none());
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES(825002,$1,now()+interval '1 hour')",
+    )
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    let (reader, state) = repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .expect("live session must render its own follow controls");
+    assert_eq!(reader, 825002);
+    assert_eq!(
+        state,
+        repo.book_page_follow_state(reader, 825101).await.unwrap()
+    );
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825102)
+        .await
+        .unwrap()
+        .is_some(), "hidden source cannot escape the B-owned creator check");
+    sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none(), "revoked sessions must not render author controls");
+    sqlx::query(
+        "UPDATE sessions SET revoked_at=NULL, expires_at=now()-interval '1 hour'
+         WHERE token_hash=$1",
+    )
+    .bind(digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    assert!(repo
+        .book_page_follow_state_for_session(&digest, 825101)
+        .await
+        .unwrap()
+        .is_none(), "expired sessions must not render author controls");
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
+}
