@@ -87,11 +87,34 @@ async fn perf02d_session_controls(repo: &PgCreatorFollows, pool: &PgPool) {
         state,
         repo.book_page_follow_state(reader, 825101).await.unwrap()
     );
-    assert!(repo
+    let (_, hidden) = repo
         .book_page_follow_state_for_session(&digest, 825102)
         .await
         .unwrap()
-        .is_some(), "hidden source cannot escape the B-owned creator check");
+        .expect("live session may read display projections");
+    assert_eq!(hidden.creator_user_id, None);
+    assert!(!hidden.is_owner);
+    let owner_digest = [0xd3_u8; 32];
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES(825001,$1,now()+interval '1 hour')",
+    )
+    .bind(owner_digest.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    let (owner, owner_state) = repo
+        .book_page_follow_state_for_session(&owner_digest, 825101)
+        .await
+        .unwrap()
+        .expect("live owner session may render owner controls");
+    assert_eq!(owner, 825001);
+    assert!(owner_state.is_owner);
+    sqlx::query("DELETE FROM sessions WHERE token_hash=$1")
+        .bind(owner_digest.as_slice())
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE sessions SET revoked_at=now() WHERE token_hash=$1")
         .bind(digest.as_slice())
         .execute(pool)
