@@ -769,3 +769,48 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
         0,
     );
 }
+
+pub(super) async fn assert_session_navigation(app: &Router, session: &str) {
+    for path in ["/", "/catalog", "/books/1", "/me/books/new"] {
+        let reply = send(app, request("GET", path, "", session, ORIGIN)).await;
+        assert_eq!(reply.status(), StatusCode::OK, "{path}");
+        assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+        assert!(
+            reply.headers().get_all(header::VARY).iter().any(|value| {
+                value
+                    .to_str()
+                    .unwrap()
+                    .split(',')
+                    .any(|part| part.trim() == "Cookie")
+            }),
+            "{path}: personalized header must vary by Cookie"
+        );
+        let html = body_of(reply).await;
+        let header = html
+            .split("<header")
+            .nth(1)
+            .unwrap()
+            .split("</header>")
+            .next()
+            .unwrap();
+        assert!(header.contains("action=\"/logout\""), "{path}");
+        assert!(!header.contains("href=\"/login\""), "{path}");
+        assert!(!header.contains("href=\"/register\""), "{path}");
+    }
+    let forged = format!("tor-dev-session={}", "A".repeat(43));
+    for cookies in ["", forged.as_str()] {
+        let reply = send(app, request("GET", "/catalog", "", cookies, ORIGIN)).await;
+        assert_eq!(reply.status(), StatusCode::OK);
+        let html = body_of(reply).await;
+        let header = html
+            .split("<header")
+            .nth(1)
+            .unwrap()
+            .split("</header>")
+            .next()
+            .unwrap();
+        assert!(header.contains("href=\"/login\""));
+        assert!(header.contains("href=\"/register\""));
+        assert!(!header.contains("action=\"/logout\""));
+    }
+}

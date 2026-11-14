@@ -173,6 +173,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(!private_html.contains("Приватность"));
     assert!(!private_html.contains("Анализ ваших переходов"));
     assert!(!private_html.contains("/me/behavior"));
+    h_account_cases::assert_session_navigation(&app, &session).await;
     // B-01/B-02: the first genuine author journey persists a private book.
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
