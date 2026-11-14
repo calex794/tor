@@ -33,6 +33,69 @@ fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
 use super::*;
 
 #[test]
+fn book_workspace_keeps_release_and_paid_edit_gates_and_parent_navigation() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<bad>".into(),
+    };
+    let chapters = [
+        OwnedChapterSummary {
+            id: 11,
+            number: 1,
+            title: "<free>".into(),
+            access: ChapterAccess::Free,
+            published: false,
+        },
+        OwnedChapterSummary {
+            id: 12,
+            number: 2,
+            title: "Paid V1".into(),
+            access: ChapterAccess::Paid,
+            published: true,
+        },
+        OwnedChapterSummary {
+            id: 13,
+            number: 3,
+            title: "Paid draft".into(),
+            access: ChapterAccess::Paid,
+            published: false,
+        },
+    ];
+    let page = |paid_editor_enabled| {
+        detail_with_covers_with_demand_page(
+            &book,
+            true,
+            &chapters,
+            "<csrf>",
+            OwnerChapterPageOptions {
+                uploads_enabled: false,
+                latest_job: None,
+                demand_count: 0,
+                paid_editor_enabled,
+                age_editor_enabled: false,
+                next: None,
+                has_previous_page: false,
+            },
+        )
+        .0
+    };
+    let disabled = page(false);
+    assert!(disabled.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!disabled.contains("aria-current=\"page\""));
+    assert!(disabled.contains("/chapters/11/edit"));
+    assert!(disabled.contains("/chapters/11/release"));
+    assert!(!disabled.contains("/chapters/12/edit"));
+    assert!(!disabled.contains("/chapters/13/edit"));
+    assert!(!disabled.contains("/chapters/13/release"));
+    assert!(disabled.contains("&lt;free&gt;"));
+    assert!(disabled.contains("Публикация включена"));
+    assert!(disabled.contains("проверки регистрации"));
+    let enabled = page(true);
+    assert!(enabled.contains("/chapters/12/edit"));
+    assert!(!enabled.contains("/chapters/13/edit"));
+}
+
+#[test]
 fn b12_owner_pages_keep_navigation_for_long_books() {
     let book = OwnedBook {
         id: 42,

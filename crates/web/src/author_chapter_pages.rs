@@ -1,12 +1,14 @@
 //! Actual author book/chapter pages: no placeholder books or fabricated chapters.
 use axum::response::Html;
-use std::fmt::Write;
 use tor_books::schemas::ScheduledChapter;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
 
 use crate::pages::{escape_html, private_account_layout as layout};
+
+mod book_workspace;
+pub use book_workspace::detail_with_covers_with_demand_page;
 
 /// The form exists only when a signed source store and cover worker are enabled.
 #[cfg(test)]
@@ -64,180 +66,6 @@ pub struct OwnerChapterPageOptions<'a> {
     pub age_editor_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
-}
-pub fn detail_with_covers_with_demand_page(
-    book: &OwnedBook,
-    published: bool,
-    chapters: &[OwnedChapterSummary],
-    csrf: &str,
-    options: OwnerChapterPageOptions<'_>,
-) -> Html<String> {
-    let OwnerChapterPageOptions {
-        uploads_enabled,
-        latest_job,
-        demand_count,
-        paid_editor_enabled,
-        age_editor_enabled,
-        next,
-        has_previous_page,
-    } = options;
-    let mut items = String::new();
-    if chapters.is_empty() {
-        items.push_str("<p class=\"empty-state\">В этой книге пока нет глав.</p>");
-    } else {
-        items.push_str("<ol>");
-        for chapter in chapters {
-            let access = match chapter.access {
-                ChapterAccess::Free => "Бесплатная",
-                ChapterAccess::Paid => "Платная",
-            };
-            let pending = published && !chapter.published;
-            let edit_action = if chapter.access == ChapterAccess::Free
-                || (chapter.access == ChapterAccess::Paid
-                    && chapter.published
-                    && paid_editor_enabled)
-            {
-                format!(
-                    " <a href=\"/me/books/{}/chapters/{}/edit\">Редактировать</a>",
-                    book.id, chapter.id
-                )
-            } else {
-                String::new()
-            };
-            let release_action = if pending && chapter.access == ChapterAccess::Free {
-                format!(
-                    " <a href=\"/me/books/{}/chapters/{}/release\">Выпустить главу</a>",
-                    book.id, chapter.id
-                )
-            } else {
-                String::new()
-            };
-            let state = if pending {
-                " — Черновик (не виден читателям)"
-            } else {
-                ""
-            };
-            write!(
-                &mut items,
-                "<li>№{} — {} ({access}){state}{edit_action}{release_action}</li>",
-                chapter.number,
-                escape_html(&chapter.title)
-            )
-            .expect("write String");
-        }
-        items.push_str("</ol>");
-    }
-    if has_previous_page || next.is_some() {
-        items.push_str("<nav class=\"chapter-toc__more\" aria-label=\"Страницы глав\">");
-        if has_previous_page {
-            write!(
-                &mut items,
-                "<a class=\"button button--small\" href=\"/me/books/{}\">К первым главам</a> ",
-                book.id
-            )
-            .expect("write String");
-        }
-        if let Some(cursor) = next {
-            write!(
-                &mut items,
-                "<a class=\"button button--small\" href=\"/me/books/{}?after={}:{}\">Следующие главы</a>",
-                book.id, cursor.number, cursor.id
-            )
-            .expect("write String");
-        }
-        items.push_str("</nav>");
-    }
-    let status = if published {
-        "Опубликована"
-    } else {
-        "Черновик — книгу видит только владелец"
-    };
-    let action = if published {
-        format!(
-            "<p><a class=\"button button--quiet\" href=\"/books/{}\">Открыть опубликованную книгу</a></p>",
-            book.id
-        )
-    } else if chapters.is_empty() {
-        "<p>Сначала добавьте бесплатную главу, затем опубликуйте книгу.</p>".to_owned()
-    } else {
-        format!(
-            r#"<form method="post" action="/me/books/{}/publish">
-               <input type="hidden" name="csrf_token" value="{}">
-               <button class="button" type="submit">Опубликовать книгу</button>
-               </form>"#,
-            book.id,
-            escape_html(csrf)
-        )
-    };
-    let add_action = format!(
-        "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
-        book.id
-    );
-    let import_action = if published {
-        String::new()
-    } else {
-        format!(
-            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из файла</a></p>",
-            book.id
-        )
-    };
-    let cover_status = cover_status(latest_job);
-    let upload = if uploads_enabled {
-        format!(
-            r#"<section class="author-cover-link" aria-label="Обложки книги">
-                <h2>Обложки книги</h2>
-                <p class="account-profile__hint">{cover_status}</p>
-                <a class="ui-button ui-button--ghost" href="/me/books/{}/settings/covers">Управлять обложкой</a>
-                </section>"#,
-            book.id,
-        )
-    } else {
-        String::new()
-    };
-    let demand_panel = if published {
-        format!(
-            "<section class=\"author-demand\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"account-profile__hint\">Только подтверждённые читатели текущей границы книги.</p></section>"
-        )
-    } else {
-        String::new()
-    };
-    let age_settings_link = if age_editor_enabled {
-        format!(
-            "<p><a href=\"/me/books/{}/settings/access-level\">Возрастной уровень книги (18+/21+)</a></p>",
-            book.id
-        )
-    } else {
-        String::new()
-    };
-    let body = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
-        <p class="eyebrow">Кабинет автора · книга №{}</p>
-        <h1>{}</h1>
-        <p class="account-profile__hint">{status}</p>
-        <p><a href="/me/books/{id}/registration-status">Проверка регистрации и причина отказа</a></p>
-        {demand_panel}
-        {upload}
-        <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
-        <p><a href="/me/books/{id}/settings/sources">Ссылки на произведение</a></p>
-        <p><a href="/me/books/{id}/settings/project-status">Состояние работы над книгой</a></p>
-        <p><a href="/me/books/{id}/settings/lifecycle">Жизненный цикл книги</a></p>
-        {age_settings_link}
-        <p><a href="/me/books/{id}/settings/titles">Названия книги</a></p>
-        <p><a href="/me/books/{id}/settings/related">Связанные книги</a></p>
-        <p><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></p>
-        <p><a href="/books/{id}/stats">Статистика книги</a></p>
-        <p><a href="/me/books/{id}/issues">Ошибки текста</a></p>
-        <h2>Главы</h2>{items}
-        {add_action}
-        {import_action}
-        {action}
-        <p><a href="/me/books">Мои книги</a></p>
-        </div></div></section>"#,
-        book.id,
-        escape_html(&book.title),
-        id = book.id
-    );
-    layout(&book.title, "Управление своей книгой", &body)
 }
 fn cover_status(latest_job: Option<&str>) -> &'static str {
     match latest_job {
