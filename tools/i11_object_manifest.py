@@ -23,8 +23,14 @@ class Refused(ValueError):
 
 
 def safe_key(key: object) -> str:
-    if not isinstance(key, str) or not key or len(key.encode("utf-8")) > 1024:
+    if not isinstance(key, str) or not key:
         raise Refused("invalid object key")
+    try:
+        length = len(key.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise Refused("invalid UTF-8 object key") from error
+    if length > 1024:
+        raise Refused("object key too long")
     if (key.startswith("/") or "\\" in key or any(ord(c) < 32 or ord(c) == 127 for c in key)
             or any(part in ("", ".", "..") for part in key.split("/"))):
         raise Refused("unsafe object key")
@@ -80,9 +86,18 @@ def inventory(root: Path) -> list[dict[str, object]]:
     return items
 
 
+def reject_duplicate_json_fields(pairs):
+    output = {}
+    for key, value in pairs:
+        if key in output:
+            raise Refused("duplicate manifest field")
+        output[key] = value
+    return output
+
+
 def validate_manifest(raw: bytes) -> list[dict[str, object]]:
     try:
-        data = json.loads(raw)
+        data = json.loads(raw, object_pairs_hook=reject_duplicate_json_fields)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise Refused("invalid manifest JSON") from error
     if not isinstance(data, dict) or set(data) != {"schema_version", "created_utc", "objects"}:
