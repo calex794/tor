@@ -66,13 +66,13 @@ pub fn detail_with_covers_with_demand_page(
     };
     let hero_actions = if published {
         format!(
-            r#"<a class="ui-button ui-button--primary" href="/books/{id}">Открыть книгу</a>
-        <a class="ui-button ui-button--ghost" href="#chapters">Управлять главами</a>"#
+            r##"<a class="ui-button ui-button--primary" href="/books/{id}">Открыть книгу</a>
+        <a class="ui-button ui-button--ghost" href="#chapters">Управлять главами</a>"##
         )
     } else {
         format!(
-            r#"<a class="ui-button ui-button--primary" href="/me/books/{id}/chapters/new">Добавить главу</a>
-        <a class="ui-button ui-button--ghost" href="#preparation">Подготовка к публикации</a>"#
+            r##"<a class="ui-button ui-button--primary" href="/me/books/{id}/chapters/new">Добавить главу</a>
+        <a class="ui-button ui-button--ghost" href="#preparation">Подготовка к публикации</a>"##
         )
     };
 
