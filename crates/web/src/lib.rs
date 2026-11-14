@@ -283,13 +283,21 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &context.stars)
             };
-            let html = match book_related_public::attach(catalog, book.id, context.likes, html).await {
+            let html =
+                match book_related_public::attach(catalog, book.id, context.likes, html).await {
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
             let html = editorial_http::display::book(&state, &headers, id, html, observation).await;
             let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
-            return cover_http::book_html(&state, &headers, book.id, html, Some(context.viewer)).await;
+            return cover_http::book_html(
+                &state,
+                &headers,
+                book.id,
+                html,
+                Some(context.viewer),
+            )
+            .await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
