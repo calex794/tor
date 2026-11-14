@@ -318,6 +318,12 @@ def main():
 
         auth_guest = measure_book_mode("guest_auth_enabled", None)
         auth_reader = measure_book_mode("authenticated_basic", secret)
+        # PERF-02c: the previous real S059 baseline was 5 guest / 20 reader
+        # completed SQLx queries. Three separate social/author UI reads are
+        # now one SQL projection, without changing the verified-session check.
+        # This is a controlled 1000-book debug fixture guard, not a live SLO.
+        require(auth_reader["sqlx_queries_p50"] <= 18,
+                "PERF-02c book social read batching did not reduce SQLx queries")
         auth_comparison = {
             "route_family": "books",
             "auth_enabled": True,

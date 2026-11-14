@@ -886,11 +886,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     .await
     .unwrap();
     let repo = PgCreatorFollows::new(pool.clone());
-    assert_eq!(
-        repo.creator_for_public_book(825101).await.unwrap(),
-        Some(825001)
-    );
-    assert_eq!(repo.creator_for_public_book(825102).await.unwrap(), None);
+    perf02c_controls_before_follow(&repo).await;
     assert_eq!(
         repo.follow_from_book(825002, 825102).await,
         Err(CreatorFollowError::NotFound)
@@ -917,6 +913,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     .unwrap();
     assert_eq!(first, same, "repeat follow must not reset 90-day tenure");
     assert!(repo.is_following(825002, 825001).await.unwrap());
+    perf02c_controls_after_creator_follow(&repo, &pool).await;
     let visible = repo.list_active(825002, None).await.unwrap();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].creator_user_id, 825001);
@@ -961,13 +958,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
             .await
             .unwrap();
     assert_eq!(purchases, 0, "creator follow must never grant paid access");
-    let source: (i64, String) =
-        sqlx::query_as("SELECT source_book_id,source_kind FROM creator_follow_periods WHERE id=$1")
-            .bind(second)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(source, (825101, "book_page".to_owned()));
+    e05_assert_follow_source(&pool, second).await;
 
     // Book becomes private: the subscriber can still unsubscribe, but the
     // source metadata must never appear in the subscriber's listing.
@@ -975,6 +966,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
         .execute(&pool)
         .await
         .unwrap();
+    perf02c_controls_after_hidden(&repo).await;
     let private = repo.list_active(825002, None).await.unwrap();
     assert!(private[0].source_book.is_none());
     assert_eq!(repo.unfollow(825002, 825001).await, Ok(()));
@@ -993,6 +985,8 @@ include!("support/e08_group_creator_lifecycle_pg.rs");
 
 #[path = "support/e08_admin_mail_pg.rs"]
 mod admin_mail_pg;
+
+include!("support/perf02_book_page_controls_pg.rs");
 
 #[path = "support/s020_creator_follow_age_pg.rs"]
 mod s020_creator_follow_age_pg;
