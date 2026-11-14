@@ -270,7 +270,7 @@ async fn book_detail(
                 Ok(id) => id,
                 Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
             };
-            let context =
+            let (stars, count) =
                 match book_rating_context::for_book(catalog, id, digest.as_ref()).await {
                     Ok(Some(context)) => context,
                     Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
@@ -278,31 +278,23 @@ async fn book_detail(
                 };
             let html = if state.paid_batch_browser_enabled {
                 pages::book_detail_with_chapters_cover_stars_batch(
-                    &book, limit, has_cover, &context.stars, true,
+                    &book, limit, has_cover, &stars, true,
                 )
             } else {
-                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &context.stars)
+                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            let html =
-                match book_related_public::attach(catalog, book.id, context.likes, html).await {
+            let html = match book_related_public::attach(catalog, book.id, count, html).await {
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
             };
             let html = editorial_http::display::book(&state, &headers, id, html, observation).await;
             let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
-            return cover_http::book_html(
-                &state,
-                &headers,
-                book.id,
-                html,
-                Some(context.viewer),
-            )
-            .await;
+            return cover_http::book_html(&state, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
         let html = seo_http::decorate_book(&state, book.id, uri.query().is_none(), html).await;
-        return cover_http::book_html(&state, &headers, book.id, html, None).await;
+        return cover_http::book_html(&state, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
