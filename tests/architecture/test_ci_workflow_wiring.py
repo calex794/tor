@@ -105,12 +105,16 @@ class WorkflowWiringTests(unittest.TestCase):
                 # A batch may select multiple --test targets with shell
                 # continuations, but a target must still belong to exactly
                 # one Cargo command for its own crate in each PostgreSQL job.
-                self.assertEqual(
-                    len(matching_cargo_test_commands(pg, package, test_target)), 1
+                required_invocations = matching_cargo_test_commands(
+                    pg, package, test_target
                 )
-                self.assertEqual(
-                    len(matching_cargo_test_commands(manual_pg, package, test_target)), 1
+                manual_invocations = matching_cargo_test_commands(
+                    manual_pg, package, test_target
                 )
+                # Some targets run repeatedly with distinct test filters.
+                # All repeats must remain, and manual/required jobs must agree.
+                self.assertTrue(required_invocations)
+                self.assertEqual(required_invocations, manual_invocations)
                 self.assertEqual(
                     matching_cargo_test_commands(other_jobs, package, test_target), []
                 )
