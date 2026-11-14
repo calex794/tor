@@ -455,6 +455,15 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing verified PG session guard")
 
+    def test_book_create_return_must_remain_a_fixed_local_route(self):
+        self.mutate(
+            "crates/web/src/auth/book_registration_http.rs",
+            'Redirect::to("/login?next=/me/books/new")',
+            'Redirect::to("/login?next=//evil.example")',
+            start="pub(super) async fn new_page(",
+        )
+        self.assert_detected("session failure does not explicitly deny/redirect")
+
     def test_private_reader_return_must_remain_a_fixed_local_route(self):
         self.mutate(
             "crates/web/src/auth/private_reader.rs",
