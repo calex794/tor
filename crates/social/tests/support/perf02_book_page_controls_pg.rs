@@ -126,7 +126,9 @@ async fn perf02d_session_controls(repo: &PgCreatorFollows, pool: &PgPool) {
         .unwrap()
         .is_none(), "revoked sessions must not render author controls");
     sqlx::query(
-        "UPDATE sessions SET revoked_at=NULL, expires_at=now()-interval '1 hour'
+        "UPDATE sessions SET revoked_at=NULL,
+                created_at=now()-interval '2 hours',
+                expires_at=now()-interval '1 hour'
          WHERE token_hash=$1",
     )
     .bind(digest.as_slice())
