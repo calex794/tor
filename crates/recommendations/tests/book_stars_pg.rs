@@ -419,7 +419,7 @@ async fn perf02e_book_page_stars_and_likes_share_visibility_and_age_gate() {
     assert_eq!(guest_stars.work, StarTotal { sum: 4, votes: 1 });
     assert_eq!(
         store.visible_summary(book).await.unwrap(),
-        Some(guest_stars)
+        Some(guest_stars.clone())
     );
     let (reader_stars, reader_likes) = store
         .book_page_summary_for_actor(book, Some(second))
