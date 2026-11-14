@@ -478,7 +478,7 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     loop {
         let (status, html) = author_chapter_page(&app, public, &one, after.as_deref()).await;
         assert_eq!(status, StatusCode::OK);
-        let count = html.matches("<li>№").count();
+        let count = html.matches("<li class=\"author-chapter-row\">").count();
         assert!(count > 0 && count <= 100, "bounded author page");
         seen += count;
         pages += 1;
