@@ -7,11 +7,30 @@ use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgBookLikes;
 use tor_recommendations::repositories::{BookStars, PgBookStars};
 
+/// Verified once for this GET. This is display context only, not a mutation
+/// entitlement; B still checks book access in its own SQL.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct VerifiedBookViewer {
+    user_id: Option<i64>,
+}
+
+impl VerifiedBookViewer {
+    pub(super) fn user_id(self) -> Option<i64> {
+        self.user_id
+    }
+}
+
+pub(super) struct BookRatingContext {
+    pub(super) stars: BookStars,
+    pub(super) likes: i64,
+    pub(super) viewer: VerifiedBookViewer,
+}
+
 pub(super) async fn for_book(
     catalog: &PgCatalog,
     book_id: i64,
     session_digest: Option<&[u8; 32]>,
-) -> Result<Option<(BookStars, i64)>, StatusCode> {
+) -> Result<Option<BookRatingContext>, StatusCode> {
     // Bind the actual A session to the server-side actor, not a client id.
     let actor = if let Some(session) = session_digest {
         PgAccounts::from_pool(catalog.pool().clone())
@@ -42,5 +61,9 @@ pub(super) async fn for_book(
         None => likes.direct_view_count(book_id).await,
     }
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(count.map(|count| (summary, count)))
+    Ok(count.map(|likes| BookRatingContext {
+        stars: summary,
+        likes,
+        viewer: VerifiedBookViewer { user_id: actor },
+    }))
 }
