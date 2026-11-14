@@ -85,3 +85,35 @@ owner scenarios require independent safety checks.
 Existing bounded session_actor checks in the other HTTP paths are unchanged.
 This new direct read cannot be used for privileged mutations, private chapter
 delivery, entitlement grants, or financial actions.
+
+
+## PERF-02e: one access-gated star + like aggregate
+
+Both F-05's `PgBookStars::visible_summary_for_actor` and C's
+`PgBookLikes::direct_view_summary/direct_view_count` check a current
+public/active Book and the same actor-specific BASIC/18+/21+/administrator
+visibility gate. Direct Book GET is allowed to render during
+`pending_deletion`, while the standalone like/rating mutation gates still
+deny writes and public discovery.
+
+`PgBookStars::book_page_summary_for_actor` now returns the two star vote
+aggregates **and** a scalar like count from one SQL statement/snapshot, with
+one age/visibility predicate. `book_rating_context::for_book` continues
+validating the A session first, then performs one aggregate SELECT instead
+of separate star SELECT and likes SELECT. Ordinary F-05 callers retain
+`visible_summary_for_actor`; its internal query uses a conditional CASE
+with `include_likes=false` so they do not scan the likes table.
+
+No favorite flags or personal Like rows are returned, no cached Book
+authorization is introduced, and all POST mutations retain their
+independent current-actor checks. Real PostgreSQL tests cover basic
+guest/reader parity, pending-deletion direct reads, 18+ revocation and
+active moderation hold, alongside existing F-05 and Book Like browser tests.
+
+**Acceptance:** S059 real PG HTTP query trace count and latency, full
+PostgreSQL integration/browser/security suites, and repository rules. With
+PERF-02c measured at 18 SQLx operations for an authenticated BASIC book,
+this patch removes one separate like-count query on the same path in code.
+An actual new number must come from the CI trace artifact. There is no
+production performance claim, migration, pool increase, live DB change
+or deployment.
