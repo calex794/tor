@@ -10,7 +10,7 @@ The objective is to prove recoverability **after complete loss of the source ser
 
 - No operation on the source server, production PostgreSQL/S3, live IAM, DNS, systemd, production timers or migrations during this acceptance. No backup activation is implied.
 - The restore destination must be physically/logically separate from the source, use test-only OS identities and a test PostgreSQL 18 cluster, and be blocked from production payment webhooks, mail, queues and outbound write routes to live S3.
-- Verify target PGDATA is empty and located on the approved restore host; target PostgreSQL port must not be 5432, and database names must not be the production name `tor`. A pgBackRest `restore` can overwrite the specified target directory. Never paste a restore command without independently verifying its destination first.
+- Verify target PGDATA is empty and located on the approved restore host; target PostgreSQL port must not be 5432, and its endpoint must be restricted to the isolated host. A physical restore necessarily preserves the original database name `tor`; isolation must instead rely on the distinct host, PGDATA, port, roles, network and credentials. A pgBackRest `restore` can overwrite the specified target directory. Never paste a restore command without independently verifying its destination first.
 - Recover only from the independently protected **offsite** PostgreSQL/WAL and object/key archives. Reading live primary S3 or falling back to a local MinIO/container voids this test.
 - Restrict permissions and retain a secure destruction record for any restored paid content. Never upload database data, object names, KEKs, age private identities, credentials or raw debug logs to GitHub/Notion/CI artifacts.
 
