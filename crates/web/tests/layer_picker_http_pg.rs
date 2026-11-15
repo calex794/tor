@@ -254,6 +254,11 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     );
     let now = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
     assert!(now.contains("Team book"));
+    let filtered_path = format!("{page}?q=Team");
+    let filtered =
+        body(request(&app, "GET", &filtered_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(filtered.contains("Team book"));
+    assert!(!filtered.contains("Solo &lt;script&gt;"));
     pg(
         &url,
         &format!("UPDATE book_members SET is_active=TRUE WHERE book_id={team} AND user_id={collaborator}"),
@@ -290,6 +295,22 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(updated.contains("name=\"expected_offer_id\" value=\"0\""));
     let price_form = format!(
         "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&confirm_pricing=yes&csrf_token={csrf}"
+    );
+    let lifetime_unconfirmed =
+        price_form.replace("term_kind=prepaid_30d", "term_kind=lifetime");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &lifetime_unconfirmed
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "lifetime offer requires explicit confirmation of future-book rights"
     );
     let old_version_form = price_form.replace(
         &format!("expected_version_id={current_version}"),
@@ -768,6 +789,12 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(hidden.contains("Owner Updated"));
     assert!(hidden.contains("Скрыт"));
     assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
+    let details = format!("/me/layers/{id}/books");
+    let hidden_details =
+        body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
+    assert!(hidden_details.contains("Пакет скрыт от новых покупок"));
+    assert!(!hidden_details.contains("name=\"price_rub\""));
+    assert!(!hidden_details.contains("name=\"book_id\""));
 
     let restore = format!(
         "title=Owner+Updated&description=Private+description&status=active&expected_revision=2&csrf_token={csrf}"
