@@ -190,6 +190,7 @@ fn router_inner(
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
     let editorial_routes = crate::editorial_http::routes(accounts.clone(), cookies.clone());
+    let paid_ads_routes = crate::paid_ads_http::routes(accounts.clone(), cookies.clone());
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -454,7 +455,7 @@ fn router_inner(
     let app = app
         .merge(crate::recommendation_http::routes(rec_runtime.clone()))
         .merge(audience_routes);
-    let app = app.merge(editorial_routes);
+    let app = app.merge(editorial_routes).merge(paid_ads_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
 

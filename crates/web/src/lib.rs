@@ -49,6 +49,8 @@ mod homepage_updates;
 mod layer_reader_assets;
 mod layer_reader_pages;
 pub mod package_cover_cleanup;
+mod paid_ads_http;
+pub mod paid_ads_worker;
 mod recommendation_http;
 pub mod recommendation_worker;
 mod referral_book_http;
@@ -485,6 +487,8 @@ fn make_router_with_paid_checkout(
             get(toc_window_http::book_toc_window),
         )
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
+        .route("/assets/paid-ads.js", get(paid_ads_http::script))
+        .route("/assets/paid-ads.css", get(paid_ads_http::stylesheet))
         .route("/assets/newboo-text-issues.js", get(text_issue_script))
         .route(
             "/assets/newboo-free-reader.js",

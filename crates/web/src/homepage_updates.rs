@@ -37,6 +37,7 @@ pub(super) async fn page(
                     &headers,
                     tor_contracts::exposure::PromotionSlot::HomePromoStrip,
                     None,
+                    None,
                     html,
                     crate::editorial_http::display::issuer(&observation),
                 )
@@ -49,6 +50,7 @@ pub(super) async fn page(
                     .attach(
                         &headers,
                         tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                        None,
                         None,
                         html,
                         crate::editorial_http::display::issuer(&observation),

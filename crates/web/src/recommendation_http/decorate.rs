@@ -50,7 +50,7 @@ fn page_csrf(state: &Runtime, request: &HeaderMap, response: &HeaderMap) -> (Str
 // Reject a separate/unrecognized editorial layout rather than adding a second panel.
 fn reader_shelf_slot_available(html: &str) -> bool {
     html.contains("<!--READER_END_SHELF-->")
-        && (!html.contains("data-editorial-campaign=")
+        && (!(html.contains("data-editorial-campaign=") || html.contains("data-paid-campaign="))
             || html.contains("<!--READER_END_ORGANIC_CARDS-->"))
 }
 
@@ -58,11 +58,19 @@ fn editorial_shelf_book_ids(html: &str) -> Vec<i64> {
     if !html.contains("<!--READER_END_ORGANIC_CARDS-->") {
         return Vec::new();
     }
-    html.split("data-editorial-book=\"")
-        .skip(1)
-        .take(4)
-        .filter_map(|part| part.split('"').next().and_then(|id| book_id(id).ok()))
-        .collect()
+    let mut ids = Vec::new();
+    for attr in ["data-editorial-book=\"", "data-paid-book=\""] {
+        for id in html
+            .split(attr)
+            .skip(1)
+            .filter_map(|part| part.split('"').next().and_then(|id| book_id(id).ok()))
+        {
+            if !ids.contains(&id) && ids.len() < 4 {
+                ids.push(id);
+            }
+        }
+    }
+    ids
 }
 
 // Both public-free reader spellings share the same single placement. Other
@@ -153,7 +161,8 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
     };
     let editorial_slot = shelf_book.is_some()
         && original.contains("<!--READER_END_ORGANIC_CARDS-->")
-        && original.contains("data-editorial-campaign=");
+        && (original.contains("data-editorial-campaign=")
+            || original.contains("data-paid-campaign="));
     if (original.contains("data-rec-panel") && !editorial_slot)
         || (shelf_book.is_some() && !reader_shelf_slot_available(original))
     {
@@ -299,6 +308,16 @@ mod shelf_precedence_tests {
             shelf_book_for_route(Surface::BookDetail, "/reader/41", Some(7)),
             None
         );
+    }
+
+    #[test]
+    fn paid_cards_use_the_same_slot_and_are_excluded_from_organic_fill() {
+        let html = r#"<section data-rec-panel><article data-paid-campaign="4" data-paid-book="12"></article><article data-paid-campaign="5" data-paid-book="14"></article><!--READER_END_ORGANIC_CARDS--></section><!--READER_END_SHELF-->"#;
+        assert!(reader_shelf_slot_available(html));
+        assert_eq!(editorial_shelf_book_ids(html), vec![12, 14]);
+        assert!(!reader_shelf_slot_available(
+            r#"<section data-paid-campaign="4"></section><!--READER_END_SHELF-->"#
+        ));
     }
 
     #[test]

@@ -111,13 +111,21 @@ CSRF/Origin, command key и CAS revision. Ниже платные advertising AP
 | POST `/api/v1/me/rankings/choice` | `{left_book_id,right_book_id,winner_id?,defer?}` | defer/resume, повтор не удваивает рейтинг |
 | GET `/sitemap.xml`, `/robots.txt` | canonical URLs | draft/deleted/hold не индексируются, staged generation и rollback |
 | GET/POST `/api/v1/me/referrals` | invitation token, attribution | self-referral запрещён, деньги начисляет D |
-| POST `/api/v1/ads/daily-campaigns` | `{book_id,placement_type,starts_at,ends_at,total_days,prepaid_days,offer_revision}` | legacy **только fully-prepaid**; frozen rate, real D wallet debit + ledger; idempotent |
+| POST `/api/v1/ads/daily-campaigns` | `{book_id,offer_id,placement_type,starts_at,ends_at,total_days,prepaid_days,offer_revision}` | legacy **только fully-prepaid**; frozen rate, real D wallet debit + ledger; idempotent |
 | GET `/api/v1/me/ads/daily-campaigns` | собственные расписания, bounded page | чужому рекламодателю 403 |
 | GET `/api/v1/ads/chapter/packages` | подтверждённые `price_minor,target_impressions,publisher_share_bps` | price micros не дробной копейки; [exact money](../contracts/finance-ad-exact-v1.md) |
 | POST `/api/v1/ads/chapter/campaigns` | `{promoted_book_id,package_id,expected_package_revision}` | D reserve/escrow в одном PG commit, stable Idempotency-Key |
 | POST `/api/v1/ads/chapter/impressions` | `{campaign_id,generation_id,assignment_id,viewability_token,observed_visible_fraction,observed_duration_ms}` | client недостоверен; F проверяет host/promoted права, assignment, 60%/1s, anti-fraud, hard budget/target |
 | POST `/api/v1/ads/chapter/campaigns/{id}/cancel` | `{expected_revision}` | stop new reservations → D confirmed settlement → unused refund один раз |
 | GET `/api/v1/me/chapter-ads/publisher-ledger` | только свои mature/immature ad доходы | D owner payout/hold, нет global scan |
+| GET `/api/v1/ads/daily-offers` | опубликованные immutable daily offer ID/revision/terms | продажа отдельно gated, прайс не задаёт клиент |
+| GET `/api/v1/ads/chapter/campaigns/{id}` | собственный campaign и materialized stats | недоступный private campaign →404 |
+| GET `/api/v1/me/ads/chapter-campaigns` | owner keyset, `before`, ≤100, `next_before` | без lifetime SUM |
+| POST `/api/v1/ads/daily-campaigns/{id}/cancel` | `{expected_revision,reason?}` + Idempotency-Key | future full UTC days refund по опубликованным условиям |
+| POST `/api/v1/me/chapter-ads/publisher-settings` | `{expected_revision,enabled}` | только текущий publisher; не меняет прошлый доход |
+| POST `/api/v1/me/chapter-ads/publisher-credit` | `{}` + Idempotency-Key | maturity по captured clear_at, атомарный transfer; stable receipt |
+| POST `/api/v1/ads/chapter/click` | `{viewability_token}` | bound real click context, без клиентской конверсии и финансового эффекта |
+
 | GET `/api/v1/me/analytics` | агрегаты | персональные данные и текст главы не логируются |
 
 **Два рекламных продукта не объединять**: legacy размещение днями и Chapter Ads за подтверждённые показы. Денежные движения — только D. Тарифы/цель/бюджет фиксировать из immutable offer; [точная арифметика и отказные тесты](../contracts/finance-ad-exact-v1.md). Отсутствие внешней рекламной сети **не** препятствует собственной рекламе; но реальные billable flags выключены до достоверной проверки кошелька. Рекомендации F следуют [REC golden и RIL](../contracts/recommendations-golden-v1.md), личные сырые события не входят в выдачу.

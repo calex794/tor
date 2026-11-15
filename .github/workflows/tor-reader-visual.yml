@@ -158,6 +158,8 @@ jobs:
           TOR_EDITORIAL_BASE=http://127.0.0.1:3098 TOR_EDITORIAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/editorial_pg_browser.cjs
           node --check tools/s039_payout_post_browser.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
+          node --check tools/paid_ads_browser.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_ads_browser.cjs
       - name: S059 real SQL delay, operator diagnostics and writer recovery
         run: python3 tools/operator_trace_pg_smoke.py
       - name: Preserve S059 measured acceptance

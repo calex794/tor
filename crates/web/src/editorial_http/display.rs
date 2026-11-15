@@ -47,6 +47,7 @@ pub(crate) async fn book(
                 headers,
                 PromotionSlot::BookDetailRelated,
                 Some(id),
+                None,
                 html,
                 issuer(&observation),
             )
@@ -62,6 +63,7 @@ pub(crate) struct DisplayRuntime {
     previews: PgRecommendations,
     authority: Option<(PgAccounts, CookiePolicy)>,
     enabled: bool,
+    paid: Option<crate::paid_ads_http::display::PaidDisplay>,
 }
 impl DisplayRuntime {
     pub(crate) fn new(
@@ -69,7 +71,11 @@ impl DisplayRuntime {
         previews: PgRecommendations,
         authority: Option<(PgAccounts, CookiePolicy)>,
     ) -> Self {
+        let paid = authority
+            .as_ref()
+            .map(|(a, _)| crate::paid_ads_http::display::PaidDisplay::new(a));
         Self {
+            paid,
             store,
             previews,
             authority,
@@ -81,6 +87,7 @@ impl DisplayRuntime {
         headers: &HeaderMap,
         slot: PromotionSlot,
         host: Option<i64>,
+        chapter: Option<i64>,
         html: Html<String>,
         observation: Option<&dyn ObservationIssuer>,
     ) -> Html<String> {
@@ -89,7 +96,10 @@ impl DisplayRuntime {
         } else {
             MARKER
         };
-        if !self.enabled {
+        if !self.enabled
+            && !self.paid.as_ref().is_some_and(|p| p.active())
+            && crate::auth_cookies::cookie_value(headers, "tor-ad-context").is_none()
+        {
             return Html(html.0.replace(marker, ""));
         }
         let started = tokio::time::Instant::now();
@@ -108,11 +118,15 @@ impl DisplayRuntime {
             } else {
                 None
             };
-            Editorial::new(&self.store)
-                .cards(viewer.as_ref(), slot, host)
-                .await
-                .ok()
-                .map(|cards| (cards, viewer))
+            let cards = if self.enabled {
+                Editorial::new(&self.store)
+                    .cards(viewer.as_ref(), slot, host)
+                    .await
+                    .ok()?
+            } else {
+                Vec::new()
+            };
+            Some((cards, viewer))
         };
         // The 400 ms reader budget belongs to the core editorial selection.
         // Once eligible cards exist, optional metadata can never erase them.
@@ -121,6 +135,39 @@ impl DisplayRuntime {
             .ok()
             .flatten()
             .unwrap_or_default();
+        if let Some(paid) = &self.paid {
+            if slot == PromotionSlot::BookDetailRelated {
+                if let Some(book) = host {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(50),
+                        paid.record_open(headers, &self.authority, book),
+                    )
+                    .await;
+                }
+            }
+            let actor = viewer.as_ref().map(|v| tor_contracts::ads::AdActor {
+                user_id: v.user_id,
+                session_digest: v.session_digest,
+            });
+            let budget = Duration::from_millis(400)
+                .saturating_sub(started.elapsed())
+                .min(Duration::from_millis(150));
+            if let Ok(Some(markup)) = tokio::time::timeout(
+                budget,
+                paid.choose(
+                    headers,
+                    actor.as_ref(),
+                    slot,
+                    host,
+                    chapter,
+                    !cards.is_empty(),
+                ),
+            )
+            .await
+            {
+                return Html(html.0.replace(marker, &markup));
+            }
+        }
         let remaining = Duration::from_millis(400).saturating_sub(started.elapsed());
         let preview_budget = remaining.min(Duration::from_millis(150));
         let previews = if slot == PromotionSlot::ChapterEndFree

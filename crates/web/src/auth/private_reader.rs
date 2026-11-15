@@ -109,6 +109,7 @@ pub(super) async fn page(
             &headers,
             tor_contracts::exposure::PromotionSlot::ChapterEndFree,
             i64::try_from(chapter.book_id).ok(),
+            i64::try_from(id).ok(),
             html,
             crate::editorial_http::display::issuer(&observation),
         )
@@ -117,7 +118,7 @@ pub(super) async fn page(
     // E-12: the only new script is self-hosted and cannot run inline JS.
     response.headers_mut().insert(
         "content-security-policy",
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
     );
     crate::recommendation_http::visits::book_response(response, chapter.book_id, 1)
 }

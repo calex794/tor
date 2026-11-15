@@ -1,0 +1,18 @@
+.ads-console { max-width: 1120px; margin: 0 auto; padding: 1rem; }
+.ads-console section { margin-block: 2rem; border-block-start: 1px solid var(--border, #8885); padding-block: 1rem; }
+.ads-console form { display: grid; gap: .8rem; max-width: 42rem; margin-block: 1rem 2rem; }
+.ads-console label { display: grid; gap: .3rem; }
+.ads-console label:has(input[type="checkbox"]) { display: flex; align-items: start; }
+.ads-console input, .ads-console select, .ads-console button { max-width: 100%; min-width: 0; padding: .6rem; font: inherit; }
+.ads-console output, .ads-console [role="status"] { padding: .75rem; background: #17803c15; border: 1px solid #17803c55; border-radius: .4rem; }
+.ads-table { max-width: 100%; overflow-x: auto; }
+.ads-table table { border-collapse: collapse; width: 100%; min-width: 680px; }
+.ads-table th, .ads-table td { padding: .65rem; text-align: start; border-bottom: 1px solid #8885; vertical-align: top; }
+.ads-table td form { min-width: 170px; margin: 0; }
+.ads-console dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; max-width: 42rem; }
+.ads-console dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.paid-promotion .ad-label { display: inline-block; font-size: .75rem; opacity: .7; margin-block-start: .4rem; }
+@media (max-width: 520px) { .ads-console { padding: .6rem; } }
+
+.ads-table caption { text-align: start; font-weight: 600; padding-block: .5rem; }

@@ -46,6 +46,22 @@ class RilGovernanceTests(unittest.TestCase):
         findings = check(self.root)
         self.assertTrue(any(fragment in finding for finding in findings), findings)
 
+    def test_paid_ads_purchase_requires_actual_session_delegate(self):
+        self.mutate("crates/web/src/paid_ads_http/api.rs", "actor(s,h,false).await?", "unverified_actor(s,h,false).await?", start="async fn purchase_response(")
+        self.assert_detected("/api/v1/ads/chapter/campaigns")
+
+    def test_paid_ads_csrf_and_origin_cannot_be_removed(self):
+        self.mutate("crates/web/src/paid_ads_http/mod.rs", "cookies.valid_csrf(h, token)", "cookies.unchecked_csrf(h, token)")
+        self.assert_detected("missing Origin/CSRF")
+
+    def test_paid_ads_admin_publication_requires_admin_session(self):
+        self.mutate("crates/web/src/paid_ads_http/admin.rs", "actor(&s, &h, true).await?", "actor(&s, &h, false).await?", start="pub(super) async fn daily(")
+        self.assert_detected("/admin/promotion/paid/daily-offer")
+
+    def test_paid_ads_default_off_switches_cannot_be_bypassed(self):
+        self.mutate("crates/web/src/paid_ads_http/mod.rs", 'std::env::var(name).as_deref() == Ok("1")', 'true')
+        self.assert_detected("flags are not explicitly default off")
+
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
