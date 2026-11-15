@@ -1,6 +1,6 @@
 //! E-08 release upgrade regression against *only* a disposable PostgreSQL CI database.
-//! Replay the exact checked-out non-E-08 migration blobs as the installed
-//! baseline, then install the fourteen Draft extensions with SQLx's checksum ledger.
+//! Replay non-E-08 migration blobs except later migrations depending on
+//! E-08 tables, then install E-08 and its dependent migrations with SQLx.
 //! The PR CI checkout is a synthetic merge with the newest main: baseline
 //! migrations can grow while an E-08 PR is being reviewed. Never touch retained data.
 
@@ -25,6 +25,10 @@ const E08_VERSIONS: [i64; 14] = [
     202611029083,
 ];
 
+// Later opt-in email intents depend on canonical E-08 notifications.
+// Keep this fixture's pre-E-08 baseline FK-complete.
+const E08_DEPENDENT_VERSIONS: [i64; 1] = [202701198653];
+
 #[tokio::test]
 #[ignore = "requires a disposable tor_ci_e08_upgrade database owned by tor_migrator"]
 async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
@@ -48,7 +52,10 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         migrations: Cow::Owned(
             MIGRATOR
                 .iter()
-                .filter(|migration| !E08_VERSIONS.contains(&migration.version))
+                .filter(|migration| {
+                    !E08_VERSIONS.contains(&migration.version)
+                        && !E08_DEPENDENT_VERSIONS.contains(&migration.version)
+                })
                 .cloned()
                 .collect(),
         ),
@@ -56,7 +63,7 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
     };
     assert_eq!(
         MIGRATOR.migrations.len(),
-        baseline.migrations.len() + E08_VERSIONS.len()
+        baseline.migrations.len() + E08_VERSIONS.len() + E08_DEPENDENT_VERSIONS.len()
     );
     // Preserve at least the verified historical main baseline and its final
     // refund migration. A PR checkout may also include newer main migrations
@@ -67,7 +74,7 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         .migrations
         .last()
         .is_some_and(|migration| migration.version >= 202610310291));
-    for version in E08_VERSIONS {
+    for version in E08_VERSIONS.into_iter().chain(E08_DEPENDENT_VERSIONS) {
         assert!(MIGRATOR.version_exists(version));
         assert!(!baseline.version_exists(version));
     }
@@ -105,9 +112,22 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         if let Some(old_checksum) = before_checksums.get(&version) {
             assert_eq!(&checksum, old_checksum, "checksum changed for {version}");
         } else {
-            assert!(E08_VERSIONS.contains(&version), "unexpected new {version}");
+            assert!(
+                E08_VERSIONS.contains(&version) || E08_DEPENDENT_VERSIONS.contains(&version),
+                "unexpected new {version}"
+            );
         }
     }
+    // The dependent intent table must be installed after its canonical parent.
+    let notification_fk_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_constraint
+         WHERE conrelid='reader_email_notification_intents'::regclass
+           AND confrelid='user_notifications'::regclass AND contype='f'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(notification_fk_count, 1);
+
     let preserved: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM books WHERE source_identity='ci:e08:installed-upgrade'",
     )
