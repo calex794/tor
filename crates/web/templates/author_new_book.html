@@ -1,53 +1,162 @@
-<section class="section auth-section">
-  <div class="container">
-    <div class="auth-card author-card">
-      <p class="eyebrow">Кабинет автора</p>
-      <h1>Создать книгу</h1>
-      <p>Новая книга будет сохранена как личный черновик. Публикация выполняется отдельно.</p>
-      <form class="auth-form" method="post" action="/me/books" autocomplete="off">
+<section class="me-page author-workspace author-create-page">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <nav class="author-create-page__breadcrumb" aria-label="Путь к созданию книги">
+        <a href="/me/books">Мои книги</a><span aria-hidden="true">/</span><span>Новая книга</span>
+      </nav>
+      <header class="ui-page-header author-create-page__header">
+        <div class="ui-page-header__content">
+          <p class="ui-page-header__kicker">Кабинет автора</p>
+          <h1 class="ui-page-header__title">Создать книгу</h1>
+          <p class="ui-page-header__text">Сначала внесите основные сведения. Книга сохранится как личный черновик; главы и публикацию можно оформить после создания.</p>
+        </div>
+        <span class="author-book-state is-draft">Черновик</span>
+      </header>
+
+      <form class="auth-form author-create-form" method="post" action="/me/books" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
-        <label for="book-title">Название книги</label>
-        <input id="book-title" name="title" type="text" required maxlength="200" minlength="1">
-        <label for="book-original-title">Оригинальное название</label>
-        <input id="book-original-title" name="original_title" type="text" maxlength="200">
-        <label for="book-source">Ссылка на первоисточник</label>
-        <input id="book-source" name="source_url" type="url" maxlength="512" placeholder="https://example.org/book/123">
-        <p>Здесь укажите первоисточник на языке автора (например, китайский роман). Ссылки на переводы и каталоги добавьте ниже.</p>
-        <label for="book-extra-source-1">Дополнительная ссылка на это произведение</label>
-        <input id="book-extra-source-1" name="extra_source_1" type="url" maxlength="512" placeholder="https://tl.rulate.ru/book/123">
-        <label for="book-extra-source-2">Ещё одна ссылка (необязательно)</label>
-        <input id="book-extra-source-2" name="extra_source_2" type="url" maxlength="512" placeholder="https://other.example/book/123">
-        <p>Можно указать адреса с любых сайтов. Система проверяет точные совпадения ссылок и известные варианты адресов, но не объединяет произведения лишь по похожему названию.</p>
-        <label for="book-original-language">Язык оригинала</label>
-        <select id="book-original-language" name="original_language"><option value="">Не указан</option><option value="zh">Китайский</option><option value="ko">Корейский</option><option value="ja">Японский</option><option value="en">Английский</option><option value="ru">Русский</option><option value="vi">Вьетнамский</option></select>
-        <label for="book-release-year">Год выпуска</label>
-        <input id="book-release-year" name="release_year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
-        <label for="book-project-status">Состояние произведения</label>
-        <select id="book-project-status" name="project_status"><option value="">Не указано</option><option value="ongoing">В процессе</option><option value="completed">Завершено</option><option value="paused">Приостановлено</option><option value="planned">Запланировано</option></select>
-        <label for="book-section">Раздел каталога</label>
-        <select id="book-section" name="catalog_section"><option value="">Выбрать позже</option><option value="novels/chinese">Китайские новеллы</option><option value="novels/korean">Корейские новеллы</option><option value="novels/japanese">Японские новеллы</option><option value="novels/english">Английские новеллы</option><option value="novels/original">Авторские произведения</option><option value="fanfic/translated">Переводы фанфиков</option></select>
-        <label for="book-alt-1">Другие названия (до трёх)</label>
-        <input id="book-alt-1" name="alt_title_1" type="text" maxlength="200">
-        <input name="alt_title_2" type="text" maxlength="200" aria-label="Второе альтернативное название">
-        <input name="alt_title_3" type="text" maxlength="200" aria-label="Третье альтернативное название">
-        <label for="book-author">Автор произведения (необязательно)</label>
-        <input id="book-author" name="author_name" type="text" maxlength="160">
-        <label for="book-description">Аннотация книги (до 4000 символов)</label>
-        <textarea id="book-description" name="description" rows="6" maxlength="4000" placeholder="О чём эта книга?"></textarea>
-        <label for="book-genres">Жанры через запятую (до 8)</label>
-        <input id="book-genres" name="genres" type="text" maxlength="400" placeholder="Фэнтези, Приключения">
-        <label for="book-tags">Теги через запятую (до 8)</label>
-        <input id="book-tags" name="tags" type="text" maxlength="400" placeholder="Магия, Академия">
-        <label for="book-fandoms">Фэндомы через запятую (до 8)</label>
-        <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
-        <label for="book-language">Язык</label>
-        <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
-        <section id="book-title-suggestions" role="status" aria-live="polite" aria-label="Похожие книги"></section>
-        <button class="button" type="submit">Создать книгу</button>
+
+        <section class="author-create-section" aria-labelledby="author-create-main">
+          <header class="author-create-section__header">
+            <span class="author-create-section__number" aria-hidden="true">01</span>
+            <div><h2 id="author-create-main">Основные сведения</h2>
+              <p>Название, автор и язык книги. Обязательные поля отмечены.</p></div>
+          </header>
+          <div class="author-create-grid">
+            <div class="author-create-field author-create-field--full">
+              <label for="book-title">Название книги <span class="author-create-required">обязательно</span></label>
+              <input id="book-title" name="title" type="text" required maxlength="200" minlength="1" autocomplete="off" placeholder="Название произведения">
+              <section id="book-title-suggestions" role="status" aria-live="polite" aria-label="Похожие книги"></section>
+            </div>
+            <div class="author-create-field">
+              <label for="book-author">Автор произведения (необязательно)</label>
+              <input id="book-author" name="author_name" type="text" maxlength="160" placeholder="Имя или псевдоним">
+            </div>
+            <div class="author-create-field">
+              <label for="book-language">Язык <span class="author-create-required">обязательно</span></label>
+              <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-section">Раздел каталога</label>
+              <select id="book-section" name="catalog_section">
+                <option value="">Выбрать позже</option>
+                <option value="novels/chinese">Китайские новеллы</option>
+                <option value="novels/korean">Корейские новеллы</option>
+                <option value="novels/japanese">Японские новеллы</option>
+                <option value="novels/english">Английские новеллы</option>
+                <option value="novels/original">Авторские произведения</option>
+                <option value="fanfic/translated">Переводы фанфиков</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="author-create-section" aria-labelledby="author-create-description">
+          <header class="author-create-section__header">
+            <span class="author-create-section__number" aria-hidden="true">02</span>
+            <div><h2 id="author-create-description">Описание и тематика</h2>
+              <p>Эти сведения помогают читателям найти книгу. Их можно уточнить позже.</p></div>
+          </header>
+          <div class="author-create-grid">
+            <div class="author-create-field author-create-field--full">
+              <label for="book-description">Аннотация книги (до 4000 символов)</label>
+              <textarea id="book-description" name="description" rows="6" maxlength="4000" placeholder="О чём эта книга?"></textarea>
+            </div>
+            <div class="author-create-field">
+              <label for="book-genres">Жанры через запятую (до 8)</label>
+              <input id="book-genres" name="genres" type="text" maxlength="400" placeholder="Фэнтези, Приключения">
+            </div>
+            <div class="author-create-field">
+              <label for="book-tags">Теги через запятую (до 8)</label>
+              <input id="book-tags" name="tags" type="text" maxlength="400" placeholder="Магия, Академия">
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-fandoms">Фэндомы через запятую (до 8)</label>
+              <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
+            </div>
+          </div>
+        </section>
+
+        <section class="author-create-section" aria-labelledby="author-create-source">
+          <header class="author-create-section__header">
+            <span class="author-create-section__number" aria-hidden="true">03</span>
+            <div><h2 id="author-create-source">Оригинал и первоисточник</h2>
+              <p>Для переводов укажите оригинальное произведение и его источник, если они известны.</p></div>
+          </header>
+          <div class="author-create-grid">
+            <div class="author-create-field author-create-field--full">
+              <label for="book-original-title">Оригинальное название</label>
+              <input id="book-original-title" name="original_title" type="text" maxlength="200">
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-source">Ссылка на первоисточник</label>
+              <input id="book-source" name="source_url" type="url" maxlength="512" placeholder="https://example.org/book/123">
+              <small>Первоисточник на языке автора. Ссылки на переводы и каталоги указываются дополнительно.</small>
+            </div>
+            <div class="author-create-field">
+              <label for="book-original-language">Язык оригинала</label>
+              <select id="book-original-language" name="original_language">
+                <option value="">Не указан</option>
+                <option value="zh">Китайский</option>
+                <option value="ko">Корейский</option>
+                <option value="ja">Японский</option>
+                <option value="en">Английский</option>
+                <option value="ru">Русский</option>
+                <option value="vi">Вьетнамский</option>
+              </select>
+            </div>
+            <div class="author-create-field">
+              <label for="book-release-year">Год выпуска</label>
+              <input id="book-release-year" name="release_year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="2026">
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-project-status">Состояние произведения</label>
+              <select id="book-project-status" name="project_status">
+                <option value="">Не указано</option>
+                <option value="ongoing">В процессе</option>
+                <option value="completed">Завершено</option>
+                <option value="paused">Приостановлено</option>
+                <option value="planned">Запланировано</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <details class="author-create-extras">
+          <summary>
+            <span><strong>Дополнительные ссылки и названия</strong>
+              <small>Необязательно · можно заполнить позднее</small></span>
+          </summary>
+          <div class="author-create-grid">
+            <div class="author-create-field author-create-field--full">
+              <label for="book-extra-source-1">Дополнительная ссылка на это произведение</label>
+              <input id="book-extra-source-1" name="extra_source_1" type="url" maxlength="512" placeholder="https://tl.rulate.ru/book/123">
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-extra-source-2">Ещё одна ссылка (необязательно)</label>
+              <input id="book-extra-source-2" name="extra_source_2" type="url" maxlength="512" placeholder="https://other.example/book/123">
+              <small>Ссылки могут вести на любые сайты. Совпадения проверяются по адресам, а не только по похожим названиям.</small>
+            </div>
+            <div class="author-create-field author-create-field--full">
+              <label for="book-alt-1">Другие названия (до трёх)</label>
+              <input id="book-alt-1" name="alt_title_1" type="text" maxlength="200">
+              <input name="alt_title_2" type="text" maxlength="200" aria-label="Второе альтернативное название">
+              <input name="alt_title_3" type="text" maxlength="200" aria-label="Третье альтернативное название">
+            </div>
+          </div>
+        </details>
+
+        <div class="author-create-actions">
+          <p><strong>Что произойдёт после сохранения:</strong> откроется страница управления вашей новой книгой. Черновик не будет опубликован автоматически.</p>
+          <div class="author-create-actions__buttons">
+            <button class="ui-button ui-button--primary" type="submit">Создать книгу</button>
+            <a class="ui-button ui-button--ghost" href="/me/books">Вернуться к моим книгам</a>
+          </div>
+        </div>
       </form>
       <script src="/assets/book-title-suggestions.js" defer></script>
-      <p class="auth-card__footer"><a href="/me/books">Вернуться к моим книгам</a></p>
     </div>
   </div>
 </section>
