@@ -17,6 +17,7 @@ pub struct LayerBookTile {
 #[derive(Clone, Debug)]
 pub struct LayerBookTilePage {
     pub books: Vec<LayerBookTile>,
+    pub after: Option<i64>,
     pub next_after: Option<i64>,
     /// Stable current-package cover regardless of filtering or page cursor.
     pub hero_cover_id: Option<i64>,
@@ -149,6 +150,7 @@ impl PgLayers {
         }
         Ok(LayerBookTilePage {
             hero_cover_id,
+            after: after.map(PositiveId::get),
             next_after: if more {
                 books.last().map(|b| b.id)
             } else {
