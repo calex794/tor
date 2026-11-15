@@ -39,6 +39,14 @@ pub struct LayerChangePreview {
     pub lifetime_buyers: i64,
 }
 
+/// Bounded server-side filter and cursor for the package picker.
+pub struct LayerTileQuery<'a> {
+    pub after: Option<PositiveId>,
+    pub search: &'a str,
+    pub limit: u16,
+    pub filter: &'a str,
+}
+
 pub(super) fn validate(additions: &[i64], removals: &[i64]) -> Result<(), LayerError> {
     if additions.len() + removals.len() > 100
         || additions.is_empty() && removals.is_empty()
@@ -64,22 +72,33 @@ impl PgLayers {
         search: &str,
         limit: u16,
     ) -> Result<LayerBookTilePage, LayerError> {
-        self.composition_tiles_filtered(actor, layer, after, search, limit, "all", &[], &[])
-            .await
+        self.composition_tiles_filtered(
+            actor,
+            layer,
+            &LayerTileQuery {
+                after,
+                search,
+                limit,
+                filter: "all",
+            },
+            &[],
+            &[],
+        )
+        .await
     }
 
     pub async fn composition_tiles_filtered(
         &self,
         actor: PositiveId,
         layer: PositiveId,
-        after: Option<PositiveId>,
-        search: &str,
-        limit: u16,
-        filter: &str,
+        query: &LayerTileQuery<'_>,
         additions: &[i64],
         removals: &[i64],
     ) -> Result<LayerBookTilePage, LayerError> {
-        let search = search.trim();
+        let search = query.search.trim();
+        let after = query.after;
+        let limit = query.limit;
+        let filter = query.filter;
         if !(1..=50).contains(&limit)
             || search.chars().count() > 100
             || !matches!(filter, "all" | "included" | "available")
