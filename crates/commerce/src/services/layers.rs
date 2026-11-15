@@ -6,6 +6,7 @@ use crate::{
     },
     repositories::{
         layer_composition::{LayerBookTilePage, LayerChangePreview},
+        layer_drafts::{LayerSelectionDraft, LayerStagePage},
         layers::PgLayers,
     },
 };
@@ -181,6 +182,49 @@ impl LayerService {
     ) -> Result<LayerChangePreview, LayerError> {
         self.repository
             .preview_composition(actor, layer, version, additions, removals)
+            .await
+    }
+
+    pub async fn selection_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<LayerSelectionDraft, LayerError> {
+        self.repository.selection_draft(actor, layer).await
+    }
+
+    pub async fn stage_selection_page(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        update: &LayerStagePage,
+    ) -> Result<(LayerSelectionDraft, LayerBookTilePage), LayerError> {
+        self.repository.stage_selection_page(actor, layer, update).await
+    }
+
+    pub async fn clear_selection_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        revision: i64,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .clear_selection_draft(actor, layer, version, revision)
+            .await
+    }
+
+    pub async fn apply_staged_composition(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        additions: &[i64],
+        removals: &[i64],
+        approved: ((i64, i64), i64),
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .apply_staged_composition(actor, layer, version, additions, removals, approved)
             .await
     }
 
