@@ -75,8 +75,16 @@ pub fn package_only_notice(
 ) -> Html<String> {
     let title = escape_html(layer_title);
     let deadline = until_utc.map_or_else(
-        || "Прямая покупка новых платных глав недоступна, пока автор не изменит условия.".to_owned(),
-        |until| format!("До {} UTC новые платные главы продаются только в пакете.", escape_html(until)),
+        || {
+            "Прямая покупка новых платных глав недоступна, пока автор не изменит условия."
+                .to_owned()
+        },
+        |until| {
+            format!(
+                "До {} UTC новые платные главы продаются только в пакете.",
+                escape_html(until)
+            )
+        },
     );
     layout(
         "Глава доступна через пакет",
@@ -93,14 +101,14 @@ pub fn package_only_notice(
     )
 }
 
-
 #[cfg(test)]
 mod package_notice_tests {
     use super::*;
 
     #[test]
     fn package_notice_escapes_title_and_exposes_only_public_destination() {
-        let page = package_only_notice(41, 19, "<script>unsafe</script>", Some("22.11.2026 12:00")).0;
+        let page =
+            package_only_notice(41, 19, "<script>unsafe</script>", Some("22.11.2026 12:00")).0;
         assert!(page.contains("Доступно через пакет"));
         assert!(page.contains("href=\"/layers/19\""));
         assert!(page.contains("href=\"/books/41#chapters\""));
