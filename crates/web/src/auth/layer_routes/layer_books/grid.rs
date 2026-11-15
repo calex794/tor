@@ -5,6 +5,7 @@ use std::fmt::Write;
 use tor_commerce::{
     domain::layers::{LayerOwnerOfferState, LayerTermKind, OwnedLayerSummary},
     repositories::layer_composition::{LayerBookTilePage, LayerChangePreview},
+    repositories::layer_drafts::LayerSelectionDraft,
 };
 
 fn cover(id: i64, title: &str, has_cover: bool) -> String {
@@ -26,6 +27,7 @@ pub(super) fn detail(
     csrf: &str,
     query: &str,
     editable: bool,
+    draft: &LayerSelectionDraft,
 ) -> (String, String, String) {
     let title = pages::escape_html(&layer.title);
     let hero_cover = books
@@ -140,7 +142,12 @@ pub(super) fn detail(
         if book.included {
             included.push(book.id.to_string());
         }
-        let checked = if book.included { " checked" } else { "" };
+        let selected = if book.included {
+            !draft.removals.contains(&book.id)
+        } else {
+            draft.additions.contains(&book.id)
+        };
+        let checked = if selected { " checked" } else { "" };
         let included_class = if book.included { " is-included" } else { "" };
         let marker = if book.included {
             "В пакете"
@@ -165,48 +172,65 @@ pub(super) fn detail(
     if tiles.is_empty() {
         tiles.push_str("<p>Не найдено подходящих книг. Попробуйте другое название.</p>");
     }
-    let mut navigation = String::new();
-    if let Some(after) = books.next_after {
-        write!(
-            navigation,
-            r#"<a class="ui-button ui-button--ghost" href="/me/layers/{id}/books?after={after}{suffix}">Следующие книги</a>"#,
-            id=layer.layer_id,
-            suffix=super::encoded_search_suffix(query),
-        )
-        .expect("write next page");
-    }
+    let next_button = if books.next_after.is_some() {
+        r#"<button class="ui-button ui-button--ghost" type="submit"
+                  name="operation" value="next">Сохранить и показать следующие</button>"#
+    } else {
+        ""
+    };
     let grid = format!(
         r#"<div class="package-section__head">
              <div><h2>Выбор книг</h2>
-             <p>Галочка означает, что книга входит в пакет. Изменения применяются только к книгам, показанным на этой странице; остальные остаются без изменений.</p></div>
+             <p>Выбор сохраняется между страницами и поиском. До окончательного подтверждения оплаченный состав не меняется.</p>
+             <p class="package-grid__saved" aria-live="polite">Черновик:
+               добавить {saved_add}, убрать {saved_remove} книг.</p></div>
            </div>
-           <form method="get" action="/me/layers/{id}/books" class="author-layers-page__search">
-             <label for="package-search">Поиск по собственным книгам</label>
-             <input id="package-search" name="q" type="search" maxlength="100" value="{query}"
-                    placeholder="Поиск по названию">
-             <button class="ui-button ui-button--ghost" type="submit">Найти</button>
-             <a class="text-link" href="/me/layers/{id}/books">Сбросить</a>
-           </form>
            <form method="post" action="/me/layers/{id}/books" class="package-grid-form">
-             <input type="hidden" name="operation" value="preview">
              <input type="hidden" name="expected_version_id" value="{version}">
+             <input type="hidden" name="draft_revision" value="{draft_revision}">
+             <input type="hidden" name="page_after" value="{page_after}">
+             <input type="hidden" name="page_query" value="{query}">
              <input type="hidden" name="visible_csv" value="{visible}">
              <input type="hidden" name="included_csv" value="{included}">
              <input type="hidden" name="csrf_token" value="{csrf}">
+             <div class="author-layers-page__search">
+               <label for="package-search">Поиск по собственным книгам</label>
+               <input id="package-search" name="next_search" type="search" maxlength="100"
+                      value="{query}" placeholder="Поиск по названию">
+               <button class="ui-button ui-button--ghost" type="submit"
+                       name="operation" value="search">Сохранить и найти</button>
+               <button class="ui-button ui-button--ghost" type="submit"
+                       name="operation" value="reset">Сбросить поиск</button>
+             </div>
              <div class="package-grid">{tiles}</div>
              <div class="package-grid__actions">
-               <button class="ui-button ui-button--primary" type="submit">Проверить изменения</button>
-               <span class="package-grid__live">Добавить: <strong class="package-grid__added"></strong> · Убрать: <strong class="package-grid__removed"></strong></span>
-               <span>Сначала появится список добавленных и удалённых книг. До окончательного подтверждения состав не изменится.</span>
+               <button class="ui-button ui-button--ghost" type="submit"
+                       name="operation" value="stage">Сохранить черновик</button>
+               <button class="ui-button ui-button--primary" type="submit"
+                       name="operation" value="preview">Проверить все изменения</button>
+               <span class="package-grid__live">На этой странице: добавить
+                   <strong class="package-grid__added"></strong> · убрать
+                   <strong class="package-grid__removed"></strong></span>
              </div>
+             <nav class="package-grid__pagination" aria-label="Страницы книг">{next_button}</nav>
            </form>
-           <nav class="package-grid__pagination" aria-label="Страницы книг">{navigation}</nav>"#,
-        id = layer.layer_id,
-        query = pages::escape_html(query),
-        version = offer.current_version_id,
-        visible = visible.join(","),
-        included = included.join(","),
-        csrf = pages::escape_html(csrf),
+           <form method="post" action="/me/layers/{id}/books" class="package-grid__clear">
+             <input type="hidden" name="expected_version_id" value="{version}">
+             <input type="hidden" name="draft_revision" value="{draft_revision}">
+             <input type="hidden" name="csrf_token" value="{csrf}">
+             <button class="ui-button ui-button--ghost" type="submit"
+                     name="operation" value="clear">Очистить сохранённый черновик</button>
+           </form>"#,
+        id=layer.layer_id,
+        version=offer.current_version_id,
+        draft_revision=draft.revision,
+        page_after=books.after.map_or_else(String::new, |value| value.to_string()),
+        query=pages::escape_html(query),
+        visible=visible.join(","),
+        included=included.join(","),
+        csrf=pages::escape_html(csrf),
+        saved_add=draft.additions.len(),
+        saved_remove=draft.removals.len(),
     );
     (hero, metadata, grid)
 }
@@ -215,6 +239,7 @@ pub(super) fn review(
     layer: i64,
     preview: &LayerChangePreview,
     csrf: &str,
+    draft_revision: i64,
 ) -> axum::response::Html<String> {
     let mut adds = String::new();
     let mut removes = String::new();
@@ -267,6 +292,7 @@ pub(super) fn review(
                  Если число действующих покупателей изменится до подтверждения, сервер попросит повторить проверку.</p>
                  <form method="post" action="/me/layers/{layer}/books">
                    <input type="hidden" name="operation" value="apply">
+                   <input type="hidden" name="draft_revision" value="{draft_revision}">
                    <input type="hidden" name="expected_version_id" value="{version}">
                    <input type="hidden" name="add_csv" value="{added_csv}">
                    <input type="hidden" name="remove_csv" value="{removed_csv}">
