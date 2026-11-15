@@ -118,16 +118,19 @@ impl PgLayers {
         let hero_cover_id: Option<i64> = sqlx::query_scalar(
             "SELECT b.id
              FROM commerce_layer_version_books vb
+             JOIN commerce_layers l ON l.current_version_id=vb.layer_version_id
              JOIN books b ON b.id=vb.book_id
              WHERE vb.layer_version_id=$1 AND b.visibility='public'
                AND b.visibility_status='active' AND NOT b.is_deleted
+               AND NOT b.admin_hold
+               AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
                AND EXISTS(
                  SELECT 1 FROM book_cover_slots s
                  JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
                  JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
                  WHERE s.book_id=b.id AND j.status='ready'
                )
-             ORDER BY b.id LIMIT 1",
+             ORDER BY CASE WHEN b.id=l.cover_book_id THEN 0 ELSE 1 END,b.id LIMIT 1",
         )
         .bind(current)
         .fetch_optional(&self.pool)

@@ -5,6 +5,8 @@ mod layer_allocation;
 mod layer_composition;
 #[path = "layers_pg/layer_covers.rs"]
 mod layer_covers;
+#[path = "layers_pg/layer_cover_choice.rs"]
+mod layer_cover_choice;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]

@@ -290,6 +290,27 @@ impl LayerService {
     }
 
     /// Advisory current offer; purchase uses a separate locked D preflight.
+    /// Owner-only cosmetic selection. Paid versions and offers remain unchanged.
+    pub async fn choose_package_cover(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        book: Option<PositiveId>,
+        expected_revision: i64,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .choose_package_cover(actor, layer, book, expected_revision)
+            .await
+    }
+
+    pub async fn selected_package_cover(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<Option<i64>, LayerError> {
+        self.repository.selected_package_cover(actor, layer).await
+    }
+
     pub async fn quote(&self, layer: PositiveId) -> Result<LayerOfferQuote, LayerError> {
         self.repository.offer_quote(layer).await
     }

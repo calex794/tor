@@ -22,6 +22,7 @@ pub struct LayerStorefront {
     pub public_books: Vec<StorefrontBook>,
     pub public_book_count: i64,
     pub has_package_cover: bool,
+    pub selected_book_cover_id: Option<i64>,
     pub has_access: bool,
     pub has_lifetime_access: bool,
 }
@@ -53,13 +54,39 @@ pub async fn storefront(
         "SELECT l.id,l.title,l.owner_user_id,l.current_version_id,
                 o.id AS offer_id,o.price_minor,o.term_kind,
                 EXISTS(SELECT 1 FROM commerce_layer_cover_candidates c
-                    WHERE c.layer_id=l.id AND c.status='approved') AS has_package_cover
+                    WHERE c.layer_id=l.id AND c.status='approved') AS has_package_cover,
+                (SELECT b.id FROM commerce_layer_version_books vb
+                 JOIN books b ON b.id=vb.book_id
+                 WHERE vb.layer_version_id=l.current_version_id AND b.id=l.cover_book_id
+                   AND b.visibility='public' AND b.visibility_status='active'
+                   AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+                   AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND EXISTS(
+                      SELECT 1 FROM book_cover_slots s
+                      JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+                      JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
+                      WHERE s.book_id=b.id AND j.status='ready'
+                   )
+                   AND (
+                     b.access_level='basic'
+                     OR (b.access_level='adult' AND EXISTS(
+                        SELECT 1 FROM users viewer WHERE viewer.id=$2
+                          AND viewer.account_state='active' AND viewer.adult_enabled
+                     ))
+                     OR (b.access_level='pro_adult' AND EXISTS(
+                        SELECT 1 FROM users viewer JOIN user_level_grants age
+                          ON age.user_id=viewer.id AND age.level='pro_adult' AND age.is_active
+                        WHERE viewer.id=$2 AND viewer.account_state='active'
+                     ))
+                   )
+                 LIMIT 1) AS selected_book_cover_id
          FROM commerce_layers l
          JOIN commerce_layer_offers o
            ON o.layer_id=l.id AND o.id=l.current_offer_id
          WHERE l.id=$1 AND l.status='active' AND l.current_version_id IS NOT NULL",
     )
     .bind(layer_id)
+    .bind(viewer)
     .fetch_optional(pool)
     .await
     .map_err(|_| LayerError::Unavailable)?;
@@ -160,6 +187,9 @@ pub async fn storefront(
         public_book_count,
         has_package_cover: head
             .try_get("has_package_cover")
+            .map_err(|_| LayerError::Unavailable)?,
+        selected_book_cover_id: head
+            .try_get("selected_book_cover_id")
             .map_err(|_| LayerError::Unavailable)?,
         has_access,
         has_lifetime_access,
