@@ -203,10 +203,7 @@ pub fn new_chapter(
         )
         .replace("<!--SAVE_LABEL-->", "Сохранить главу")
         .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link)
-        .replace(
-            "<!--ACCOUNT_NAVIGATION-->",
-            &navigation,
-        );
+        .replace("<!--ACCOUNT_NAVIGATION-->", &navigation);
     layout("Добавить главу", "Публикация главы автором", &html)
 }
 
