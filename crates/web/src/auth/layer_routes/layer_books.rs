@@ -512,6 +512,34 @@ pub(super) async fn page(
     };
     let draft = match service.composition_draft(actor, layer).await {
         Ok(draft) => draft,
+        Err(LayerError::StaleOffer) => {
+            let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+            let content = format!(
+                r#"<section class="me-page author-workspace">
+                   <div class="container"><h1>Черновик пакета устарел</h1>
+                   <p>Состав пакета был изменён в другой вкладке или отдельной операцией.
+                      Старый выбор нельзя применить к новой версии автоматически.</p>
+                   <form method="post" action="/me/layers/{}/books">
+                     <input type="hidden" name="operation" value="discard_stale">
+                     <input type="hidden" name="csrf_token" value="{}">
+                     <button class="ui-button ui-button--primary" type="submit">
+                       Сбросить устаревший черновик
+                     </button>
+                   </form>
+                   <p><a href="/me/layers">Вернуться к пакетам</a></p>
+                   </div></section>"#,
+                layer.get(),
+                pages::escape_html(&csrf),
+            );
+            return private_response(
+                pages::private_account_layout(
+                    "Устаревший черновик",
+                    "Состав пакета изменился; требуется обновить выбор книг.",
+                    &content,
+                ),
+                &cookies,
+            );
+        }
         Err(error) => return deny(status(error)),
     };
     if draft.version_id != offer.current_version_id {
@@ -580,6 +608,15 @@ pub(super) async fn add(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    if form.operation.as_deref() == Some("discard_stale") {
+        return match service.discard_stale_composition_draft(actor, layer).await {
+            Ok(()) => private_response(
+                Redirect::to(&format!("/me/layers/{raw_layer}/books")),
+                &[],
+            ),
+            Err(error) => deny(status(error)),
+        };
+    }
     if form.operation.as_deref() == Some("stage") {
         let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
