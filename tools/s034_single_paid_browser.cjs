@@ -196,6 +196,10 @@ async function verify(browser, buyer, viewport) {
     const buyerLabel = viewport.width === 1440 ? "desktop" : "mobile";
     const ownBody = "Вопрос по купленной редакции (" + buyerLabel + ")";
     const ownReply = "Ответ к той же редакции (" + buyerLabel + ")";
+    const rootSecret = "S013-PAID-ROOT-" + buyerLabel;
+    const replySecret = "S013-PAID-REPLY-" + buyerLabel;
+    const spoiled = marker => " ||" + marker +
+      ' <img src=x onerror="window.s013PaidXss=1"> @private_user @[user:42]||';
     const comments = page.locator("#paid-chapter-comments");
     await comments.waitFor({state:"visible"});
     const commentCount = () => number("SELECT count(*) FROM discussion_comments WHERE " +
@@ -220,7 +224,7 @@ async function verify(browser, buyer, viewport) {
           ", responses=" + commentTraffic.join(",") + ", status=" + status);
       }
     }
-    await comments.getByLabel("Текст комментария").fill(ownBody);
+    await comments.getByLabel("Текст комментария").fill(ownBody + spoiled(rootSecret));
     await comments.getByRole("button", {name:"Отправить"}).click();
     await assertOwnCommentVisible(ownBody, 1);
     assert.equal(commentCount(), 1);
@@ -230,13 +234,44 @@ async function verify(browser, buyer, viewport) {
       "selected paid quote must be anchored to the exact purchased version");
     await comments.locator(".comment-card").filter({hasText:ownBody})
       .getByRole("button", {name:"Ответить"}).click();
-    await comments.getByLabel("Текст комментария").fill(ownReply);
+    await comments.getByLabel("Текст комментария").fill(ownReply + spoiled(replySecret));
     await comments.getByRole("button", {name:"Отправить"}).click();
     await assertOwnCommentVisible(ownReply, 2);
     assert.equal(commentCount(), 2);
     assert.equal(number("SELECT count(*) FROM discussion_comments WHERE " +
       "author_user_id=" + buyer.id + " AND chapter_id=" + chapter.id +
       " AND parent_id IS NOT NULL"), 1);
+
+    // S013: exercise the real persisted paid-comment renderer, not a DOM
+    // fixture. Both root and reply must require an explicit keyboard reveal.
+    for (const [label, marker] of [[ownBody, rootSecret], [ownReply, replySecret]]) {
+      const card = comments.locator(".comment-card").filter({hasText:label});
+      const spoiler = card.locator("details.comment-spoiler");
+      const content = spoiler.locator(".comment-spoiler__content");
+      assert.equal(await spoiler.count(), 1, "paid paired spoiler missing");
+      assert.equal(await spoiler.getAttribute("open"), null);
+      assert.equal(await content.isVisible(), false, "paid spoiler leaked before reveal");
+      assert((await content.textContent()).includes(marker));
+      assert.equal(await card.locator("img, script").count(), 0,
+        "paid comment HTML must remain text");
+      assert(!(await card.innerHTML()).includes("@private_user"));
+      assert(!(await card.innerHTML()).includes("@[user:42]"));
+      const toggle = spoiler.locator("summary");
+      await toggle.focus();
+      await page.keyboard.press("Enter");
+      assert.equal(await content.isVisible(), true, "paid keyboard reveal failed");
+      await page.keyboard.press("Space");
+      assert.equal(await content.isVisible(), false, "paid keyboard hide failed");
+    }
+    assert.equal(await page.evaluate(() => window.s013PaidXss), undefined);
+    const shots = process.env.TOR_PAID_READER_SHOTS || "";
+    assert(shots && path.resolve(shots).startsWith(path.resolve(temp) + path.sep));
+    fs.mkdirSync(shots, {recursive:true});
+    // Capture only the synthetic discussion, never decrypted paid text.
+    await comments.screenshot({
+      path:path.join(shots, "s013-paid-spoilers-" + buyerLabel + ".png"),
+    });
+    console.log("S013 paid spoilers Chromium PASS: " + buyerLabel);
 
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
@@ -254,6 +289,13 @@ async function verify(browser, buyer, viewport) {
       const denied = await outsider.request.get(privateUrl);
       assert.equal(denied.status(), 403);
       assert(!(await denied.text()).includes(secret));
+      const foreignComments = await outsider.request.get(
+        SITE + "/api/v1/reader/chapters/" + chapter.id + "/paid-comments?" +
+        new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
+      );
+      assert.equal(foreignComments.status(), 403, "foreign buyer read paid spoilers");
+      assert.equal((await foreignComments.body()).length, 0,
+        "denied private discussion must not reveal spoiler text");
       // Test the mounted grant API with valid Origin and CSRF, so any denial
       // comes from purchase ownership rather than a missing route or CSRF.
       const csrf = require("node:crypto").randomBytes(32).toString("base64url");
@@ -417,6 +459,8 @@ async function verify(browser, buyer, viewport) {
       new URLSearchParams({purchase_id:String(purchase),version_id:String(chapter.version)})
     );
     assert.equal(commentsDenied.status(), 403, "refund must also revoke private discussion read");
+    assert.equal((await commentsDenied.body()).length, 0,
+      "revoked paid discussion must not retain spoiler payloads");
     assert.equal(commentCount(), 2, "revocation retains immutable discussion facts");
     assert(!(await page.content()).includes("Оплаченная V1: кириллица"));
     const csrf = (await context.cookies(SITE)).find((c) => c.name === "tor-dev-csrf").value;
