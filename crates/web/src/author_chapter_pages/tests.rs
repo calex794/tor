@@ -419,7 +419,9 @@ fn chapter_import_preserves_owner_shell_preview_and_explicit_confirmation() {
     assert!(page.contains("id=\"chapter-import\""));
     assert!(page.contains("data-book-id=\"42\""));
     assert!(page.contains("id=\"chapter-import-csrf\" type=\"hidden\" value=\"&lt;csrf&gt;\""));
-    assert!(page.contains("id=\"chapter-import-command\" type=\"hidden\" value=\"&lt;command&gt;\""));
+    assert!(
+        page.contains("id=\"chapter-import-command\" type=\"hidden\" value=\"&lt;command&gt;\"")
+    );
     for id in [
         "chapter-import-file",
         "chapter-import-encoding",
@@ -430,13 +432,20 @@ fn chapter_import_preserves_owner_shell_preview_and_explicit_confirmation() {
         "chapter-import-confirm",
         "chapter-import-cancel",
     ] {
-        assert!(page.contains(&format!("id=\"{id}\"")), "missing importer ID: {id}");
+        assert!(
+            page.contains(&format!("id=\"{id}\"")),
+            "missing importer ID: {id}"
+        );
     }
     assert_eq!(page.matches("id=\"chapter-import-file\"").count(), 1);
     assert_eq!(page.matches("id=\"chapter-import-confirm\"").count(), 1);
     assert!(page.contains("id=\"chapter-import-preview\" class=\"ui-button ui-button--ghost\" type=\"button\" disabled"));
-    assert!(page.contains("id=\"chapter-import-confirm\" class=\"ui-button\" type=\"button\" disabled"));
-    assert!(page.contains("id=\"chapter-import-cancel\" class=\"ui-button ui-button--ghost\" type=\"button\" hidden"));
+    assert!(
+        page.contains("id=\"chapter-import-confirm\" class=\"ui-button\" type=\"button\" disabled")
+    );
+    assert!(page.contains(
+        "id=\"chapter-import-cancel\" class=\"ui-button ui-button--ghost\" type=\"button\" hidden"
+    ));
     assert!(page.contains("role=\"status\" aria-live=\"polite\""));
     assert!(page.contains("src=\"/assets/newboo-chapter-import.js\""));
     let file_step = page.find("id=\"author-import-file-heading\"").unwrap();
