@@ -426,7 +426,17 @@ pub(super) async fn page(
         return deny(StatusCode::CONFLICT);
     }
     let tiles = match service
-        .composition_tiles_filtered(actor, layer, after, search, GRID_PAGE_SIZE, filter, &draft)
+        .composition_tiles_filtered(
+            actor,
+            layer,
+            &tor_commerce::repositories::layer_composition::LayerTileQuery {
+                after,
+                search,
+                limit: GRID_PAGE_SIZE,
+                filter,
+            },
+            &draft,
+        )
         .await
     {
         Ok(value) => value,
