@@ -16,6 +16,11 @@ jobs:
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rec_browser":true}').rec_browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    # Each matrix child runs on a separate runner with its own PostgreSQL service.
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [current, historical]
     services:
       postgres:
         image: postgres:18
@@ -85,6 +90,7 @@ jobs:
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
       - name: Prepare explicit legacy and installed-upgrade analytics databases
+        if: ${{ matrix.lane == 'historical' }}
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
           CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
@@ -106,10 +112,14 @@ jobs:
           cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
           cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        if: ${{ matrix.lane == 'historical' }}
         run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
       - name: REC13 real Chromium and historical HTTP acceptance
+        env:
+          TOR_REC13_LANE: ${{ matrix.lane }}
         run: bash tools/rec13_browser_acceptance.sh
       - name: 100k catalogue contextual model PostgreSQL acceptance
+        if: ${{ matrix.lane == 'current' }}
         run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1
       - name: Confirm committed source was tested
         if: always()
@@ -117,7 +127,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pg-rec-browser-${{ github.sha }}
+          name: pg-rec-browser-${{ github.sha }}-${{ matrix.lane }}
           path: |
             ${{ runner.temp }}/rec13-browser/*.log
             ${{ runner.temp }}/rec13-browser/shots/*.png

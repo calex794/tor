@@ -1,6 +1,7 @@
 """Prevent dropped CI suites, duplicate selectors or divergent manual wrappers."""
 from pathlib import Path
 import re
+import subprocess
 import sys
 import unittest
 
@@ -83,6 +84,47 @@ class WorkflowWiringTests(unittest.TestCase):
                 )
                 self.assertNotEqual(manual, expected)
                 self.assertEqual(sections[job_id], expected)
+
+    def test_rec13_matrix_preserves_current_history_and_scale(self):
+        script_path = ROOT / "tools/rec13_browser_acceptance.sh"
+        script = script_path.read_text()
+        # Fast fail for a broken Bash conditional before expensive Chromium/PG.
+        subprocess.run(["bash", "-n", str(script_path)], check=True)
+        self.assertIn('rec_lane="${TOR_REC13_LANE:-all}"', script)
+        self.assertIn("all|current|historical) ;;", script)
+        self.assertIn('if [[ "$rec_lane" != historical ]]; then', script)
+        self.assertIn('if [[ "$rec_lane" != current ]]; then', script)
+        self.assertLess(
+            script.index('if [[ "$rec_lane" != historical ]]; then'),
+            script.index('if [[ "$rec_lane" != current ]]; then'),
+        )
+        # The specialist workflow invokes the unfiltered all mode.
+        specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
+        self.assertNotIn("TOR_REC13_LANE:", specialist)
+        for workflow in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
+            with self.subTest(workflow=workflow):
+                body = job_sections((WORKFLOWS / workflow).read_text())["pg-rec-browser"]
+                self.assertIn("lane: [current, historical]", body)
+                self.assertIn("fail-fast: false", body)
+                self.assertIn("image: postgres:18", body)
+                self.assertIn("TOR_REC13_LANE: ${{ matrix.lane }}", body)
+                self.assertIn("run: bash tools/rec13_browser_acceptance.sh", body)
+                self.assertIn(
+                    "name: pg-rec-browser-${{ github.sha }}-${{ matrix.lane }}", body
+                )
+                historical = "if: ${{ matrix.lane == 'historical' }}"
+                current = "if: ${{ matrix.lane == 'current' }}"
+                self.assertEqual(body.count(historical), 2)
+                self.assertEqual(body.count(current), 1)
+                self.assertLess(
+                    body.index(historical),
+                    body.index("collection_retirement_installed_upgrade_pg"),
+                )
+                self.assertIn(
+                    "contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests",
+                    body,
+                )
 
     def test_100k_contextual_scale_owns_only_one_isolated_pg_lane(self):
         # Every test still runs, but the heavy scale case is removed only
