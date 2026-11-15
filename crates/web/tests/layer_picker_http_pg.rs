@@ -726,6 +726,64 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     .parse()
     .unwrap();
     assert_eq!((versions, books), (1, 0));
+    let authors_book: i64 = pg(
+        &url,
+        &format!("SELECT id FROM books WHERE source_identity='ci:d05:create-author:{nonce}'"),
+    )
+    .parse()
+    .unwrap();
+    let current_version: i64 = pg(
+        &url,
+        &format!("SELECT current_version_id FROM commerce_layers WHERE id={id}"),
+    )
+    .parse()
+    .unwrap();
+    let grid = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
+    assert!(grid.contains("class=\"package-grid\""));
+    assert!(grid.contains(&format!("name=\"chosen_{authors_book}\"")));
+    let staged = format!(
+        "operation=preview&expected_version_id={current_version}&visible_csv={authors_book}&included_csv=&chosen_{authors_book}=1&csrf_token={csrf}"
+    );
+    let review = request(&app, "POST", &destination, &cookie, ORIGIN, &staged).await;
+    assert_eq!(review.status(), StatusCode::OK);
+    let review_html = body(review).await;
+    assert!(review_html.contains("Подтвердить изменения пакета"));
+    assert!(review_html.contains("Добавим: 1"));
+    assert!(review_html.contains("Уберём: 0"));
+    assert!(review_html.contains("0 существующих оплаченных прав"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT current_version_id FROM commerce_layers WHERE id={id}")
+        )
+        .parse::<i64>()
+        .unwrap(),
+        current_version,
+        "preview must not change composition",
+    );
+    let apply = format!(
+        "operation=apply&expected_version_id={current_version}&add_csv={authors_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
+    );
+    let wrong_count = apply.replace("active_buyers=0", "active_buyers=1");
+    assert_eq!(
+        request(&app, "POST", &destination, &cookie, ORIGIN, &wrong_count)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+    );
+    let applied = request(&app, "POST", &destination, &cookie, ORIGIN, &apply).await;
+    assert_eq!(applied.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM commerce_layer_version_books vb
+                 JOIN commerce_layers l ON l.current_version_id=vb.layer_version_id
+                 WHERE l.id={id} AND vb.book_id={authors_book}"
+            )
+        ),
+        "1",
+    );
     let dashboard = body(request(&app, "GET", "/me/books", &cookie, ORIGIN, "").await).await;
     assert!(dashboard.contains(&destination));
     assert!(dashboard.contains("New Layer"));
@@ -735,9 +793,12 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert_eq!(index.headers()[header::CACHE_CONTROL], "no-store");
     let index_html = body(index).await;
     let metadata_route = format!("/me/layers/{id}/metadata");
-    assert!(index_html.contains(&format!("action=\"{metadata_route}\"")));
-    assert!(index_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
-    assert!(index_html.contains("name=\"expected_revision\" value=\"1\""));
+    assert!(index_html.contains(&destination));
+    assert!(!index_html.contains(&format!("action=\"{metadata_route}\"")));
+    let detail_html = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
+    assert!(detail_html.contains(&format!("action=\"{metadata_route}\"")));
+    assert!(detail_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
+    assert!(detail_html.contains("name=\"expected_revision\" value=\"1\""));
 
     let update = format!(
         "title=Owner+Updated&description=Private+description&status=hidden&expected_revision=1&csrf_token={csrf}"
@@ -781,7 +842,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
 
     let saved = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &update).await;
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
-    assert_eq!(saved.headers()[header::LOCATION], "/me/layers");
+    assert_eq!(saved.headers()[header::LOCATION], destination);
     assert_eq!(
         pg(
             &url,
@@ -797,7 +858,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     let hidden = body(request(&app, "GET", "/me/layers", &cookie, ORIGIN, "").await).await;
     assert!(hidden.contains("Owner Updated"));
     assert!(hidden.contains("Скрыт"));
-    assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
+    assert!(!hidden.contains(&format!("action=\"{metadata_route}\"")));
     let details = format!("/me/layers/{id}/books");
     let hidden_details = body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
     assert!(hidden_details.contains("Пакет скрыт от новых покупок"));
@@ -816,5 +877,6 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         ),
         "active|3"
     );
+    include!("layer_picker_http_pg/staged_flow.rs");
     pool.close().await;
 }

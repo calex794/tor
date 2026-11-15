@@ -4,7 +4,11 @@ use crate::{
         LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
         LayerError, LayerOfferQuote, LayerOwnerOfferState, LayerReceipt, OwnedLayerSummary,
     },
-    repositories::layers::PgLayers,
+    repositories::{
+        layer_composition::{LayerBookTilePage, LayerChangePreview, LayerTileQuery},
+        layer_composition_drafts::LayerCompositionDraft,
+        layers::PgLayers,
+    },
 };
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -39,6 +43,14 @@ impl LayerService {
     ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
         self.repository.owned_layers(actor, limit).await
     }
+    pub async fn owner_layer(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<OwnedLayerSummary, LayerError> {
+        self.repository.owner_layer(actor, layer).await
+    }
+
     /// Owner-scoped CAS of display metadata only; no changes to paid terms.
     pub async fn update_metadata_if_current(
         &self,
@@ -145,6 +157,114 @@ impl LayerService {
         layer: PositiveId,
     ) -> Result<LayerOwnerOfferState, LayerError> {
         self.repository.owner_offer_state(actor, layer).await
+    }
+
+    pub async fn composition_tiles(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        search: &str,
+        limit: u16,
+    ) -> Result<LayerBookTilePage, LayerError> {
+        self.repository
+            .composition_tiles(actor, layer, after, search, limit)
+            .await
+    }
+
+    pub async fn composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<LayerCompositionDraft, LayerError> {
+        self.repository.composition_draft(actor, layer).await
+    }
+
+    pub async fn composition_tiles_filtered(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        query: &LayerTileQuery<'_>,
+        draft: &LayerCompositionDraft,
+    ) -> Result<LayerBookTilePage, LayerError> {
+        self.repository
+            .composition_tiles_filtered(actor, layer, query, &draft.additions, &draft.removals)
+            .await
+    }
+
+    pub async fn stage_composition_page(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        revision: i64,
+        visible: &[i64],
+        selected: &[i64],
+    ) -> Result<LayerCompositionDraft, LayerError> {
+        self.repository
+            .stage_composition_page(actor, layer, version, revision, visible, selected)
+            .await
+    }
+
+    pub async fn discard_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        revision: i64,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .discard_composition_draft(actor, layer, revision)
+            .await
+    }
+
+    pub async fn discard_stale_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .discard_stale_composition_draft(actor, layer)
+            .await
+    }
+
+    pub async fn apply_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        revision: i64,
+        expected_buyers: (i64, i64),
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .apply_composition_draft(actor, layer, version, revision, expected_buyers)
+            .await
+    }
+
+    pub async fn preview_composition(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        additions: &[i64],
+        removals: &[i64],
+    ) -> Result<LayerChangePreview, LayerError> {
+        self.repository
+            .preview_composition(actor, layer, version, additions, removals)
+            .await
+    }
+
+    pub async fn apply_composition(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        additions: &[i64],
+        removals: &[i64],
+        expected_buyers: (i64, i64),
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .apply_composition(actor, layer, version, additions, removals, expected_buyers)
+            .await
     }
 
     /// A browser change checks the original offer and composition under lock.
