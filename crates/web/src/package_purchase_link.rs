@@ -12,7 +12,10 @@ pub(super) async fn attach(
     book_id: i64,
     html: Html<String>,
 ) -> Result<Html<String>, StatusCode> {
-    if std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() != Ok("1") {
+    if !state.paid_batch_browser_enabled
+        || std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() != Ok("1")
+        || std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() != Ok("1")
+    {
         return Ok(html);
     }
     let viewer = match state.follow_control.as_ref() {
