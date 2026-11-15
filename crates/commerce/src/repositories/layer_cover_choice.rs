@@ -18,22 +18,30 @@ impl PgLayers {
         if expected_revision <= 0 {
             return Err(LayerError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| LayerError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         let row = sqlx::query(
             "SELECT current_version_id,metadata_revision FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden')
              FOR UPDATE",
         )
-        .bind(layer.get()).bind(actor.get())
-        .fetch_optional(&mut *tx).await
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&mut *tx)
+        .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
-        let revision: i64 = row.try_get("metadata_revision")
+        let revision: i64 = row
+            .try_get("metadata_revision")
             .map_err(|_| LayerError::Unavailable)?;
         if revision != expected_revision {
             return Err(LayerError::StaleOffer);
         }
-        let version: i64 = row.try_get("current_version_id")
+        let version: i64 = row
+            .try_get("current_version_id")
             .map_err(|_| LayerError::Unavailable)?;
         let approved: bool = sqlx::query_scalar(
             "SELECT EXISTS (
@@ -52,8 +60,11 @@ impl PgLayers {
                   )
             )",
         )
-        .bind(version).bind(book.get()).bind(actor.get())
-        .fetch_one(&mut *tx).await
+        .bind(version)
+        .bind(book.get())
+        .bind(actor.get())
+        .fetch_one(&mut *tx)
+        .await
         .map_err(|_| LayerError::Unavailable)?;
         if !approved {
             return Err(LayerError::Inaccessible);
@@ -63,8 +74,11 @@ impl PgLayers {
              SET cover_book_id=$3,metadata_revision=metadata_revision+1
              WHERE id=$1 AND owner_user_id=$2",
         )
-        .bind(layer.get()).bind(actor.get()).bind(book.get())
-        .execute(&mut *tx).await
+        .bind(layer.get())
+        .bind(actor.get())
+        .bind(book.get())
+        .execute(&mut *tx)
+        .await
         .map_err(|_| LayerError::Unavailable)?;
         tx.commit().await.map_err(|_| LayerError::Unavailable)
     }
