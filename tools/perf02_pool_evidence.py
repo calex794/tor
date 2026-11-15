@@ -156,10 +156,16 @@ def summarize(root):
             )
         def p95(field):
             return percentile([v[field] for v in valid], 0.95)
+        try:
+            latency = k6_latency(root, rate)
+        except EvidenceError:
+            if outcomes[rate] == "PASS":
+                raise
+            latency = None  # failed higher-rate setup is never zero latency
         stages.append({
             "target_get_per_s": rate,
             "k6_outcome": outcomes[rate],
-            "k6_latency": k6_latency(root, rate),
+            "k6_latency": latency,
             "sampled_book_requests": len(rows),
             "with_successful_acquire": len(valid),
             "acquires_per_request_p95": p95("acquires"),
