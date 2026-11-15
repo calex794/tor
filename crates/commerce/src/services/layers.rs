@@ -79,6 +79,18 @@ impl LayerService {
             .addable_books(actor, layer, after, limit)
             .await
     }
+    pub async fn addable_books_matching(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+        query: &str,
+    ) -> Result<LayerBookCandidatePage, LayerError> {
+        self.repository
+            .addable_books_matching(actor, layer, after, limit, query)
+            .await
+    }
     pub async fn add_book(
         &self,
         actor: PositiveId,
