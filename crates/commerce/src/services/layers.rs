@@ -39,6 +39,14 @@ impl LayerService {
     ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
         self.repository.owned_layers(actor, limit).await
     }
+    pub async fn owner_layer(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<OwnedLayerSummary, LayerError> {
+        self.repository.owner_layer(actor, layer).await
+    }
+
     /// Owner-scoped CAS of display metadata only; no changes to paid terms.
     pub async fn update_metadata_if_current(
         &self,
