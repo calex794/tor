@@ -120,7 +120,7 @@ pub(super) fn detail(
         };
     // The independent form ID lets tile buttons submit without nesting forms.
     // Clearing a choice leaves the independently moderated upload intact.
-    let cover_choice_form = if layer.status == "blocked" {
+    let cover_choice_form = if !editable || layer.status == "blocked" {
         String::new()
     } else {
         format!(
