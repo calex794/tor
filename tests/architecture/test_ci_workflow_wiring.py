@@ -343,6 +343,49 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", specialist)
 
 
+    def test_reader_matrix_keeps_publishing_journey_and_finance_isolation(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]
+        for name, body in (("required", required), ("manual", manual)):
+            with self.subTest(workflow=name):
+                self.assertIn("lane: [reading, publishing]", body)
+                self.assertIn("fail-fast: false", body)
+                self.assertIn("image: postgres:18", body)
+                self.assertIn("TOR_CI_READER_LANE: ${{ matrix.lane }}", body)
+                self.assertIn('case "$TOR_CI_READER_LANE" in', body)
+                self.assertIn("reading|publishing) ;;", body)
+                self.assertEqual(body.count('if [[ "$TOR_CI_READER_LANE" == reading ]]; then'), 2)
+                self.assertEqual(body.count('if [[ "$TOR_CI_READER_LANE" == publishing ]]; then'), 1)
+                self.assertIn("name: tor-real-pg-reader-desktop-mobile-${{ matrix.lane }}", body)
+                self.assertIn("if: ${{ matrix.lane == 'reading' }}", body)
+                self.assertIn("if: ${{ always() && matrix.lane == 'reading' }}", body)
+                publishing_start = body.index('if [[ "$TOR_CI_READER_LANE" == publishing ]]; then')
+                publishing_end = body.index('\n          fi\n', publishing_start)
+                publishing = body[publishing_start:publishing_end]
+                for script in (
+                    "author_chapter_visual_smoke.cjs",
+                    "loop_01_browser_smoke.cjs",
+                    "chapter_file_import_browser.cjs",
+                    "home_spotlight_visual_smoke.cjs",
+                    "search_visual_smoke.cjs",
+                    "ranking_visual_smoke.cjs",
+                ):
+                    self.assertIn("ci_timed_browser tools/" + script, publishing)
+                reading_head = body.index('if [[ "$TOR_CI_READER_LANE" == reading ]]; then')
+                reading_tail = body.index('if [[ "$TOR_CI_READER_LANE" == reading ]]; then', reading_head + 1)
+                reading = body[reading_head:publishing_start] + body[reading_tail:]
+                for script in (
+                    "reader_visual_smoke.cjs", "br060_archive_browser_pg.cjs",
+                    "paid_reader_browser_smoke.cjs", "batch_checkout_chromium_pg.cjs",
+                    "referral_share_browser_smoke.cjs", "s039_payout_post_browser.cjs",
+                ):
+                    self.assertIn("ci_timed_browser tools/" + script, reading)
+                self.assertNotIn("home_spotlight_visual_smoke.cjs", reading)
+                self.assertIn("python3 tools/operator_trace_pg_smoke.py", reading)
+                # Fail-fast and isolated-data contracts are not negotiable.
+                self.assertIn('return "$result"', body)
+                self.assertIn('if node "$scenario" "$@"; then', body)
+
     def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
         manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]

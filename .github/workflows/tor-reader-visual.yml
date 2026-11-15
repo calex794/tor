@@ -16,6 +16,11 @@ jobs:
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"reader_browser":true}').reader_browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Separate GitHub runners and disposable PostgreSQL services, not shared connections.
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [reading, publishing]
     services:
       postgres:
         image: postgres:18
@@ -97,12 +102,16 @@ jobs:
       - name: Build the real PostgreSQL-backed server
         run: |
           cargo build -p tor-web
-          cargo build -p tor-observability --bin tor-trace-store
+          if [[ "${{ matrix.lane }}" == reading ]]; then
+            cargo build -p tor-observability --bin tor-trace-store
+          fi
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.56.1
           npx playwright install --with-deps --only-shell chromium
       - name: Browse chapter, TOC, mobile layout and locked URLs
+        env:
+          TOR_CI_READER_LANE: ${{ matrix.lane }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reader-shots"
@@ -125,28 +134,39 @@ jobs:
             echo "CI_BROWSER_SCENARIO_SECONDS scenario=$scenario seconds=$((SECONDS-started)) exit=$result"
             return "$result"
           }
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/reader_visual_smoke.cjs
-          node --check tools/br060_archive_browser_pg.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/br060_archive_browser_pg.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/author_chapter_visual_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
-          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
-          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
-          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
-          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
-          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
-          node --check tools/mail_browser_pg.cjs
-          node --check tools/support_browser_pg.cjs
-          node --check tools/batch_checkout_chromium_pg.cjs
-          node --check tools/referral_share_browser_smoke.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
-          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
-          node --check tools/s039_payout_post_browser.cjs
-          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
+          case "$TOR_CI_READER_LANE" in
+            reading|publishing) ;;
+            *) echo "Unknown TOR_CI_READER_LANE: $TOR_CI_READER_LANE" >&2; exit 2 ;;
+          esac
+          if [[ "$TOR_CI_READER_LANE" == reading ]]; then
+            TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/reader_visual_smoke.cjs
+            node --check tools/br060_archive_browser_pg.cjs
+            TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/br060_archive_browser_pg.cjs
+          fi
+          if [[ "$TOR_CI_READER_LANE" == publishing ]]; then
+            TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/author_chapter_visual_smoke.cjs
+            TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/loop_01_browser_smoke.cjs
+            TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/chapter_file_import_browser.cjs
+            TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/home_spotlight_visual_smoke.cjs
+            TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/search_visual_smoke.cjs
+            TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/ranking_visual_smoke.cjs
+          fi
+          if [[ "$TOR_CI_READER_LANE" == reading ]]; then
+            TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/paid_reader_browser_smoke.cjs
+            node --check tools/mail_browser_pg.cjs
+            node --check tools/support_browser_pg.cjs
+            node --check tools/batch_checkout_chromium_pg.cjs
+            node --check tools/referral_share_browser_smoke.cjs
+            TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
+            TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
+            node --check tools/s039_payout_post_browser.cjs
+            TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
+          fi
       - name: S059 real SQL delay, operator diagnostics and writer recovery
+        if: ${{ matrix.lane == 'reading' }}
         run: python3 tools/operator_trace_pg_smoke.py
       - name: Preserve S059 measured acceptance
-        if: always()
+        if: ${{ always() && matrix.lane == 'reading' }}
         uses: actions/upload-artifact@v4
         with:
           name: s059-real-pg-diagnostics
@@ -159,7 +179,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tor-real-pg-reader-desktop-mobile
+          name: tor-real-pg-reader-desktop-mobile-${{ matrix.lane }}
           path: ${{ runner.temp }}/reader-shots/*.png
           if-no-files-found: warn
           retention-days: 14
