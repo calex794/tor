@@ -207,7 +207,24 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         next_after: None,
         hero_cover_id: Some(91),
     };
-    let (hero, metadata, grid) = grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
+    let draft = tor_commerce::repositories::layer_composition_drafts::LayerCompositionDraft {
+        version_id: 42,
+        revision: 2,
+        additions: vec![92],
+        removals: vec![91],
+    };
+    let (hero, metadata, grid) = grid::detail(
+        &layer,
+        &tiles,
+        &offer_empty(),
+        "csrf",
+        "",
+        "all",
+        None,
+        &[],
+        &draft,
+        true,
+    );
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
     assert!(hero.contains("/covers/91/card.webp"));
     assert!(!hero.contains("href=\"/layers/9\""));
@@ -219,4 +236,96 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
     assert!(grid.contains("&lt;img onerror=alert(1)&gt;"));
     assert!(!grid.contains("<img onerror=alert(1)>"));
     assert!(!grid.contains("user_id"));
+}
+
+#[test]
+fn package_draft_stage_rejects_foreign_and_duplicate_choices() {
+    let form: AddBookForm = serde_json::from_value(serde_json::json!({
+        "operation": "stage",
+        "visible_csv": "7,8,9",
+        "chosen_8": "1"
+    }))
+    .unwrap();
+    assert_eq!(stage_choices(&form), Some((vec![7, 8, 9], vec![8])));
+    let forged: AddBookForm = serde_json::from_value(serde_json::json!({
+        "visible_csv": "7,8",
+        "chosen_999": "1"
+    }))
+    .unwrap();
+    assert!(stage_choices(&forged).is_none());
+    let duplicated: AddBookForm = serde_json::from_value(serde_json::json!({
+        "visible_csv": "7,7",
+        "chosen_7": "1"
+    }))
+    .unwrap();
+    assert!(stage_choices(&duplicated).is_none());
+    assert_eq!(history_ids(Some("0,91,200")), Some(vec![0, 91, 200]));
+    assert_eq!(history_ids(Some("-1")), None);
+    assert_eq!(history_ids(Some("1,invalid")), None);
+    assert!(valid_filter("included"));
+    assert!(!valid_filter("<script>"));
+}
+
+#[test]
+fn package_grid_keeps_saved_draft_across_filter_navigation() {
+    use tor_commerce::{
+        domain::layers::OwnedLayerSummary,
+        repositories::{
+            layer_composition::{LayerBookTile, LayerBookTilePage},
+            layer_composition_drafts::LayerCompositionDraft,
+        },
+    };
+    let layer = OwnedLayerSummary {
+        layer_id: 7,
+        title: "Draft".into(),
+        description: String::new(),
+        status: "active".into(),
+        metadata_revision: 1,
+    };
+    let draft = LayerCompositionDraft {
+        version_id: 42,
+        revision: 4,
+        additions: vec![121],
+        removals: vec![120],
+    };
+    let tiles = LayerBookTilePage {
+        books: vec![
+            LayerBookTile {
+                id: 120,
+                title: "Old".into(),
+                has_cover: false,
+                included: true,
+            },
+            LayerBookTile {
+                id: 121,
+                title: "New".into(),
+                has_cover: false,
+                included: false,
+            },
+        ],
+        next_after: Some(121),
+        hero_cover_id: None,
+    };
+    let (_, _, grid) = grid::detail(
+        &layer,
+        &tiles,
+        &offer_empty(),
+        "csrf",
+        "Chapter",
+        "included",
+        Some(99),
+        &[0, 50],
+        &draft,
+        true,
+    );
+    assert!(grid.contains("name=\"draft_revision\" value=\"4\""));
+    assert!(grid.contains("name=\"after\" value=\"99\""));
+    assert!(grid.contains("name=\"history_csv\" value=\"0,50\""));
+    assert!(grid.contains("name=\"filter\" value=\"included\""));
+    assert!(grid.contains("name=\"nav\" value=\"review\""));
+    assert!(grid.contains("name=\"nav\" value=\"previous\""));
+    assert!(grid.contains("name=\"nav\" value=\"next\""));
+    assert!(grid.contains("Будет убрана"));
+    assert!(grid.contains("Будет добавлена"));
+    assert!(grid.contains("name=\"chosen_121\" value=\"1\" checked"));
 }
