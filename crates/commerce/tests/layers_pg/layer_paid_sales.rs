@@ -7,7 +7,7 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::ChapterVersionRef;
 
-async fn paid(pool: &PgPool, book: i64, chapter_no: i32) -> (i64, i64) {
+pub(super) async fn paid(pool: &PgPool, book: i64, chapter_no: i32) -> (i64, i64) {
     let chapter: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES($1,$2,'H19 paid','public','paid',75) RETURNING id",
