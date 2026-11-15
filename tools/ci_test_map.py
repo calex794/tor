@@ -78,6 +78,7 @@ TEST_SUITES = {
     "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
     "crates/recommendations/tests/catalog_feed_pg.rs": {"rust", "postgres", "rec_browser"},
     "crates/recommendations/tests/catalog_feed_pg/contextual_scale.rs": {"rust", "rec_browser"},
+    "crates/search/tests/seo_pg/analytics.rs": {"rust", "reading_analytics"},
     "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
     "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
@@ -163,7 +164,6 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/books/tests/postgres_catalog.rs",
     "crates/books/tests/shadow_age_visibility_pg.rs",
     "crates/search/tests/actor_catalog_age_pg.rs",
-    "crates/search/tests/seo_pg.rs",
     "crates/books/tests/authoring_pg.rs",
     "crates/books/tests/book_lifecycle_pg.rs",
     "crates/books/tests/chapter_file_import_pg.rs",
@@ -250,7 +250,7 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
 })
 TEST_SUITES.update({path: {"rust", "postgres"} for path in POSTGRES_RUNTIME_ONLY_TEST_FILES})
 
-# Exact 35 analytics targets moved from the sequential runtime, never skipped.
+# Exact 36 analytics targets assigned to the isolated lane, never skipped.
 READING_ANALYTICS_TEST_FILES = frozenset({
     "crates/ads/tests/editorial_pg.rs",
     "crates/reading/tests/audience_book_returns_pg.rs",
@@ -270,6 +270,7 @@ READING_ANALYTICS_TEST_FILES = frozenset({
     "crates/recommendations/tests/flow_signals_pg.rs",
     "crates/recommendations/tests/flow_visits_pg.rs",
     "crates/search/tests/public_pages_pg.rs",
+    "crates/search/tests/seo_pg.rs",
     "crates/traffic_behavior/tests/flow_audience_pg.rs",
     "crates/web/tests/audience_book_returns_http_pg.rs",
     "crates/web/tests/audience_books_http_pg.rs",
