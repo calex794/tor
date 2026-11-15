@@ -105,6 +105,7 @@ pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
     layers_index_with_forms(layers, "")
 }
 
+#[cfg(test)]
 pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html<String> {
     layers_index_for_owner(layers, csrf, true)
 }
