@@ -15,6 +15,7 @@ use std::{
     fmt::Write,
 };
 use tor_commerce::{
+    repositories::layer_covers::PgLayerCovers,
     domain::layers::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
         LayerTermKind,
@@ -55,6 +56,7 @@ pub(super) struct PickerQuery {
     filter: Option<String>,
     history: Option<String>,
     updated: Option<String>,
+    cover: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -442,6 +444,13 @@ pub(super) async fn page(
         Ok(value) => value,
         Err(error) => return deny(status(error)),
     };
+    let (approved, pending) = match PgLayerCovers::new(state.accounts.pool().clone())
+        .owner_view(actor, layer)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let (hero, settings, grid_markup) = grid::detail(
         &metadata,
@@ -455,11 +464,20 @@ pub(super) async fn page(
             history: &history,
             draft: &draft,
             editable,
+            cover: grid::GridCoverState {
+                approved: approved.is_some(),
+                pending: pending.is_some(),
+                upload_enabled: state.cover_upload_enabled,
+            },
         },
     );
     let grid_markup = if query.updated.as_deref() == Some("1") {
         format!(
             r#"<p class="ui-alert ui-alert--success" role="status">Изменения пакета сохранены одной новой версией.</p>{grid_markup}"#
+        )
+    } else if query.cover.as_deref() == Some("queued") {
+        format!(
+            r#"<p class="ui-alert" role="status">Обложка загружена и отправлена на модерацию.</p>{grid_markup}"#
         )
     } else {
         grid_markup
