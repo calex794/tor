@@ -26,7 +26,7 @@
           </header>
           <div class="author-create-grid">
             <div class="author-create-field author-create-field--full">
-              <label for="book-title">Название книги <span class="author-create-required" aria-hidden="true">обязательно</span></label>
+              <div class="author-create-label-row"><label for="book-title">Название книги</label><span class="author-create-required">Обязательное поле</span></div>
               <input id="book-title" name="title" type="text" required maxlength="200" minlength="1" autocomplete="off" placeholder="Название произведения">
               <section id="book-title-suggestions" role="status" aria-live="polite" aria-label="Похожие книги"></section>
             </div>
@@ -35,7 +35,7 @@
               <input id="book-author" name="author_name" type="text" maxlength="160" placeholder="Имя или псевдоним">
             </div>
             <div class="author-create-field">
-              <label for="book-language">Язык <span class="author-create-required" aria-hidden="true">обязательно</span></label>
+              <div class="author-create-label-row"><label for="book-language">Язык</label><span class="author-create-required">Обязательное поле</span></div>
               <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
             </div>
             <div class="author-create-field author-create-field--full">
