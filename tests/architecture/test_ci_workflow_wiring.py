@@ -345,8 +345,10 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_rec_specialist_chromium_reuse_keeps_launch_and_fallback(self):
         specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         install = specialist.split(
-            "      - name: Chromium for native fresh-schema HTML quality\\n".replace("\\n", "\n"), 1
-        )[1].split("      - name: Native HTML quality on the fresh schema\\n".replace("\\n", "\n"), 1)[0]
+            "      - name: Chromium for native fresh-schema HTML quality\n", 1
+        )[1].split(
+            "      - name: Native HTML quality on the fresh schema\n", 1
+        )[0]
         self.assertIn("npm install --no-save playwright@1.56.1", install)
         self.assertIn("npx playwright install --only-shell chromium", install)
         self.assertIn("npx playwright install --with-deps --only-shell chromium", install)
@@ -361,7 +363,7 @@ class WorkflowWiringTests(unittest.TestCase):
             install.index("npx playwright install --with-deps --only-shell chromium"),
             install.rindex("rec_chromium_probe"),
         )
-        browser_step = specialist.split("      - name: Browser acceptance\\n".replace("\\n", "\n"), 1)[1]
+        browser_step = specialist.split("      - name: Browser acceptance\n", 1)[1]
         self.assertIn("TOR_REC_REUSE_PLAYWRIGHT: '1'", browser_step)
         self.assertIn("run: bash tools/rec13_browser_acceptance.sh", browser_step)
 
