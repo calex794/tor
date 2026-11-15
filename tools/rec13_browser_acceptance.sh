@@ -6,6 +6,13 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "$TEST_DATABASE_URL" != postgresql://tor_
   echo 'REC13 browser acceptance is restricted to isolated GitHub Actions tor_ci' >&2
   exit 2
 fi
+# The specialist REC acceptance keeps its original full (all) path by default.
+# Required CI splits the current and historical journeys onto separate PG runners.
+rec_lane="${TOR_REC13_LANE:-all}"
+case "$rec_lane" in
+  all|current|historical) ;;
+  *) echo "Invalid TOR_REC13_LANE: $rec_lane" >&2; exit 2 ;;
+esac
 # Bounded screenshots from the actual CI checkout supplement the full PNG artifacts.
 export TOR_BROWSER_PROOF_IMAGES=1
 root="${RUNNER_TEMP:-/tmp}/rec13-browser"
@@ -85,6 +92,7 @@ start_server() {
     ci_rec_step_done "http_ready_$fixture_name"
   fi
 }
+if [[ "$rec_lane" != historical ]]; then
 # No other fixture server is running while the actual process lifecycle is proved.
 APP_URL="$TEST_DATABASE_URL" TOR_FLOW_LIFECYCLE_LOGS="$root/lifecycle" node tools/flow_lifecycle_pg.cjs
 ci_rec_step_done "flow_process_lifecycle"
@@ -145,6 +153,8 @@ NODE_PATH="$node_path" TEST_DATABASE_URL="$TEST_DATABASE_URL" \
   node tools/surprise_pg_browser.cjs
 ci_rec_step_done "surprise_chromium_acceptance"
 stop_server
+fi
+if [[ "$rec_lane" != current ]]; then
 # Historical collector/report arithmetic remains executable in its own 192 database.
 # No current-schema trigger is disabled and no application collection bypass is added.
 start_server "$LEGACY_ANALYTICS_DATABASE_URL" legacy192
@@ -173,3 +183,4 @@ NODE_PATH="$node_path" APP_URL="$COLLECTION_RETIREMENT_APP_DATABASE_URL" \
   TOR_AUDIENCE_BASE=http://127.0.0.1:3108 TOR_AUDIENCE_SHOTS="$root/shots" node tools/analytics_retirement_pg_browser.cjs
 ci_rec_step_done "installed_retirement_browser_acceptance"
 stop_server
+fi
