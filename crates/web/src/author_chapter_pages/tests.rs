@@ -270,4 +270,36 @@ fn edit_form_escapes_title_and_textarea_breakout() {
     assert!(!page.0.contains("href=\"/reader/3\""));
     assert!(page.0.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     assert!(!page.0.contains("<!--TITLE_HEADING-->"));
+    assert!(page
+        .0
+        .contains("href=\"/me/books\" aria-current=\"location\""));
+    assert_eq!(
+        page.0
+            .matches("name=\"csrf_token\" value=\"token\"")
+            .count(),
+        2
+    );
+    let paid = edit_published_paid_chapter(
+        1,
+        3,
+        &OwnedChapter {
+            access: ChapterAccess::Paid,
+            price_amount: 250,
+            ..chapter
+        },
+        "token",
+        "key",
+    )
+    .0;
+    assert!(paid
+        .split("name=\"title\"")
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .next()
+        .unwrap()
+        .contains("readonly"));
+    assert!(paid.contains("Цена неизменна: 250 копеек."));
+    assert!(paid.contains("name=\"expected_revision\" value=\"7\""));
+    assert!(!paid.contains("<script>evil()"));
 }

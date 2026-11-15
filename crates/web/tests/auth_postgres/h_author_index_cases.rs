@@ -1,6 +1,18 @@
 //! H/UI-08: owner list, shared navigation and consistent logout CSRF.
 use super::*;
 
+pub(super) fn editor_navigation(html: &str, target: &str, current: &str) {
+    assert!(html.contains("account-sidebar"));
+    assert!(html.contains(&format!("href=\"{target}\" aria-current=\"{current}\"")));
+    let tokens: Vec<_> = html
+        .split("name=\"csrf_token\" value=\"")
+        .skip(1)
+        .map(|tail| tail.split('"').next().unwrap())
+        .collect();
+    assert!(tokens.len() >= 2, "editor and logout must both carry CSRF");
+    assert!(tokens.iter().all(|token| *token == tokens[0]));
+}
+
 pub(super) async fn owner_workspace(app: &Router, session: &str, book_path: &str) {
     let page = send(app, request("GET", book_path, "", session, ORIGIN)).await;
     assert_eq!(page.status(), StatusCode::OK);

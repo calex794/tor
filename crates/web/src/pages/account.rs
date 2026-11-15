@@ -204,7 +204,7 @@ pub fn account_navigation(active: &str, csrf: &str) -> String {
     let mut navigation = include_str!("../../templates/account_nav.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
     let (target, current) = match active {
-        "/me" | "/notifications" | "/me/books" => (active, "page"),
+        "/me" | "/notifications" | "/me/books" | "/me/books/new" => (active, "page"),
         path if path.starts_with("/me/books/") => ("/me/books", "location"),
         _ => return navigation,
     };
