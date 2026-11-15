@@ -68,7 +68,7 @@ def stage_windows(root):
         begin, end = windows[(rate, "start")], windows[(rate, "finish")]
         if begin >= end:
             raise EvidenceError("stage boundaries reversed")
-        output[rate] = (begin, end + 999)  # shell timestamps are second-granularity
+        output[rate] = (begin, end)  # CI shell records millisecond boundaries
     return output
 
 
