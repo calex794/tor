@@ -251,3 +251,84 @@ async fn h_ui_20_package_link_follows_early_expiry_and_hiding() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires isolated disposable tor_ci"]
+async fn h_ui_21_chapter_registration_clock_ignores_later_publication() {
+    use tor_commerce::repositories::checkout::PgCheckout;
+
+    let (pool, repo, owner, buyer, book) = setup("h21-registration").await;
+    let (layer, version, _) = offer(&repo, owner, book, 125, true).await;
+    let (recent, recent_version) = paid(&pool, book, 1).await;
+    attach_test_ciphertext(&pool, recent, recent_version).await;
+
+    // Simulate a registered draft that was published after its early window.
+    // An immutable registration timestamp is only supplied on initial INSERT.
+    let old: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters
+           (book_id,chapter_no,title,visibility,access_level,price_amount,registered_at)
+         VALUES($1,2,'Registered long ago','public','paid',75,
+                now()-interval '10 days') RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let old_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'H19 private') RETURNING id",
+    )
+    .bind(old)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    attach_test_ciphertext(&pool, old, old_version).await;
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(old)
+        .bind(old_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let revision = repo.set_package_paid_mode(
+        id(owner), id(layer), id(book), id(version), 0,
+        PackagePaidMode::EarlyDays(5),
+    ).await.unwrap();
+    assert!(revision > 0);
+    let owner_page = repo.package_sale_page(id(owner), id(layer)).await.unwrap();
+    assert_eq!(owner_page.books[0].days, Some(5));
+    assert_eq!(owner_page.books[0].until_utc, None);
+
+    let locked = exclusive_package_link(&pool, book, Some(recent), Some(buyer))
+        .await.unwrap().expect("new chapter must show package");
+    assert!(locked.until_utc.is_some());
+    assert_eq!(locked.layer_id, layer);
+    assert!(exclusive_package_link(&pool, book, Some(old), Some(buyer))
+        .await.unwrap().is_none(), "late publication cannot reset registration time");
+    let checkout = PgCheckout::new(pool.clone());
+    assert!(checkout.published_chapter_offer(recent).await.unwrap().is_none());
+    assert!(checkout.published_chapter_offer(old).await.unwrap().is_some());
+    let offers = checkout.selectable_batch_offers(buyer, book).await.unwrap();
+    assert_eq!(offers.len(), 1);
+    assert_eq!(offers[0].chapter_id, old);
+
+    let moved = sqlx::query(
+        "UPDATE chapters SET registered_at=now()-interval '50 days' WHERE id=$1",
+    )
+    .bind(recent)
+    .execute(&pool)
+    .await;
+    assert!(moved.is_err(), "registration cannot be backdated after INSERT");
+    assert!(exclusive_package_link(&pool, book, Some(recent), Some(buyer))
+        .await.unwrap().is_some());
+
+    // After the owner selects a shorter window, still no money is debited:
+    // newly expired chapters become directly purchasable.
+    repo.set_package_paid_mode(
+        id(owner), id(layer), id(book), id(version), revision,
+        PackagePaidMode::EarlyDays(1),
+    ).await.unwrap();
+    assert!(exclusive_package_link(&pool, book, Some(recent), Some(buyer))
+        .await.unwrap().is_some(), "same-day registration is still protected");
+    pool.close().await;
+}
