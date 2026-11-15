@@ -97,7 +97,9 @@ impl Visit for AcquireElapsedVisitor {
     fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
 
     fn record_f64(&mut self, field: &Field, value: f64) {
-        if field.name() == "acquired_after_secs" {
+        // SQLx 0.8.6 spells this event field "aquired_after_secs".
+        // Accept the corrected spelling too, without recording other fields.
+        if matches!(field.name(), "aquired_after_secs" | "acquired_after_secs") {
             self.seconds = Some(value);
         }
     }
@@ -256,7 +258,7 @@ mod tests {
                 tracing::event!(
                     target: "sqlx::pool::acquire",
                     tracing::Level::TRACE,
-                    acquired_after_secs = 0.003_f64,
+                    aquired_after_secs = 0.003_f64,
                     db.statement = "SECRET SQL MUST NEVER BE CAPTURED",
                 );
                 tracing::event!(
