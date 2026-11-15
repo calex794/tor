@@ -19,7 +19,7 @@ use tor_commerce::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
         LayerTermKind,
     },
-    repositories::layers::PgLayers,
+    repositories::{layer_drafts::LayerStagePage, layers::PgLayers},
     services::layers::LayerService,
 };
 use tor_contracts::paid_delivery::PositiveId;
@@ -62,6 +62,10 @@ pub(super) struct AddBookForm {
     remove_csv: Option<String>,
     active_buyers: Option<i64>,
     lifetime_buyers: Option<i64>,
+    page_after: Option<i64>,
+    page_query: Option<String>,
+    next_search: Option<String>,
+    draft_revision: Option<i64>,
     #[serde(flatten)]
     choices: HashMap<String, String>,
 }
@@ -106,6 +110,23 @@ fn staged_changes(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
     let adds = selected.difference(&included_set).copied().collect();
     let removes = included_set.difference(&selected).copied().collect();
     Some((adds, removes))
+}
+
+fn selection_url(layer: i64, search: &str, after: Option<i64>) -> String {
+    let mut url = format!("/me/layers/{layer}/books");
+    if let Some(after) = after {
+        url.push_str(&format!("?after={after}"));
+    }
+    let suffix = encoded_search_suffix(search).replace("&amp;", "&");
+    if !suffix.is_empty() {
+        if after.is_none() {
+            url.push_str("?q=");
+            url.push_str(suffix.trim_start_matches("&q="));
+        } else {
+            url.push_str(&suffix);
+        }
+    }
+    url
 }
 
 pub(super) fn status(error: LayerError) -> StatusCode {
@@ -441,9 +462,13 @@ pub(super) async fn page(
         Ok(value) => value,
         Err(error) => return deny(status(error)),
     };
+    let draft = match service.selection_draft(actor, layer).await {
+        Ok(draft) => draft,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let (hero, settings, grid_markup) =
-        grid::detail(&metadata, &tiles, &offer, &csrf, search, editable);
+        grid::detail(&metadata, &tiles, &offer, &csrf, search, editable, &draft);
     let mut html = picker_html_with_query(
         layer.get(),
         &candidates,
@@ -486,52 +511,117 @@ pub(super) async fn add(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
-    if form.operation.as_deref() == Some("preview") {
-        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+    if form.operation.as_deref() == Some("clear") {
+        let (Some(Ok(version)), Some(revision)) = (
+            form.expected_version_id.map(PositiveId::new), form.draft_revision,
+        ) else {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         };
-        let Some((adds, removes)) = staged_changes(&form) else {
-            return deny(StatusCode::UNPROCESSABLE_ENTITY);
-        };
-        return match service
-            .preview_composition(actor, layer, expected, &adds, &removes)
-            .await
-        {
-            Ok(preview) => private_response(
-                grid::review(
-                    layer.get(),
-                    &preview,
-                    form.csrf_token.as_deref().unwrap_or(""),
-                ),
-                &[],
+        return match service.clear_selection_draft(actor, layer, version, revision).await {
+            Ok(()) => private_response(
+                Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[],
             ),
             Err(error) => deny(status(error)),
         };
     }
-    if form.operation.as_deref() == Some("apply") {
-        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
-            return deny(StatusCode::UNPROCESSABLE_ENTITY);
-        };
-        let (Some(adds), Some(removes), Some(active), Some(lifetime)) = (
-            csv_ids(form.add_csv.as_deref()),
-            csv_ids(form.remove_csv.as_deref()),
-            form.active_buyers,
-            form.lifetime_buyers,
+    if matches!(
+        form.operation.as_deref(),
+        Some("stage" | "search" | "next" | "reset" | "preview")
+    ) {
+        let (Some(Ok(expected)), Some(revision), Some(visible), Some(included)) = (
+            form.expected_version_id.map(PositiveId::new),
+            form.draft_revision,
+            csv_ids(form.visible_csv.as_deref()),
+            csv_ids(form.included_csv.as_deref()),
         ) else {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         };
-        if form.confirm_composition.as_deref() != Some("yes") || !form.choices.is_empty() {
+        if staged_changes(&form).is_none() {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let page_after = match form.page_after.filter(|value| *value != 0)
+            .map(PositiveId::new).transpose()
+        {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+        };
+        let mut selected=Vec::new();
+        for key in form.choices.keys() {
+            let Some(id)=key.strip_prefix("chosen_")
+                .and_then(|raw| raw.parse::<i64>().ok())
+            else {
+                return deny(StatusCode::UNPROCESSABLE_ENTITY);
+            };
+            selected.push(id);
+        }
+        selected.sort_unstable();
+        let original_query=form.page_query.as_deref().unwrap_or("").trim();
+        let next_query=form.next_search.as_deref().unwrap_or("").trim();
+        if original_query.chars().count()>100 || next_query.chars().count()>100
+            || included.len()>visible.len()
+        {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let staged=service.stage_selection_page(
+            actor, layer, &LayerStagePage {
+                version: expected, revision, after:page_after,
+                query:original_query.to_owned(), visible, selected,
+            },
+        ).await;
+        let (draft, page)=match staged {
+            Ok(result)=>result,
+            Err(error)=>return deny(status(error)),
+        };
+        if form.operation.as_deref()==Some("preview") {
+            return match service
+                .preview_composition(
+                    actor, layer, expected, &draft.additions, &draft.removals,
+                )
+                .await
+            {
+                Ok(preview)=>private_response(
+                    grid::review(
+                        layer.get(), &preview,
+                        form.csrf_token.as_deref().unwrap_or(""), draft.revision,
+                    ), &[],
+                ),
+                Err(error)=>deny(status(error)),
+            };
+        }
+        let destination=match form.operation.as_deref() {
+            Some("search")=>selection_url(raw_layer,next_query,None),
+            Some("reset")=>selection_url(raw_layer,"",None),
+            Some("next")=>selection_url(raw_layer,original_query,page.next_after),
+            _=>selection_url(raw_layer,original_query,page_after.map(PositiveId::get)),
+        };
+        return private_response(Redirect::to(&destination), &[]);
+    }
+    if form.operation.as_deref()==Some("apply") {
+        let (Some(Ok(expected)), Some(revision))=(
+            form.expected_version_id.map(PositiveId::new), form.draft_revision,
+        ) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        let (Some(adds),Some(removes),Some(active),Some(lifetime))=(
+            csv_ids(form.add_csv.as_deref()), csv_ids(form.remove_csv.as_deref()),
+            form.active_buyers, form.lifetime_buyers,
+        ) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        if form.confirm_composition.as_deref()!=Some("yes")
+            || !form.choices.is_empty() || revision<=0
+        {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         }
         return match service
-            .apply_composition(actor, layer, expected, &adds, &removes, (active, lifetime))
-            .await
+            .apply_staged_composition(
+                actor,layer,expected,&adds,&removes,((active,lifetime),revision),
+            ).await
         {
-            Ok(_) => private_response(
-                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")),
-                &[],
+            Ok(_)=>private_response(
+                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")),&[],
             ),
-            Err(error) => deny(status(error)),
+            Err(error)=>deny(status(error)),
         };
     }
     let Some(Ok(book)) = form.book_id.map(PositiveId::new) else {
