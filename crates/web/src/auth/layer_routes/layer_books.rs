@@ -29,7 +29,7 @@ mod draft;
 mod grid;
 mod offer_form;
 
-use draft::{history_ids, valid_filter};
+use draft::{csv_ids, encoded_search_suffix, history_ids, valid_filter};
 use offer_form::offer_form_html;
 
 const PAGE_SIZE: u16 = 20;
@@ -83,24 +83,6 @@ pub(super) struct AddBookForm {
     choices: HashMap<String, String>,
 }
 
-fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
-    let raw = raw?;
-    if raw.len() > 1400 {
-        return None;
-    }
-    if raw.is_empty() {
-        return Some(Vec::new());
-    }
-    let ids = raw
-        .split(',')
-        .map(|value| value.parse::<i64>().ok().filter(|id| *id > 0))
-        .collect::<Option<Vec<_>>>()?;
-    if ids.len() > 100 || ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
-        return None;
-    }
-    Some(ids)
-}
-
 fn staged_changes(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
     let visible = csv_ids(form.visible_csv.as_deref())?;
     let included = csv_ids(form.included_csv.as_deref())?;
@@ -134,21 +116,6 @@ pub(super) fn status(error: LayerError) -> StatusCode {
             StatusCode::CONFLICT
         }
     }
-}
-
-fn encoded_search_suffix(query: &str) -> String {
-    if query.is_empty() {
-        return String::new();
-    }
-    let mut encoded = String::new();
-    for byte in query.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            write!(encoded, "%{byte:02X}").expect("write String");
-        }
-    }
-    format!("&amp;q={encoded}")
 }
 
 fn picker_html_with_query(
