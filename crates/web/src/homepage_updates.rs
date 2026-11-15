@@ -24,30 +24,41 @@ pub(super) async fn page(
     )
     .await?;
     let html = if let Some(editorial) = &state.editorial {
-        let html = editorial
-            .attach(
-                &headers,
-                tor_contracts::exposure::PromotionSlot::HomePromoStrip,
-                None,
-                html,
-                crate::editorial_http::display::issuer(&observation),
-            )
-            .await;
-        // The first pilot allows at most one editorial home promotion.
-        // The existing home shelf is a fallback, not a second advertisement.
-        if html.0.contains("data-promo-strip") {
-            Html(html.0.replace(crate::editorial_http::display::MARKER, ""))
-        } else {
-            editorial
+        // Both alternative positions share one 400 ms budget, rather than
+        // independently waiting 400 ms for each failed PostgreSQL selection.
+        let without_promotion = Html(
+            html.0
+                .replace(crate::editorial_http::display::HOME_STRIP_MARKER, "")
+                .replace(crate::editorial_http::display::MARKER, ""),
+        );
+        let select = async {
+            let html = editorial
                 .attach(
                     &headers,
-                    tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                    tor_contracts::exposure::PromotionSlot::HomePromoStrip,
                     None,
                     html,
                     crate::editorial_http::display::issuer(&observation),
                 )
-                .await
-        }
+                .await;
+            // At most one prominent editorial home promotion.
+            if html.0.contains("data-promo-strip") {
+                Html(html.0.replace(crate::editorial_http::display::MARKER, ""))
+            } else {
+                editorial
+                    .attach(
+                        &headers,
+                        tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                        None,
+                        html,
+                        crate::editorial_http::display::issuer(&observation),
+                    )
+                    .await
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_millis(400), select)
+            .await
+            .unwrap_or(without_promotion)
     } else {
         html
     };

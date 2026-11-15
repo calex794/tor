@@ -446,6 +446,13 @@ async fn native_management_authority_three_real_placements_and_optional_failure(
         assert!(page.contains("FREE HOST TEXT"));
         assert!(!page.contains("editorial-promotion"));
         assert!(started.elapsed() < Duration::from_secs(2));
+        let started = Instant::now();
+        let response = call(&app, "GET", "/", "", ORIGIN, "").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let home = html(response).await;
+        assert!(!home.contains("data-promo-strip"));
+        assert!(!home.contains("editorial-promotion"));
+        assert!(started.elapsed() < Duration::from_secs(2));
         let response = call(&app, "GET", PAGE, &cookie, ORIGIN, "").await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         private(&response);
