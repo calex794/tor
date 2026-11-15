@@ -157,7 +157,12 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+    // Each viewport registers different authors/readers, owns different Books,
+    // and writes viewport-qualified screenshots. Run both contexts in one
+    // Chromium while preserving the complete acceptance sequence per actor.
+    // allSettled avoids closing the shared browser while a peer is still active.
+    const viewportRuns = await Promise.allSettled(
+      [['desktop', 1440, 900], ['mobile', 390, 844]].map(async ([viewport, width, height]) => {
       const viewportStarted = performance.now();
       let phaseStarted = viewportStarted;
       const context = await browser.newContext({ viewport: { width, height } });
@@ -728,6 +733,12 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       await context.close();
       reportPhase('context_cleanup', viewport, phaseStarted);
       console.log(`CI_BROWSER_PHASE_SECONDS scenario=${timingScenario} phase=viewport_total viewport=${viewport} seconds=${((performance.now() - viewportStarted) / 1000).toFixed(3)}`);
+      })
+    );
+    const failures = viewportRuns.filter(result => result.status === 'rejected');
+    if (failures.length) {
+      throw new AggregateError(failures.map(result => result.reason),
+        'Author desktop/mobile browser acceptance failed');
     }
     console.log('TOR H/S001/S002/S006/S007 browser PASS: 390/1440 author release, guest discovery, distinct reader bookmark and resumed progress');
   } finally {
