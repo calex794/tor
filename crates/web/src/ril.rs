@@ -99,6 +99,11 @@ fn instrument_with_recorder(router: Router, recorder: TrafficRecorder) -> Router
         .layer(middleware::from_fn_with_state(recorder, observe))
 }
 
+// Exact registered Axum path, never a raw client URL or coarse RIL route family.
+fn is_measured_book_get(template: Option<&str>, method: &Method) -> bool {
+    template == Some("/books/{id}") && method == Method::GET
+}
+
 async fn observe(
     State(recorder): State<TrafficRecorder>,
     mut request: Request<Body>,
@@ -111,7 +116,7 @@ async fn observe(
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
     // MatchedPath is a registered template, never a client-provided URL.
-    let measured_book_get = template == Some("/books/{id}") && request.method() == Method::GET;
+    let measured_book_get = is_measured_book_get(template, request.method());
     let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
@@ -415,6 +420,16 @@ mod tests {
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
     }
+    #[test]
+    fn perf02g_measurement_matches_registered_book_get_not_route_family() {
+        assert_eq!(classify(Some("/books/{id}"), "GET").route_family, "/books/");
+        assert!(is_measured_book_get(Some("/books/{id}"), &Method::GET));
+        assert!(!is_measured_book_get(Some("/books/{id}"), &Method::POST));
+        assert!(!is_measured_book_get(Some("/books/{id}/comments"), &Method::GET));
+        assert!(!is_measured_book_get(Some("/me/books/{id}"), &Method::GET));
+        assert!(!is_measured_book_get(None, &Method::GET));
+    }
+
     #[tokio::test]
     async fn flow_02_real_html_is_recorded_but_api_and_bots_are_not() {
         use axum::response::Html;
