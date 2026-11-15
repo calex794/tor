@@ -2,7 +2,7 @@
 //! Package-only is a sales policy, NOT a revocation of paid chapter history.
 use super::*;
 use tor_commerce::{
-    domain::money::{CheckoutError, MoneyMinor, PurchaseCommand, WalletId},
+    domain::money::{CheckoutError, CheckoutRepository, MoneyMinor, PurchaseCommand, WalletId},
     repositories::{checkout::PgCheckout, layer_package_sales::PackagePaidMode},
 };
 use tor_contracts::paid_delivery::ChapterVersionRef;
