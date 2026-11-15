@@ -163,3 +163,78 @@ load on the current HEAD, including unit checks of the actual SQLx 0.8.6
 field name and the numeric-only report parser. Follow-up work must repeat
 representative adult/owner/pending-deletion workloads and measure wider
 competition before closing PERF-02. No deployment, new index or migration.
+
+
+## PERF-02h: mixed real-user journeys under increasing load
+
+PERF-252 already proves 25 complete journeys per second for 60 seconds,
+against disposable `tor_ci`: 13 persisted free-progress/comment journeys,
+10 public catalogue/book/reader journeys, and two real paid purchases per
+second. Each purchase is verified against actual wallet deductions, immutable
+purchase facts and pinned library rights, without a payment provider.
+
+PERF-02h adds two *non-gating capacity probes* to that same isolated server
+and PostgreSQL 18 schema, reusing the accounts from the mandatory 25/s run:
+
+| Stage | Duration | Writer journeys/s | Public journeys/s | Paid journeys/s | Paid chapter ordinals |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Required baseline: 25 journeys/s | 60 s | 13 | 10 | 2 | 1-121 |
+| Capacity: 50 journeys/s | 15 s | 26 | 20 | 4 | 122-182 |
+| Capacity: 100 journeys/s | 15 s | 52 | 40 | 8 | 183-303 |
+
+A *journey* contains multiple real HTTP requests and is not the same as
+one GET/s. New capacity stages log into existing readers rather than
+re-registering duplicate accounts. The paid ordinals cannot overlap,
+so replay/idempotency cannot masquerade as additional purchases. Writer
+progress remains conditional on the last persisted revision and free comments
+are checked in the rendered book discussion. The final database assertion
+requires `purchase facts = wallet purchase entries = pinned library rights`
+and verifies the exact remaining total balance. No private paid version is
+exposed to a guest or to a non-buyer.
+
+Custom k6 Trends capture p50/p95/p99 for public Book GET, free-progress
+write and paid checkout. `tools/perf02h_mixed_evidence.py` writes strictly
+numeric summaries of all three stages and rejects a "PASS" missing actual
+metrics. The existing 25/s baseline still gates CI. If a 50/100 probe fails,
+the report must preserve that **FAIL**, never present it as zero latency or
+silently claim additional supported capacity. CPU samples are retained in
+the short-lived isolated CI artifact.
+
+Limitations: each stage uses a small test fixture, short-lived GH runner
+and a fixed SQLx pool of three connections; HTTP p95 is not a controlled
+before/after comparison of PERF-02 optimizations. More throughput is not
+automatically more distinct concurrent readers, nor is it a live VPS
+capacity guarantee. Owner/18+/21+/revoked sessions still need independent
+role-specific acceptance before closing parent #888.
+
+No migrations, production traffic, working VPS/PG/S3 changes, pool resizing,
+wallet credit to real accounts, or deployment.
+
+
+## PERF-02h: duration-boundary fixture isolation
+
+The first real mixed-load run passed 25 journeys/s but reported one purchase
+failure at 50/s and two at 100/s despite zero HTTP failures or dropped
+iterations. k6 scheduled 121, 61 and 121 buyer iterations at the duration
+boundaries. The original ranges (1..120, 121..180, 181..300) therefore overlapped:
+the first purchase in the next stage was an idempotent replay, and the final
+stage also exhausted its fixture. This was not evidence of PostgreSQL saturation.
+
+Each stage now owns its nominal buyer count plus one bounded endpoint reserve:
+
+| Journeys/s | Paid editions reserved | Maximum buyer iterations |
+| ---: | --- | ---: |
+| 25 | 1..121 | 121 |
+| 50 | 122..182 | 61 |
+| 100 | 183..303 | 121 |
+
+The disposable fixture seeds 303 editions. An iteration beyond its own stage
+capacity still fails before HTTP; a replay instead of a new purchase still
+fails. No scheduled iteration is silently discarded and no failure threshold
+is relaxed. Wallet, purchase and entitlement postconditions remain exact.
+
+An executable Node/VM regression invokes the actual k6 paidReader function
+across all three sequential profiles with both nominal and extra boundary
+iterations. It reproduces the old overlap, rejects unexpected exhaustion,
+and preserves the rejection of an HTTP-200 replay as a new purchase. This
+isolated harness does not replace the real PostgreSQL/HTTP load acceptance.

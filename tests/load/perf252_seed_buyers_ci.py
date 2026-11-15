@@ -27,12 +27,12 @@ smoke.pg(f"""INSERT INTO books(id,source_identity,target_language,title,visibili
 VALUES(200001,'ci:perf252:paid-book','ru','PERF252 покупка','public',{owner},'basic')""")
 smoke.pg("""INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
 SELECT 2000000+n,200001,n,'PERF252 paid chapter ' || n,'public','paid',100
-FROM generate_series(1,300) n""")
+FROM generate_series(1,303) n""")
 smoke.pg("""INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
 SELECT 3000000+n,2000000+n,1,'PERF252 isolated paid edition'
-FROM generate_series(1,300) n""")
+FROM generate_series(1,303) n""")
 smoke.pg("""INSERT INTO chapter_publications(chapter_id,version_id)
-SELECT 2000000+n,3000000+n FROM generate_series(1,300) n""")
+SELECT 2000000+n,3000000+n FROM generate_series(1,303) n""")
 smoke.pg("""INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
 SELECT id,20000,'RUB' FROM users
 WHERE email_normalized LIKE 'perf252-paid-buyer-%@tor-ci.example'""")
@@ -45,6 +45,6 @@ FROM revenue_share_assignments a
 JOIN revenue_share_states s ON s.book_id=a.book_id AND s.current_revision=a.revision
 WHERE a.book_id=200001""") == 100,
     "paid book revenue shares must total 100%")
-smoke.require(smoke.scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id BETWEEN 2000001 AND 2000300") == 300,
+smoke.require(smoke.scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id BETWEEN 2000001 AND 2000303") == 303,
     "paid edition fixture incomplete")
-print(f"PERF-252 disposable paid fixture: {buyers} wallets, 300 chapters; no real funds")
+print(f"PERF-252 disposable paid fixture: {buyers} wallets, 303 chapters; no real funds")
