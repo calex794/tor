@@ -98,7 +98,10 @@ pub fn cover_settings(
         r#"<img class="book-cover-picker__image" alt="Предварительный просмотр выбранной обложки" data-cover-picker-image hidden>"#
             .to_owned()
     };
+    let nav_path = format!("/me/books/{}/settings/covers", book.id);
+    let navigation = crate::pages::account_navigation(&nav_path, csrf);
     let html = include_str!("../templates/author_cover_settings.html")
+        .replace("<!--ACCOUNT_NAVIGATION-->", &navigation)
         .replace("<!--BOOK_TITLE-->", &title)
         .replace("<!--BOOK_ID-->", &book.id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
