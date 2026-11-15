@@ -2,20 +2,27 @@
   <div class="container account-layout">
     <!--ACCOUNT_NAVIGATION-->
     <div class="account-main">
-      <header class="ui-page-header">
-        <div class="ui-page-header__content">
+      <nav class="author-book-workspace__breadcrumbs" aria-label="Путь к книге">
+        <a href="/me/books">Мои книги</a>
+        <span aria-hidden="true">/</span>
+        <span>Книга №<!--BOOK_ID--></span>
+      </nav>
+      <header class="ui-page-header author-book-workspace__hero">
+        <div class="author-book-workspace__cover"><!--COVER_PREVIEW--></div>
+        <div class="ui-page-header__content author-book-workspace__hero-copy">
           <p class="ui-page-header__kicker">Кабинет автора · управление книгой</p>
-          <h1 class="ui-page-header__title"><!--BOOK_TITLE--></h1>
           <span class="author-book-state <!--STATE_CLASS-->"><!--BOOK_STATE--></span>
+          <h1 class="ui-page-header__title"><!--BOOK_TITLE--></h1>
+          <div class="author-book-workspace__toolbar">
+            <a class="ui-button" href="/me/books/<!--BOOK_ID-->/chapters/new">Добавить главу</a>
+            <!--PUBLICATION_ACTION-->
+            <a class="ui-button ui-button--ghost" href="#author-book-settings">Настройки</a>
+          </div>
           <p class="ui-page-header__text"><!--STATE_NOTE--></p>
           <a class="text-link" href="/me/books/<!--BOOK_ID-->/registration-status">Проверка регистрации и причина отказа</a>
         </div>
       </header>
-      <div class="author-book-workspace__toolbar">
-        <a class="ui-button" href="/me/books/<!--BOOK_ID-->/chapters/new">Добавить главу</a>
-        <!--PUBLICATION_ACTION-->
-        <a class="ui-button ui-button--ghost" href="#author-book-settings">Настройки</a>
-      </div>
+      <!--PREPARATION_PANEL-->
       <section class="author-book-workspace__chapters" aria-labelledby="author-book-chapters">
         <header class="author-workspace__list-heading">
           <h2 id="author-book-chapters">Главы</h2>
@@ -25,19 +32,39 @@
         <!--IMPORT_ACTION-->
       </section>
       <section class="author-book-workspace__panel" id="author-book-settings" aria-labelledby="author-book-settings-heading">
-        <h2 id="author-book-settings-heading">Настройки и материалы</h2>
-        <div class="author-book-workspace__links">
-          <a href="/me/books/<!--BOOK_ID-->/settings">Все настройки книги</a>
-          <a href="/me/books/<!--BOOK_ID-->/description">Редактировать аннотацию</a>
-          <a href="/me/books/<!--BOOK_ID-->/settings/sources">Ссылки на произведение</a>
-          <a href="/me/books/<!--BOOK_ID-->/settings/project-status">Состояние работы над книгой</a>
-          <a href="/me/books/<!--BOOK_ID-->/settings/lifecycle">Жизненный цикл книги</a>
-          <!--AGE_SETTINGS_LINK-->
-          <a href="/me/books/<!--BOOK_ID-->/settings/titles">Названия книги</a>
-          <a href="/me/books/<!--BOOK_ID-->/settings/related">Связанные книги</a>
-          <a href="/me/books/<!--BOOK_ID-->/settings/origin">Сведения об оригинале</a>
-          <a href="/books/<!--BOOK_ID-->/stats">Статистика книги</a>
-          <a href="/me/books/<!--BOOK_ID-->/issues">Ошибки текста</a>
+        <div class="author-book-workspace__panel-heading">
+          <div>
+            <p class="author-book-workspace__kicker">Дополнительные возможности</p>
+            <h2 id="author-book-settings-heading">Настройки и материалы</h2>
+          </div>
+          <a class="text-link" href="/me/books/<!--BOOK_ID-->/settings">Все настройки книги</a>
+        </div>
+        <div class="author-book-workspace__settings-grid">
+          <section class="author-book-workspace__settings-group" aria-labelledby="author-book-content">
+            <h3 id="author-book-content">Описание и оформление</h3>
+            <div class="author-book-workspace__links">
+              <a href="/me/books/<!--BOOK_ID-->/description">Редактировать аннотацию</a>
+              <a href="/me/books/<!--BOOK_ID-->/settings/titles">Названия книги</a>
+              <a href="/me/books/<!--BOOK_ID-->/settings/sources">Ссылки на произведение</a>
+              <a href="/me/books/<!--BOOK_ID-->/settings/related">Связанные книги</a>
+              <a href="/me/books/<!--BOOK_ID-->/settings/origin">Сведения об оригинале</a>
+            </div>
+          </section>
+          <section class="author-book-workspace__settings-group" aria-labelledby="author-book-publication">
+            <h3 id="author-book-publication">Публикация и доступ</h3>
+            <div class="author-book-workspace__links">
+              <a href="/me/books/<!--BOOK_ID-->/settings/project-status">Состояние работы над книгой</a>
+              <a href="/me/books/<!--BOOK_ID-->/settings/lifecycle">Жизненный цикл книги</a>
+              <!--AGE_SETTINGS_LINK-->
+            </div>
+          </section>
+          <section class="author-book-workspace__settings-group" aria-labelledby="author-book-feedback">
+            <h3 id="author-book-feedback">Статистика и обратная связь</h3>
+            <div class="author-book-workspace__links">
+              <a href="/books/<!--BOOK_ID-->/stats">Статистика книги</a>
+              <a href="/me/books/<!--BOOK_ID-->/issues">Ошибки текста</a>
+            </div>
+          </section>
         </div>
       </section>
       <!--EXTRA_PANELS-->

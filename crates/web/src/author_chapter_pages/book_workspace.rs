@@ -77,6 +77,52 @@ pub fn detail_with_covers_with_demand_page(
             "Книга ещё не открыта читателям. Сохранение глав и публикация — отдельные действия.",
         )
     };
+    // A job's moderation outcome is not a complete inventory of older covers.
+    // Never insert a private/pending source into the public <img> element.
+    let cover_preview = if matches!(
+        latest_job,
+        Some("moderation_approved" | "moderation_legacy")
+    ) {
+        format!(
+            r#"<img src="/covers/{}/main.webp" alt="Обложка книги «{}»" loading="lazy">"#,
+            book.id,
+            escape_html(&book.title)
+        )
+    } else {
+        r#"<div class="author-book-workspace__cover-placeholder" role="img" aria-label="Обложка книги"><span aria-hidden="true">▤</span><small>Обложка книги</small></div>"#
+            .to_owned()
+    };
+    // This view only knows the chapters on the current page, not a global
+    // content checklist or registration/moderation readiness.
+    let preparation_panel = if published {
+        String::new()
+    } else {
+        let chapter_hint = if chapters.iter().any(|c| c.access == ChapterAccess::Free) {
+            "Бесплатная глава есть на этой странице"
+        } else if has_previous_page {
+            "Проверьте бесплатные главы на предыдущих страницах"
+        } else {
+            "Добавьте хотя бы одну бесплатную главу"
+        };
+        format!(
+            r#"<section class="author-book-workspace__panel author-book-workspace__preparation" aria-labelledby="author-book-preparation">
+<div class="author-book-workspace__panel-heading">
+<div><p class="author-book-workspace__kicker">Следующий шаг</p>
+<h2 id="author-book-preparation">Подготовка к публикации</h2></div>
+<span class="author-book-state is-draft">Только владелец</span>
+</div>
+<div class="author-book-workspace__steps">
+<div class="author-book-workspace__step"><strong>1. Название книги</strong><span>Указано</span></div>
+<div class="author-book-workspace__step"><strong>2. Бесплатная глава</strong>
+<span>{chapter_hint}</span><a href="/me/books/{}/chapters/new">Создать главу</a></div>
+<div class="author-book-workspace__step"><strong>3. Описание</strong>
+<span>Проверьте перед публикацией</span><a href="/me/books/{}/description">Проверить описание</a></div>
+</div>
+<p class="author-book-workspace__hint">Состояние регистрации и возможность публикации проверяются на сервере. Здесь показаны только доступные сведения.</p>
+</section>"#,
+            book.id, book.id
+        )
+    };
     let path = format!("/me/books/{}", book.id);
     let body = include_str!("../../templates/author_book_workspace.html")
         .replace(
@@ -85,6 +131,8 @@ pub fn detail_with_covers_with_demand_page(
         )
         .replace("<!--BOOK_ID-->", &book.id.to_string())
         .replace("<!--BOOK_TITLE-->", &escape_html(&book.title))
+        .replace("<!--COVER_PREVIEW-->", &cover_preview)
+        .replace("<!--PREPARATION_PANEL-->", &preparation_panel)
         .replace(
             "<!--STATE_CLASS-->",
             if published {
