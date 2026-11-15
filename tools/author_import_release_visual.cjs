@@ -16,7 +16,7 @@ async function inspectImportRelease(page, viewport, width, height, kind, out) {
     JSON.stringify(nodes.map(node => [node.id || node.name, node.value, node.disabled, node.hidden])));
   const before = await state();
   if (kind === 'import') {
-    const details = root.locator('details').first();
+    const details = root.locator('details.author-import__details').first();
     const summary = details.locator('summary');
     assert(await details.getAttribute('open') === null, 'format help must start collapsed');
     await summary.focus();
