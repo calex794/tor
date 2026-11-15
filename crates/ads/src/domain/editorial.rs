@@ -218,6 +218,10 @@ mod tests {
         }
         .normalize()
         .is_err());
+        assert_eq!(
+            "home_promo_strip".parse::<PromotionSlot>(),
+            Ok(PromotionSlot::HomePromoStrip)
+        );
         assert!("catalog_listing".parse::<PromotionSlot>().is_err());
         assert!("search_results".parse::<PromotionSlot>().is_err());
         assert!(valid_command_key(&"a".repeat(43)));
