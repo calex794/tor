@@ -38,10 +38,18 @@ fn shell(title: &str, book_id: i64, contents: &str) -> axum::response::Html<Stri
 }
 
 async fn package_alternative(state: &AuthState, book_id: i64, actor: i64) -> Option<Response> {
-    if !state.layer_pages_enabled { return None; }
+    if !state.layer_pages_enabled {
+        return None;
+    }
     let link = tor_commerce::repositories::layer_storefront::exclusive_package_link(
-        state.accounts.pool(), book_id, None, Some(actor),
-    ).await.ok().flatten()?;
+        state.accounts.pool(),
+        book_id,
+        None,
+        Some(actor),
+    )
+    .await
+    .ok()
+    .flatten()?;
     Some(private_response(
         shell(
             "Главы доступны через пакет", book_id,
@@ -407,12 +415,13 @@ pub(super) async fn submit(
                 }
                 Err(error) => {
                     if error == BatchCheckoutError::Checkout(CheckoutError::Inaccessible) {
-                        if let Some(alternative) = package_alternative(&state, book_id, actor).await {
+                        if let Some(alternative) = package_alternative(&state, book_id, actor).await
+                        {
                             return alternative;
                         }
                     }
                     failure(book_id, error)
-                },
+                }
             }
         }
         _ => deny(StatusCode::UNPROCESSABLE_ENTITY),
