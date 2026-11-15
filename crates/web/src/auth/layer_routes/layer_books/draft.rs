@@ -116,7 +116,7 @@ async fn handle_draft(
                 Err(error) => deny(status(error)),
             };
         }
-        let Some((visible, selected)) = stage_choices(&form) else {
+        let Some((visible, selected)) = stage_choices(form) else {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         };
         let draft = match service
