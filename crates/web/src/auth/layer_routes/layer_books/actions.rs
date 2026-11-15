@@ -59,7 +59,7 @@ pub(super) async fn handle_selection(
         ) else {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         };
-        if staged_changes(&form).is_none() {
+        if staged_changes(form).is_none() {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         }
         let page_after = match form
