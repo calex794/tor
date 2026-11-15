@@ -247,6 +247,30 @@ pub async fn exclusive_package_link(
     .transpose()
 }
 
+/// Resolve the owning public Book inside commerce. Web must not issue SQL.
+pub async fn exclusive_package_for_chapter(
+    pool: &PgPool,
+    chapter_id: i64,
+    viewer: Option<i64>,
+) -> Result<Option<(i64, ExclusivePackageLink)>, LayerError> {
+    if chapter_id <= 0 {
+        return Ok(None);
+    }
+    let book_id: Option<i64> = sqlx::query_scalar(
+        "SELECT book_id FROM chapters WHERE id=$1",
+    )
+    .bind(chapter_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| LayerError::Unavailable)?;
+    let Some(book_id) = book_id else {
+        return Ok(None);
+    };
+    Ok(exclusive_package_link(pool, book_id, Some(chapter_id), viewer)
+        .await?
+        .map(|link| (book_id, link)))
+}
+
 /// Historical terms are private even if a Layer was later hidden.
 /// Future prepaid renewals are shown as pending; refund facts mark revoked.
 pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermCard>, LayerError> {
