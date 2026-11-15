@@ -5,6 +5,8 @@ mod layer_allocation;
 mod layer_composition;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
+#[path = "layers_pg/layer_drafts.rs"]
+mod layer_drafts;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
 #[path = "layers_pg/layer_offer.rs"]
