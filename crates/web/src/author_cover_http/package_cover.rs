@@ -42,7 +42,7 @@ pub(super) async fn upload(
         Ok(false) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let Ok(_permit) = state.pending.clone().try_acquire_owned() else {
+    let Ok(permit) = state.pending.clone().try_acquire_owned() else {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
     let mut csrf = false;
@@ -95,7 +95,12 @@ pub(super) async fn upload(
     // A source cannot choose dimensions, content type, S3 paths or variant name.
     let generated = match tokio::time::timeout(
         Duration::from_secs(15),
-        tokio::task::spawn_blocking(move || process_cover(&bytes, kind)),
+        tokio::task::spawn_blocking(move || {
+            // A timeout must not release the concurrency permit while
+            // CPU-bound decoding continues on the blocking thread.
+            let _permit = permit;
+            process_cover(&bytes, kind)
+        }),
     )
     .await
     {
