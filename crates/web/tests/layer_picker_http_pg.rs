@@ -572,6 +572,23 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     );
     let route = "/me/layers/new";
     assert_eq!(
+        request(&app, "GET", route, &cookie, ORIGIN, "").await.status(),
+        StatusCode::FORBIDDEN,
+        "a reader without a book is not an author"
+    );
+    assert_eq!(
+        request(&app, "POST", route, &cookie, ORIGIN, "title=Foo&command_key=invalid&csrf_token=invalid")
+            .await.status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:d05:create-author:{nonce}','ru','Author Book','public',{owner})"
+        ),
+    );
+    assert_eq!(
         request(&app, "GET", route, "", ORIGIN, "").await.status(),
         StatusCode::SEE_OTHER
     );
