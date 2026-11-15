@@ -774,7 +774,9 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(searched.contains("добавить 1, убрать 0"));
     let restored_grid = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
     assert!(restored_grid.contains("draft_revision\" value=\"2\""));
-    assert!(restored_grid.contains(&format!("name=\"chosen_{authors_book}\" value=\"1\" checked")));
+    assert!(restored_grid.contains(&format!(
+        "name=\"chosen_{authors_book}\" value=\"1\" checked"
+    )));
     let apply = format!(
         "operation=apply&expected_version_id={current_version}&draft_revision=2&add_csv={authors_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
     );
