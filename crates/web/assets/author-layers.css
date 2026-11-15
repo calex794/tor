@@ -216,13 +216,31 @@
 .package-cover-choice h3 { margin:0 0 8px; color:var(--text-main); font-size:18px; }
 .package-cover-choice form { display:grid; gap:12px; max-width:520px; }
 .package-cover-choice form label { color:var(--text-main); font-size:13px; font-weight:700; }
-.package-cover-choice select {
-  width:100%; min-height:44px; padding:10px 12px;
-  border:1px solid var(--border-dark); border-radius:var(--radius-sm);
-  background:var(--bg-surface); color:var(--text-main); font:inherit;
+.package-cover-choice__grid {
+  min-width:0; padding:12px 0; border:0;
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr));
+  gap:12px;
 }
-.package-cover-choice select:focus-visible {
+.package-cover-choice__grid legend { color:var(--text-main); font-size:13px; font-weight:700; }
+.package-cover-choice__option {
+  display:flex; flex-direction:column; position:relative; gap:8px;
+  min-width:0; padding:8px; border:2px solid var(--border-color);
+  background:var(--bg-surface); border-radius:var(--radius-sm);
+  cursor:pointer; font-size:12px; overflow-wrap:anywhere;
+}
+.package-cover-choice__option:has(input:checked) {
+  border-color:var(--primary-color); background:var(--bg-secondary);
+}
+.package-cover-choice__option:focus-within {
   outline:3px solid var(--focus-ring-color); outline-offset:2px;
+}
+.package-cover-choice__option input {
+  position:absolute; top:13px; right:13px; width:20px; height:20px;
+  accent-color:var(--primary-color); background:var(--bg-surface);
+}
+.package-cover-choice__option img {
+  width:100%; aspect-ratio:2/3; object-fit:cover;
+  border-radius:5px; background:var(--bg-secondary);
 }
 .package-cover-choice .ui-button { justify-self:start; min-height:44px; }
 .package-grid-form { counter-reset:package-added package-removed; }
