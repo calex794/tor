@@ -66,11 +66,21 @@ impl PgCatalog {
         self.pool.clone()
     }
     pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
-        let pool = PgPoolOptions::new()
+        let mut options = PgPoolOptions::new()
             .max_connections(3)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(url)
-            .await?;
+            .acquire_timeout(Duration::from_secs(5));
+        // PERF-02g: successful SQLx pool acquisitions emit *numeric* timings
+        // only on the disposable GitHub CI database. The normal runtime,
+        // maximum pool size, connection timeout and query semantics are intact.
+        if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+            && std::env::var("TOR_CI_PERF02_POOL_TIMING").as_deref() == Ok("1")
+            && url.ends_with("@127.0.0.1:5432/tor_ci")
+        {
+            options = options.acquire_time_level(
+                "trace".parse().expect("valid SQLx log level"),
+            );
+        }
+        let pool = options.connect(url).await?;
         let role: String = sqlx::query_scalar("SELECT current_user")
             .fetch_one(&pool)
             .await?;
