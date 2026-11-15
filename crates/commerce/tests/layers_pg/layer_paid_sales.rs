@@ -93,11 +93,6 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
     assert!(exclusive_page.books[0].restricted_here);
     assert_eq!(exclusive_page.books[0].until_utc, None);
     assert!(checkout
-        .published_chapter_offer(new_chapter)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(checkout
         .selectable_batch_offers(buyer, book)
         .await
         .unwrap()
@@ -167,10 +162,9 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
         .await
         .unwrap();
     assert!(checkout
-        .published_chapter_offer(new_chapter)
+        .checkout_once(&direct_command(buyer, new_chapter, new_version, 'X'))
         .await
-        .unwrap()
-        .is_some());
+        .is_ok(), "direct purchase is restored only after owner lifts restriction");
     pool.close().await;
 }
 

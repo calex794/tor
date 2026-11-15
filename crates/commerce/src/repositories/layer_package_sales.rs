@@ -182,9 +182,6 @@ impl PgLayers {
         if revision != expected_revision {
             return Err(LayerError::StaleOffer);
         }
-        let current_layer: Option<i64> = row
-            .try_get("package_only_layer_id")
-            .map_err(|_| LayerError::Unavailable)?;
         let active_other: bool = row
             .try_get("active_elsewhere")
             .map_err(|_| LayerError::Unavailable)?;
