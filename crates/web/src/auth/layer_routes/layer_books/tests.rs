@@ -51,7 +51,7 @@ fn d_05_empty_picker_has_no_add_book_form() {
         "token",
     )
     .0;
-    assert!(html.contains("Подходящих книг нет"));
+    assert!(html.contains("Подходящих книг не найдено"));
     assert!(!html.contains("name=\"book_id\""));
 }
 #[test]
@@ -122,7 +122,8 @@ fn hidden_package_is_read_only_even_with_current_books_and_offer() {
     .0;
     assert!(html.contains("Закрытая книга"));
     assert!(html.contains("Пакет скрыт от новых покупок"));
-    assert!(!html.contains("method=\"post\""));
+    assert!(!html.contains("action=\"/me/layers/9/books\""));
+    assert!(!html.contains("action=\"/me/layers/9/offer\""));
     assert!(!html.contains("name=\"price_rub\""));
 }
 
