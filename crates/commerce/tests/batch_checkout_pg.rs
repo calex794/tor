@@ -416,14 +416,27 @@ async fn h_ui_21_batch_mixed_registration_cannot_partially_debit() {
         .await
         .unwrap();
     let layers = PgLayers::new(f.pool.clone());
-    let layer = layers.create_layer(PositiveId::new(owner).unwrap(), "Windowed").await.unwrap();
+    let layer = layers
+        .create_layer(PositiveId::new(owner).unwrap(), "Windowed")
+        .await
+        .unwrap();
     let version = layers
-        .add_book(PositiveId::new(owner).unwrap(), PositiveId::new(layer).unwrap(),
-                  PositiveId::new(f.book).unwrap())
-        .await.unwrap();
-    layers.publish_offer(PositiveId::new(owner).unwrap(),
-                         PositiveId::new(layer).unwrap(), 250, true)
-        .await.unwrap();
+        .add_book(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+        )
+        .await
+        .unwrap();
+    layers
+        .publish_offer(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            250,
+            true,
+        )
+        .await
+        .unwrap();
     let early: i64 = sqlx::query_scalar(
         "INSERT INTO chapters
            (book_id,chapter_no,title,visibility,access_level,price_amount,registered_at)
@@ -455,30 +468,45 @@ async fn h_ui_21_batch_mixed_registration_cannot_partially_debit() {
         },
         expected_price: MoneyMinor::new(100).unwrap(),
     };
-    layers.set_package_paid_mode(
-        PositiveId::new(owner).unwrap(), PositiveId::new(layer).unwrap(),
-        PositiveId::new(f.book).unwrap(), PositiveId::new(version).unwrap(),
-        0, PackagePaidMode::EarlyDays(10),
-    ).await.unwrap();
+    layers
+        .set_package_paid_mode(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+            PositiveId::new(version).unwrap(),
+            0,
+            PackagePaidMode::EarlyDays(10),
+        )
+        .await
+        .unwrap();
     let checkout = PgCheckout::new(f.pool.clone());
-    let available = checkout.selectable_batch_offers(f.buyer, f.book).await.unwrap();
+    let available = checkout
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap();
     assert_eq!(available.len(), 1);
     assert_eq!(available[0].chapter_id, early);
     assert_eq!(
-        checkout.checkout_batch_once(&command(f.buyer, &[prior, f.offers[0]], 'Q')).await,
+        checkout
+            .checkout_batch_once(&command(f.buyer, &[prior, f.offers[0]], 'Q'))
+            .await,
         Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible)),
         "one newly registered locked chapter aborts the whole mixed batch",
     );
     no_partial(&f, 1_000).await;
-    let first = checkout.checkout_once(
-        &tor_commerce::domain::money::PurchaseCommand::new(
-            PositiveId::new(f.buyer).unwrap(),
-            WalletId::new(f.buyer).unwrap(),
-            prior.edition,
-            MoneyMinor::new(100).unwrap(),
-            IdempotencyKey::parse(&format!("{}8", "R".repeat(42))).unwrap(),
-        ).unwrap()
-    ).await.unwrap();
+    let first = checkout
+        .checkout_once(
+            &tor_commerce::domain::money::PurchaseCommand::new(
+                PositiveId::new(f.buyer).unwrap(),
+                WalletId::new(f.buyer).unwrap(),
+                prior.edition,
+                MoneyMinor::new(100).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "R".repeat(42))).unwrap(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
     assert!(!first.replayed);
     assert_eq!(balance(&f.pool, f.buyer).await, 900);
     f.pool.close().await;
