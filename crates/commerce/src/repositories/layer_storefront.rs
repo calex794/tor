@@ -256,19 +256,19 @@ pub async fn exclusive_package_for_chapter(
     if chapter_id <= 0 {
         return Ok(None);
     }
-    let book_id: Option<i64> = sqlx::query_scalar(
-        "SELECT book_id FROM chapters WHERE id=$1",
-    )
-    .bind(chapter_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| LayerError::Unavailable)?;
+    let book_id: Option<i64> = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+        .bind(chapter_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
     let Some(book_id) = book_id else {
         return Ok(None);
     };
-    Ok(exclusive_package_link(pool, book_id, Some(chapter_id), viewer)
-        .await?
-        .map(|link| (book_id, link)))
+    Ok(
+        exclusive_package_link(pool, book_id, Some(chapter_id), viewer)
+            .await?
+            .map(|link| (book_id, link)),
+    )
 }
 
 /// Historical terms are private even if a Layer was later hidden.
