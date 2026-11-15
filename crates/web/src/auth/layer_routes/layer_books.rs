@@ -28,7 +28,8 @@ pub(super) fn routes() -> Router<AuthState> {
 }
 
 pub(super) fn enabled() -> bool {
-    std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1")
+    // Enabled for authors by default; operators may explicitly disable the feature.
+    std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() != Ok("0")
 }
 
 #[derive(Default, Deserialize)]
