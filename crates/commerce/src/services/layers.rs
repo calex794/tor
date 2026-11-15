@@ -6,6 +6,7 @@ use crate::{
     },
     repositories::{
         layer_composition::{LayerBookTilePage, LayerChangePreview},
+        layer_composition_drafts::LayerCompositionDraft,
         layers::PgLayers,
     },
 };
@@ -168,6 +169,76 @@ impl LayerService {
     ) -> Result<LayerBookTilePage, LayerError> {
         self.repository
             .composition_tiles(actor, layer, after, search, limit)
+            .await
+    }
+
+    pub async fn composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<LayerCompositionDraft, LayerError> {
+        self.repository.composition_draft(actor, layer).await
+    }
+
+    pub async fn composition_tiles_filtered(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        search: &str,
+        limit: u16,
+        filter: &str,
+        draft: &LayerCompositionDraft,
+    ) -> Result<LayerBookTilePage, LayerError> {
+        self.repository
+            .composition_tiles_filtered(
+                actor,
+                layer,
+                after,
+                search,
+                limit,
+                filter,
+                &draft.additions,
+                &draft.removals,
+            )
+            .await
+    }
+
+    pub async fn stage_composition_page(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        revision: i64,
+        visible: &[i64],
+        selected: &[i64],
+    ) -> Result<LayerCompositionDraft, LayerError> {
+        self.repository
+            .stage_composition_page(actor, layer, version, revision, visible, selected)
+            .await
+    }
+
+    pub async fn discard_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        revision: i64,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .discard_composition_draft(actor, layer, revision)
+            .await
+    }
+
+    pub async fn apply_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        revision: i64,
+        expected_buyers: (i64, i64),
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .apply_composition_draft(actor, layer, version, revision, expected_buyers)
             .await
     }
 
