@@ -155,3 +155,66 @@ fn d_05_current_layer_book_renders_version_bound_remove_form() {
     assert!(!html.contains("<img onerror="));
     assert!(html.contains("current_after=91"));
 }
+
+#[test]
+fn composition_grid_delta_is_limited_to_visible_books() {
+    let form: AddBookForm = serde_json::from_value(serde_json::json!({
+        "operation": "preview",
+        "visible_csv": "1,2,3",
+        "included_csv": "1,2",
+        "chosen_1": "1",
+        "chosen_3": "1"
+    }))
+    .unwrap();
+    assert_eq!(staged_changes(&form), Some((vec![3], vec![2])));
+    let forged: AddBookForm = serde_json::from_value(serde_json::json!({
+        "visible_csv": "1,2,3",
+        "included_csv": "1,2",
+        "chosen_999": "1"
+    }))
+    .unwrap();
+    assert!(staged_changes(&forged).is_none());
+}
+
+#[test]
+fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
+    use tor_commerce::{
+        domain::layers::OwnedLayerSummary,
+        repositories::layer_composition::{LayerBookTile, LayerBookTilePage},
+    };
+    let layer = OwnedLayerSummary {
+        layer_id: 9,
+        title: "<script>Пакет</script>".into(),
+        description: "<b>Описание</b>".into(),
+        status: "active".into(),
+        metadata_revision: 2,
+    };
+    let tiles = LayerBookTilePage {
+        books: vec![
+            LayerBookTile {
+                id: 91,
+                title: "<img onerror=alert(1)>".into(),
+                has_cover: true,
+                included: true,
+            },
+            LayerBookTile {
+                id: 92,
+                title: "Новая книга".into(),
+                has_cover: false,
+                included: false,
+            },
+        ],
+        next_after: None,
+    };
+    let (hero, metadata, grid) =
+        grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
+    assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
+    assert!(!hero.contains("<script>Пакет</script>"));
+    assert!(metadata.contains("expected_revision"));
+    assert!(grid.contains("/covers/91/card.webp"));
+    assert!(grid.contains("chosen_91"));
+    assert!(grid.contains("chosen_92"));
+    assert!(grid.contains("&lt;img onerror=alert(1)&gt;"));
+    assert!(!grid.contains("<img onerror=alert(1)>"));
+    assert!(!grid.contains("user_id"));
+}
