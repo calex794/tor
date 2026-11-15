@@ -19,7 +19,6 @@ pub(super) fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
     Some(ids)
 }
 
-
 pub(super) fn encoded_search_suffix(query: &str) -> String {
     if query.is_empty() {
         return String::new();
@@ -34,8 +33,6 @@ pub(super) fn encoded_search_suffix(query: &str) -> String {
     }
     format!("&amp;q={encoded}")
 }
-
-
 
 pub(super) fn stage_choices(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
     let visible = csv_ids(form.visible_csv.as_deref())?;
