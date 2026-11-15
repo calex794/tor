@@ -214,9 +214,8 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         additions: vec![92],
         removals: vec![91],
     };
-    let (hero, metadata, grid) = grid::detail(
-        &layer, &tiles, &offer_empty(), "csrf", "", true, &draft,
-    );
+    let (hero, metadata, grid) =
+        grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true, &draft);
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
     assert!(hero.contains("/covers/91/card.webp"));
     assert!(!hero.contains("href=\"/layers/9\""));
