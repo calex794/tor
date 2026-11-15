@@ -17,10 +17,7 @@ pub struct PackageCoverVariantCleanup {
 }
 
 impl PackageCoverVariantCleanup {
-    pub fn new(
-        ledger: PgPackageCoverVariantRemovals,
-        storage: Arc<dyn CoverObjectStore>,
-    ) -> Self {
+    pub fn new(ledger: PgPackageCoverVariantRemovals, storage: Arc<dyn CoverObjectStore>) -> Self {
         Self { ledger, storage }
     }
 
@@ -29,7 +26,8 @@ impl PackageCoverVariantCleanup {
             .stage_eligible(12)
             .await
             .map_err(|_| CoverError::Unavailable)?;
-        let claims = self.ledger
+        let claims = self
+            .ledger
             .claim(3)
             .await
             .map_err(|_| CoverError::Unavailable)?;
@@ -42,17 +40,25 @@ impl PackageCoverVariantCleanup {
             // retired cover variant, checked again on claim, is used.
             let action = tokio::time::timeout(
                 Duration::from_secs(12),
-                self.storage.remove_private_staging_variant(&item.storage_key),
-            ).await;
+                self.storage
+                    .remove_private_staging_variant(&item.storage_key),
+            )
+            .await;
             if matches!(action, Ok(Ok(()))) {
-                if !self.ledger.removed(item.id, item.lease_epoch).await
+                if !self
+                    .ledger
+                    .removed(item.id, item.lease_epoch)
+                    .await
                     .map_err(|_| CoverError::Unavailable)?
                 {
                     return Err(CoverError::LostLease);
                 }
                 result.removed += 1;
             } else {
-                if !self.ledger.retry(item.id, item.lease_epoch).await
+                if !self
+                    .ledger
+                    .retry(item.id, item.lease_epoch)
+                    .await
                     .map_err(|_| CoverError::Unavailable)?
                 {
                     return Err(CoverError::LostLease);

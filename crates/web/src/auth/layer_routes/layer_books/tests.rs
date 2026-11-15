@@ -342,8 +342,7 @@ fn package_cover_is_uploaded_only_with_owner_storage_and_previews_stay_private()
     use tor_commerce::{
         domain::layers::OwnedLayerSummary,
         repositories::{
-            layer_composition::LayerBookTilePage,
-            layer_composition_drafts::LayerCompositionDraft,
+            layer_composition::LayerBookTilePage, layer_composition_drafts::LayerCompositionDraft,
         },
     };
     let layer = OwnedLayerSummary {

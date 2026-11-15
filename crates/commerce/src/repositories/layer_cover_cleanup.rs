@@ -21,7 +21,9 @@ impl PgPackageCoverVariantRemovals {
 
     pub async fn stage_eligible(&self, limit: i64) -> Result<u64, sqlx::Error> {
         if !(1..=20).contains(&limit) {
-            return Err(sqlx::Error::Protocol("invalid package cleanup batch".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid package cleanup batch".into(),
+            ));
         }
         // A crashed upload stops blocking a new upload after 30 minutes,
         // but its private data is not eligible for cleanup for seven more days.
@@ -62,7 +64,9 @@ impl PgPackageCoverVariantRemovals {
     /// Fenced lease: stale workers cannot finish/retry a newer claim.
     pub async fn claim(&self, limit: i64) -> Result<Vec<PackageCoverRemoval>, sqlx::Error> {
         if !(1..=3).contains(&limit) {
-            return Err(sqlx::Error::Protocol("invalid package cleanup lease count".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid package cleanup lease count".into(),
+            ));
         }
         let rows = sqlx::query(
             "WITH eligible AS (

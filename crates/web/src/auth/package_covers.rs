@@ -40,7 +40,10 @@ fn repository(state: &AuthState) -> PgLayerCovers {
 }
 
 async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
-    let token = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = state
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let digest = session_token_digest(&token);
     let actor = state
         .accounts
