@@ -30,7 +30,8 @@ class Perf02PoolEvidenceTests(unittest.TestCase):
                     "status=200 http_us=4000 queries=13 "
                     f"acquires=14 acquire_total_us={100 + n} acquire_max_us=60"
                 )
-            metric = {"values": {"med": 2.0, "p(95)": 3.0, "p(99)": 4.0}}
+            direct = {"med": 2.0, "p(95)": 3.0, "p(99)": 4.0}
+            metric = direct if rate != 50 else {"values": direct}
             (self.root / f"summary-{rate}.json").write_text(
                 json.dumps({"metrics": {
                     "perf02_book_guest_ms": metric,
@@ -53,6 +54,21 @@ class Perf02PoolEvidenceTests(unittest.TestCase):
             self.assertEqual(item["k6_latency"]["reader"]["p95_ms"], 3.0)
         self.assertNotIn("token", json.dumps(result))
         self.assertNotIn("trace_id", json.dumps(result))
+        for item in result["stages"]:
+            self.assertEqual(
+                item["by_observed_sqlx_query_count"]["13"]["samples"], 5
+            )
+
+    def test_mixed_query_counts_are_exposed_without_identity(self):
+        lines = (self.root / "server.log").read_text(encoding="utf-8")
+        (self.root / "server.log").write_text(
+            lines.replace("queries=13", "queries=4", 2), encoding="utf-8"
+        )
+        cohorts = evidence.summarize(self.root)["stages"][0][
+            "by_observed_sqlx_query_count"
+        ]
+        self.assertEqual(cohorts["4"]["samples"], 2)
+        self.assertEqual(cohorts["13"]["samples"], 3)
 
     def test_empty_successful_acquisitions_are_not_zero_wait(self):
         text = (self.root / "server.log").read_text(encoding="utf-8")
