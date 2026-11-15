@@ -154,4 +154,3 @@ fn d_05_current_layer_book_renders_version_bound_remove_form() {
     assert!(!html.contains("<img onerror="));
     assert!(html.contains("current_after=91"));
 }
-
