@@ -206,8 +206,17 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         ],
         next_after: None,
         hero_cover_id: Some(91),
+        after: None,
     };
-    let (hero, metadata, grid) = grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
+    let draft = tor_commerce::repositories::layer_drafts::LayerSelectionDraft {
+        base_version_id: 42,
+        revision: 1,
+        additions: vec![92],
+        removals: vec![91],
+    };
+    let (hero, metadata, grid) = grid::detail(
+        &layer, &tiles, &offer_empty(), "csrf", "", true, &draft,
+    );
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
     assert!(hero.contains("/covers/91/card.webp"));
     assert!(!hero.contains("href=\"/layers/9\""));
