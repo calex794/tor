@@ -367,6 +367,14 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("await require('./mail_browser_pg.cjs')", script)
         self.assertIn("await require('./support_browser_pg.cjs')", script)
 
+        mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
+        self.assertIn("CI_BROWSER_MAIL_PHASE_SECONDS scenario=", mail)
+        self.assertIn("await Promise.all([['desktop', 1440], ['mobile', 390]]", mail)
+        self.assertIn("for (let n = 0; n < 53; n++)", mail)
+        self.assertEqual(mail.count("reportMailPhase(name, '"), 16)
+        self.assertIn("reportMailPhase(name, 'group_transfer', checkpoint)", mail)
+        self.assertIn("reportMailPhase(name, 'context_cleanup', checkpoint)", mail)
+
     def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
         manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
