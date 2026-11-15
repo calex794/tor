@@ -898,9 +898,16 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         "operation=stage&expected_version_id={draft_version}&draft_revision=0&visible_csv={authors_book}&after=0&filter=all&nav=search&csrf_token={csrf}"
     );
     assert_eq!(
-        request(&app, "POST", &destination, &cookie, "https://evil.invalid", &stage_remove)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &destination,
+            &cookie,
+            "https://evil.invalid",
+            &stage_remove
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     let stage_one = request(&app, "POST", &destination, &cookie, ORIGIN, &stage_remove).await;
@@ -955,7 +962,10 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM commerce_layer_composition_drafts WHERE layer_id={id}")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM commerce_layer_composition_drafts WHERE layer_id={id}")
+        ),
         "0"
     );
     assert_eq!(
