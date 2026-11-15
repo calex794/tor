@@ -20,13 +20,13 @@ pub struct LayerBookTilePage {
     pub next_after: Option<i64>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LayerChangeBook {
     pub id: i64,
     pub title: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LayerChangePreview {
     pub version_id: i64,
     pub additions: Vec<LayerChangeBook>,
