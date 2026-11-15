@@ -174,6 +174,10 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
 
 pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
     let content = include_str!("../templates/author_new_book.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation("/me/books/new", csrf),
+        )
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
     layout("Создать книгу", "Новая книга в вашем кабинете.", &content)
@@ -203,6 +207,41 @@ pub fn create_conflict() -> Html<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_book_keeps_single_create_post_all_fields_and_account_navigation() {
+        let html = new_book("<csrf>", "<command>").0;
+        assert!(html.contains("class=\"account-sidebar\""));
+        assert!(html.contains("href=\"/me/books\" aria-current=\"location\""));
+        assert!(!html.contains("aria-current=\"page\""));
+        assert!(!html.contains("<!--ACCOUNT_NAVIGATION-->"));
+        assert!(html.contains("method=\"post\" action=\"/me/books\""));
+        assert_eq!(html.matches("method=\"post\" action=\"/me/books\"").count(), 1);
+        assert_eq!(html.matches("type=\"submit\"").count(), 1);
+        assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+        assert!(html.contains("name=\"command_key\" value=\"&lt;command&gt;\""));
+        assert!(html.contains("id=\"book-title-suggestions\""));
+        assert!(html.contains("src=\"/assets/book-title-suggestions.js\""));
+        assert!(html.contains("id=\"author-create-main\""));
+        assert!(html.contains("id=\"author-create-description\""));
+        assert!(html.contains("id=\"author-create-source\""));
+        assert!(html.contains("Дополнительные ссылки и названия"));
+        for name in [
+            "title", "target_language", "author_name", "catalog_section",
+            "description", "genres", "tags", "fandoms", "original_title",
+            "source_url", "original_language", "release_year", "project_status",
+            "extra_source_1", "extra_source_2",
+            "alt_title_1", "alt_title_2", "alt_title_3",
+        ] {
+            assert!(
+                html.contains(&format!("name=\"{name}\"")),
+                "missing new-book field: {name}"
+            );
+        }
+        assert!(html.contains("Новая книга")); 
+        assert!(html.contains("Черновик"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+    }
 
     #[test]
     fn author_index_preserves_hostile_titles_navigation_and_the_list_limit() {
