@@ -270,7 +270,6 @@ async function verify(browser, buyer, viewport) {
     // Capture only the synthetic discussion, never decrypted paid text.
     await comments.screenshot({
       path:path.join(shots, "s013-paid-spoilers-" + buyerLabel + ".png"),
-      mask:[comments.locator(".comment-spoiler__content")],
     });
     console.log("S013 paid spoilers Chromium PASS: " + buyerLabel);
 
