@@ -204,7 +204,7 @@ fn picker_html_with_query(
             .replace("<!--AVAILABLE_BOOKS-->", "")
             .replace(
                 "<!--OFFER_FORM-->",
-                &format!("<h2>Текущие условия</h2><p>{terms}</p>{hint}"),
+                &format!("<h2 id=\"layer-offer-heading\">Текущие условия</h2><p>{terms}</p>{hint}"),
             );
         return pages::private_account_layout(
             "Скрытый пакет книг",
