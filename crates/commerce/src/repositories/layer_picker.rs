@@ -46,6 +46,31 @@ impl PgLayers {
             .collect()
     }
 
+    /// Single owner-only package, independently of the 100-item index limit.
+    pub async fn owner_layer(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<OwnedLayerSummary, LayerError> {
+        let row = sqlx::query(
+            "SELECT id,title,description,status,metadata_revision FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?
+        .ok_or(LayerError::Inaccessible)?;
+        Ok(OwnedLayerSummary {
+            layer_id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
+            title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
+            description: row.try_get("description").map_err(|_| LayerError::Unavailable)?,
+            status: row.try_get("status").map_err(|_| LayerError::Unavailable)?,
+            metadata_revision: row.try_get("metadata_revision").map_err(|_| LayerError::Unavailable)?,
+        })
+    }
+
     /// Owner-private state; hidden packages are viewable, not saleable.
     pub async fn owner_layer_status(
         &self,
