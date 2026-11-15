@@ -322,9 +322,14 @@ jobs:
           monitor_pid=$!
           printf 'journeys_per_second\toutcome\n' > "$RUNNER_TEMP/tor-load/progress/results.tsv"
           # Baseline already accepted in PERF-252: 25/s for 60s, 120 purchases.
-          k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary-25.json" \
+          k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
             tests/load/tor_authenticated_progress.js |
-            tee "$RUNNER_TEMP/tor-load/progress/k6-25.log"
+            tee "$RUNNER_TEMP/tor-load/progress/k6.log"
+          # Keep PERF-01's existing supplemental evidence paths intact.
+          cp "$RUNNER_TEMP/tor-load/progress/summary.json" \
+            "$RUNNER_TEMP/tor-load/progress/summary-25.json"
+          cp "$RUNNER_TEMP/tor-load/progress/k6.log" \
+            "$RUNNER_TEMP/tor-load/progress/k6-25.log"
           printf '25\tPASS\n' >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
           # PERF-02h: extra capacity probes share the *same* disposable PG18
           # and reuse real registered readers. Each rate owns a disjoint set
