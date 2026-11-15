@@ -188,13 +188,7 @@ impl LayerService {
         draft: &LayerCompositionDraft,
     ) -> Result<LayerBookTilePage, LayerError> {
         self.repository
-            .composition_tiles_filtered(
-                actor,
-                layer,
-                query,
-                &draft.additions,
-                &draft.removals,
-            )
+            .composition_tiles_filtered(actor, layer, query, &draft.additions, &draft.removals)
             .await
     }
 
