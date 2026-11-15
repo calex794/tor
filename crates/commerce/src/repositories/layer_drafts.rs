@@ -64,7 +64,7 @@ impl PgLayers {
         // Preserve a stale draft for explicit user review/discard. Never
         // silently rebase pending changes onto another immutable version.
         Ok(LayerSelectionDraft {
-            base_version_id: current,
+            base_version_id: stored.unwrap_or(current),
             revision: row
                 .try_get::<Option<i64>, _>("revision")
                 .map_err(|_| LayerError::Unavailable)?
@@ -236,8 +236,8 @@ impl PgLayers {
             .begin()
             .await
             .map_err(|_| LayerError::Unavailable)?;
-        let current: i64 = sqlx::query_scalar(
-            "SELECT current_version_id FROM commerce_layers
+        let _locked: i64 = sqlx::query_scalar(
+            "SELECT id FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden') FOR UPDATE",
         )
         .bind(layer.get())
@@ -248,7 +248,6 @@ impl PgLayers {
         .ok_or(LayerError::Inaccessible)?;
         // A stale draft may be discarded explicitly. Compare the stored
         // draft's own original version/revision, not the new live version.
-        let _current = current;
         let deleted = sqlx::query(
             "DELETE FROM commerce_layer_selection_drafts
              WHERE layer_id=$1 AND owner_user_id=$2
@@ -256,7 +255,7 @@ impl PgLayers {
         )
         .bind(layer.get())
         .bind(actor.get())
-        .bind(current)
+        .bind(base_version.get())
         .bind(expected_revision)
         .execute(&mut *tx)
         .await
