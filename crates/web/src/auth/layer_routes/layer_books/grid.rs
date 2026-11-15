@@ -80,7 +80,7 @@ pub(super) fn detail(
             pages::escape_html(&layer.description)
         },
     );
-    let metadata = if layer.status == "blocked" {
+    let mut metadata = if layer.status == "blocked" {
         "<p>Пакет заблокирован; оформление не редактируется.</p>".to_owned()
     } else {
         let active = if layer.status == "active" {
@@ -126,6 +126,44 @@ pub(super) fn detail(
         )
     };
 
+    // All options come from approved public covers in the current version.
+    let mut cover_options = String::new();
+    for option in &books.cover_options {
+        let selected = if books.hero_cover_id == Some(option.id) {
+            " selected"
+        } else {
+            ""
+        };
+        write!(
+            cover_options,
+            r#"<option value="{}"{selected}>{}</option>"#,
+            option.id,
+            pages::escape_html(&option.title),
+        )
+        .expect("write approved cover option");
+    }
+    if layer.status != "blocked" && !cover_options.is_empty() {
+        write!(
+            metadata,
+            r#"<section class="package-cover-choice" aria-labelledby="package-cover-title">
+                <h3 id="package-cover-title">Обложка пакета</h3>
+                <p>Выберите обложку среди уже одобренных обложек книг этого пакета.
+                Это отдельная настройка оформления, она не меняет оплату или состав книг.
+                Загрузка собственного файла пока не реализована.</p>
+                <form method="post" action="/me/layers/{}/cover" class="author-layer-card__form">
+                  <label for="package-cover-book">Использовать обложку книги</label>
+                  <select id="package-cover-book" name="cover_book_id">{cover_options}</select>
+                  <input type="hidden" name="expected_revision" value="{}">
+                  <input type="hidden" name="csrf_token" value="{}">
+                  <button class="ui-button ui-button--primary" type="submit">Выбрать обложку пакета</button>
+                </form>
+              </section>"#,
+            layer.layer_id,
+            layer.metadata_revision,
+            pages::escape_html(csrf),
+        )
+        .expect("write package cover form");
+    }
     if draft.base_version_id != offer.current_version_id {
         let recovery = format!(
             r#"<section class="package-section__stale" role="alert">
