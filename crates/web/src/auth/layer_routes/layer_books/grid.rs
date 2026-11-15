@@ -136,6 +136,7 @@ pub(super) fn detail(
             included.push(book.id.to_string());
         }
         let checked = if book.included { " checked" } else { "" };
+        let included_class = if book.included { " is-included" } else { "" };
         let marker = if book.included {
             "В пакете"
         } else {
@@ -143,7 +144,7 @@ pub(super) fn detail(
         };
         write!(
             tiles,
-            r#"<label class="package-tile">
+            r#"<label class="package-tile{included_class}">
                 <input class="package-tile__checkbox" type="checkbox"
                        name="chosen_{id}" value="1"{checked}>
                 <span class="package-tile__cover">{cover}</span>
@@ -190,6 +191,7 @@ pub(super) fn detail(
              <div class="package-grid">{tiles}</div>
              <div class="package-grid__actions">
                <button class="ui-button ui-button--primary" type="submit">Проверить изменения</button>
+               <span class="package-grid__live">Добавить: <strong class="package-grid__added"></strong> · Убрать: <strong class="package-grid__removed"></strong></span>
                <span>Сначала появится список добавленных и удалённых книг. До окончательного подтверждения состав не изменится.</span>
              </div>
            </form>
