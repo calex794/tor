@@ -218,13 +218,15 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         &layer,
         &tiles,
         &offer_empty(),
-        "csrf",
-        "",
-        "all",
-        None,
-        &[],
-        &draft,
-        true,
+        grid::GridOptions {
+            csrf: "csrf",
+            query: "",
+            filter: "all",
+            after: None,
+            history: &[],
+            draft: &draft,
+            editable: true,
+        },
     );
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
     assert!(hero.contains("/covers/91/card.webp"));
@@ -311,13 +313,15 @@ fn package_grid_keeps_saved_draft_across_filter_navigation() {
         &layer,
         &tiles,
         &offer_empty(),
-        "csrf",
-        "Chapter",
-        "included",
-        Some(99),
-        &[0, 50],
-        &draft,
-        true,
+        grid::GridOptions {
+            csrf: "csrf",
+            query: "Chapter",
+            filter: "included",
+            after: Some(99),
+            history: &[0, 50],
+            draft: &draft,
+            editable: true,
+        },
     );
     assert!(grid.contains("name=\"draft_revision\" value=\"4\""));
     assert!(grid.contains("name=\"after\" value=\"99\""));
