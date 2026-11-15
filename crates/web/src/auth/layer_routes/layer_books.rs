@@ -432,19 +432,18 @@ pub(super) async fn page(
         Err(error) => return deny(status(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let (hero, settings, grid_markup) =
-        grid::detail(
-            &metadata,
-            &tiles,
-            &offer,
-            &csrf,
-            search,
-            filter,
-            after.map(PositiveId::get),
-            &history,
-            &draft,
-            editable,
-        );
+    let (hero, settings, grid_markup) = grid::detail(
+        &metadata,
+        &tiles,
+        &offer,
+        &csrf,
+        search,
+        filter,
+        after.map(PositiveId::get),
+        &history,
+        &draft,
+        editable,
+    );
     let mut html = picker_html_with_query(
         layer.get(),
         &candidates,
@@ -487,9 +486,7 @@ pub(super) async fn add(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
-    if let Some(response) =
-        draft::handle(&service, actor, layer, raw_layer, &form).await
-    {
+    if let Some(response) = draft::handle(&service, actor, layer, raw_layer, &form).await {
         return response;
     }
     if form.operation.as_deref() == Some("preview") {
