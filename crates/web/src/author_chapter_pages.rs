@@ -343,10 +343,7 @@ fn edit_chapter_mode(
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
-        .replace(
-            "<!--ACCOUNT_NAVIGATION-->",
-            &navigation,
-        );
+        .replace("<!--ACCOUNT_NAVIGATION-->", &navigation);
     layout("Редактировать главу", "Закрытый редактор черновика.", &html)
 }
 
