@@ -64,14 +64,15 @@ async fn package_alternative(state: &AuthState, chapter_id: i64, actor: i64) -> 
     if !state.layer_checkout_enabled {
         return None;
     }
-    let (book_id, link) = tor_commerce::repositories::layer_storefront::exclusive_package_for_chapter(
-        state.accounts.pool(),
-        chapter_id,
-        Some(actor),
-    )
-    .await
-    .ok()
-    .flatten()?;
+    let (book_id, link) =
+        tor_commerce::repositories::layer_storefront::exclusive_package_for_chapter(
+            state.accounts.pool(),
+            chapter_id,
+            Some(actor),
+        )
+        .await
+        .ok()
+        .flatten()?;
     Some(noindex(private_response(
         pages::package_only_notice(
             book_id,
