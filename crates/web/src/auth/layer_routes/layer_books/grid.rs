@@ -28,12 +28,8 @@ pub(super) fn detail(
     editable: bool,
 ) -> (String, String, String) {
     let title = pages::escape_html(&layer.title);
-    let hero_cover = books
-        .books
-        .iter()
-        .find(|book| book.included && book.has_cover)
-        .or_else(|| books.books.iter().find(|book| book.included))
-        .map(|book| cover(book.id, &book.title, book.has_cover))
+    let hero_cover = books.hero_cover_id
+        .map(|id| cover(id, "", true))
         .unwrap_or_else(|| {
             r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
         });
@@ -54,6 +50,14 @@ pub(super) fn detail(
         "hidden" => "Скрыт",
         _ => "Заблокирован",
     };
+    let reader_link = if layer.status == "active" && offer.current_offer_id.is_some() {
+        format!(
+            r#"<a class="text-link" href="/layers/{}">Посмотреть страницу для читателей</a>"#,
+            layer.layer_id,
+        )
+    } else {
+        "<span class=\"package-hero__note\">Страница для читателей появится после публикации предложения.</span>".to_owned()
+    };
     let hero = format!(
         r#"<section class="package-hero" aria-labelledby="package-title">
             <div class="package-hero__cover">{hero_cover}</div>
@@ -63,7 +67,7 @@ pub(super) fn detail(
               <p>{description}</p>
               <strong>{tariff}</strong>
               <p class="package-hero__note">Показана обложка одной из книг пакета. Персональная обложка пакета пока не загружается.</p>
-              <a class="text-link" href="/layers/{id}">Посмотреть страницу для читателей</a>
+              {reader_link}
             </div>
            </section>"#,
         id = layer.layer_id,
