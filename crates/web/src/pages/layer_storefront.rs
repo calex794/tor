@@ -300,6 +300,11 @@ mod tests {
         assert!(guest.contains("Войти и приобрести доступ"));
         assert_eq!(guest.matches("class=\"layer-offer__box").count(), 1);
         assert!(!guest.contains("csrf_token"));
+        let without_cover = offer_page(&offer, None, None, None, false, false).0;
+        assert!(!without_cover.contains("/layers/8/cover/main.webp"));
+        offer.has_package_cover = true;
+        let approved_cover = offer_page(&offer, None, None, None, false, false).0;
+        assert!(approved_cover.contains("/layers/8/cover/main.webp"));
         let disabled_guest = offer_page(&offer, None, None, None, false, false).0;
         assert!(disabled_guest.contains("Покупка временно отключена"));
         assert!(!disabled_guest.contains("Войти и приобрести доступ"));

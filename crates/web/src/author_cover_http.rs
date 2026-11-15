@@ -39,6 +39,7 @@ struct CoverUploadState {
     storage: Arc<dyn CoverObjectStore>,
     cookies: CookiePolicy,
     pending: Arc<Semaphore>,
+    package_processing: Arc<Semaphore>,
 }
 
 pub(crate) fn router(
@@ -55,6 +56,8 @@ pub(crate) fn router(
         storage,
         cookies,
         pending: Arc::new(Semaphore::new(2)),
+        // A timed-out blocking image decode still holds this second permit.
+        package_processing: Arc::new(Semaphore::new(2)),
     };
     Router::new()
         .route("/me/books/{id}/cover", post(upload_cover))

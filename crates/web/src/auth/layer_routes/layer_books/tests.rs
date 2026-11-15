@@ -336,3 +336,72 @@ fn package_grid_keeps_saved_draft_across_filter_navigation() {
     assert!(grid.contains("Будет добавлена"));
     assert!(grid.contains("name=\"chosen_121\" value=\"1\" checked"));
 }
+
+#[test]
+fn package_cover_is_uploaded_only_with_owner_storage_and_previews_stay_private() {
+    use tor_commerce::{
+        domain::layers::OwnedLayerSummary,
+        repositories::{
+            layer_composition::LayerBookTilePage,
+            layer_composition_drafts::LayerCompositionDraft,
+        },
+    };
+    let layer = OwnedLayerSummary {
+        layer_id: 5,
+        title: "Pack".into(),
+        description: String::new(),
+        status: "active".into(),
+        metadata_revision: 1,
+    };
+    let tiles = LayerBookTilePage {
+        books: vec![],
+        next_after: None,
+        hero_cover_id: None,
+    };
+    let draft = LayerCompositionDraft {
+        version_id: 9,
+        revision: 0,
+        additions: vec![],
+        removals: vec![],
+    };
+    let render = |cover| {
+        grid::detail(
+            &layer,
+            &tiles,
+            &offer_empty(),
+            grid::GridOptions {
+                csrf: "csrf",
+                query: "",
+                filter: "all",
+                after: None,
+                history: &[],
+                draft: &draft,
+                editable: true,
+                cover,
+            },
+        )
+        .0
+    };
+    let without_store = render(grid::GridCoverState::default());
+    assert!(without_store.contains("Загрузка отдельной обложки недоступна"));
+    assert!(!without_store.contains("enctype=\"multipart/form-data\""));
+    let ready = render(grid::GridCoverState {
+        upload_enabled: true,
+        ..grid::GridCoverState::default()
+    });
+    assert!(ready.contains("action=\"/me/layers/5/cover\""));
+    assert!(ready.contains("name=\"csrf_token\" value=\"csrf\""));
+    let pending = render(grid::GridCoverState {
+        pending: true,
+        upload_enabled: true,
+        ..grid::GridCoverState::default()
+    });
+    assert!(pending.contains("/me/layers/5/cover/preview"));
+    assert!(!pending.contains("enctype=\"multipart/form-data\""));
+    let published = render(grid::GridCoverState {
+        approved: true,
+        upload_enabled: true,
+        ..grid::GridCoverState::default()
+    });
+    assert!(published.contains("/me/layers/5/cover/approved"));
+}

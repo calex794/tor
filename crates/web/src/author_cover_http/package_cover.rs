@@ -42,7 +42,10 @@ pub(super) async fn upload(
         Ok(false) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let Ok(permit) = state.pending.clone().try_acquire_owned() else {
+    let Ok(_upload_permit) = state.pending.clone().try_acquire_owned() else {
+        return deny(StatusCode::TOO_MANY_REQUESTS);
+    };
+    let Ok(processing_permit) = state.package_processing.clone().try_acquire_owned() else {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
     let mut csrf = false;
@@ -98,7 +101,7 @@ pub(super) async fn upload(
         tokio::task::spawn_blocking(move || {
             // A timeout must not release the concurrency permit while
             // CPU-bound decoding continues on the blocking thread.
-            let _permit = permit;
+            let _processing_permit = processing_permit;
             process_cover(&bytes, kind)
         }),
     )
