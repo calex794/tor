@@ -70,6 +70,59 @@ async function inspectBookIndex(page, viewport, width, height, count) {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
+async function inspectBookCreate(page, viewport, width, height) {
+  assert(await page.locator('.account-sidebar').count() === 1,
+    'create-book page must use the shared account navigation');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
+    'create-book page must not mark the book list as current page');
+  assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
+    'create-book page must identify the parent author section');
+  const form = page.locator('form.author-create-form');
+  assert(await form.count() === 1 && await form.getAttribute('action') === '/me/books',
+    'create-book form must retain its original POST route');
+  assert(await form.locator('button[type="submit"]').count() === 1,
+    'create-book page must retain one explicit submission');
+  assert(await form.locator('input[name="csrf_token"]').count() === 1 &&
+    await form.locator('input[name="command_key"]').count() === 1,
+    'create-book page lost its CSRF or replay token');
+  const sections = ['author-create-main', 'author-create-description', 'author-create-source'];
+  const positions = await Promise.all(sections.map(async id => {
+    const heading = page.locator('#' + id);
+    assert(await heading.isVisible(), 'create-book section missing: ' + id);
+    return (await heading.boundingBox()).y;
+  }));
+  assert(positions[0] < positions[1] && positions[1] < positions[2],
+    'create-book fields are no longer grouped in an intuitive order');
+  assert(await page.getByLabel('Название книги').count() === 1,
+    'create-book title label missing');
+  assert(await page.getByLabel('Язык', { exact: true }).inputValue() === 'ru',
+    'create-book language must still default to ru');
+  assert(await page.locator('#book-title-suggestions').count() === 1,
+    'existing duplicate-title suggestions lost their mount point');
+  const widths = viewport === 'desktop' ? [1440, 768, 390] : [390];
+  for (const size of widths) {
+    await page.setViewportSize({width:size, height:844});
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({colorScheme});
+      await inspect(page, viewport + '-' + size + '-' + colorScheme, 'book-create');
+    }
+  }
+  const extras = page.locator('.author-create-extras');
+  const summary = extras.locator('summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  assert(await extras.evaluate(el => el.open),
+    'optional sources must be keyboard-expandable');
+  assert(await page.getByLabel('Второе альтернативное название').isVisible(),
+    'existing optional names must remain available');
+  await page.keyboard.press('Enter');
+  assert(!await extras.evaluate(el => el.open),
+    'optional fields must be keyboard-collapsible');
+  await page.setViewportSize({width, height});
+  await page.emulateMedia({colorScheme:'light'});
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
 async function inspectBookWorkspace(page, viewport, width, height, state, count) {
   assert(await page.locator('.account-sidebar').count() === 1, 'book workspace navigation missing');
   assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
@@ -120,6 +173,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       await inspectBookIndex(page, viewport, width, height, 0);
       await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
+      await inspectBookCreate(page, viewport, width, height);
       await page.getByLabel('Название книги').fill('Новая книга ' + viewport);
       await page.getByLabel('Язык', { exact: true }).fill('ru');
       await page.getByRole('button', { name: 'Создать книгу' }).click();
