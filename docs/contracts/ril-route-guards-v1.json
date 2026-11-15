@@ -1704,6 +1704,13 @@
       "policy": "owner"
     },
     {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/cover",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "select_cover",
+      "policy": "owner"
+    },
+    {
       "method": "GET",
       "template": "/layers/{layer_id}",
       "source": "crates/web/src/auth/layer_storefront.rs",
