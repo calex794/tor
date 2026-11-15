@@ -11,7 +11,7 @@ CREATE TABLE commerce_layer_composition_drafts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     FOREIGN KEY (layer_id, expected_version_id)
         REFERENCES commerce_layer_versions(layer_id,id) ON DELETE RESTRICT,
-    CHECK (cardinality(additions) + cardinality(removals) <= 100)
+    CHECK (cardinality(additions) + cardinality(removals) <= 200)
 );
 CREATE INDEX commerce_layer_composition_drafts_by_owner
     ON commerce_layer_composition_drafts(owner_user_id,updated_at);
