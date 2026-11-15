@@ -961,6 +961,18 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
             .status(),
         StatusCode::SEE_OTHER,
     );
+    let saved_page = request(
+        &app,
+        "GET",
+        &format!("{destination}?updated=1"),
+        &cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(saved_page.status(), StatusCode::OK);
+    let saved_html = body(saved_page).await;
+    assert!(saved_html.contains("Изменения пакета сохранены"));
     assert_eq!(
         pg(
             &url,
