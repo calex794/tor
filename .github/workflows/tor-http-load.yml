@@ -171,6 +171,90 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
+      - name: PERF-02f concurrent guest and authenticated Book GET (pool=3)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3089
+          TOR_AUTH_ENABLED: '1'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          [[ "$DATABASE_URL" == */tor_ci && "$PGHOST" == 127.0.0.1 ]] ||
+            { echo "PERF-02 refuses non-disposable PostgreSQL"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/tor-load/perf02-book"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/perf02-book/server.log" 2>&1 &
+          server_pid=$!
+          monitors=()
+          cleanup() {
+            for pid in "${monitors[@]}"; do kill "$pid" 2>/dev/null || true; done
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          [[ "$ready" == 1 ]] || { tail -n 80 "$RUNNER_TEMP/tor-load/perf02-book/server.log"; exit 1; }
+          pidstat -h -u -r -d -C 'tor-web|k6|postgres' 1 \
+            > "$RUNNER_TEMP/tor-load/perf02-book/pidstat.txt" 2>&1 &
+          monitors+=("$!")
+          (
+            while kill -0 "$server_pid" 2>/dev/null; do
+              printf '%s\t' "$(date -u +%FT%TZ)"
+              psql -X -A -t -q -c "
+                SELECT coalesce(state,'unknown') || '/' ||
+                       coalesce(wait_event_type,'cpu-or-none') || '/' ||
+                       coalesce(wait_event,'none') || ':' || count(*)
+                  FROM pg_stat_activity
+                 WHERE datname='tor_ci' AND usename='tor_app'
+                 GROUP BY state,wait_event_type,wait_event
+                 ORDER BY state,wait_event_type,wait_event
+              " | tr '\n' ';'
+              printf '\n'
+              sleep 2
+            done
+          ) > "$RUNNER_TEMP/tor-load/perf02-book/pg-activity.tsv" 2>&1 &
+          monitors+=("$!")
+          printf 'target_rps\toutcome\n' > "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+          baseline_failed=0
+          for rate in 20 50 100 200; do
+            echo "::group::PERF-02f Book guest+reader target $rate req/s"
+            printf '%s\t%s\tstart\n' "$(date -u +%FT%TZ)" "$rate" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
+            if PERF02_BOOK_RPS="$rate" k6 run \
+              --summary-export "$RUNNER_TEMP/tor-load/perf02-book/summary-$rate.json" \
+              tests/load/perf02_book_detail.js 2>&1 \
+                | tee "$RUNNER_TEMP/tor-load/perf02-book/k6-$rate.log"; then
+              outcome=PASS
+            else
+              outcome=FAIL
+              if (( rate == 20 )); then baseline_failed=1; fi
+            fi
+            printf '%s\t%s\tfinish\n' "$(date -u +%FT%TZ)" "$rate" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
+            printf '%s\t%s\n' "$rate" "$outcome" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+            echo "::endgroup::"
+          done
+          {
+            echo '## PERF-02f: concurrent real Book detail'
+            echo 'Same release binary and PG18 fixture, one pool with max 3 connections.'
+            echo '| Total target GET/s (50% live session) | k6 result |'
+            echo '|---:|---|'
+            awk -F '\t' 'NR>1 {printf "| %s | %s |\n", $1, $2}' \
+              "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+            echo
+            echo 'The paired guest/reader latency distributions and p50/p95/p99,'
+            echo 'process CPU, and PostgreSQL activity are preserved in the artifact.'
+            echo 'pg_stat_activity wait samples are NOT client SQLx pool-acquire waits.'
+            echo 'Higher-rate failures are capacity observations; only 20 req/s gates CI.'
+            echo 'No VPS, production database, personal account or paid mutation.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if (( baseline_failed != 0 )); then exit 1; fi
       - name: Measure multi-page reader journeys (isolated smoke)
         if: ${{ github.event_name == 'pull_request' }}
         env:
