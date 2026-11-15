@@ -128,17 +128,6 @@ fn offer_form_html(layer: i64, offer: &LayerOwnerOfferState, csrf: &str) -> Stri
     )
 }
 
-#[cfg(test)]
-fn picker_html(
-    layer: i64,
-    page: &LayerBookCandidatePage,
-    current: &LayerCurrentBookPage,
-    offer: &LayerOwnerOfferState,
-    csrf: &str,
-) -> axum::response::Html<String> {
-    picker_html_with_query(layer, page, current, offer, csrf, "", true)
-}
-
 fn encoded_search_suffix(query: &str) -> String {
     if query.is_empty() {
         return String::new();
@@ -448,6 +437,17 @@ pub(super) async fn add(
         Ok(_) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
         Err(error) => deny(status(error)),
     }
+}
+
+#[cfg(test)]
+fn picker_html(
+    layer: i64,
+    page: &LayerBookCandidatePage,
+    current: &LayerCurrentBookPage,
+    offer: &LayerOwnerOfferState,
+    csrf: &str,
+) -> axum::response::Html<String> {
+    picker_html_with_query(layer, page, current, offer, csrf, "", true)
 }
 
 #[cfg(test)]
