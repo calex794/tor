@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn d05_offer_uses_real_newboo_components_and_escapes_untrusted_titles() {
-        let offer = LayerStorefront {
+        let mut offer = LayerStorefront {
             id: 8,
             title: "<script>alert('bad')</script>".into(),
             owner_id: 10,

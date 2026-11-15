@@ -4,7 +4,7 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, State},
     http::{header, HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -166,7 +166,7 @@ async fn owner_preview(
         Err(error) => return deny(error),
     };
     let unchanged = repo
-        .owner_view(owner, layer)
+        .owner_view(actor, layer)
         .await
         .ok()
         .and_then(|(approved, pending)| match mode.as_str() {
