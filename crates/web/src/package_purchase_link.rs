@@ -1,6 +1,9 @@
 //! Read-only public Book purchase alternative; no money paths.
 use super::{pages, AppState};
-use axum::{http::{HeaderMap, StatusCode}, response::Html};
+use axum::{
+    http::{HeaderMap, StatusCode},
+    response::Html,
+};
 
 pub(super) async fn attach(
     state: &AppState,
@@ -17,15 +20,25 @@ pub(super) async fn attach(
         None => None,
     };
     let package = tor_commerce::repositories::layer_storefront::exclusive_package_link(
-        catalog.pool(), book_id, None, viewer,
+        catalog.pool(),
+        book_id,
+        None,
+        viewer,
     )
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let Some(package) = package else { return Ok(html) };
+    let Some(package) = package else {
+        return Ok(html);
+    };
     let label = pages::escape_html(&package.title);
     let explanation = package.until_utc.as_ref().map_or_else(
         || "Новые платные главы продаются только через пакет.".to_owned(),
-        |date| format!("Новые платные главы доступны через пакет до {} UTC.", pages::escape_html(date)),
+        |date| {
+            format!(
+                "Новые платные главы доступны через пакет до {} UTC.",
+                pages::escape_html(date)
+            )
+        },
     );
     Ok(Html(
         html.0.replace(
