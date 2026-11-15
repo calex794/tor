@@ -513,6 +513,59 @@ mod tests {
     }
 
     #[test]
+    fn package_search_is_escaped_and_keeps_utf8_query_in_navigation() {
+        let page = LayerBookCandidatePage {
+            books: vec![LayerBookCandidate {
+                book_id: 91,
+                title: "Книга".into(),
+            }],
+            next_after: Some(91),
+        };
+        let html = picker_html_with_query(
+            9,
+            &page,
+            &current_empty(),
+            &offer_empty(),
+            "csrf",
+            "Книга & <script>",
+            true,
+        )
+        .0;
+        assert!(html.contains("value=\"Книга &amp; &lt;script&gt;\""));
+        assert!(html.contains("q=%D0%9A%D0%BD%D0%B8%D0%B3%D0%B0"));
+        assert!(!html.contains("value=\"Книга & <script>\""));
+    }
+
+    #[test]
+    fn hidden_package_is_read_only_even_with_current_books_and_offer() {
+        let current = LayerCurrentBookPage {
+            current_version_id: 42,
+            books: vec![LayerBookCandidate {
+                book_id: 91,
+                title: "Закрытая книга".into(),
+            }],
+            next_after: None,
+        };
+        let html = picker_html_with_query(
+            9,
+            &LayerBookCandidatePage {
+                books: vec![],
+                next_after: None,
+            },
+            &current,
+            &offer_empty(),
+            "csrf",
+            "",
+            false,
+        )
+        .0;
+        assert!(html.contains("Закрытая книга"));
+        assert!(html.contains("Пакет скрыт от новых покупок"));
+        assert!(!html.contains("method=\"post\""));
+        assert!(!html.contains("name=\"price_rub\""));
+    }
+
+    #[test]
     fn d_05_current_layer_book_renders_version_bound_remove_form() {
         let page = LayerCurrentBookPage {
             current_version_id: 42,
