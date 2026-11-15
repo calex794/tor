@@ -442,6 +442,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/layers/{layer_id}/sales"), "GET") => Some(427),
         (Some("/me/layers/{layer_id}/sales"), "POST") => Some(428),
         (Some("/admin/finance/payouts/{id}/post"), "POST") => Some(429),
+        (Some("/me/layers/{layer_id}/cover-choice"), "POST") => Some(430),
         _ => None,
     };
     index

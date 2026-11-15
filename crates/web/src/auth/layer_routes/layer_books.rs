@@ -418,6 +418,10 @@ pub(super) async fn page(
         Ok(value) => value,
         Err(error) => return deny(status(error)),
     };
+    let selected_book_id = match service.selected_package_cover(actor, layer).await {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let (hero, settings, grid_markup) = grid::detail(
         &metadata,
@@ -435,6 +439,7 @@ pub(super) async fn page(
                 approved: approved.is_some(),
                 pending: pending.is_some(),
                 upload_enabled: state.cover_upload_enabled,
+                selected_book_id,
             },
         },
     );
@@ -445,6 +450,10 @@ pub(super) async fn page(
     } else if query.cover.as_deref() == Some("queued") {
         format!(
             r#"<p class="ui-alert" role="status">Обложка загружена и отправлена на модерацию.</p>{grid_markup}"#
+        )
+    } else if query.cover.as_deref() == Some("selected") {
+        format!(
+            r#"<p class="ui-alert ui-alert--success" role="status">Источник обложки пакета обновлён.</p>{grid_markup}"#
         )
     } else {
         grid_markup
