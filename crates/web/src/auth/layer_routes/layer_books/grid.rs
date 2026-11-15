@@ -28,7 +28,8 @@ pub(super) fn detail(
     editable: bool,
 ) -> (String, String, String) {
     let title = pages::escape_html(&layer.title);
-    let hero_cover = books.hero_cover_id
+    let hero_cover = books
+        .hero_cover_id
         .map(|id| cover(id, "", true))
         .unwrap_or_else(|| {
             r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
