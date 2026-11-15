@@ -4,7 +4,7 @@ use crate::{
         LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
         LayerError, LayerOfferQuote, LayerOwnerOfferState, LayerReceipt, OwnedLayerSummary,
     },
-    repositories::layers::PgLayers,
+    repositories::{layer_composition::{LayerBookTilePage, LayerChangePreview}, layers::PgLayers},
 };
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -145,6 +145,50 @@ impl LayerService {
         layer: PositiveId,
     ) -> Result<LayerOwnerOfferState, LayerError> {
         self.repository.owner_offer_state(actor, layer).await
+    }
+
+    pub async fn composition_tiles(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        search: &str,
+        limit: u16,
+    ) -> Result<LayerBookTilePage, LayerError> {
+        self.repository
+            .composition_tiles(actor, layer, after, search, limit)
+            .await
+    }
+
+    pub async fn preview_composition(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        additions: &[i64],
+        removals: &[i64],
+    ) -> Result<LayerChangePreview, LayerError> {
+        self.repository
+            .preview_composition(actor, layer, version, additions, removals)
+            .await
+    }
+
+    pub async fn apply_composition(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        version: PositiveId,
+        additions: &[i64],
+        removals: &[i64],
+        expected_active_buyers: i64,
+        expected_lifetime_buyers: i64,
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .apply_composition(
+                actor, layer, version, additions, removals,
+                expected_active_buyers, expected_lifetime_buyers,
+            )
+            .await
     }
 
     /// A browser change checks the original offer and composition under lock.
