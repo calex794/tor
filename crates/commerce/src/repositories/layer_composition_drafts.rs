@@ -264,6 +264,38 @@ impl PgLayers {
         Ok(())
     }
 
+    /// Reset only a draft based on an obsolete composition version.
+    /// A late stale-page request cannot destroy a newer valid draft.
+    pub async fn discard_stale_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<(), LayerError> {
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        let current: i64 = sqlx::query_scalar(
+            "SELECT current_version_id FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden') FOR UPDATE",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database_error)?
+        .ok_or(LayerError::Inaccessible)?;
+        sqlx::query(
+            "DELETE FROM commerce_layer_composition_drafts
+             WHERE layer_id=$1 AND owner_user_id=$2 AND expected_version_id<>$3",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .bind(current)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(())
+    }
+
     /// Apply exactly the reviewed draft in the same transaction that deletes it.
     /// Lock order: layer, draft, book rows. Both version and draft revision are CAS.
     pub async fn apply_composition_draft(
