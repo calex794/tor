@@ -260,6 +260,19 @@ class WorkflowWiringTests(unittest.TestCase):
                     if "sudo apt-get update" in body:
                         self.assertLess(prepare, body.index("sudo apt-get update"))
 
+    def test_reader_readonly_viewports_parallel_signed_mutations_serial(self):
+        smoke = (ROOT / "tools/reader_visual_smoke.cjs").read_text()
+        parallel = "await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map(async"
+        serial = "for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]])"
+        self.assertEqual(smoke.count(parallel), 2)
+        self.assertEqual(smoke.count(serial), 1)
+        self.assertLess(smoke.index("phase=guest"), smoke.index("phase=dark"))
+        self.assertLess(smoke.index("phase=dark"), smoke.index(serial))
+        self.assertIn("visual.' + name + '@example.test'", smoke)
+        self.assertIn("chapterComments.locator('.comment-reply').first()", smoke)
+        self.assertIn("await require('./mail_browser_pg.cjs')", smoke)
+        self.assertIn("await require('./support_browser_pg.cjs')", smoke)
+
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
         mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
         self.assertIn("Promise.all([['desktop', 1440], ['mobile', 390]].map(async", mail)
