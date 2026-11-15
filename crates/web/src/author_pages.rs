@@ -216,7 +216,10 @@ mod tests {
         assert!(!html.contains("aria-current=\"page\""));
         assert!(!html.contains("<!--ACCOUNT_NAVIGATION-->"));
         assert!(html.contains("method=\"post\" action=\"/me/books\""));
-        assert_eq!(html.matches("method=\"post\" action=\"/me/books\"").count(), 1);
+        assert_eq!(
+            html.matches("method=\"post\" action=\"/me/books\"").count(),
+            1
+        );
         assert_eq!(html.matches("type=\"submit\"").count(), 1);
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
         assert!(html.contains("name=\"command_key\" value=\"&lt;command&gt;\""));
@@ -227,18 +230,31 @@ mod tests {
         assert!(html.contains("id=\"author-create-source\""));
         assert!(html.contains("Дополнительные ссылки и названия"));
         for name in [
-            "title", "target_language", "author_name", "catalog_section",
-            "description", "genres", "tags", "fandoms", "original_title",
-            "source_url", "original_language", "release_year", "project_status",
-            "extra_source_1", "extra_source_2",
-            "alt_title_1", "alt_title_2", "alt_title_3",
+            "title",
+            "target_language",
+            "author_name",
+            "catalog_section",
+            "description",
+            "genres",
+            "tags",
+            "fandoms",
+            "original_title",
+            "source_url",
+            "original_language",
+            "release_year",
+            "project_status",
+            "extra_source_1",
+            "extra_source_2",
+            "alt_title_1",
+            "alt_title_2",
+            "alt_title_3",
         ] {
             assert!(
                 html.contains(&format!("name=\"{name}\"")),
                 "missing new-book field: {name}"
             );
         }
-        assert!(html.contains("Новая книга")); 
+        assert!(html.contains("Новая книга"));
         assert!(html.contains("Черновик"));
         assert!(!html.contains("<script>alert(1)</script>"));
     }
