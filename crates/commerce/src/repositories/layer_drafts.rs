@@ -61,9 +61,8 @@ impl PgLayers {
         let stored: Option<i64> = row
             .try_get("base_version_id")
             .map_err(|_| LayerError::Unavailable)?;
-        if stored.is_some_and(|version| version != current) {
-            return Err(LayerError::StaleOffer);
-        }
+        // Preserve a stale draft for explicit user review/discard. Never
+        // silently rebase pending changes onto another immutable version.
         Ok(LayerSelectionDraft {
             base_version_id: current,
             revision: row
@@ -247,9 +246,9 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
-        if current != base_version.get() {
-            return Err(LayerError::StaleOffer);
-        }
+        // A stale draft may be discarded explicitly. Compare the stored
+        // draft's own original version/revision, not the new live version.
+        let _current = current;
         let deleted = sqlx::query(
             "DELETE FROM commerce_layer_selection_drafts
              WHERE layer_id=$1 AND owner_user_id=$2
