@@ -210,6 +210,21 @@
   overflow-wrap:anywhere; min-height:2.8em;
 }
 .package-tile__marker { font-size:12px; color:var(--text-secondary); }
+.package-cover-choice {
+  margin-top:18px; padding-top:18px; border-top:1px solid var(--border-color);
+}
+.package-cover-choice h3 { margin:0 0 8px; color:var(--text-main); font-size:18px; }
+.package-cover-choice form { display:grid; gap:12px; max-width:520px; }
+.package-cover-choice form label { color:var(--text-main); font-size:13px; font-weight:700; }
+.package-cover-choice select {
+  width:100%; min-height:44px; padding:10px 12px;
+  border:1px solid var(--border-dark); border-radius:var(--radius-sm);
+  background:var(--bg-surface); color:var(--text-main); font:inherit;
+}
+.package-cover-choice select:focus-visible {
+  outline:3px solid var(--focus-ring-color); outline-offset:2px;
+}
+.package-cover-choice .ui-button { justify-self:start; min-height:44px; }
 .package-grid-form { counter-reset:package-added package-removed; }
 .package-grid-form .package-tile:not(.is-included):has(input:checked) {
   counter-increment:package-added;
