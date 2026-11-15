@@ -284,6 +284,43 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
+            // Advertise an exclusive package only after the public Book/age
+            // projection has already authorized this reader.
+            let viewer = match state.follow_control.as_ref() {
+                Some(control) => match control.verified_reader(&headers).await {
+                    Ok(viewer) => viewer,
+                    Err(status) => return book_error(&state, status).await,
+                },
+                None => None,
+            };
+            let package = match tor_commerce::repositories::layer_storefront::exclusive_package_link(
+                catalog.pool(), id, None, viewer,
+            ).await {
+                Ok(package) => package,
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
+            };
+            let html = if let Some(package) = package {
+                let label = pages::escape_html(&package.title);
+                let explanation = package.until_utc.as_ref().map_or_else(
+                    || "Новые платные главы продаются только через пакет.".to_owned(),
+                    |date| format!("Новые платные главы доступны через пакет до {} UTC.", pages::escape_html(date)),
+                );
+                Html(html.0.replace(
+                    "<!--BOOK_RELATED-->",
+                    &format!(
+                        "<section class=\"book-section-card\" aria-label=\"Способ покупки платных глав\">
+                         <h2>Доступно через пакет</h2><p>{explanation}</p>
+                         <a class=\"ui-button ui-button--primary\" href=\"/layers/{}\">Посмотреть пакет «{label}»</a>
+                         </section><!--BOOK_RELATED-->",
+                        package.layer_id,
+                    ),
+                ).replace(
+                    &format!("<a class=\"ui-button ui-button--ghost\" href=\"/me/books/{id}/buy-chapters\">Купить несколько глав</a>"),
+                    "",
+                ))
+            } else {
+                html
+            };
             let html = match book_related_public::attach(catalog, book.id, count, html).await {
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
