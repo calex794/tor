@@ -312,7 +312,9 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     );
     let (_, scheduled_page) = send(&app, "GET", &release_url, "", &cookie, ORIGIN).await;
     assert!(scheduled_page.contains(&utc));
-    assert!(scheduled_page.contains("pending"));
+    assert!(scheduled_page.contains("Ожидает выпуска"));
+    assert!(scheduled_page.contains("account-sidebar"));
+    assert!(scheduled_page.contains("/cancel-schedule"));
     let reader_path = format!("/reader/{}", chapter.id);
     assert_eq!(
         send(&app, "GET", &reader_path, "", "", ORIGIN).await.0,
@@ -350,7 +352,8 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         StatusCode::SEE_OTHER
     );
     let (_, cancelled_page) = send(&app, "GET", &release_url, "", &cookie, ORIGIN).await;
-    assert!(cancelled_page.contains("cancelled"));
+    assert!(cancelled_page.contains("Отменено"));
+    assert!(!cancelled_page.contains("/cancel-schedule"));
     assert_eq!(
         author.process_one_due_scheduled_release().await.unwrap(),
         None

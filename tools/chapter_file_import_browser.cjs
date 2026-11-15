@@ -3,6 +3,7 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
+const { inspectImportRelease } = require('./author_import_release_visual.cjs');
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
 fs.mkdirSync(out, { recursive: true });
@@ -113,6 +114,7 @@ function makeDocxXml(xml) {
           name + ': preview lost chapters');
         assert(await page.evaluate(() => window.importX === undefined),
           name + ': imported title executed as HTML');
+        await inspectImportRelease(page, name, width, height, 'import', out);
         await page.screenshot({
           path: path.join(out, 'chapter-import-' + name + '-preview.png'),
           fullPage: true,

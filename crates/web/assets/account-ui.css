@@ -328,3 +328,51 @@
   .author-editor__body { min-height:44vh; }
   .author-editor__actions .ui-button { width:100%; }
 }
+
+/* File import and release confirmation use the same owner workspace. */
+.author-import .author-editor__panel h2,
+.author-release .author-editor__panel h2 {
+  margin:0 0 18px; color:var(--text-main); font-size:20px;
+  line-height:1.35; overflow-wrap:anywhere;
+}
+.author-import input[type="file"] { max-width:100%; min-height:44px; padding:10px; }
+.author-import input[type="file"]::file-selector-button {
+  margin-right:10px; padding:7px 10px; border:1px solid var(--border-color);
+  border-radius:var(--radius-sm); background:var(--bg-secondary); color:var(--text-main);
+  font:inherit; cursor:pointer;
+}
+.author-import__details { margin-top:18px; border-top:1px solid var(--border-color); }
+.author-import__details summary {
+  padding:14px 0; color:var(--text-main); font-size:14px; font-weight:650;
+  line-height:1.5; cursor:pointer; overflow-wrap:anywhere;
+}
+.author-import__details p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.7; }
+.author-import #chapter-import-results {
+  max-height:45vh; margin:18px 0 0; padding:12px 18px 12px 36px;
+  overflow:auto; overflow-wrap:anywhere; overscroll-behavior:contain;
+  border:1px solid var(--border-color); border-radius:var(--radius-md);
+  background:var(--bg-secondary); color:var(--text-main);
+}
+.author-import #chapter-import-results:empty { display:none; }
+.author-import #chapter-import-results li { padding:10px 0; font-size:14px; line-height:1.5; }
+.author-import #chapter-import-results p { margin:6px 0 0; color:var(--text-secondary); font-size:13px; }
+.author-import [hidden] { display:none!important; }
+.author-release__options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
+.author-release__schedule { display:grid; gap:16px; }
+.author-release__cancel { margin-top:14px; }
+.author-release .author-release__status { margin:0 0 18px; }
+.author-release .author-release-preview {
+  max-width:100%; max-height:40vh; margin:18px 0 0; padding:16px;
+  overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; overscroll-behavior:contain;
+  border:1px solid var(--border-color); border-radius:var(--radius-md);
+  background:var(--bg-secondary); color:var(--text-main);
+  font:15px/1.75 var(--font-family, sans-serif);
+}
+.author-import summary:focus-visible,
+.author-import #chapter-import-results:focus-visible,
+.author-release .author-release-preview:focus-visible {
+  outline:2px solid var(--primary-color); outline-offset:3px;
+}
+@media (max-width:1024px) {
+  .author-release__options { grid-template-columns:minmax(0,1fr); }
+}
