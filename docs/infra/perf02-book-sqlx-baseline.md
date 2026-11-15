@@ -163,3 +163,49 @@ load on the current HEAD, including unit checks of the actual SQLx 0.8.6
 field name and the numeric-only report parser. Follow-up work must repeat
 representative adult/owner/pending-deletion workloads and measure wider
 competition before closing PERF-02. No deployment, new index or migration.
+
+
+## PERF-02h: mixed real-user journeys under increasing load
+
+PERF-252 already proves 25 complete journeys per second for 60 seconds,
+against disposable `tor_ci`: 13 persisted free-progress/comment journeys,
+10 public catalogue/book/reader journeys, and two real paid purchases per
+second. Each purchase is verified against actual wallet deductions, immutable
+purchase facts and pinned library rights, without a payment provider.
+
+PERF-02h adds two *non-gating capacity probes* to that same isolated server
+and PostgreSQL 18 schema, reusing the accounts from the mandatory 25/s run:
+
+| Stage | Duration | Writer journeys/s | Public journeys/s | Paid journeys/s | Paid chapter ordinals |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Required baseline: 25 journeys/s | 60 s | 13 | 10 | 2 | 1-120 |
+| Capacity: 50 journeys/s | 15 s | 26 | 20 | 4 | 121-180 |
+| Capacity: 100 journeys/s | 15 s | 52 | 40 | 8 | 181-300 |
+
+A *journey* contains multiple real HTTP requests and is not the same as
+one GET/s. New capacity stages log into existing readers rather than
+re-registering duplicate accounts. The paid ordinals cannot overlap,
+so replay/idempotency cannot masquerade as additional purchases. Writer
+progress remains conditional on the last persisted revision and free comments
+are checked in the rendered book discussion. The final database assertion
+requires `purchase facts = wallet purchase entries = pinned library rights`
+and verifies the exact remaining total balance. No private paid version is
+exposed to a guest or to a non-buyer.
+
+Custom k6 Trends capture p50/p95/p99 for public Book GET, free-progress
+write and paid checkout. `tools/perf02h_mixed_evidence.py` writes strictly
+numeric summaries of all three stages and rejects a "PASS" missing actual
+metrics. The existing 25/s baseline still gates CI. If a 50/100 probe fails,
+the report must preserve that **FAIL**, never present it as zero latency or
+silently claim additional supported capacity. CPU samples are retained in
+the short-lived isolated CI artifact.
+
+Limitations: each stage uses a small test fixture, short-lived GH runner
+and a fixed SQLx pool of three connections; HTTP p95 is not a controlled
+before/after comparison of PERF-02 optimizations. More throughput is not
+automatically more distinct concurrent readers, nor is it a live VPS
+capacity guarantee. Owner/18+/21+/revoked sessions still need independent
+role-specific acceptance before closing parent #888.
+
+No migrations, production traffic, working VPS/PG/S3 changes, pool resizing,
+wallet credit to real accounts, or deployment.
