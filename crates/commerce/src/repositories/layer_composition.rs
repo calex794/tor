@@ -285,9 +285,9 @@ impl PgLayers {
         version: PositiveId,
         additions: &[i64],
         removals: &[i64],
-        expected_active_buyers: i64,
-        expected_lifetime_buyers: i64,
+        expected_buyers: (i64, i64),
     ) -> Result<i64, LayerError> {
+        let (expected_active_buyers, expected_lifetime_buyers) = expected_buyers;
         validate(additions, removals)?;
         if expected_active_buyers < 0 || expected_lifetime_buyers < 0 {
             return Err(LayerError::Invalid);
