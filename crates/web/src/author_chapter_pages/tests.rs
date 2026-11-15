@@ -207,6 +207,39 @@ fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
 }
 
 #[test]
+fn cover_settings_uses_owner_navigation_without_weakening_upload_guards() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<script>cover</script>".into(),
+    };
+    let page = cover_settings(&book, "<csrf>", Some("pending"), false).0;
+    assert!(page.contains("class=\"account-sidebar\""));
+    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
+    assert!(page.contains("class=\"account-main\""));
+    assert!(page.contains("author-covers-page__breadcrumbs"));
+    assert!(page.contains("class=\"book-settings-tabs\""));
+    assert!(page.contains("aria-current=\"page\">Обложки</a>"));
+    assert!(page.contains("action=\"/me/books/42/cover\""));
+    assert!(page.contains("method=\"post\""));
+    assert!(page.contains("enctype=\"multipart/form-data\""));
+    assert!(page.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(page.contains("type=\"file\""));
+    assert!(page.contains("name=\"cover\""));
+    assert!(page.contains("data-cover-slots-form"));
+    assert!(page.contains("data-cover-picker-input"));
+    assert!(page.contains("data-cover-picker-image"));
+    assert!(page.contains("src=\"/assets/newboo-cover-picker.js\""));
+    assert_eq!(page.matches("data-cover-picker-input").count(), 1);
+    assert_eq!(page.matches("data-cover-picker-image").count(), 1);
+    assert!(page.contains("Обложка ожидает обработки."));
+    assert!(page.contains("После загрузки файл проходит обработку и модерацию."));
+    assert!(page.contains("&lt;script&gt;cover&lt;/script&gt;"));
+    assert!(!page.contains("<script>cover</script>"));
+    assert!(!page.contains("/covers/42/main.webp"));
+}
+
+#[test]
 fn release_form_escapes_chapter_body_and_pins_version() {
     let chapter = PendingChapter {
         number: 4,
