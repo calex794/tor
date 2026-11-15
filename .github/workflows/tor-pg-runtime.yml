@@ -242,7 +242,7 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
-          # Timing only; all original commands and ordering remain unchanged.
+          # REC13 Chromium runs in its own required PostgreSQL job; remaining commands keep their order.
           ci_pg_started=$SECONDS
           ci_pg_phase_done() {
             local phase="$1"
@@ -250,7 +250,7 @@ jobs:
             ci_pg_started=$SECONDS
           }
           # Diagnose compilation versus test execution without changing any Cargo command.
-          # The env -u executions and nested REC13 shell have their own boundaries.
+          # The env -u executions retain their own timing boundaries.
           ci_pg_cargo_index=0
           cargo() {
             local start_us=${EPOCHREALTIME/./}
@@ -405,7 +405,6 @@ jobs:
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
-          TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
@@ -474,17 +473,6 @@ jobs:
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 
-      - name: Preserve FLOW audience browser evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flow-audience-pg-browser
-          path: |
-            ${{ runner.temp }}/rec13-browser/shots/audience*.png
-            ${{ runner.temp }}/rec13-browser/shots/flow-visits*.png
-            ${{ runner.temp }}/rec13-browser/shots/recommendation-preferences*.png
-          if-no-files-found: warn
-          retention-days: 14
       - name: Disk usage after database and HTTP integration
         run: |
           df -h . "$RUNNER_TEMP"

@@ -4,6 +4,7 @@
 SUITES = {
     "rust": ("rust-demo.yml", ("*",)),
     "postgres": ("tor-pg-runtime.yml", ("*",)),
+    "rec_browser": ("tor-pg-rec-browser.yml", ("tor-web", "tor-migrations", "tor-recommendations", "tor-reading", "tor-traffic_behavior", "tor-search", "tor-ads")),
     "migrations": ("postgres-migrations.yml", ("tor-migrations",)),
     "reader_browser": ("tor-reader-visual.yml", ("tor-web", "tor-migrations", "tor-observability")),
     "visual": ("visual-smoke.yml", ("tor-web", "tor-observability")),
@@ -24,6 +25,7 @@ CI_REQUIRED_JOB = "ci-required"
 SUITE_JOB_IDS = {
     "rust": "demo",
     "postgres": "postgres-runtime",
+    "rec_browser": "pg-rec-browser",
     "migrations": "migrations",
     "reader_browser": "reader-browser",
     "visual": "visual",
@@ -48,10 +50,10 @@ ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
 ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
 POSTGRES_SUITES = {
-    "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
+    "postgres", "rec_browser", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
 }
-BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
+BROWSER_SUITES = {"rec_browser", "reader_browser", "visual", "cover_browser", "paid_e2e"}
 
 # These production areas can change access, money, publication, or delivery.
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
@@ -69,9 +71,9 @@ KNOWN_PACKAGES = CRITICAL_PACKAGES | {
 # Standalone test/harness edits do not change the library consumed by other suites.
 # New/unclassified tests deliberately fall back to full, never to an empty pack.
 TEST_SUITES = {
-    "tools/rec13_browser_acceptance.sh": {"postgres"},
-    "tools/rec13_browser.cjs": {"postgres"},
-    "tools/rec_shares_admin_pg_browser.cjs": {"postgres"},
+    "tools/rec13_browser_acceptance.sh": {"rec_browser"},
+    "tools/rec13_browser.cjs": {"rec_browser"},
+    "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
     "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
     "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
