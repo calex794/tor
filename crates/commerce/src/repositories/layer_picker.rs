@@ -65,9 +65,13 @@ impl PgLayers {
         Ok(OwnedLayerSummary {
             layer_id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
             title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
-            description: row.try_get("description").map_err(|_| LayerError::Unavailable)?,
+            description: row
+                .try_get("description")
+                .map_err(|_| LayerError::Unavailable)?,
             status: row.try_get("status").map_err(|_| LayerError::Unavailable)?,
-            metadata_revision: row.try_get("metadata_revision").map_err(|_| LayerError::Unavailable)?,
+            metadata_revision: row
+                .try_get("metadata_revision")
+                .map_err(|_| LayerError::Unavailable)?,
         })
     }
 
