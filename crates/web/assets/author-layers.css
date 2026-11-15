@@ -105,6 +105,37 @@
   color:var(--primary-color); font-weight:750; text-decoration:none;
 }
 .author-layers-page__footer a:hover { text-decoration:underline; }
+.author-layers-page__empty + .author-layers-page__empty { margin-top:20px; }
+.author-layers-page__empty h2 { margin:0 0 10px; color:var(--text-main); font-size:20px; }
+.author-layers-page__empty > p { margin:0 0 16px; }
+.author-layers-page__books { display:grid; gap:10px; margin:14px 0; padding:0; list-style:none; }
+.author-layers-page__books li {
+  display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center;
+  gap:12px; padding:12px 14px; border:1px solid var(--border-color);
+  border-radius:var(--radius-sm); background:var(--bg-secondary);
+}
+.author-layers-page__books li span { flex:1 1 220px; min-width:0; overflow-wrap:anywhere; }
+.author-layers-page__books .ui-button { min-height:44px; }
+.author-layers-page__search { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin:18px 0; }
+.author-layers-page__search label { width:100%; font-weight:700; font-size:13px; }
+.author-layers-page__search input {
+  flex:1 1 220px; min-width:0; min-height:44px; padding:10px 12px;
+  border:1px solid var(--border-dark); border-radius:var(--radius-sm);
+  background:var(--bg-surface); color:var(--text-main); font:inherit;
+}
+.author-layers-page__search .ui-button { min-height:44px; }
+.author-layers-page__confirm {
+  display:flex; align-items:flex-start; gap:10px; margin:12px 0; padding:9px 0;
+  font-size:13px; line-height:1.55; color:var(--text-main);
+}
+.author-layers-page__confirm input { flex:0 0 auto; width:18px; height:18px; margin-top:1px; }
+.author-layers-page__important {
+  border-inline-start:3px solid var(--primary-color); padding:10px 14px;
+  background:var(--bg-secondary); color:var(--text-main); line-height:1.6;
+}
+.author-layers-page__search input:focus-visible, .author-layers-page__confirm input:focus-visible {
+  outline:3px solid var(--focus-ring-color); outline-offset:2px;
+}
 @media (max-width:660px) {
   .author-layers-page__fields { grid-template-columns:minmax(0,1fr); }
   .author-layer-card, .author-layers-page__empty { padding:18px 15px; }
