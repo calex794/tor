@@ -179,7 +179,8 @@ impl PgLayerCovers {
         }
         // A crashed upload can be retired after the bounded upload timeout.
         sqlx::query(
-            "UPDATE commerce_layer_cover_candidates SET status='failed'
+            "UPDATE commerce_layer_cover_candidates
+             SET status='failed',terminal_at=now()
              WHERE layer_id=$1 AND status='uploading'
                AND submitted_at < now()-interval '30 minutes'",
         )
@@ -249,7 +250,8 @@ impl PgLayerCovers {
         candidate_id: PositiveId,
     ) -> Result<(), LayerError> {
         sqlx::query(
-            "UPDATE commerce_layer_cover_candidates SET status='failed'
+            "UPDATE commerce_layer_cover_candidates
+             SET status='failed',terminal_at=now()
              WHERE id=$1 AND uploaded_by_user_id=$2 AND status='uploading'",
         )
         .bind(candidate_id.get())
@@ -355,7 +357,8 @@ impl PgLayerCovers {
         }
         if approve {
             sqlx::query(
-                "UPDATE commerce_layer_cover_candidates SET status='superseded'
+                "UPDATE commerce_layer_cover_candidates
+                 SET status='superseded',terminal_at=now()
                  WHERE layer_id=$1 AND status='approved'",
             )
             .bind(layer_id)
@@ -365,7 +368,8 @@ impl PgLayerCovers {
         }
         sqlx::query(
             "UPDATE commerce_layer_cover_candidates
-             SET status=$2,reviewed_by_user_id=$3,reviewed_at=now(),review_reason=$4
+             SET status=$2,reviewed_by_user_id=$3,reviewed_at=now(),review_reason=$4,
+                 terminal_at=CASE WHEN $2='rejected' THEN now() ELSE NULL END
              WHERE id=$1 AND status='pending'",
         )
         .bind(candidate.get())

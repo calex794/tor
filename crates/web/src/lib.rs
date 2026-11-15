@@ -37,6 +37,7 @@ pub mod cover_cdn_purge;
 pub mod cover_delivery;
 mod cover_http;
 pub mod cover_private_cleanup;
+pub mod package_cover_cleanup;
 pub mod cover_private_source_cleanup;
 mod cpu_work;
 mod editorial_http;

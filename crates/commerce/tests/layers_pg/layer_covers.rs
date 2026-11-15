@@ -1,6 +1,7 @@
 //! Package image moderation cannot touch immutable paid composition.
 use super::*;
 use tor_commerce::repositories::layer_covers::{PackageCoverUpload, PgLayerCovers};
+use tor_commerce::repositories::layer_cover_cleanup::PgPackageCoverVariantRemovals;
 
 fn upload<'a>(card_key: &'a str, main_key: &'a str) -> PackageCoverUpload<'a> {
     PackageCoverUpload {
@@ -99,5 +100,29 @@ async fn h_ui_18_owner_private_cover_moderation_keeps_paid_rights() {
     .await
     .unwrap();
     assert_eq!(current, old_version, "cover change never modifies paid composition");
+    // Retired objects are staged only after full retention; the approved
+    // third cover is never an S3 deletion candidate.
+    sqlx::query(
+        "UPDATE commerce_layer_cover_candidates
+         SET terminal_at=now()-interval '8 days'
+         WHERE layer_id=$1 AND status IN ('superseded','rejected')",
+    )
+    .bind(layer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let cleanup = PgPackageCoverVariantRemovals::new(pool.clone());
+    assert_eq!(cleanup.stage_eligible(20).await.unwrap(), 4);
+    assert_eq!(cleanup.stage_eligible(20).await.unwrap(), 0);
+    let claimed = cleanup.claim(3).await.unwrap();
+    assert_eq!(claimed.len(), 3);
+    for row in &claimed {
+        assert_ne!(row.candidate_id, third, "active approved cover is protected");
+    }
+    assert!(cleanup.removed(claimed[0].id, claimed[0].lease_epoch).await.unwrap());
+    assert!(!cleanup.removed(claimed[0].id, claimed[0].lease_epoch).await.unwrap());
+    assert!(cleanup.retry(claimed[1].id, claimed[1].lease_epoch).await.unwrap());
+    assert!(!cleanup.retry(claimed[1].id, claimed[1].lease_epoch).await.unwrap());
+
     pool.close().await;
 }

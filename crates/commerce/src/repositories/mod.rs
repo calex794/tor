@@ -12,6 +12,7 @@ pub mod entitlements;
 pub mod layer_composition;
 pub mod layer_composition_drafts;
 pub mod layer_covers;
+pub mod layer_cover_cleanup;
 pub mod layer_creation;
 pub(crate) mod layer_economics;
 pub mod layer_entitlements;
