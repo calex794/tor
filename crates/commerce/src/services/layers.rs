@@ -54,6 +54,14 @@ impl LayerService {
             .await
     }
 
+    pub async fn owner_layer_status(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<String, LayerError> {
+        self.repository.owner_layer_status(actor, layer).await
+    }
+
     /// The owner's current composition with a version for CAS removal.
     pub async fn current_books(
         &self,
