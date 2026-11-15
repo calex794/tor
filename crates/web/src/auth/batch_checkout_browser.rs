@@ -15,10 +15,7 @@ use tor_commerce::{
         },
         money::{CheckoutError, IdempotencyKey, MoneyMinor, WalletId},
     },
-    repositories::{
-        checkout::SelectableBatchOffer,
-        layer_storefront::ExclusivePackageLink,
-    },
+    repositories::{checkout::SelectableBatchOffer, layer_storefront::ExclusivePackageLink},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
