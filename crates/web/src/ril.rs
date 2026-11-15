@@ -132,7 +132,10 @@ async fn observe(
                 .unwrap_or_default()
                 .as_millis();
             eprintln!(
-                "TOR_PERF02_POOL_SAMPLE epoch_ms={} status={} http_us={} queries={} acquires={} acquire_total_us={} acquire_max_us={}",
+                concat!(
+                    "TOR_PERF02_POOL_SAMPLE epoch_ms={} status={} http_us={} ",
+                    "queries={} acquires={} acquire_total_us={} acquire_max_us={}"
+                ),
                 epoch_ms,
                 status,
                 elapsed.as_micros(),
