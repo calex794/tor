@@ -290,8 +290,14 @@ impl PgLayers {
         expected_buyers: (i64, i64),
     ) -> Result<i64, LayerError> {
         self.apply_composition_internal(
-            actor, layer, version, additions, removals, (expected_buyers, None),
-        ).await
+            actor,
+            layer,
+            version,
+            additions,
+            removals,
+            (expected_buyers, None),
+        )
+        .await
     }
 
     /// A reviewed draft must still be the same draft at the commit boundary.
@@ -305,8 +311,14 @@ impl PgLayers {
         approved: ((i64, i64), i64),
     ) -> Result<i64, LayerError> {
         self.apply_composition_internal(
-            actor, layer, version, additions, removals, (approved.0, Some(approved.1)),
-        ).await
+            actor,
+            layer,
+            version,
+            additions,
+            removals,
+            (approved.0, Some(approved.1)),
+        )
+        .await
     }
 
     async fn apply_composition_internal(
@@ -346,21 +358,28 @@ impl PgLayers {
                  FROM commerce_layer_selection_drafts
                  WHERE layer_id=$1 AND owner_user_id=$2 FOR UPDATE",
             )
-            .bind(layer.get()).bind(actor.get())
-            .fetch_optional(&mut *tx).await
+            .bind(layer.get())
+            .bind(actor.get())
+            .fetch_optional(&mut *tx)
+            .await
             .map_err(|_| LayerError::Unavailable)?
             .ok_or(LayerError::StaleOffer)?;
-            let stored_revision: i64 = draft.try_get("revision")
+            let stored_revision: i64 = draft
+                .try_get("revision")
                 .map_err(|_| LayerError::Unavailable)?;
-            let stored_version: i64 = draft.try_get("base_version_id")
+            let stored_version: i64 = draft
+                .try_get("base_version_id")
                 .map_err(|_| LayerError::Unavailable)?;
-            let stored_add: Vec<i64> = draft.try_get("added_book_ids")
+            let stored_add: Vec<i64> = draft
+                .try_get("added_book_ids")
                 .map_err(|_| LayerError::Unavailable)?;
-            let stored_remove: Vec<i64> = draft.try_get("removed_book_ids")
+            let stored_remove: Vec<i64> = draft
+                .try_get("removed_book_ids")
                 .map_err(|_| LayerError::Unavailable)?;
             let requested_add = additions.iter().copied().collect::<BTreeSet<_>>();
             let requested_remove = removals.iter().copied().collect::<BTreeSet<_>>();
-            if stored_revision != expected_revision || stored_version != version.get()
+            if stored_revision != expected_revision
+                || stored_version != version.get()
                 || stored_add.into_iter().collect::<BTreeSet<_>>() != requested_add
                 || stored_remove.into_iter().collect::<BTreeSet<_>>() != requested_remove
             {
@@ -429,8 +448,11 @@ impl PgLayers {
                 "DELETE FROM commerce_layer_selection_drafts
                  WHERE layer_id=$1 AND owner_user_id=$2",
             )
-            .bind(layer.get()).bind(actor.get())
-            .execute(&mut *tx).await.map_err(|_| LayerError::Unavailable)?;
+            .bind(layer.get())
+            .bind(actor.get())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         }
         tx.commit().await.map_err(|_| LayerError::Unavailable)?;
         Ok(next)
