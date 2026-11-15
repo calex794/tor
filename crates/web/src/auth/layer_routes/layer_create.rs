@@ -142,10 +142,19 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
     if !layer_books::enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => {}
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(error) => return deny(error),
+    };
+    let Ok(actor) = PositiveId::new(actor) else {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service.author_has_book(actor).await {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::FORBIDDEN),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     // Every form gets a cryptographically random, canonical 32-byte token.
@@ -180,6 +189,11 @@ pub(super) async fn create(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service.author_has_book(actor).await {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::FORBIDDEN),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     match service.create_once(actor, &form.title, &key).await {
         Ok(receipt) => private_response(
             Redirect::to(&format!("/me/layers/{}/books", receipt.layer_id)),
