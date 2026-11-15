@@ -617,10 +617,19 @@ pub(super) async fn upload_and_show(
     // resetting is_withdrawn on approval, the slot advances but remains hidden.
     let replacement = DynamicImage::ImageRgb8(RgbImage::from_pixel(80, 120, Rgb([90, 30, 160])));
     let mut encoded = Cursor::new(Vec::new());
-    replacement.write_to(&mut encoded, ImageFormat::Png).unwrap();
+    replacement
+        .write_to(&mut encoded, ImageFormat::Png)
+        .unwrap();
     let uploaded = send(
         app,
-        upload_request(&path, csrf, cookies, ORIGIN, "image/png", &encoded.into_inner()),
+        upload_request(
+            &path,
+            csrf,
+            cookies,
+            ORIGIN,
+            "image/png",
+            &encoded.into_inner(),
+        ),
     )
     .await;
     assert_eq!(uploaded.status(), StatusCode::SEE_OTHER);
@@ -638,12 +647,19 @@ pub(super) async fn upload_and_show(
         }
         match worker.run_one().await.unwrap() {
             WorkerResult::Idle => panic!("new cover candidate must reach site moderation"),
-            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {}
+            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {
+            }
         }
     }
     let replacement_review = replacement_review.expect("replacement cover pending review");
     reviews
-        .decide(&reviewer_digest, replacement_review.id, 2, true, "Replacement approved")
+        .decide(
+            &reviewer_digest,
+            replacement_review.id,
+            2,
+            true,
+            "Replacement approved",
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -651,13 +667,22 @@ pub(super) async fn upload_and_show(
         Some((replacement_review.job_id, 3))
     );
     assert_eq!(
-        reviews.current_active(&reviewer_digest, book_id).await.unwrap(),
+        reviews
+            .current_active(&reviewer_digest, book_id)
+            .await
+            .unwrap(),
         Some(3)
     );
     assert_eq!(
         send(
             app,
-            request("GET", &format!("/covers/{book_id}/main.webp"), "", "", ORIGIN)
+            request(
+                "GET",
+                &format!("/covers/{book_id}/main.webp"),
+                "",
+                "",
+                ORIGIN
+            )
         )
         .await
         .status(),

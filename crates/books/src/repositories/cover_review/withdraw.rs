@@ -45,8 +45,11 @@ impl PgCoverReview {
         reason: &str,
     ) -> Result<(), CoverReviewError> {
         let reason = reason.trim();
-        if book_id <= 0 || expected_revision <= 0 || expected_revision == i64::MAX
-            || reason.is_empty() || reason.len() > 2000
+        if book_id <= 0
+            || expected_revision <= 0
+            || expected_revision == i64::MAX
+            || reason.is_empty()
+            || reason.len() > 2000
         {
             return Err(CoverReviewError::Invalid);
         }
