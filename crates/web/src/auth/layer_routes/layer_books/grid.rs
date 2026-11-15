@@ -38,8 +38,9 @@ pub(super) fn detail(
         });
     let tariff = match (offer.price_minor, offer.term_kind) {
         (Some(price), Some(kind)) => format!(
-            "{} руб. · {}",
-            format!("{},{:02}", price / 100, price % 100),
+            "{},{:02} руб. · {}",
+            price / 100,
+            price % 100,
             if kind == LayerTermKind::Lifetime {
                 "бессрочно + будущие книги"
             } else {
