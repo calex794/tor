@@ -91,3 +91,26 @@ pub fn package_only_notice(
     )
 }
 
+
+#[cfg(test)]
+mod package_notice_tests {
+    use super::*;
+    use tor_commerce::repositories::layer_storefront::ExclusivePackageLink;
+
+    #[test]
+    fn package_notice_escapes_title_and_exposes_only_public_destination() {
+        let link = ExclusivePackageLink {
+            layer_id: 19,
+            title: "<script>unsafe</script>".to_owned(),
+            until_utc: Some("22.11.2026 12:00".to_owned()),
+        };
+        let page = package_only_notice(41, &link).0;
+        assert!(page.contains("Доступно через пакет"));
+        assert!(page.contains("href=\"/layers/19\""));
+        assert!(page.contains("href=\"/books/41#chapters\""));
+        assert!(page.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
+        assert!(!page.contains("<script>unsafe</script>"));
+        assert!(page.contains("22.11.2026 12:00 UTC"));
+        assert!(!page.contains("name=\"expected_price_minor\""));
+    }
+}
