@@ -382,7 +382,6 @@ jobs:
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_lifecycle_pg -- --ignored --test-threads=1
@@ -846,7 +845,7 @@ jobs:
           cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
       - name: Installed 190 to current analytics retirement with canonical and preference preservation
         run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
-      - name: Reader audience and FLOW PostgreSQL acceptance
+      - name: Reader audience, FLOW and SEO PostgreSQL acceptance
         run: |
           set -euo pipefail
           started=$SECONDS
@@ -885,6 +884,7 @@ jobs:
           cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           echo "CI_PG_ANALYTICS_TEST_SECONDS seconds=$((SECONDS-started))"
       - name: Confirm committed source was tested
         if: always()

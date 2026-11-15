@@ -132,8 +132,8 @@ class WorkflowWiringTests(unittest.TestCase):
                 for command in commands:
                     self.assertEqual(job.count(command), 1)
 
-    def test_reading_analytics_isolated_exact_35_test_targets(self):
-        self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 35)
+    def test_reading_analytics_isolated_exact_36_test_targets(self):
+        self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 36)
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         manual = job_sections((WORKFLOWS / "tor-pg-reading-analytics.yml").read_text())
         for body in (required["pg-reading-analytics"], manual["pg-reading-analytics"]):
@@ -154,6 +154,13 @@ class WorkflowWiringTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertEqual(body.count(invocation), 1)
                     self.assertEqual(TEST_SUITES[path], {"rust", "reading_analytics"})
+        self.assertEqual(
+            TEST_SUITES["crates/search/tests/seo_pg/analytics.rs"],
+            {"rust", "reading_analytics"},
+        )
+        seo_scale = (ROOT / "crates/search/tests/seo_pg/analytics.rs").read_text()
+        self.assertIn("flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report", seo_scale)
+        self.assertIn("generate_series(0,49999)", seo_scale)
         for name in (CI_WORKFLOW, "tor-pg-runtime.yml"):
             runtime = job_sections((WORKFLOWS / name).read_text())["postgres-runtime"]
             self.assertIn("cargo test -p tor-reading --test library_postgres", runtime)
@@ -172,7 +179,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
