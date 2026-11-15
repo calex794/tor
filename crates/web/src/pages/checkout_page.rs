@@ -66,3 +66,28 @@ pub fn chapter_purchase_problem(chapter_id: i64, message: &str) -> Html<String> 
     );
     layout("Покупка не выполнена", "Средства не списаны.", &body)
 }
+
+pub fn package_only_notice(
+    book_id: i64,
+    link: &tor_commerce::repositories::layer_storefront::ExclusivePackageLink,
+) -> Html<String> {
+    let title = escape_html(&link.title);
+    let deadline = link.until_utc.as_ref().map_or_else(
+        || "Прямая покупка новых платных глав недоступна, пока автор не изменит условия.".to_owned(),
+        |until| format!("До {} UTC новые платные главы продаются только в пакете.", escape_html(until)),
+    );
+    layout(
+        "Глава доступна через пакет",
+        "Способ приобретения платных глав.",
+        &format!(
+            "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card reader-access-page\">
+             <h1>Доступно через пакет</h1><p>{deadline}</p>
+             <p>Пакет: <strong>{title}</strong>. Проверьте состав, срок действия и цену до оплаты.</p>
+             <a class=\"button\" href=\"/layers/{}\">Посмотреть пакет</a>
+             <p><a href=\"/books/{book_id}#chapters\">Вернуться к книге</a> · <a href=\"/me/purchases\">Мои покупки</a></p>
+             </div></div></section>",
+            link.layer_id
+        ),
+    )
+}
+
