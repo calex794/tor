@@ -1,0 +1,48 @@
+<section class="me-page author-workspace author-editor author-release">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <header class="ui-page-header"><div class="ui-page-header__content">
+        <p class="ui-page-header__kicker">Кабинет автора · книга №<!--BOOK_ID--></p>
+        <h1 class="ui-page-header__title">Выпустить главу №<!--NUMBER--></h1>
+        <p class="ui-page-header__text">Проверьте выбранную редакцию и опубликуйте её сейчас или назначьте время выпуска.</p>
+      </div></header>
+      <div class="author-editor__form">
+        <section class="author-editor__panel" aria-labelledby="release-preview-heading">
+          <h2 id="release-preview-heading"><!--TITLE--></h2>
+          <p class="author-editor__hint">Проверяется редакция №<!--REVISION--> (версия №<!--VERSION_ID-->). После выпуска доступ к этой версии определяется настройками книги.</p>
+          <pre class="author-release-preview" tabindex="0" aria-label="Текст выбранной редакции"><!--BODY--></pre>
+        </section>
+        <div class="author-release__options">
+          <section class="author-editor__panel" aria-labelledby="release-now-heading">
+            <h2 id="release-now-heading">Выпустить сейчас</h2>
+            <p class="author-editor__hint">Публикуется именно та версия, которая показана в предпросмотре.</p>
+            <form method="post" action="/me/books/<!--BOOK_ID-->/chapters/<!--CHAPTER_ID-->/release">
+              <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+              <input type="hidden" name="expected_revision" value="<!--REVISION-->">
+              <input type="hidden" name="version_id" value="<!--VERSION_ID-->">
+              <div class="author-editor__actions"><button class="ui-button" type="submit">Опубликовать эту главу</button></div>
+            </form>
+          </section>
+          <section class="author-editor__panel" aria-labelledby="release-schedule-heading">
+            <h2 id="release-schedule-heading">Отложенный выпуск</h2>
+            <p id="release-utc-hint" class="author-editor__hint">Время указывается в UTC, а не в часовом поясе браузера.</p>
+            <!--SCHEDULE_STATUS-->
+            <form class="author-release__schedule" method="post" action="/me/books/<!--BOOK_ID-->/chapters/<!--CHAPTER_ID-->/schedule">
+              <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+              <input type="hidden" name="expected_revision" value="<!--REVISION-->">
+              <input type="hidden" name="version_id" value="<!--VERSION_ID-->">
+              <div class="author-editor__field">
+                <label for="scheduled_utc">Дата и время (UTC)</label>
+                <input class="ui-input" id="scheduled_utc" type="datetime-local" name="scheduled_utc" aria-describedby="release-utc-hint" required>
+              </div>
+              <div class="author-editor__actions"><button class="ui-button ui-button--ghost" type="submit">Запланировать или перенести выпуск</button></div>
+            </form>
+            <!--CANCEL_FORM-->
+          </section>
+        </div>
+        <div class="author-editor__actions"><a class="ui-button ui-button--ghost" href="/me/books/<!--BOOK_ID-->">Вернуться к черновикам</a></div>
+      </div>
+    </div>
+  </div>
+</section>

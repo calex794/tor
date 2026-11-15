@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
+const { inspectChapterRelease } = require('./author_release_visual.cjs');
+
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
 fs.mkdirSync(out, { recursive: true });
@@ -328,7 +330,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       assert(await page.getByLabel('Номер главы').inputValue() === '3',
         viewport + ': delayed draft auto-number preview must be 3');
       await page.getByLabel('Название главы').fill('S058 scheduled draft');
-      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
+      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content\n' + ('Длиннаястрокапредпросмотра'.repeat(10) + '\n').repeat(60));
       await privateChoice.check();
       await Promise.all([
         page.waitForURL(/\/chapters\/\d+\/release$/),
@@ -346,6 +348,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       assert(beforeTime && beforeTime.status() === 404,
         viewport + ': scheduled free chapter exposed before due time');
       await page.goto(scheduledDraftUrl);
+      await inspectChapterRelease(page, viewport, width, height, out);
       const scheduledUtc = new Date(Date.now() + 60 * 60 * 1000)
         .toISOString().slice(0, 16);
       await page.getByLabel('Дата и время (UTC)').fill(scheduledUtc);
@@ -353,7 +356,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
         page.waitForNavigation(),
         page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
       ]);
-      assert(await page.getByText(/статус: pending/).isVisible(),
+      assert(await page.locator('.author-release__status').filter({ hasText: 'Ожидает выпуска' }).isVisible(),
         viewport + ': scheduled release not shown as pending');
       await inspect(page, viewport, 's058-scheduled');
       const rescheduledUtc = new Date(Date.now() + 2 * 60 * 60 * 1000)
@@ -369,7 +372,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
         page.waitForNavigation(),
         page.getByRole('button', { name: 'Отменить отложенный выпуск' }).click(),
       ]);
-      assert(await page.getByText(/статус: cancelled/).isVisible(),
+      assert(await page.locator('.author-release__status').filter({ hasText: 'Отменено' }).isVisible(),
         viewport + ': cancelled S058 release still appears active');
       const afterCancel = await page.goto(base + '/reader/' + scheduledDraftId);
       assert(afterCancel && afterCancel.status() === 404,
