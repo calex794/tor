@@ -18,7 +18,11 @@ impl PgLayers {
         if expected_revision <= 0 {
             return Err(LayerError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| LayerError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         let row = sqlx::query(
             "SELECT current_version_id,metadata_revision FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden')
@@ -97,6 +101,7 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
-        row.try_get("cover_book_id").map_err(|_| LayerError::Unavailable)
+        row.try_get("cover_book_id")
+            .map_err(|_| LayerError::Unavailable)
     }
 }

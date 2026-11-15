@@ -264,20 +264,18 @@ pub(super) fn detail(
             (false, true) => "Будет добавлена",
             (false, false) => "Не в пакете",
         };
-        let cover_choice_button = if book.included
-            && book.has_cover
-            && !draft.removals.contains(&book.id)
-        {
-            format!(
-                r#"<button type="submit" form="package-cover-choice-{layer}"
+        let cover_choice_button =
+            if book.included && book.has_cover && !draft.removals.contains(&book.id) {
+                format!(
+                    r#"<button type="submit" form="package-cover-choice-{layer}"
                            class="ui-button ui-button--ghost"
                            name="book_id" value="{book}">Выбрать обложкой</button>"#,
-                layer = layer.layer_id,
-                book = book.id,
-            )
-        } else {
-            String::new()
-        };
+                    layer = layer.layer_id,
+                    book = book.id,
+                )
+            } else {
+                String::new()
+            };
         write!(
             tiles,
             r#"<div class="package-tile-wrapper">

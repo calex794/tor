@@ -60,7 +60,9 @@ async fn cover_choice_is_metadata_only_and_fails_closed() {
         )
         .bind(job)
         .bind(variant)
-        .bind(format!("staging/covers/variants/package-choice/{book}/{variant}"))
+        .bind(format!(
+            "staging/covers/variants/package-choice/{book}/{variant}"
+        ))
         .execute(&pool)
         .await
         .unwrap();
@@ -74,7 +76,12 @@ async fn cover_choice_is_metadata_only_and_fails_closed() {
     repo.choose_package_cover(id(owner), id(layer), Some(id(book)), 1)
         .await
         .unwrap();
-    assert_eq!(repo.selected_package_cover(id(owner), id(layer)).await.unwrap(), Some(book));
+    assert_eq!(
+        repo.selected_package_cover(id(owner), id(layer))
+            .await
+            .unwrap(),
+        Some(book)
+    );
     let after: (i64, i64, Option<i64>) = sqlx::query_as(
         "SELECT current_version_id,metadata_revision,cover_book_id
          FROM commerce_layers WHERE id=$1",
@@ -95,11 +102,19 @@ async fn cover_choice_is_metadata_only_and_fails_closed() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(version_count, 2, "cover choice must not version the paid composition");
+    assert_eq!(
+        version_count, 2,
+        "cover choice must not version the paid composition"
+    );
     repo.choose_package_cover(id(owner), id(layer), None, 2)
         .await
         .unwrap();
-    assert_eq!(repo.selected_package_cover(id(owner), id(layer)).await.unwrap(), None);
+    assert_eq!(
+        repo.selected_package_cover(id(owner), id(layer))
+            .await
+            .unwrap(),
+        None
+    );
     let final_row: (i64, i64, Option<i64>) = sqlx::query_as(
         "SELECT current_version_id,metadata_revision,cover_book_id
          FROM commerce_layers WHERE id=$1",

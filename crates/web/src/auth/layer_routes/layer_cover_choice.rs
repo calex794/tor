@@ -37,8 +37,7 @@ pub(super) async fn choose(
     if !layer_books::enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -47,8 +46,7 @@ pub(super) async fn choose(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(error) => return deny(error),
     };
-    let (Ok(actor), Ok(layer)) = (PositiveId::new(raw_actor), PositiveId::new(raw_layer))
-    else {
+    let (Ok(actor), Ok(layer)) = (PositiveId::new(raw_actor), PositiveId::new(raw_layer)) else {
         return deny(StatusCode::NOT_FOUND);
     };
     let book = if form.book_id == 0 {
