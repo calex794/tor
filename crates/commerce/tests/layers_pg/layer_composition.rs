@@ -48,8 +48,7 @@ async fn d_05_batch_preview_preserves_paid_history_and_cas() {
             id(version),
             &[new_book],
             &[old_book],
-            snapshot.active_buyers,
-            snapshot.lifetime_buyers,
+            (snapshot.active_buyers, snapshot.lifetime_buyers),
         )
         .await
         .unwrap();
@@ -82,8 +81,7 @@ async fn d_05_batch_preview_preserves_paid_history_and_cas() {
             id(version),
             &[new_book],
             &[old_book],
-            1,
-            1,
+            (1, 1),
         )
         .await,
         Err(LayerError::StaleOffer),
@@ -157,8 +155,7 @@ async fn d_05_batch_rechecks_team_changes_and_rejects_forged_ids() {
             id(version),
             &[additional],
             &[],
-            snap.active_buyers,
-            snap.lifetime_buyers,
+            (snap.active_buyers, snap.lifetime_buyers),
         )
         .await,
         Err(LayerError::Inaccessible),
