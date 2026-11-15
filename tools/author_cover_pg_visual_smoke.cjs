@@ -399,6 +399,9 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Название книги')
           .fill('Перевод китайского оригинала ' + workNum);
         await page.getByLabel('Ссылка на первоисточник').fill(chineseOriginal);
+        await page.locator('.author-create-extras > summary').click();
+        assert(await page.locator('.author-create-extras').evaluate(node => node.open),
+          'S019: optional source links must expand before editing');
         await page.getByLabel('Дополнительная ссылка на это произведение').fill(mirrorLink);
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
