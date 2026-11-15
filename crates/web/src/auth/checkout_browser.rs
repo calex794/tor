@@ -64,17 +64,9 @@ async fn package_alternative(state: &AuthState, chapter_id: i64, actor: i64) -> 
     if !state.layer_pages_enabled {
         return None;
     }
-    let book_id: Option<i64> = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
-        .bind(chapter_id)
-        .fetch_optional(state.accounts.pool())
-        .await
-        .ok()
-        .flatten();
-    let book_id = book_id?;
-    let link = tor_commerce::repositories::layer_storefront::exclusive_package_link(
+    let (book_id, link) = tor_commerce::repositories::layer_storefront::exclusive_package_for_chapter(
         state.accounts.pool(),
-        book_id,
-        Some(chapter_id),
+        chapter_id,
         Some(actor),
     )
     .await
