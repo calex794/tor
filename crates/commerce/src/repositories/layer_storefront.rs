@@ -190,7 +190,11 @@ pub async fn exclusive_package_link(
     }
     let row = sqlx::query(
         "SELECT l.id AS layer_id,l.title AS layer_title,
-                CASE WHEN b.package_only_until IS NOT NULL
+                CASE WHEN b.package_only_days IS NOT NULL
+                     THEN TO_CHAR(
+                       (eligible.registered_at + b.package_only_days * INTERVAL '1 day')
+                       AT TIME ZONE 'UTC','DD.MM.YYYY HH24:MI')
+                     WHEN b.package_only_until IS NOT NULL
                      THEN TO_CHAR(b.package_only_until AT TIME ZONE 'UTC','DD.MM.YYYY HH24:MI')
                      ELSE NULL END AS until_utc
          FROM books b
@@ -199,7 +203,23 @@ pub async fn exclusive_package_link(
          JOIN commerce_layer_offers offer ON offer.id=l.current_offer_id AND offer.layer_id=l.id
          JOIN commerce_layer_version_books vb
            ON vb.layer_version_id=l.current_version_id AND vb.book_id=b.id
-         WHERE b.id=$1 AND (b.package_only_until IS NULL OR b.package_only_until>now())
+         JOIN LATERAL (
+             SELECT c.registered_at
+             FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+             JOIN storage_objects obj ON obj.id=v.storage_object_id
+               AND obj.state='attached' AND obj.object_kind='chapter'
+             WHERE c.book_id=b.id AND ($2::BIGINT IS NULL OR c.id=$2)
+               AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               AND tor_package_chapter_locked(
+                 b.package_only_layer_id, b.package_only_until,
+                 b.package_only_days, c.registered_at)
+             ORDER BY c.registered_at DESC NULLS LAST LIMIT 1
+         ) eligible ON TRUE
+         WHERE b.id=$1
            AND b.visibility='public' AND b.visibility_status='active'
            AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
            AND NOT b.admin_hold AND NOT b.is_deleted
@@ -213,17 +233,6 @@ pub async fn exclusive_package_link(
                  ON g.user_id=u.id AND g.level='pro_adult' AND g.is_active
                WHERE u.id=$3 AND u.account_state='active'
              ))
-           )
-           AND EXISTS (
-             SELECT 1 FROM chapters c
-             JOIN chapter_publications p ON p.chapter_id=c.id
-             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
-             JOIN storage_objects obj ON obj.id=v.storage_object_id
-               AND obj.state='attached' AND obj.object_kind='chapter'
-             WHERE c.book_id=b.id AND ($2::BIGINT IS NULL OR c.id=$2)
-               AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
-               AND NOT c.admin_hold AND NOT c.is_deleted
-               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
            )
          LIMIT 1",
     )

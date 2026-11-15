@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use tor_commerce::{
     domain::{
         batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand},
-        money::{CheckoutError, IdempotencyKey, MoneyMinor, WalletId},
+        money::{CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, WalletId},
     },
     repositories::checkout::PgCheckout,
 };
@@ -402,5 +402,112 @@ async fn h_ui_19_batch_checkout_does_not_bypass_package_paid_exclusivity() {
             .len(),
         3
     );
+    f.pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn h_ui_21_batch_mixed_registration_cannot_partially_debit() {
+    use tor_commerce::repositories::{layer_package_sales::PackagePaidMode, layers::PgLayers};
+    let f = fixture("h21-mixed", 1_000).await;
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(f.book)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let layers = PgLayers::new(f.pool.clone());
+    let layer = layers
+        .create_layer(PositiveId::new(owner).unwrap(), "Windowed")
+        .await
+        .unwrap();
+    let version = layers
+        .add_book(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+        )
+        .await
+        .unwrap();
+    layers
+        .publish_offer(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            250,
+            true,
+        )
+        .await
+        .unwrap();
+    let early: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters
+           (book_id,chapter_no,title,visibility,access_level,price_amount,registered_at)
+         VALUES ($1,4,'Old registered paid','public','paid',100,
+                 now()-interval '20 days') RETURNING id",
+    )
+    .bind(f.book)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    let edition: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'S035 private text') RETURNING id",
+    )
+    .bind(early)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(early)
+        .bind(edition)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let prior = BatchChapterOffer {
+        edition: ChapterVersionRef {
+            chapter_id: PositiveId::new(early).unwrap(),
+            version_id: PositiveId::new(edition).unwrap(),
+        },
+        expected_price: MoneyMinor::new(100).unwrap(),
+    };
+    layers
+        .set_package_paid_mode(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+            PositiveId::new(version).unwrap(),
+            0,
+            PackagePaidMode::EarlyDays(10),
+        )
+        .await
+        .unwrap();
+    let checkout = PgCheckout::new(f.pool.clone());
+    let available = checkout
+        .selectable_batch_offers(f.buyer, f.book)
+        .await
+        .unwrap();
+    assert_eq!(available.len(), 1);
+    assert_eq!(available[0].chapter_id, early);
+    assert_eq!(
+        checkout
+            .checkout_batch_once(&command(f.buyer, &[prior, f.offers[0]], 'Q'))
+            .await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible)),
+        "one newly registered locked chapter aborts the whole mixed batch",
+    );
+    no_partial(&f, 1_000).await;
+    let first = checkout
+        .checkout_once(
+            &tor_commerce::domain::money::PurchaseCommand::new(
+                PositiveId::new(f.buyer).unwrap(),
+                WalletId::new(f.buyer).unwrap(),
+                prior.edition,
+                MoneyMinor::new(100).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "R".repeat(42))).unwrap(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!first.replayed);
+    assert_eq!(balance(&f.pool, f.buyer).await, 900);
     f.pool.close().await;
 }

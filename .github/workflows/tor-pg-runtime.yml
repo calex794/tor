@@ -410,6 +410,9 @@ jobs:
             # H/UI-19: enforce new direct and batch sale restrictions on disposable PostgreSQL.
             cargo test -p tor-commerce --test layers_pg h_ui_19_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test batch_checkout_pg h_ui_19_ -- --ignored --test-threads=1
+            # H/UI-21: registration-based owner-selected early window, with atomic mixed batch.
+            cargo test -p tor-commerce --test layers_pg h_ui_21_ -- --ignored --test-threads=1
+            cargo test -p tor-commerce --test batch_checkout_pg h_ui_21_ -- --ignored --test-threads=1
             # H/UI-20: validate only visible active package links and no direct debit.
             cargo test -p tor-commerce --test layers_pg h_ui_20_ -- --ignored --test-threads=1
             TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test package_paid_links_http_pg h_ui_20_ -- --ignored --test-threads=1

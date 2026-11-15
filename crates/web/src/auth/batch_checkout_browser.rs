@@ -15,7 +15,7 @@ use tor_commerce::{
         },
         money::{CheckoutError, IdempotencyKey, MoneyMinor, WalletId},
     },
-    repositories::checkout::SelectableBatchOffer,
+    repositories::{checkout::SelectableBatchOffer, layer_storefront::ExclusivePackageLink},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
@@ -68,6 +68,7 @@ fn select_page(
     title: &str,
     csrf: &str,
     offers: &[SelectableBatchOffer],
+    exclusive: Option<&ExclusivePackageLink>,
 ) -> axum::response::Html<String> {
     let mut rows = String::new();
     for item in offers.iter().take(100) {
@@ -100,10 +101,20 @@ fn select_page(
     } else {
         ""
     };
+    let package_help = exclusive.map_or_else(String::new, |link| {
+        format!(
+            "<p role=\"status\">Некоторые главы ещё доступны только через пакет «{}».
+             <a href=\"/layers/{}\">Посмотреть пакет</a>. Открытые главы можно покупать отдельно.</p>",
+            pages::escape_html(&link.title), link.layer_id
+        )
+    });
     shell(
         "Купить несколько глав",
         book_id,
-        &format!("<h2>{}</h2>{action}{overflow}", pages::escape_html(title)),
+        &format!(
+            "<h2>{}</h2>{action}{overflow}{package_help}",
+            pages::escape_html(title)
+        ),
     )
 }
 
@@ -302,7 +313,23 @@ pub(super) async fn page(
         }
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(select_page(book_id, &book.title, &csrf, &offers), &cookies)
+    let exclusive = if state.layer_checkout_enabled {
+        tor_commerce::repositories::layer_storefront::exclusive_package_link(
+            state.accounts.pool(),
+            book_id,
+            None,
+            Some(actor),
+        )
+        .await
+        .ok()
+        .flatten()
+    } else {
+        None
+    };
+    private_response(
+        select_page(book_id, &book.title, &csrf, &offers, exclusive.as_ref()),
+        &cookies,
+    )
 }
 
 pub(super) async fn submit(
@@ -484,7 +511,7 @@ mod tests {
                 price_minor: 225,
             },
         ];
-        let html = select_page(3, "Книга", "csrf", &offers).0;
+        let html = select_page(3, "Книга", "csrf", &offers, None).0;
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(!html.contains("<script>bad</script>"));
         assert!(!html.contains("name=\"version_ids\""));
