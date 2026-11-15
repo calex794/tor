@@ -26,6 +26,14 @@ pub fn offer_page(
     checkout_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&offer.title);
+    let package_cover = if offer.has_package_cover {
+        format!(
+            r#"<img src="/layers/{}/cover/main.webp" alt="Обложка пакета" class="layer-cover__image" width="190" height="285">"#,
+            offer.id
+        )
+    } else {
+        String::new()
+    };
     let mut list = String::new();
     if offer.public_books.is_empty() {
         list.push_str(
@@ -143,6 +151,7 @@ pub fn offer_page(
          <h1 class=\"ui-page-header__title\">{title}</h1>
          <p class=\"ui-page-header__text\">Книги автора в одном пакете. Условия доступа указаны до оплаты.</p></div></header>
          {notice}
+         {package_cover}
          <div class=\"layers-public-layout\">
            <section class=\"layer-panel\" aria-labelledby=\"layer-books-title\">
              <h2 id=\"layer-books-title\">Состав пакета</h2>
@@ -271,6 +280,7 @@ mod tests {
                     has_cover: false,
                 },
             ],
+            has_package_cover: false,
             has_access: false,
             has_lifetime_access: false,
         };
@@ -341,6 +351,7 @@ mod tests {
             term_kind: "lifetime".into(),
             public_book_count: 1,
             public_books: Vec::new(),
+            has_package_cover: false,
             has_access: true,
             has_lifetime_access: true,
         };
@@ -370,6 +381,7 @@ mod tests {
                     has_cover: false,
                 },
             ],
+            has_package_cover: false,
             has_access: true,
             has_lifetime_access: false,
         };
