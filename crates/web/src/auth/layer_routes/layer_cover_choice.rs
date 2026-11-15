@@ -18,7 +18,7 @@ struct ChoiceForm {
     csrf_token: String,
     expected_revision: i64,
     // Zero clears the Book choice, returning to the approved upload or default.
-    book_id: i64,
+    cover_book_id: i64,
 }
 
 pub(super) fn routes() -> Router<AuthState> {
@@ -49,10 +49,10 @@ async fn choose(
     let (Ok(actor), Ok(layer)) = (PositiveId::new(raw_actor), PositiveId::new(raw_layer)) else {
         return deny(StatusCode::NOT_FOUND);
     };
-    let book = if form.book_id == 0 {
+    let book = if form.cover_book_id == 0 {
         None
     } else {
-        match PositiveId::new(form.book_id) {
+        match PositiveId::new(form.cover_book_id) {
             Ok(book) => Some(book),
             Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
         }

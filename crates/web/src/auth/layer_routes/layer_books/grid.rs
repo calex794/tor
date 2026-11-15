@@ -120,7 +120,7 @@ pub(super) fn detail(
         };
     // The independent form ID lets tile buttons submit without nesting forms.
     // Clearing a choice leaves the independently moderated upload intact.
-    let cover_choice_form = if !editable || layer.status == "blocked" {
+    let cover_choice_form = if layer.status == "blocked" {
         String::new()
     } else {
         format!(
@@ -128,7 +128,7 @@ pub(super) fn detail(
                      action="/me/layers/{id}/cover-choice">
                  <input type="hidden" name="csrf_token" value="{csrf}">
                  <input type="hidden" name="expected_revision" value="{revision}">
-                 <button type="submit" name="book_id" value="0"
+                 <button type="submit" name="cover_book_id" value="0"
                          class="ui-button ui-button--ghost">
                    Использовать собственную или автоматическую обложку
                  </button>
@@ -269,7 +269,7 @@ pub(super) fn detail(
                 format!(
                     r#"<button type="submit" form="package-cover-choice-{layer}"
                            class="ui-button ui-button--ghost"
-                           name="book_id" value="{book}">Выбрать обложкой</button>"#,
+                           name="cover_book_id" value="{book}">Выбрать обложкой</button>"#,
                     layer = layer.layer_id,
                     book = book.id,
                 )
