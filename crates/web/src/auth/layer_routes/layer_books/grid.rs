@@ -290,6 +290,33 @@ pub(super) fn review(
     if removes.is_empty() {
         removes.push_str("<li>Ничего не удаляется</li>");
     }
+    let (operation, input_payload) = if draft_revision > 0 {
+        (
+            "apply_draft",
+            format!(r#"<input type="hidden" name="draft_revision" value="{draft_revision}">"#),
+        )
+    } else {
+        // Keep previously published review links working during this UI migration.
+        let adds = preview
+            .additions
+            .iter()
+            .map(|book| book.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let removes = preview
+            .removals
+            .iter()
+            .map(|book| book.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        (
+            "apply",
+            format!(
+                r#"<input type="hidden" name="add_csv" value="{adds}">
+                   <input type="hidden" name="remove_csv" value="{removes}">"#
+            ),
+        )
+    };
     let contents = format!(
         r#"<section class="me-page author-workspace author-layers-page">
            <div class="container account-layout">
@@ -314,10 +341,10 @@ pub(super) fn review(
                  <p class="package-review__caution">Изменение затронет будущее предложение для новых покупателей.
                  Если число действующих покупателей изменится до подтверждения, сервер попросит повторить проверку.</p>
                  <form method="post" action="/me/layers/{layer}/books">
-                   <input type="hidden" name="operation" value="apply_draft">
-                   <input type="hidden" name="draft_revision" value="{draft_revision}">
+                   <input type="hidden" name="operation" value="{operation}">
+                   {input_payload}
                    <input type="hidden" name="expected_version_id" value="{version}">
-                    <input type="hidden" name="active_buyers" value="{active}">
+                   <input type="hidden" name="active_buyers" value="{active}">
                    <input type="hidden" name="lifetime_buyers" value="{lifetime}">
                    <input type="hidden" name="csrf_token" value="{csrf}">
                    <label class="author-layers-page__confirm">
@@ -339,7 +366,8 @@ pub(super) fn review(
         active=preview.active_buyers,
         lifetime=preview.lifetime_buyers,
         csrf=pages::escape_html(csrf),
-        draft_revision=draft_revision,
+        operation=operation,
+        input_payload=input_payload,
     ).replace(
         "<!--ACCOUNT_NAVIGATION-->",
         &pages::account_navigation("/me/layers", csrf),
