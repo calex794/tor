@@ -15,11 +15,11 @@ use std::{
     fmt::Write,
 };
 use tor_commerce::{
-    repositories::layer_covers::PgLayerCovers,
     domain::layers::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
         LayerTermKind,
     },
+    repositories::layer_covers::PgLayerCovers,
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
