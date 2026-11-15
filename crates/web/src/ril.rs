@@ -134,7 +134,9 @@ async fn observe(
     });
     if sample_enabled
         && measured_book_get
-        && CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed).is_multiple_of(16)
+        && CI_POOL_SAMPLE_COUNTER
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(16)
     {
         if let Some(measured) = sql_measurement.as_ref() {
             let epoch_ms = SystemTime::now()
@@ -425,7 +427,10 @@ mod tests {
         assert_eq!(classify(Some("/books/{id}"), "GET").route_family, "/books/");
         assert!(is_measured_book_get(Some("/books/{id}"), &Method::GET));
         assert!(!is_measured_book_get(Some("/books/{id}"), &Method::POST));
-        assert!(!is_measured_book_get(Some("/books/{id}/comments"), &Method::GET));
+        assert!(!is_measured_book_get(
+            Some("/books/{id}/comments"),
+            &Method::GET
+        ));
         assert!(!is_measured_book_get(Some("/me/books/{id}"), &Method::GET));
         assert!(!is_measured_book_get(None, &Method::GET));
     }
