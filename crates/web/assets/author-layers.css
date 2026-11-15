@@ -210,6 +210,16 @@
   overflow-wrap:anywhere; min-height:2.8em;
 }
 .package-tile__marker { font-size:12px; color:var(--text-secondary); }
+.package-grid-form { counter-reset:package-added package-removed; }
+.package-grid-form .package-tile:not(.is-included):has(input:checked) {
+  counter-increment:package-added;
+}
+.package-grid-form .package-tile.is-included:has(input:not(:checked)) {
+  counter-increment:package-removed;
+}
+.package-grid__live { white-space:nowrap; font-size:13px; font-weight:700; }
+.package-grid__added::after { content:counter(package-added); }
+.package-grid__removed::after { content:counter(package-removed); }
 .package-grid__actions {
   display:flex; flex-wrap:wrap; align-items:center; gap:14px;
   padding:16px 0; border-top:1px solid var(--border-color);
