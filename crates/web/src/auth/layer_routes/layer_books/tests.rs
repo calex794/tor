@@ -226,6 +226,7 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
             history: &[],
             draft: &draft,
             editable: true,
+            cover: grid::GridCoverState::default(),
         },
     );
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
@@ -321,6 +322,7 @@ fn package_grid_keeps_saved_draft_across_filter_navigation() {
             history: &[0, 50],
             draft: &draft,
             editable: true,
+            cover: grid::GridCoverState::default(),
         },
     );
     assert!(grid.contains("name=\"draft_revision\" value=\"4\""));
