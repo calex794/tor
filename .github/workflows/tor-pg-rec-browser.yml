@@ -109,6 +109,8 @@ jobs:
         run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
       - name: REC13 real Chromium and historical HTTP acceptance
         run: bash tools/rec13_browser_acceptance.sh
+      - name: 100k catalogue contextual model PostgreSQL acceptance
+        run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1
       - name: Confirm committed source was tested
         if: always()
         run: git diff --exit-code
