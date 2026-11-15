@@ -329,7 +329,10 @@ mod tests {
         assert!(html.contains("action=\"/me/layers/91/metadata\""));
         assert!(html.contains("action=\"/me/layers/92/metadata\""));
         assert!(!html.contains("action=\"/me/layers/93/metadata\""));
-        assert_eq!(html.matches("method=\"post\" action=\"/me/layers/").count(), 2);
+        assert_eq!(
+            html.matches("method=\"post\" action=\"/me/layers/").count(),
+            2
+        );
         assert!(html.contains("name=\"expected_revision\" value=\"4\""));
         assert!(html.contains("name=\"expected_revision\" value=\"5\""));
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
