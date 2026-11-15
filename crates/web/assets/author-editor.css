@@ -1,0 +1,105 @@
+/* H/UI-12: owner chapter editor in the shared account shell. */
+.author-editor-page__breadcrumb {
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  margin:0 0 18px; color:var(--text-muted); font-size:12px;
+}
+.author-editor-page__breadcrumb a {
+  color:var(--primary-color); font-weight:750; text-decoration:none;
+}
+.author-editor-page__breadcrumb a:hover { text-decoration:underline; }
+.author-editor-page .author-editor-page__header {
+  display:flex; align-items:flex-start; justify-content:space-between;
+  flex-wrap:wrap; gap:15px; margin-bottom:20px;
+}
+.author-editor-page__header .ui-page-header__content {
+  min-width:0; flex:1 1 420px;
+}
+.author-editor-page__header .ui-page-header__title { overflow-wrap:anywhere; }
+.author-editor-page__header .ui-page-header__text { max-width:720px; line-height:1.6; }
+.author-editor-page__header > .ui-button { min-height:44px; }
+.author-editor-page .auth-card.author-chapter-card.author-editor-page__card {
+  width:100%; max-width:none; margin:0; padding:clamp(18px,3vw,30px);
+  box-shadow:none;
+}
+.author-editor-page .auth-form.author-editor-page__form {
+  display:grid; margin:0; gap:24px;
+}
+.author-editor-page__block {
+  display:grid; gap:16px; min-width:0;
+  padding-bottom:22px; border-bottom:1px solid var(--border-color);
+}
+.author-editor-page__block-heading h2 {
+  margin:0; color:var(--text-main); font-size:20px; line-height:1.35;
+}
+.author-editor-page__block-heading p {
+  margin:7px 0 0; color:var(--text-muted); font-size:13px; line-height:1.6;
+}
+.author-editor-page__fields {
+  display:grid; grid-template-columns:minmax(0,1fr); gap:10px;
+}
+.author-editor-page .author-editor-page__block label {
+  color:var(--text-main); font-size:13px; font-weight:750; line-height:1.5;
+}
+.author-editor-page .author-editor-page__block input,
+.author-editor-page .author-editor-page__block select,
+.author-editor-page .author-editor-page__block textarea {
+  width:100%; min-width:0; margin:0; border:1px solid var(--border-dark);
+  border-radius:var(--radius-sm); background:var(--bg-surface);
+  color:var(--text-main); font:inherit; font-size:14px; line-height:1.5;
+  padding:10px 12px;
+}
+.author-editor-page .author-editor-page__block input,
+.author-editor-page .author-editor-page__block select { min-height:44px; }
+.author-editor-page .author-editor-page__block textarea {
+  min-height:clamp(320px,48vh,700px); resize:vertical; overflow-wrap:anywhere;
+}
+.author-editor-page__block input[readonly] {
+  color:var(--text-secondary); background:var(--bg-secondary);
+}
+.author-editor-page .author-editor-page__block :is(input,select,textarea):focus-visible {
+  border-color:var(--primary-color);
+  outline:3px solid var(--focus-ring-color); outline-offset:2px;
+}
+.author-editor-page__block small,
+.author-editor-page__block .account-profile__hint {
+  margin:0; color:var(--text-muted); font-size:12px; line-height:1.5;
+}
+.author-editor-page__schedule:empty { display:none; }
+.author-editor-page__schedule:not(:empty) {
+  padding:16px 18px; border:1px solid var(--border-color);
+  border-radius:var(--radius-md); background:var(--bg-secondary);
+}
+.author-editor-page__schedule label {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  color:var(--text-main); font-size:13px;
+}
+.author-editor-page__schedule input[type="checkbox"] {
+  width:18px; height:18px; margin:0; accent-color:var(--primary-color);
+}
+.author-editor-page__schedule p {
+  margin:8px 0 0; color:var(--text-muted); font-size:12px; line-height:1.6;
+}
+.author-editor-page .author-edit-warning {
+  margin:0; padding:13px 15px; border:1px solid var(--border-color);
+  border-radius:var(--radius-md); background:var(--bg-secondary);
+  color:var(--text-secondary); font-size:13px; line-height:1.6;
+}
+.author-editor-page__actions {
+  display:grid; grid-template-columns:minmax(0,1fr); gap:10px;
+}
+.author-editor-page__actions .button { width:100%; min-height:48px; }
+.author-editor-page__actions p {
+  margin:0; color:var(--text-muted); font-size:12px; line-height:1.6;
+}
+.author-editor-page__card > p a { color:var(--primary-color); }
+@media (max-width:620px) {
+  .author-editor-page .author-editor-page__header {
+    align-items:stretch;
+  }
+  .author-editor-page__header > .ui-button { width:100%; }
+  .author-editor-page .auth-card.author-chapter-card.author-editor-page__card {
+    padding:18px 15px;
+  }
+  .author-editor-page__block-heading h2 { font-size:18px; }
+  .author-editor-page .author-editor-page__block textarea { min-height:46vh; }
+}
