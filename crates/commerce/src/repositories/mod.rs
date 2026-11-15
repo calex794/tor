@@ -11,6 +11,7 @@ pub mod direct_swaps;
 pub mod entitlements;
 pub mod layer_composition;
 pub mod layer_creation;
+pub mod layer_drafts;
 pub(crate) mod layer_economics;
 pub mod layer_entitlements;
 pub mod layer_metadata;
