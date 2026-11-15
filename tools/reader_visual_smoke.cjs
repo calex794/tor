@@ -47,7 +47,9 @@ async function inspect(page, name, where) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+    // Separate guest contexts touch only public GET/DOM and page-local storage.
+    // Run both viewport assertions together, preserving every screenshot.
+    await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map(async ([name, width, height]) => {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
@@ -258,11 +260,12 @@ async function inspect(page, name, where) {
         }
       }
       await page.close();
-    }
+    }));
     // H-web-07: real source dark tokens and original dark logo, no JavaScript.
     // The old NEwBOO manual theme control is intentionally not advertised
     // until the strict script-src 'none' policy has a reviewed server alternative.
-    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+    // Dark/light theme toggles are also GET-only and isolated per page.
+    await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map(async ([name, width, height]) => {
       const page = await browser.newPage({
         viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
       });
@@ -324,7 +327,7 @@ async function inspect(page, name, where) {
         name + ': original light logo and surface not restored');
       await inspect(page, name + '-light', 'catalog');
       await page.close();
-    }
+    }));
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const context = await browser.newContext({

@@ -344,6 +344,23 @@ class WorkflowWiringTests(unittest.TestCase):
         for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
             self.assertIn("ci_timed_browser tools/" + filename, reader)
 
+    def test_reader_guest_viewports_overlap_but_stateful_cases_remain_serial(self):
+        script = (ROOT / "tools/reader_visual_smoke.cjs").read_text()
+        guest, stateful = script.split(
+            "    // Exercise real PostgreSQL account forms", 1
+        )
+        # Both public desktop/mobile passes must retain the original assertions.
+        self.assertEqual(guest.count("await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map"), 2)
+        self.assertIn("await inspectBookTocContrast(page, name);", guest)
+        self.assertIn("await inspect(page, name + '-dark', location);", guest)
+        # Registration, completion, comments and issue submissions are shared
+        # PostgreSQL mutations: never parallelize these unreviewed journeys.
+        self.assertIn(
+            "for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {",
+            stateful,
+        )
+        self.assertNotIn("Promise.all([['desktop'", stateful)
+
     def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
         manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
