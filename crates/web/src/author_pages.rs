@@ -143,15 +143,17 @@ pub fn layers_index_for_owner(
                      <span class="author-layer-card__arrow" aria-hidden="true">›</span>
                    </a>
                   </li>"#,
-                id=layer.layer_id,
-                title=escape_html(&layer.title),
-                description=escape_html(&layer.description),
+                id = layer.layer_id,
+                title = escape_html(&layer.title),
+                description = escape_html(&layer.description),
             )
             .expect("write package card");
         }
         list.push_str("</ul>");
         if layers.len() == 100 {
-            list.push_str("<p class=\"author-layers-page__limit\">Показаны последние 100 пакетов.</p>");
+            list.push_str(
+                "<p class=\"author-layers-page__limit\">Показаны последние 100 пакетов.</p>",
+            );
         }
     }
     let content = include_str!("../templates/author_layers.html")
