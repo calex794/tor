@@ -66,6 +66,19 @@ impl LayerService {
             .await
     }
 
+    /// Owner-only cover selection from already approved current package books.
+    pub async fn choose_package_cover(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        book: PositiveId,
+        expected_revision: i64,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .choose_package_cover(actor, layer, book, expected_revision)
+            .await
+    }
+
     pub async fn owner_layer_status(
         &self,
         actor: PositiveId,
