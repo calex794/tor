@@ -121,10 +121,14 @@ impl PgLayers {
             }
             (
                 revision,
-                row.try_get::<Vec<i64>, _>("additions").map_err(database_error)?
-                    .into_iter().collect::<BTreeSet<_>>(),
-                row.try_get::<Vec<i64>, _>("removals").map_err(database_error)?
-                    .into_iter().collect::<BTreeSet<_>>(),
+                row.try_get::<Vec<i64>, _>("additions")
+                    .map_err(database_error)?
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                row.try_get::<Vec<i64>, _>("removals")
+                    .map_err(database_error)?
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
             )
         } else {
             if expected_revision != 0 {
