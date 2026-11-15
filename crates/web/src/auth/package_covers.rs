@@ -36,16 +36,16 @@ fn repository(state: &AuthState) -> PgLayerCovers {
     PgLayerCovers::new(state.accounts.pool().clone())
 }
 
-async fn moderator(state: &AuthState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
+async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<PositiveId, StatusCode> {
     let token = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let digest = session_token_digest(&token);
-    let role = state
+    let actor = state
         .accounts
         .session_actor(&digest)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !(role.moderator || role.administrator) {
+    if !(actor.moderator || actor.administrator) {
         return Err(StatusCode::FORBIDDEN);
     }
     let user = state
@@ -172,7 +172,7 @@ async fn owner_preview(
 }
 
 async fn queue(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    if let Err(status) = moderator(&state, &headers).await {
+    if let Err(status) = actor(&state, &headers).await {
         return deny(status);
     }
     let rows = match repository(&state).pending_queue(40).await {
@@ -230,7 +230,7 @@ async fn moderator_preview(
     Path(raw_candidate): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(error) = moderator(&state, &headers).await {
+    if let Err(error) = actor(&state, &headers).await {
         return deny(error);
     }
     let Ok(candidate) = PositiveId::new(raw_candidate) else {
@@ -263,7 +263,7 @@ async fn decide(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let reviewer = match moderator(&state, &headers).await {
+    let reviewer = match actor(&state, &headers).await {
         Ok(reviewer) => reviewer,
         Err(error) => return deny(error),
     };
