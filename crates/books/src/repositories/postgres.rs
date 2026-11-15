@@ -76,9 +76,7 @@ impl PgCatalog {
             && std::env::var("TOR_CI_PERF02_POOL_TIMING").as_deref() == Ok("1")
             && url.ends_with("@127.0.0.1:5432/tor_ci")
         {
-            options = options.acquire_time_level(
-                "trace".parse().expect("valid SQLx log level"),
-            );
+            options = options.acquire_time_level("trace".parse().expect("valid SQLx log level"));
         }
         let pool = options.connect(url).await?;
         let role: String = sqlx::query_scalar("SELECT current_user")
