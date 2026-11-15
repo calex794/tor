@@ -47,6 +47,7 @@
 
 - Unit: slot parser, root/host rule, один escaped promo strip вместо нескольких карточек.
 - PostgreSQL: включение и пауза назначения, guest Book visibility, отсутствие нужды в host Book; миграции применить дважды в CI.
+- FLOW: `home_promo_strip` разрешён не только в `editorial_campaigns`, но и в `flow_observation_proofs` и `flow_observation_hourly`; оба слота сохраняют строгие CHECK (не произвольная строка). SQL smoke на fresh и upgrade; Chromium с реальными видами/кликами и агрегатами.
 - HTTP: admin/reader/session/Origin/CSRF и реальные маршруты из FLOW-08 должны остаться зелёными.
 - Chromium: новая промополоса в 390/1440, доступность кнопки и отсутствие дублирования редакционных мест — требуется отдельная приёмка до слияния.
 - Внешний выпуск: запрещён до отдельного ручного решения о проверенном main SHA.
