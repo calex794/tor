@@ -195,7 +195,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("ci_timed_browser tools/reader_visual_smoke.cjs", reader)
             self.assertIn('if node "$scenario" "$@"; then', reader)
 
-    def test_rec13_reuses_browser_only_in_pg_jobs(self):
+    def test_rec13_runs_in_its_own_isolated_pg18_job(self):
         script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
         self.assertIn("TOR_REC_REUSE_PLAYWRIGHT:-0", script)
         self.assertIn("npm install --prefix", script)
@@ -206,12 +206,25 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("p.chromium.executablePath()", script)
         self.assertIn('NODE_PATH="$node_path"', script)
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
-            pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-            self.assertIn("npx playwright install --only-shell chromium", pg)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", pg)
-        standalone = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
-        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", standalone)
-        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", standalone)
+            core = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+            self.assertIn("npx playwright install --only-shell chromium", core)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", core)
+        for filename in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
+            browser = job_sections((WORKFLOWS / filename).read_text())["pg-rec-browser"]
+            self.assertIn("image: postgres:18", browser)
+            self.assertIn("TEST_DATABASE_URL: postgresql://tor_app:", browser)
+            self.assertIn("LEGACY_ANALYTICS_DATABASE_URL:", browser)
+            self.assertIn("COLLECTION_RETIREMENT_APP_DATABASE_URL:", browser)
+            self.assertIn("legacy_analytics_baseline_pg", browser)
+            self.assertIn("collection_retirement_startup_baseline_pg", browser)
+            self.assertIn("collection_retirement_installed_upgrade_pg", browser)
+            self.assertIn("run: bash tools/rec13_browser_acceptance.sh", browser)
+            self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", browser)
+            self.assertIn("actions/upload-artifact@v4", browser)
+        specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
+        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", specialist)
+
 
     def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
@@ -271,7 +284,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("CI_PG_PHASE_SECONDS phase=$phase", body)
             self.assertIn("ci_pg_started=$SECONDS", body)
             self.assertIn("cargo test -p tor-web --test paid_grants_http_pg", body)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", body)
             self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
 
     def test_postgres_cargo_command_timing_keeps_fail_fast_and_targets(self):
@@ -294,7 +307,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn('local start_us=${EPOCHREALTIME/./}', body)
             self.assertIn('local end_us=${EPOCHREALTIME/./}', body)
             self.assertIn('env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test', body)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", body)
             self.assertGreaterEqual(len(re.findall(r'(?m)^\s+cargo test -p ', body)), 100)
             self.assertNotIn("set +e", body)
 

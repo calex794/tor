@@ -44,7 +44,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_real_dependency_reaches_browser_for_recommendation_source(self):
         result = select(ROOT, ["crates/recommendations/src/services/ranking.rs"])
-        self.assertTrue({"rust", "postgres", "reader_browser", "visual", "cover_browser",
+        self.assertTrue({"rust", "postgres", "rec_browser", "reader_browser", "visual", "cover_browser",
                          "paid_e2e", "backup_recovery", "purchased_recovery"} <= enabled(result))
         self.assertIn("tor-web", result["packages"])
         self.assertNotIn("crypto", enabled(result))
@@ -91,6 +91,9 @@ class SelectionTests(unittest.TestCase):
             "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
             "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
             "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
+            "tools/rec13_browser_acceptance.sh": {"rec_browser"},
+            "tools/rec13_browser.cjs": {"rec_browser"},
+            "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
             "tools/checkout_http_pg_smoke.py": {"postgres"},
             "tools/tor_pg_restart_smoke.sh": {"postgres"},
             "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},

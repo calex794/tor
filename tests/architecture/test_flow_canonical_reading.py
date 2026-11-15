@@ -30,7 +30,14 @@ class FlowCanonicalReading(unittest.TestCase):
             self.assertIn(needle,read(file))
         for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-runtime.yml']:
             text=read(file)
-            for needle in ['cargo test -p tor-reading --test audience_pg','cargo test -p tor-web --test audience_http_pg','bash tools/rec13_browser_acceptance.sh']:
+            for needle in ['cargo test -p tor-reading --test audience_pg',
+                           'cargo test -p tor-web --test audience_http_pg']:
                 self.assertIn(needle,text)
+            self.assertNotIn('TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh',text)
+        for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-rec-browser.yml']:
+            text=read(file)
+            self.assertIn('run: bash tools/rec13_browser_acceptance.sh',text)
+            self.assertIn('LEGACY_ANALYTICS_DATABASE_URL:',text)
+            self.assertIn('COLLECTION_RETIREMENT_APP_DATABASE_URL:',text)
 
         self.assertIn("node tools/audience_pg_browser.cjs",read("tools/rec13_browser_acceptance.sh"))

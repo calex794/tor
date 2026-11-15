@@ -329,7 +329,7 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
-          # Timing only; all original commands and ordering remain unchanged.
+          # REC13 Chromium runs in its own required PostgreSQL job; remaining commands keep their order.
           ci_pg_started=$SECONDS
           ci_pg_phase_done() {
             local phase="$1"
@@ -337,7 +337,7 @@ jobs:
             ci_pg_started=$SECONDS
           }
           # Diagnose compilation versus test execution without changing any Cargo command.
-          # The env -u executions and nested REC13 shell have their own boundaries.
+          # The env -u executions retain their own timing boundaries.
           ci_pg_cargo_index=0
           cargo() {
             local start_us=${EPOCHREALTIME/./}
@@ -492,7 +492,6 @@ jobs:
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
-          TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
@@ -561,17 +560,6 @@ jobs:
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 
-      - name: Preserve FLOW audience browser evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flow-audience-pg-browser
-          path: |
-            ${{ runner.temp }}/rec13-browser/shots/audience*.png
-            ${{ runner.temp }}/rec13-browser/shots/flow-visits*.png
-            ${{ runner.temp }}/rec13-browser/shots/recommendation-preferences*.png
-          if-no-files-found: warn
-          retention-days: 14
       - name: Disk usage after database and HTTP integration
         run: |
           df -h . "$RUNNER_TEMP"
@@ -684,6 +672,115 @@ jobs:
         run: |
           df -h . "$RUNNER_TEMP"
           du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
+  pg-rec-browser:
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rec_browser":true}').rec_browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-ci-only
+      TEST_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci
+      LEGACY_ANALYTICS_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_legacy_analytics
+      LEGACY_ANALYTICS_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_legacy_analytics
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      # Reuse the compact profiles already required by tor-integration.yml.
+      # REC runs several full workspace builds and otherwise exhausts runner disk.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      - name: Prepare isolated database
+        run: |
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply real SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Prepare explicit legacy and installed-upgrade analytics databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
+          SQL
+          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
+            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
+          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
+          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          done
+          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+      - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+      - name: REC13 real Chromium and historical HTTP acceptance
+        run: bash tools/rec13_browser_acceptance.sh
+      - name: Confirm committed source was tested
+        if: always()
+        run: git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pg-rec-browser-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/rec13-browser/*.log
+            ${{ runner.temp }}/rec13-browser/shots/*.png
+          retention-days: 3
   migrations:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
@@ -1797,6 +1894,7 @@ jobs:
       - preflight
       - demo
       - postgres-runtime
+      - pg-rec-browser
       - migrations
       - reader-browser
       - visual
