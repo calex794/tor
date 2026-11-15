@@ -260,7 +260,11 @@ pub(super) fn detail(
         revision = draft.revision,
         visible = visible.join(","),
         after = after.unwrap_or(0),
-        history = history.iter().map(i64::to_string).collect::<Vec<_>>().join(","),
+        history = history
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
         filter = filter,
         csrf = pages::escape_html(csrf),
         filter_all = filter_option("all", "Все"),
