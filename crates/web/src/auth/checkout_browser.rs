@@ -75,7 +75,7 @@ async fn package_alternative(state: &AuthState, chapter_id: i64, actor: i64) -> 
         state.accounts.pool(), book_id, Some(chapter_id), Some(actor),
     ).await.ok().flatten()?;
     Some(noindex(private_response(
-        pages::package_only_notice(book_id, &link), &[],
+        pages::package_only_notice(book_id, link.layer_id, &link.title, link.until_utc.as_deref()), &[],
     )))
 }
 
