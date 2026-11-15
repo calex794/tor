@@ -63,7 +63,7 @@ pub(super) struct AddBookForm {
     remove_csv: Option<String>,
     active_buyers: Option<i64>,
     lifetime_buyers: Option<i64>,
-    page_after: Option<i64>,
+    page_after: Option<String>,
     page_query: Option<String>,
     next_search: Option<String>,
     draft_revision: Option<i64>,
