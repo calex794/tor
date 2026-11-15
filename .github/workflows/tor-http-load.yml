@@ -302,7 +302,12 @@ jobs:
           bash tests/load/perf252_seed_writers_ci.sh
           ./target/release/tor-web > "$RUNNER_TEMP/tor-load/progress/server.log" 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          monitor_pid=''
+          cleanup() {
+            if [[ -n "$monitor_pid" ]]; then kill "$monitor_pid" 2>/dev/null || true; fi
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
           ready=0
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
@@ -312,8 +317,37 @@ jobs:
           if [[ "$ready" != 1 ]]; then cat "$RUNNER_TEMP/tor-load/progress/server.log"; exit 1; fi
           python3 tests/load/perf252_seed_buyers_ci.py |
             tee "$RUNNER_TEMP/tor-load/progress/paid-fixture.txt"
-          k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
-            tests/load/tor_authenticated_progress.js | tee "$RUNNER_TEMP/tor-load/progress/k6.log"
+          pidstat -h -u -r -d -C 'tor-web|k6|postgres' 1 \
+            > "$RUNNER_TEMP/tor-load/progress/pidstat.txt" 2>&1 &
+          monitor_pid=$!
+          printf 'journeys_per_second\toutcome\n' > "$RUNNER_TEMP/tor-load/progress/results.tsv"
+          # Baseline already accepted in PERF-252: 25/s for 60s, 120 purchases.
+          k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary-25.json" \
+            tests/load/tor_authenticated_progress.js |
+            tee "$RUNNER_TEMP/tor-load/progress/k6-25.log"
+          printf '25\tPASS\n' >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
+          # PERF-02h: extra capacity probes share the *same* disposable PG18
+          # and reuse real registered readers. Each rate owns a disjoint set
+          # of seeded paid chapters; 120 + 60 + 120 = at most 300 purchases.
+          # Higher-rate failures are preserved as evidence, not release gates.
+          for rate in 50 100; do
+            echo "::group::PERF-02h mixed business journeys $rate/s"
+            if TOR_PERF252_JOURNEYS_PER_SECOND="$rate" k6 run \
+              --summary-export "$RUNNER_TEMP/tor-load/progress/summary-$rate.json" \
+              tests/load/tor_authenticated_progress.js 2>&1 |
+                tee "$RUNNER_TEMP/tor-load/progress/k6-$rate.log"; then
+              outcome=PASS
+            else
+              outcome=FAIL
+            fi
+            printf '%s\t%s\n' "$rate" "$outcome" \
+              >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
+            echo "::endgroup::"
+          done
+          python3 tools/perf02h_mixed_evidence.py \
+            --root "$RUNNER_TEMP/tor-load/progress" \
+            --json "$RUNNER_TEMP/tor-load/progress/mixed-evidence.json" \
+            | tee "$RUNNER_TEMP/tor-load/progress/mixed-evidence.log"
           saved_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND revision>0")"
           printf '%s\n' "$saved_count" | tee "$RUNNER_TEMP/tor-load/progress/saved-count.txt"
@@ -367,8 +401,16 @@ jobs:
             > "$RUNNER_TEMP/tor-load/progress/financial-counts.txt"
           {
             echo '## PERF-252 concurrent 10k-book journeys'
-            echo '25 complete user journeys/s for 60s: 13 progress/comment, 10 public reading, 2 paid purchases.'
-            echo 'k6 exports p50/p95/p99 by tagged HTTP action; exact PG purchases = wallet debits = library rights.'
+            echo 'Baseline 25 user journeys/s for 60s: 13 progress/comment, 10 public reading, 2 paid purchases.'
+            echo 'PERF-02h capacity probes: 50 and 100 journeys/s for 15s each, same PG18 and pool=3.'
+            echo '| Business journeys/s | Outcome |'
+            echo '|---:|---|'
+            awk -F '\t' 'NR>1 {printf "| %s | %s |\n", $1, $2}' \
+              "$RUNNER_TEMP/tor-load/progress/results.tsv"
+            echo 'Guest Book, free-progress writes and paid checkout p50/p95/p99 are in mixed-evidence.json.'
+            echo 'Stages run consecutively with fresh sessions and disjoint paid chapter IDs; not a before/after A/B.'
+            echo 'Higher-rate failures are measurements, not release gates.'
+            echo 'Post-run database invariants: exact PG purchases = wallet debits = library rights.'
             echo "Stored comments: $comment_count; unique paid purchases: $purchases."
             echo 'Only disposable tor_ci and 127.0.0.1; no payment provider or VPS.'
           } >> "$GITHUB_STEP_SUMMARY"
