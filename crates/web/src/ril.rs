@@ -8,8 +8,8 @@ use axum::{
     response::Response,
     Router,
 };
-use std::sync::OnceLock;
-use std::time::Instant;
+use std::sync::{atomic::{AtomicU64, Ordering}, OnceLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tor_observability::services::trace::{SqlEvidence, SqlSpan};
 use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
@@ -31,6 +31,9 @@ pub(crate) fn activate_sqlx_observation() -> bool {
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
 static RIL_PUMP_MONITOR: OnceLock<PgPumpMonitor> = OnceLock::new();
+// PERF-02g: no user-derived or request-derived identifiers are stored.
+static CI_POOL_TIMING_ON: OnceLock<bool> = OnceLock::new();
+static CI_POOL_SAMPLE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Process-local heartbeat. None means no PostgreSQL pump was started here.
 pub(crate) fn pump_health_snapshot() -> Option<PgPumpSnapshot> {
@@ -112,6 +115,34 @@ async fn observe(
     let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request), started).await;
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
+    // CI-only 1-in-16 numeric Book samples. Never emit SQL, cookies, trace
+    // identifiers, IPs or book IDs. The successful SQLx acquire duration also
+    // includes liveness/connection setup; it is not strictly queue wait.
+    let sample_enabled = *CI_POOL_TIMING_ON.get_or_init(|| {
+        std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+            && std::env::var("TOR_CI_PERF02_POOL_TIMING").as_deref() == Ok("1")
+    });
+    if sample_enabled
+        && passport.route_family == "books"
+        && CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) % 16 == 0
+    {
+        if let Some(measured) = sql_measurement.as_ref() {
+            let epoch_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            eprintln!(
+                "TOR_PERF02_POOL_SAMPLE epoch_ms={} status={} http_us={} queries={} acquires={} acquire_total_us={} acquire_max_us={}",
+                epoch_ms,
+                status,
+                elapsed.as_micros(),
+                measured.queries,
+                measured.pool_acquires,
+                measured.pool_acquire_elapsed_us,
+                measured.pool_acquire_max_us
+            );
+        }
+    }
     let observation = RouteObservation::new(passport, status, elapsed);
     crate::observability::record_http(passport.route_family, status, elapsed);
     // Sample only after the complete request, never independently per SQLx event.
