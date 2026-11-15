@@ -191,8 +191,7 @@ impl LayerService {
         version: PositiveId,
         additions: &[i64],
         removals: &[i64],
-        expected_active_buyers: i64,
-        expected_lifetime_buyers: i64,
+        expected_buyers: (i64, i64),
     ) -> Result<i64, LayerError> {
         self.repository
             .apply_composition(
@@ -201,8 +200,7 @@ impl LayerService {
                 version,
                 additions,
                 removals,
-                expected_active_buyers,
-                expected_lifetime_buyers,
+                expected_buyers,
             )
             .await
     }
