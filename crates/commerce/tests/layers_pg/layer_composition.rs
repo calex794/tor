@@ -169,3 +169,137 @@ async fn d_05_batch_rechecks_team_changes_and_rejects_forged_ids() {
     assert_eq!(unchanged, version);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn h_ui_17_persists_pages_and_applies_one_paid_safe_revision() {
+    let (pool, repo, owner, buyer, old_book) = setup("draft-pages").await;
+    let a: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:d05:draft-a','ru','Draft A','public',$1) RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let b: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:d05:draft-b','ru','Draft B','public',$1) RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (layer, version, offer_id) = offer(&repo, owner, old_book, 200, true).await;
+    repo.buy(&cmd(buyer, layer, offer_id, version, 200, 'W'))
+        .await
+        .unwrap();
+    let initial = repo.composition_draft(id(owner), id(layer)).await.unwrap();
+    assert_eq!((initial.revision, initial.version_id), (0, version));
+    let first = repo
+        .stage_composition_page(id(owner), id(layer), id(version), 0, &[old_book, a], &[a])
+        .await
+        .unwrap();
+    assert_eq!(first.additions, vec![a]);
+    assert_eq!(first.removals, vec![old_book]);
+    assert_eq!(
+        repo.stage_composition_page(id(owner), id(layer), id(version), 0, &[b], &[b])
+            .await,
+        Err(LayerError::StaleOffer),
+        "an older browser tab must not overwrite this draft",
+    );
+    let second = repo
+        .stage_composition_page(id(owner), id(layer), id(version), first.revision, &[b], &[b])
+        .await
+        .unwrap();
+    assert_eq!(second.additions, vec![a, b]);
+    assert_eq!(second.removals, vec![old_book]);
+    assert_eq!(
+        repo.composition_draft(id(owner), id(layer)).await.unwrap(),
+        second,
+    );
+    assert_eq!(
+        repo.composition_draft(id(buyer), id(layer)).await,
+        Err(LayerError::Inaccessible),
+    );
+    assert_eq!(
+        repo.stage_composition_page(id(buyer), id(layer), id(version), 0, &[a], &[a])
+            .await,
+        Err(LayerError::Inaccessible),
+    );
+    assert_eq!(
+        repo.stage_composition_page(
+            id(owner),
+            id(layer),
+            id(version),
+            second.revision,
+            &[999999999],
+            &[999999999],
+        )
+        .await,
+        Err(LayerError::Inaccessible),
+    );
+    let count_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(repo.can_read_book(id(buyer), id(old_book)).await.unwrap());
+    assert!(!repo.can_read_book(id(buyer), id(a)).await.unwrap());
+    let snapshot = repo
+        .preview_composition(
+            id(owner),
+            id(layer),
+            id(version),
+            &second.additions,
+            &second.removals,
+        )
+        .await
+        .unwrap();
+    assert_eq!((snapshot.active_buyers, snapshot.lifetime_buyers), (1, 1));
+    assert_eq!(
+        repo.apply_composition_draft(id(owner), id(layer), id(version), first.revision, (1, 1))
+            .await,
+        Err(LayerError::StaleOffer),
+    );
+    assert_eq!(
+        repo.apply_composition_draft(id(owner), id(layer), id(version), second.revision, (2, 1))
+            .await,
+        Err(LayerError::StaleOffer),
+    );
+    let final_version = repo
+        .apply_composition_draft(id(owner), id(layer), id(version), second.revision, (1, 1))
+        .await
+        .unwrap();
+    let count_after: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count_after, count_before + 1);
+    let selected: Vec<i64> = sqlx::query_scalar(
+        "SELECT book_id FROM commerce_layer_version_books
+         WHERE layer_version_id=$1 ORDER BY book_id",
+    )
+    .bind(final_version)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(selected, vec![a, b]);
+    assert!(repo.can_read_book(id(buyer), id(old_book)).await.unwrap());
+    assert!(repo.can_read_book(id(buyer), id(a)).await.unwrap());
+    assert!(repo.can_read_book(id(buyer), id(b)).await.unwrap());
+    let after = repo.composition_draft(id(owner), id(layer)).await.unwrap();
+    assert_eq!(after.revision, 0, "committed draft is removed");
+    assert_eq!(after.version_id, final_version);
+    assert_eq!(
+        repo.apply_composition_draft(id(owner), id(layer), id(version), second.revision, (1, 1))
+            .await,
+        Err(LayerError::StaleOffer),
+    );
+    pool.close().await;
+}
