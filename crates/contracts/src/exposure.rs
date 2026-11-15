@@ -144,7 +144,10 @@ mod promotion_slot_tests {
             Ok(PromotionSlot::HomePromoStrip)
         );
         assert!(PromotionSlot::HomePromoStrip.supports_root());
-        assert_eq!(PromotionSlot::HomePromoStrip.surface(), ExposureSurface::Home);
+        assert_eq!(
+            PromotionSlot::HomePromoStrip.surface(),
+            ExposureSurface::Home
+        );
         assert!(!PromotionSlot::ChapterEndFree.supports_root());
     }
 }

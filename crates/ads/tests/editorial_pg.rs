@@ -682,10 +682,16 @@ async fn home_promo_strip_uses_live_acl_and_does_not_require_a_host() {
         .cards(None, PromotionSlot::HomePromoStrip, None)
         .await
         .unwrap();
-    assert!(cards.iter().any(|card| card.campaign_id == active.campaign_id));
-    assert!(cards.iter().all(|card| card.slot == PromotionSlot::HomePromoStrip));
+    assert!(cards
+        .iter()
+        .any(|card| card.campaign_id == active.campaign_id));
+    assert!(cards
+        .iter()
+        .all(|card| card.slot == PromotionSlot::HomePromoStrip));
     assert!(matches!(
-        editorial.cards(None, PromotionSlot::BookDetailRelated, None).await,
+        editorial
+            .cards(None, PromotionSlot::BookDetailRelated, None)
+            .await,
         Err(EditorialError::Invalid)
     ));
     fixture.act(&active, Action::Pause, 503).await.unwrap();
@@ -693,6 +699,8 @@ async fn home_promo_strip_uses_live_acl_and_does_not_require_a_host() {
         .cards(None, PromotionSlot::HomePromoStrip, None)
         .await
         .unwrap();
-    assert!(!paused.iter().any(|card| card.campaign_id == active.campaign_id));
+    assert!(!paused
+        .iter()
+        .any(|card| card.campaign_id == active.campaign_id));
     fixture.clean().await;
 }
