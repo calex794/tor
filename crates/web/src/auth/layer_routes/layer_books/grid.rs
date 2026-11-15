@@ -22,18 +22,32 @@ fn cover(id: i64, title: &str, has_cover: bool) -> String {
     }
 }
 
+/// All page-navigation state comes from server-validated owner inputs.
+pub(super) struct GridOptions<'a> {
+    pub csrf: &'a str,
+    pub query: &'a str,
+    pub filter: &'a str,
+    pub after: Option<i64>,
+    pub history: &'a [i64],
+    pub draft: &'a LayerCompositionDraft,
+    pub editable: bool,
+}
+
 pub(super) fn detail(
     layer: &OwnedLayerSummary,
     books: &LayerBookTilePage,
     offer: &LayerOwnerOfferState,
-    csrf: &str,
-    query: &str,
-    filter: &str,
-    after: Option<i64>,
-    history: &[i64],
-    draft: &LayerCompositionDraft,
-    editable: bool,
+    options: GridOptions<'_>,
 ) -> (String, String, String) {
+    let GridOptions {
+        csrf,
+        query,
+        filter,
+        after,
+        history,
+        draft,
+        editable,
+    } = options;
     let title = pages::escape_html(&layer.title);
     let hero_cover = books
         .hero_cover_id
