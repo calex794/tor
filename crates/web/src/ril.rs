@@ -104,6 +104,16 @@ fn is_measured_book_get(template: Option<&str>, method: &Method) -> bool {
     template == Some("/books/{id}") && method == Method::GET
 }
 
+// A periodic 1-in-16 counter aliases with two equal-rate k6 scenarios.
+// SplitMix64 scrambles sequential completion numbers without any identity,
+// clock, random input, allocation, hashing of URLs or session data.
+fn sample_perf02_book_get(sequence: u64) -> bool {
+    let mut x = sequence.wrapping_add(0x9E3779B97F4A7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
+    (x ^ (x >> 31)) & 15 == 0
+}
+
 async fn observe(
     State(recorder): State<TrafficRecorder>,
     mut request: Request<Body>,
@@ -125,7 +135,7 @@ async fn observe(
     let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request), started).await;
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
-    // CI-only 1-in-16 numeric Book samples. Never emit SQL, cookies, trace
+    // CI-only ~1-in-16 hash-sampled Book GETs. Never emit SQL, cookies, trace
     // identifiers, IPs or book IDs. The successful SQLx acquire duration also
     // includes liveness/connection setup; it is not strictly queue wait.
     let sample_enabled = *CI_POOL_TIMING_ON.get_or_init(|| {
@@ -134,9 +144,7 @@ async fn observe(
     });
     if sample_enabled
         && measured_book_get
-        && CI_POOL_SAMPLE_COUNTER
-            .fetch_add(1, Ordering::Relaxed)
-            .is_multiple_of(16)
+        && sample_perf02_book_get(CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed))
     {
         if let Some(measured) = sql_measurement.as_ref() {
             let epoch_ms = SystemTime::now()
@@ -422,6 +430,20 @@ mod tests {
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
     }
+    #[test]
+    fn perf02g_hash_sampling_covers_both_alternating_load_scenarios() {
+        // Alternating guest/reader completions caused every-16th sampling
+        // to lock onto just one cohort. Verify both positions are represented.
+        let even = (0..3200_u64)
+            .filter(|sequence| sequence % 2 == 0 && sample_perf02_book_get(*sequence))
+            .count();
+        let odd = (0..3200_u64)
+            .filter(|sequence| sequence % 2 != 0 && sample_perf02_book_get(*sequence))
+            .count();
+        assert!(even > 40 && even < 160, "even cohort: {even}");
+        assert!(odd > 40 && odd < 160, "odd cohort: {odd}");
+    }
+
     #[test]
     fn perf02g_measurement_matches_registered_book_get_not_route_family() {
         assert_eq!(classify(Some("/books/{id}"), "GET").route_family, "/books/");
