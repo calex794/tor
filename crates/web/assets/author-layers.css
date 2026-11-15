@@ -277,3 +277,8 @@
 .package-cover-upload input[type=file] { max-width:100%; }
 .package-cover-upload .ui-button { justify-self:start; }
 .package-hero__copy img[src*="/cover/preview"] { display:block; object-fit:cover; border-radius:var(--radius-md); }
+
+/* An independent cover-choice action sits outside the draft-composition form. */
+.package-tile-wrapper { display:grid; gap:8px; min-width:0; align-content:start; }
+.package-tile-wrapper > .package-tile { width:100%; box-sizing:border-box; }
+.package-tile-wrapper > .ui-button { font-size:12px; white-space:normal; }

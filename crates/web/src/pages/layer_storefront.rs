@@ -26,7 +26,11 @@ pub fn offer_page(
     checkout_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&offer.title);
-    let package_cover = if offer.has_package_cover {
+    let package_cover = if let Some(book) = offer.selected_book_cover_id {
+        format!(
+            r#"<img src="/covers/{book}/card.webp" alt="Выбранная обложка книги из пакета" class="layer-cover__image" width="190" height="285">"#
+        )
+    } else if offer.has_package_cover {
         format!(
             r#"<img src="/layers/{}/cover/main.webp" alt="Обложка пакета" class="layer-cover__image" width="190" height="285">"#,
             offer.id
@@ -281,6 +285,7 @@ mod tests {
                 },
             ],
             has_package_cover: false,
+            selected_book_cover_id: None,
             has_access: false,
             has_lifetime_access: false,
         };
@@ -305,6 +310,10 @@ mod tests {
         offer.has_package_cover = true;
         let approved_cover = offer_page(&offer, None, None, None, false, false).0;
         assert!(approved_cover.contains("/layers/8/cover/main.webp"));
+        offer.selected_book_cover_id = Some(33);
+        let selected = offer_page(&offer, None, None, None, false, false).0;
+        assert!(selected.contains("/covers/33/card.webp"));
+        assert!(!selected.contains("/layers/8/cover/main.webp"));
         let disabled_guest = offer_page(&offer, None, None, None, false, false).0;
         assert!(disabled_guest.contains("Покупка временно отключена"));
         assert!(!disabled_guest.contains("Войти и приобрести доступ"));
@@ -357,6 +366,7 @@ mod tests {
             public_book_count: 1,
             public_books: Vec::new(),
             has_package_cover: false,
+            selected_book_cover_id: None,
             has_access: true,
             has_lifetime_access: true,
         };
@@ -387,6 +397,7 @@ mod tests {
                 },
             ],
             has_package_cover: false,
+            selected_book_cover_id: None,
             has_access: true,
             has_lifetime_access: false,
         };

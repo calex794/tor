@@ -27,6 +27,7 @@ pub(super) struct GridCoverState {
     pub approved: bool,
     pub pending: bool,
     pub upload_enabled: bool,
+    pub selected_book_id: Option<i64>,
 }
 
 /// All page-navigation state comes from server-validated owner inputs.
@@ -58,7 +59,12 @@ pub(super) fn detail(
         cover: cover_state,
     } = options;
     let title = pages::escape_html(&layer.title);
-    let hero_cover = if cover_state.approved {
+    let chosen = cover_state
+        .selected_book_id
+        .filter(|id| books.hero_cover_id == Some(*id));
+    let hero_cover = if let Some(id) = chosen {
+        cover(id, "", true)
+    } else if cover_state.approved {
         format!(
             r#"<img src="/me/layers/{}/cover/approved" alt="Одобренная обложка пакета">"#,
             layer.layer_id
@@ -71,7 +77,9 @@ pub(super) fn detail(
                 r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
             })
     };
-    let cover_note = if cover_state.approved {
+    let cover_note = if chosen.is_some() {
+        "Показана выбранная обложка книги из пакета."
+    } else if cover_state.approved {
         "Показана отдельная одобренная обложка пакета."
     } else {
         "Показана обложка одной из книг пакета."
@@ -110,6 +118,26 @@ pub(super) fn detail(
             "<p>Загрузка отдельной обложки недоступна без подключённого хранилища S3.</p>"
                 .to_owned()
         };
+    // The independent form ID lets tile buttons submit without nesting forms.
+    // Clearing a choice leaves the independently moderated upload intact.
+    let cover_choice_form = if layer.status == "blocked" {
+        String::new()
+    } else {
+        format!(
+            r#"<form id="package-cover-choice-{id}" method="post"
+                     action="/me/layers/{id}/cover-choice">
+                 <input type="hidden" name="csrf_token" value="{csrf}">
+                 <input type="hidden" name="expected_revision" value="{revision}">
+                 <button type="submit" name="cover_book_id" value="0"
+                         class="ui-button ui-button--ghost">
+                   Использовать собственную или автоматическую обложку
+                 </button>
+               </form>"#,
+            id = layer.layer_id,
+            csrf = pages::escape_html(csrf),
+            revision = layer.metadata_revision,
+        )
+    };
     let tariff = match (offer.price_minor, offer.term_kind) {
         (Some(price), Some(kind)) => format!(
             "{},{:02} руб. · {}",
@@ -147,6 +175,7 @@ pub(super) fn detail(
               <p class="package-hero__note">{cover_note}</p>
               {pending_preview}
               {cover_form}
+              {cover_choice_form}
               {reader_link}
               <p><a class="text-link" href="/me/layers/{id}/sales">
                  Настроить ранний или эксклюзивный доступ к платным главам
@@ -235,15 +264,30 @@ pub(super) fn detail(
             (false, true) => "Будет добавлена",
             (false, false) => "Не в пакете",
         };
+        let cover_choice_button =
+            if book.included && book.has_cover && !draft.removals.contains(&book.id) {
+                format!(
+                    r#"<button type="submit" form="package-cover-choice-{layer}"
+                           class="ui-button ui-button--ghost"
+                           name="cover_book_id" value="{book}">Выбрать обложкой</button>"#,
+                    layer = layer.layer_id,
+                    book = book.id,
+                )
+            } else {
+                String::new()
+            };
         write!(
             tiles,
-            r#"<label class="package-tile{included_class}">
+            r#"<div class="package-tile-wrapper">
+               <label class="package-tile{included_class}">
                 <input class="package-tile__checkbox" type="checkbox"
                        name="chosen_{id}" value="1"{checked}>
                 <span class="package-tile__cover">{cover}</span>
                 <span class="package-tile__title">{name}</span>
                 <span class="package-tile__marker">{marker}</span>
-               </label>"#,
+               </label>
+               {cover_choice_button}
+               </div>"#,
             id = book.id,
             cover = cover(book.id, &book.title, book.has_cover),
             name = pages::escape_html(&book.title),

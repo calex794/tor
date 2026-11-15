@@ -1710,6 +1710,27 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             operation = "list" if entry["method"] == "GET" else "create"
             scoped = bool(re.search(rf"\.{operation}\s*\(\s*actor\s*,", body)
                 and re.search(r"\bauthorized\s*\(\s*&state,", body))
+        elif (entry["source"] == "crates/web/src/auth/layer_routes/layer_cover_choice.rs"
+              and entry["template"] == "/me/layers/{layer_id}/cover-choice"
+              and entry["handler"] == "choose" and policy == "owner"):
+            # Reviewed owner-only cosmetic mutation: static source evidence
+            # plus live PG regressions, never an automatic authorization.
+            cover_repo = _production(
+                (ROOT / "crates/commerce/src/repositories/layer_cover_choice.rs")
+                .read_text(encoding="utf-8"))
+            scoped = bool(
+                "session_user(&state, &headers)" in body
+                and re.search(
+                    r"\.choose_package_cover\s*\(\s*actor\s*,\s*layer\s*,\s*book\s*,\s*form\.expected_revision",
+                    body)
+                and "WHERE id=$1 AND owner_user_id=$2" in cover_repo
+                and "metadata_revision" in cover_repo
+                and "FOR UPDATE" in cover_repo
+                and "commerce_layer_version_books vb" in cover_repo
+                and "b.visibility='public'" in cover_repo
+                and "j.status='ready'" in cover_repo
+                and "metadata_revision=metadata_revision+1" in cover_repo
+            )
         elif (entry["source"] == "crates/web/src/auth/package_covers.rs"
               and entry["template"].startswith("/moderation/layers/covers")):
             # Reviewed H/UI-18: an independently verified A moderator/admin

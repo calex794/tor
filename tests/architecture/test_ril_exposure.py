@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 432)  # Two reviewed admin policy operations added.
-        self.assertEqual(report["route_pairs"], 430)  # Exact route+method pairs, including six favicon routes.
+        self.assertEqual(report["route_bindings"], 433)  # Two reviewed admin policy operations and one package cover-choice route.
+        self.assertEqual(report["route_pairs"], 431)  # Exact route+method pairs, including the new owner-only cover-choice endpoint.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
