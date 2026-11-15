@@ -375,6 +375,17 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("reportMailPhase(name, 'group_transfer', checkpoint)", mail)
         self.assertIn("reportMailPhase(name, 'context_cleanup', checkpoint)", mail)
 
+        # BrowserContext-scoped fake timers must never change real mailbox,
+        # outbox or notification delivery timing in the authenticated context.
+        self.assertIn("const probeContext = await browser.newContext({", mail)
+        self.assertIn("storageState: await b.context.storageState()", mail)
+        self.assertIn("await probe.clock.install();", mail)
+        self.assertEqual(mail.count("await probe.clock.fastForward(3000);"), 2)
+        self.assertIn("await probeContext.close();", mail)
+        self.assertNotIn("const probe = await b.context.newPage();", mail)
+        self.assertIn("const nextPoll = probe.waitForResponse", mail)
+        self.assertIn("assert(seenCursors.includes(largeId)", mail)
+
     def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
         manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
