@@ -114,9 +114,9 @@ pub fn detail_with_covers_with_demand_page(
 <div class="author-book-workspace__steps">
 <div class="author-book-workspace__step"><strong>1. Название книги</strong><span>Указано</span></div>
 <div class="author-book-workspace__step"><strong>2. Бесплатная глава</strong>
-<span>{chapter_hint}</span><a href="/me/books/{}/chapters/new">Перейти к главам</a></div>
+<span>{chapter_hint}</span><a href="/me/books/{}/chapters/new">Создать главу</a></div>
 <div class="author-book-workspace__step"><strong>3. Описание</strong>
-<span>Проверьте перед публикацией</span><a href="/me/books/{}/description">Редактировать аннотацию</a></div>
+<span>Проверьте перед публикацией</span><a href="/me/books/{}/description">Проверить описание</a></div>
 </div>
 <p class="author-book-workspace__hint">Состояние регистрации и возможность публикации проверяются на сервере. Здесь показаны только доступные сведения.</p>
 </section>"#,
