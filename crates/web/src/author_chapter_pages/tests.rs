@@ -376,3 +376,50 @@ fn author_book_published_state_does_not_show_draft_checklist() {
     assert!(html.contains("Читатели ждут продолжения"));
     assert!(html.contains("href=\"/books/42\""));
 }
+
+#[test]
+fn owner_chapter_editors_use_shared_shell_and_keep_transaction_forms() {
+    let draft = new_chapter(42, "<csrf>", "<command>", false, false, 3).0;
+    assert!(draft.contains("class=\"account-sidebar\""));
+    assert!(draft.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!draft.contains("aria-current=\"page\""));
+    assert!(draft.contains("author-editor-page__breadcrumb"));
+    assert!(draft.contains("id=\"new-chapter-meta\""));
+    assert!(draft.contains("id=\"new-chapter-text\""));
+    assert!(draft.contains("action=\"/me/books/42/chapters\""));
+    assert!(draft.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(draft.contains("name=\"command_key\" value=\"&lt;command&gt;\""));
+    assert!(draft.contains("name=\"number\" type=\"number\""));
+    assert!(draft.contains("name=\"auto_number\" value=\"1\""));
+    assert!(draft.contains("name=\"access\" value=\"free\""));
+    assert!(!draft.contains("name=\"is_delayed_publication\""));
+    assert!(!draft.contains("<!--ACCOUNT_NAVIGATION-->"));
+
+    let public = new_chapter(42, "csrf", "command", true, true, 4).0;
+    assert!(public.contains("name=\"is_delayed_publication\""));
+    assert!(public.contains("<option value=\"paid\">"));
+    assert!(public.contains("name=\"price_amount\""));
+    assert!(public.contains("id=\"new-chapter-text\""));
+
+    let chapter = OwnedChapter {
+        number: 4,
+        title: "Опубликованная глава".to_owned(),
+        body: "</textarea><script>bad()</script>".to_owned(),
+        access: ChapterAccess::Paid,
+        price_amount: 100,
+        revision: 6,
+    };
+    let edit = edit_published_paid_chapter(42, 83, &chapter, "csrf", "key").0;
+    assert!(edit.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(edit.contains("id=\"edit-chapter-meta\""));
+    assert!(edit.contains("id=\"edit-chapter-text\""));
+    assert!(edit.contains("action=\"/me/books/42/chapters/83/edit\""));
+    assert!(edit.contains("name=\"expected_revision\" value=\"6\""));
+    assert!(edit.contains("name=\"title\" type=\"text\""));
+    assert!(edit.contains("readonly required"));
+    assert!(edit.contains("Цена неизменна: 100 копеек."));
+    assert!(edit.contains("href=\"/reader/83\""));
+    assert!(edit.contains("&lt;/textarea&gt;&lt;script&gt;bad()"));
+    assert!(!edit.contains("<script>bad()"));
+    assert!(!edit.contains("<!--ACCOUNT_NAVIGATION-->"));
+}
