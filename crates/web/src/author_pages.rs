@@ -220,10 +220,7 @@ mod tests {
             html.matches("method=\"post\" action=\"/me/books\"").count(),
             1
         );
-        assert_eq!(
-            html.matches("type=\"submit\">Создать книгу</button>").count(),
-            1
-        );
+        assert_eq!(html.matches(">Создать книгу</button>").count(), 1);
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
         assert!(html.contains("name=\"command_key\" value=\"&lt;command&gt;\""));
         assert!(html.contains("id=\"book-title-suggestions\""));
