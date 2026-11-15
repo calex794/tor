@@ -206,8 +206,7 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         ],
         next_after: None,
     };
-    let (hero, metadata, grid) =
-        grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
+    let (hero, metadata, grid) = grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
     assert!(!hero.contains("<script>Пакет</script>"));
     assert!(metadata.contains("expected_revision"));
