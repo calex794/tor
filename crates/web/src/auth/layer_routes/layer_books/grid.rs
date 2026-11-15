@@ -126,6 +126,28 @@ pub(super) fn detail(
         )
     };
 
+    if draft.base_version_id != offer.current_version_id {
+        let recovery = format!(
+            r#"<section class="package-section__stale" role="alert">
+              <h2>Черновик устарел</h2>
+              <p>Состав пакета изменился после сохранения выбора. Переносить
+              прежние галочки на новую версию без проверки нельзя.
+              Сначала очистите старый черновик, затем выберите книги заново.</p>
+              <form method="post" action="/me/layers/{id}/books">
+                <input type="hidden" name="expected_version_id" value="{old}">
+                <input type="hidden" name="draft_revision" value="{rev}">
+                <input type="hidden" name="csrf_token" value="{csrf}">
+                <button class="ui-button ui-button--ghost" name="operation"
+                    value="clear" type="submit">Удалить устаревший черновик</button>
+              </form>
+            </section>"#,
+            id = layer.layer_id,
+            old = draft.base_version_id,
+            rev = draft.revision,
+            csrf = pages::escape_html(csrf),
+        );
+        return (hero, metadata, recovery);
+    }
     if !editable {
         return (
             hero,
