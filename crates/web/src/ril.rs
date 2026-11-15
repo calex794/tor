@@ -435,10 +435,10 @@ mod tests {
         // Alternating guest/reader completions caused every-16th sampling
         // to lock onto just one cohort. Verify both positions are represented.
         let even = (0..3200_u64)
-            .filter(|sequence| sequence % 2 == 0 && sample_perf02_book_get(*sequence))
+            .filter(|sequence| sequence.is_multiple_of(2) && sample_perf02_book_get(*sequence))
             .count();
         let odd = (0..3200_u64)
-            .filter(|sequence| sequence % 2 != 0 && sample_perf02_book_get(*sequence))
+            .filter(|sequence| !sequence.is_multiple_of(2) && sample_perf02_book_get(*sequence))
             .count();
         assert!(even > 40 && even < 160, "even cohort: {even}");
         assert!(odd > 40 && odd < 160, "odd cohort: {odd}");
