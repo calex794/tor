@@ -296,8 +296,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     let price_form = format!(
         "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&confirm_pricing=yes&csrf_token={csrf}"
     );
-    let lifetime_unconfirmed =
-        price_form.replace("term_kind=prepaid_30d", "term_kind=lifetime");
+    let lifetime_unconfirmed = price_form.replace("term_kind=prepaid_30d", "term_kind=lifetime");
     assert_eq!(
         request(
             &app,
@@ -593,13 +592,23 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     );
     let route = "/me/layers/new";
     assert_eq!(
-        request(&app, "GET", route, &cookie, ORIGIN, "").await.status(),
+        request(&app, "GET", route, &cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
         "a reader without a book is not an author"
     );
     assert_eq!(
-        request(&app, "POST", route, &cookie, ORIGIN, "title=Foo&command_key=invalid&csrf_token=invalid")
-            .await.status(),
+        request(
+            &app,
+            "POST",
+            route,
+            &cookie,
+            ORIGIN,
+            "title=Foo&command_key=invalid&csrf_token=invalid"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     pg(
@@ -790,8 +799,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(hidden.contains("Скрыт"));
     assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
     let details = format!("/me/layers/{id}/books");
-    let hidden_details =
-        body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
+    let hidden_details = body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
     assert!(hidden_details.contains("Пакет скрыт от новых покупок"));
     assert!(!hidden_details.contains("name=\"price_rub\""));
     assert!(!hidden_details.contains("name=\"book_id\""));
