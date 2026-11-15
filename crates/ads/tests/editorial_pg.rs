@@ -668,3 +668,39 @@ async fn chapter_end_editorial_skips_disjoint_genres_but_preserves_other_slots()
     }
     f.clean().await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn home_promo_strip_uses_live_acl_and_does_not_require_a_host() {
+    let fixture = Fixture::new().await;
+    let book = fixture.book("promo-home-strip", "basic").await;
+    let active = fixture
+        .active(book, PromotionSlot::HomePromoStrip, 501)
+        .await;
+    let editorial = Editorial::new(&fixture.store);
+    let cards = editorial
+        .cards(None, PromotionSlot::HomePromoStrip, None)
+        .await
+        .unwrap();
+    assert!(cards
+        .iter()
+        .any(|card| card.campaign_id == active.campaign_id));
+    assert!(cards
+        .iter()
+        .all(|card| card.slot == PromotionSlot::HomePromoStrip));
+    assert!(matches!(
+        editorial
+            .cards(None, PromotionSlot::BookDetailRelated, None)
+            .await,
+        Err(EditorialError::Invalid)
+    ));
+    fixture.act(&active, Action::Pause, 503).await.unwrap();
+    let paused = editorial
+        .cards(None, PromotionSlot::HomePromoStrip, None)
+        .await
+        .unwrap();
+    assert!(!paused
+        .iter()
+        .any(|card| card.campaign_id == active.campaign_id));
+    fixture.clean().await;
+}
