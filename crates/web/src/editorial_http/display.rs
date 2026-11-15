@@ -13,6 +13,7 @@ use tor_contracts::exposure::{
 use tor_recommendations::repositories::{feedback::ShelfCardPreview, PgRecommendations};
 
 pub(crate) const MARKER: &str = "<!--EDITORIAL_PROMOTION-->";
+pub(crate) const HOME_STRIP_MARKER: &str = "<!--HOME_PROMO_STRIP-->";
 pub(crate) type Issuer = Option<axum::Extension<Arc<dyn ObservationIssuer>>>;
 pub(crate) fn issuer(value: &Issuer) -> Option<&dyn ObservationIssuer> {
     value.as_ref().map(|extension| extension.0.as_ref())
@@ -83,8 +84,13 @@ impl DisplayRuntime {
         html: Html<String>,
         observation: Option<&dyn ObservationIssuer>,
     ) -> Html<String> {
+        let marker = if slot == PromotionSlot::HomePromoStrip {
+            HOME_STRIP_MARKER
+        } else {
+            MARKER
+        };
         if !self.enabled {
-            return Html(html.0.replace(MARKER, ""));
+            return Html(html.0.replace(marker, ""));
         }
         let started = tokio::time::Instant::now();
         let operation = async {
@@ -139,7 +145,7 @@ impl DisplayRuntime {
             Vec::new()
         };
         Html(html.0.replace(
-            MARKER,
+            marker,
             &render_cards_with_previews(&cards, &previews, observation),
         ))
     }
@@ -159,6 +165,43 @@ fn render_cards_with_previews(
     previews: &[ShelfCardPreview],
     issuer: Option<&dyn ObservationIssuer>,
 ) -> String {
+    if cards
+        .first()
+        .is_some_and(|card| card.slot == PromotionSlot::HomePromoStrip)
+    {
+        // A home strip is one editorial Book offer, not a four-card shelf.
+        let card = &cards[0];
+        let proof = issuer
+            .and_then(|issuer| {
+                issuer.issue(CardObservation {
+                    book_id: card.book_id,
+                    surface: card.slot.surface(),
+                    editorial: Some(EditorialPlacement {
+                        campaign_id: card.campaign_id,
+                        revision: card.revision,
+                        slot: card.slot,
+                    }),
+                })
+            })
+            .map(|proof| format!(" data-flow-proof=\"{}\"", pages::escape_html(&proof)))
+            .unwrap_or_default();
+        return format!(
+            concat!(
+                "<section class=\"tor-promo-strip editorial-promotion\" data-promo-strip ",
+                "aria-label=\"Специальное предложение\" data-editorial-campaign=\"{}\"{}>",
+                "<div class=\"container tor-promo-strip__inner\">",
+                "<div class=\"tor-promo-strip__copy\">",
+                "<span class=\"tor-promo-strip__eyebrow\">Выбор редакции</span>",
+                "<strong>{}</strong></div>",
+                "<a data-flow-link class=\"ui-button tor-promo-strip__cta\" href=\"/books/{}\">",
+                "Открыть книгу</a></div></section>"
+            ),
+            card.campaign_id,
+            proof,
+            pages::escape_html(&card.title),
+            card.book_id
+        );
+    }
     let mut items = String::new();
     for card in cards.iter().take(4) {
         let proof = issuer
@@ -229,6 +272,35 @@ mod tests {
         assert!(!markup.contains("Выбор редакции"));
         assert!(markup.contains("<!--READER_END_ORGANIC_CARDS-->"));
     }
+    #[test]
+    fn home_strip_has_one_accessible_escaped_book_offer() {
+        let cards = vec![
+            EditorialCard {
+                campaign_id: 15,
+                revision: 3,
+                book_id: 20,
+                title: "<script>Акция & книга".into(),
+                slot: PromotionSlot::HomePromoStrip,
+            },
+            EditorialCard {
+                campaign_id: 16,
+                revision: 1,
+                book_id: 21,
+                title: "Другая книга".into(),
+                slot: PromotionSlot::HomePromoStrip,
+            },
+        ];
+        let markup = render_cards(&cards, None);
+        assert!(markup.contains("data-promo-strip"));
+        assert!(markup.contains("aria-label=\"Специальное предложение\""));
+        assert_eq!(markup.matches("data-editorial-campaign=").count(), 1);
+        assert!(markup.contains("/books/20"));
+        assert!(!markup.contains("/books/21"));
+        assert!(markup.contains("&lt;script&gt;Акция &amp; книга"));
+        assert!(!markup.contains("<script>"));
+        assert!(!markup.contains("data-flow-proof"));
+    }
+
     #[test]
     fn preview_does_not_mint_measurements_and_markup_is_escaped() {
         let cards = vec![EditorialCard {

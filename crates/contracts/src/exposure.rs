@@ -46,26 +46,32 @@ impl FromStr for ExposureSurface {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PromotionSlot {
+    HomePromoStrip,
     HomeFeatured,
     BookDetailRelated,
     ChapterEndFree,
 }
 impl PromotionSlot {
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
+        Self::HomePromoStrip,
         Self::HomeFeatured,
         Self::BookDetailRelated,
         Self::ChapterEndFree,
     ];
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::HomePromoStrip => "home_promo_strip",
             Self::HomeFeatured => "home_featured",
             Self::BookDetailRelated => "book_detail_related",
             Self::ChapterEndFree => "chapter_end_free",
         }
     }
+    pub const fn supports_root(self) -> bool {
+        matches!(self, Self::HomePromoStrip | Self::HomeFeatured)
+    }
     pub const fn surface(self) -> ExposureSurface {
         match self {
-            Self::HomeFeatured => ExposureSurface::Home,
+            Self::HomePromoStrip | Self::HomeFeatured => ExposureSurface::Home,
             Self::BookDetailRelated => ExposureSurface::BookDetail,
             Self::ChapterEndFree => ExposureSurface::ReaderEnd,
         }
@@ -125,5 +131,20 @@ pub trait EditorialObservationGuard: Send + Sync {
     /// An unavailable integration must not replace the scope with all books.
     async fn campaign_book(&self, _campaign_id: i64) -> Result<Option<i64>, ObservationGuardError> {
         Err(ObservationGuardError::Unavailable)
+    }
+}
+
+#[cfg(test)]
+mod promotion_slot_tests {
+    use super::*;
+    #[test]
+    fn home_strip_is_an_existing_home_surface_with_no_new_reader_identity() {
+        assert_eq!(
+            "home_promo_strip".parse::<PromotionSlot>(),
+            Ok(PromotionSlot::HomePromoStrip)
+        );
+        assert!(PromotionSlot::HomePromoStrip.supports_root());
+        assert_eq!(PromotionSlot::HomePromoStrip.surface(), ExposureSurface::Home);
+        assert!(!PromotionSlot::ChapterEndFree.supports_root());
     }
 }

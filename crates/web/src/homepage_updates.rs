@@ -24,15 +24,30 @@ pub(super) async fn page(
     )
     .await?;
     let html = if let Some(editorial) = &state.editorial {
-        editorial
+        let html = editorial
             .attach(
                 &headers,
-                tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                tor_contracts::exposure::PromotionSlot::HomePromoStrip,
                 None,
                 html,
                 crate::editorial_http::display::issuer(&observation),
             )
-            .await
+            .await;
+        // The first pilot allows at most one editorial home promotion.
+        // The existing home shelf is a fallback, not a second advertisement.
+        if html.0.contains("data-promo-strip") {
+            Html(html.0.replace(crate::editorial_http::display::MARKER, ""))
+        } else {
+            editorial
+                .attach(
+                    &headers,
+                    tor_contracts::exposure::PromotionSlot::HomeFeatured,
+                    None,
+                    html,
+                    crate::editorial_http::display::issuer(&observation),
+                )
+                .await
+        }
     } else {
         html
     };

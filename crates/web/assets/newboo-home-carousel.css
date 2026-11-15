@@ -111,3 +111,35 @@
 @media (prefers-reduced-motion: reduce) {
   .home-special-carousel__viewport { scroll-behavior: auto; }
 }
+
+/* PROMO-P1: server-rendered home editorial strip. No floating overlays. */
+.tor-promo-strip {
+  padding: 10px 0;
+  background: #131828;
+  color: #f7f8ff;
+}
+.tor-promo-strip__inner {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.tor-promo-strip__copy { display: grid; gap: 4px; min-width: 0; }
+.tor-promo-strip__copy strong {
+  font-size: clamp(16px, 2.3vw, 24px);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.tor-promo-strip__eyebrow {
+  color: #c4b5fd;
+  font-size: 12px;
+  font-weight: 700;
+}
+.tor-promo-strip__cta {
+  flex: 0 0 auto;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .tor-promo-strip__inner { align-items: stretch; flex-direction: column; gap: 10px; }
+  .tor-promo-strip__cta { width: 100%; }
+}
