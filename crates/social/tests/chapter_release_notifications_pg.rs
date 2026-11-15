@@ -179,8 +179,14 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .unwrap();
     // Boundary arguments must be rejected, not silently clamped.
     assert!(repo.stage_immediate_email_intents(0, 8).await.is_err());
-    assert!(repo.stage_immediate_email_intents(follower, 0).await.is_err());
-    assert!(repo.stage_immediate_email_intents(follower, 51).await.is_err());
+    assert!(repo
+        .stage_immediate_email_intents(follower, 0)
+        .await
+        .is_err());
+    assert!(repo
+        .stage_immediate_email_intents(follower, 51)
+        .await
+        .is_err());
     // Explicit opt-in and mailbox proof must precede even queue staging.
     assert_eq!(
         repo.stage_immediate_email_intents(follower, 8)
