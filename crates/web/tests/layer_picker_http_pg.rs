@@ -927,8 +927,8 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     )
     .await;
     assert!(included_page.contains("Another package Book"));
-    assert!(included_page.contains(&format!("name=\\\"chosen_{extra}\\\" value=\\\"1\\\" checked")));
-    assert!(included_page.contains("name=\\\"draft_revision\\\" value=\\\"2\\\""));
+    assert!(included_page.contains(&format!("name=\"chosen_{extra}\" value=\"1\" checked")));
+    assert!(included_page.contains("name=\"draft_revision\" value=\"2\""));
     let review_draft = format!(
         "operation=stage&expected_version_id={draft_version}&draft_revision=2&visible_csv={extra}&chosen_{extra}=1&after=0&filter=included&nav=review&csrf_token={csrf}"
     );
@@ -937,7 +937,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     let review_html = body(review).await;
     assert!(review_html.contains("Добавим: 1"));
     assert!(review_html.contains("Уберём: 1"));
-    assert!(review_html.contains("name=\\\"draft_revision\\\" value=\\\"3\\\""));
+    assert!(review_html.contains("name=\"draft_revision\" value=\"3\""));
     let invalid_apply = format!(
         "operation=apply_draft&expected_version_id={draft_version}&draft_revision=2&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
     );
