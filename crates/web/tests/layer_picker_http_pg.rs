@@ -726,6 +726,63 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     .parse()
     .unwrap();
     assert_eq!((versions, books), (1, 0));
+    let author's_book: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM books WHERE source_identity='ci:d05:create-author:{nonce}'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let current_version: i64 = pg(
+        &url,
+        &format!("SELECT current_version_id FROM commerce_layers WHERE id={id}"),
+    )
+    .parse()
+    .unwrap();
+    let grid = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
+    assert!(grid.contains("class=\"package-grid\""));
+    assert!(grid.contains(&format!("name=\"chosen_{author's_book}\"")));
+    let staged = format!(
+        "operation=preview&expected_version_id={current_version}&visible_csv={author's_book}&included_csv=&chosen_{author's_book}=1&csrf_token={csrf}"
+    );
+    let review = request(&app, "POST", &destination, &cookie, ORIGIN, &staged).await;
+    assert_eq!(review.status(), StatusCode::OK);
+    let review_html = body(review).await;
+    assert!(review_html.contains("Подтвердить изменения пакета"));
+    assert!(review_html.contains("Добавим: 1"));
+    assert!(review_html.contains("Уберём: 0"));
+    assert!(review_html.contains("0 существующих оплаченных прав"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT current_version_id FROM commerce_layers WHERE id={id}")
+        ).parse::<i64>().unwrap(),
+        current_version,
+        "preview must not change composition",
+    );
+    let apply = format!(
+        "operation=apply&expected_version_id={current_version}&add_csv={author's_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
+    );
+    let wrong_count = apply.replace("active_buyers=0", "active_buyers=1");
+    assert_eq!(
+        request(&app, "POST", &destination, &cookie, ORIGIN, &wrong_count)
+            .await.status(),
+        StatusCode::CONFLICT,
+    );
+    let applied = request(&app, "POST", &destination, &cookie, ORIGIN, &apply).await;
+    assert_eq!(applied.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM commerce_layer_version_books vb
+                 JOIN commerce_layers l ON l.current_version_id=vb.layer_version_id
+                 WHERE l.id={id} AND vb.book_id={author's_book}"
+            )
+        ),
+        "1",
+    );
     let dashboard = body(request(&app, "GET", "/me/books", &cookie, ORIGIN, "").await).await;
     assert!(dashboard.contains(&destination));
     assert!(dashboard.contains("New Layer"));
