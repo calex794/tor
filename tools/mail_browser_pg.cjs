@@ -1,6 +1,13 @@
 // E-08/S057: three real accounts, private mail, polling and blocking.
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
+
+function reportMailPhase(viewport, phase, started) {
+  const finished = performance.now();
+  console.log(`CI_BROWSER_MAIL_PHASE_SECONDS scenario=tools/mail_browser_pg.cjs viewport=${viewport} phase=${phase} seconds=${((finished - started) / 1000).toFixed(3)}`);
+  return finished;
+}
 const { execFileSync } = require('node:child_process');
 // Fixture-only identity lookup for participant ACL checks; start uses real profile click.
 function fixtureUser(email) {
@@ -32,6 +39,7 @@ module.exports = async (browser, base, out) => {
   // notifications and book fixtures. Run both complete journeys concurrently.
   await Promise.all([['desktop', 1440], ['mobile', 390]].map(async ([name, width]) => {
     const clients = [];
+    let checkpoint = performance.now();
     try {
       for (const suffix of ['a', 'b', 'c', 'd']) {
         const context = await browser.newContext({ viewport: { width, height: 900 } });
@@ -47,6 +55,7 @@ module.exports = async (browser, base, out) => {
         const id = fixtureUser(`mail.${name}.${suffix}@example.test`);
         clients.push({ context, page, id });
       }
+      checkpoint = reportMailPhase(name, 'registration_4_accounts', checkpoint);
       const [a, b, c, d] = clients;
       // S038: creator financial statement is private even for accounts
       // with zero earnings, and external cash-out stays default OFF.
@@ -75,6 +84,7 @@ module.exports = async (browser, base, out) => {
       assert.equal(deniedPayout.status(), 404, 'default-off creator payout POST');
       const financeSize = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       assert(financeSize[0] <= financeSize[1] + 1, 'creator finance has no horizontal overflow');
+      checkpoint = reportMailPhase(name, 'finance_and_access', checkpoint);
       // E2E profile entry: no fixture POST or invented recipient picker.
       await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' b'));
       await a.page.getByRole('button', { name: 'Почта', exact: true }).click();
@@ -103,6 +113,7 @@ module.exports = async (browser, base, out) => {
       assert.equal(replay.status(), 303);
       await b.page.locator('.mail-message-body').filter({ hasText: marker }).waitFor({ timeout: 15000 });
       assert.equal(await b.page.locator('[data-message-id]').count(), 1, 'polling and retry deliver one canonical message');
+      checkpoint = reportMailPhase(name, 'mail_send_and_replay', checkpoint);
       // An actual browser recipient gets one in-app notification. This is
       // separate from the NEwBOO mail read state; retries create no duplicates.
       await b.page.goto(base + '/notifications');
@@ -140,6 +151,7 @@ module.exports = async (browser, base, out) => {
       await b.page.waitForURL('**' + conversation);
       await b.page.goto(base + '/notifications');
       assert((await b.page.locator('[data-notification-id="' + notificationId + '"]').innerText()).includes('Прочитано'));
+      checkpoint = reportMailPhase(name, 'notification_delivery_and_acl', checkpoint);
       // S018: yesterday's on-site release digest must never borrow private mail
       // text, current-day events, or another reader's notification projection.
       await b.page.goto(base + '/notifications?tab=digest');
@@ -161,6 +173,7 @@ module.exports = async (browser, base, out) => {
       assert.equal(await b.page.locator('#mail-messages a[href="/books/2"]').count(), 0, 'no hidden-book preview');
       assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third account denied');
       const conversationId = conversation.split('/').at(-1);
+      checkpoint = reportMailPhase(name, 'digest_and_acl', checkpoint);
       // CI simulates a real signed BIGINT ID beyond Number.MAX_SAFE_INTEGER.
       // Never truncate the cursor in JS: first poll returns this synthetic ID,
       // the next GET must carry exactly the same decimal digits. The fixture
@@ -209,6 +222,7 @@ module.exports = async (browser, base, out) => {
       await b.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
       await b.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
       await a.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
+      checkpoint = reportMailPhase(name, 'cursor_and_reply', checkpoint);
       // A transcript longer than the initial 50-message page: older AJAX prepends
       // into the current transcript without losing recent messages or duplicating IDs.
       for (let n = 0; n < 53; n++) {
@@ -227,6 +241,7 @@ module.exports = async (browser, base, out) => {
       assert.equal(await a.page.locator('.mail-message-body').filter({hasText: marker}).count(), 2);
       const messageIds = await a.page.locator('[data-message-id]').evaluateAll(els => els.map(e => e.dataset.messageId));
       assert.equal(new Set(messageIds).size, 55);
+      checkpoint = reportMailPhase(name, 'history_pagination_53', checkpoint);
       // Public numeric links become cards via the same ACL in AJAX, polling and SSR.
       const publicBook = fixtureBook('public');
       const hiddenBook = fixtureBook('draft');
@@ -250,6 +265,7 @@ module.exports = async (browser, base, out) => {
       assert.equal(bookMessage.book_previews[0].cover_url, '');
       assert(bookMessage.body_without_book_links.includes('/books/' + hiddenBook));
       assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third user is still denied');
+      checkpoint = reportMailPhase(name, 'book_preview_acl', checkpoint);
       // S015: both pending-request exits must be usable from each HTML surface.
       for (const surface of ['profile', 'mail']) {
         const aUrl = surface === 'profile'
@@ -327,8 +343,10 @@ module.exports = async (browser, base, out) => {
       await a.page.screenshot({ path: path.join(out, `mail-conversation-${name}.png`), fullPage: true });
       const sizes = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       assert(sizes[0] <= sizes[1] + 1, 'mail page has no horizontal overflow');
+      checkpoint = reportMailPhase(name, 'friendship_blocking', checkpoint);
       console.log(`S015 ${name}: profile/mail request/cancel/reject/accept/block with PG and CSRF PASS`);
       await require('./s015_notification_privacy_browser_pg.cjs')(a, b, c, base, out, name, conversation);
+      checkpoint = reportMailPhase(name, 'notification_privacy', checkpoint);
       // HTML remains usable with scripting disabled.
       const noJs = await browser.newContext({ javaScriptEnabled: false, storageState: await a.context.storageState(), viewport: { width, height: 900 } });
       try {
@@ -340,6 +358,7 @@ module.exports = async (browser, base, out) => {
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
+      checkpoint = reportMailPhase(name, 'no_js_fallback', checkpoint);
       // Exercise the actual group-mail UI rather than only compiling routes
       // and testing HTTP forms. d remains a nonmember for negative checks.
       await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' c'));
@@ -394,6 +413,7 @@ module.exports = async (browser, base, out) => {
       const groupSizes = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
       assert(groupSizes[0] <= groupSizes[1] + 1, 'group page has no horizontal overflow');
 
+      checkpoint = reportMailPhase(name, 'group_create_and_message', checkpoint);
       // C is a real member and must receive an on-site group notification,
       // whereas the fourth account never gets any private group notification.
       await c.page.goto(base + '/notifications');
@@ -419,6 +439,7 @@ module.exports = async (browser, base, out) => {
       assert.equal((await c.context.request.get(base + groupPath)).status(), 200,
         'other members retain access when someone exits');
 
+      checkpoint = reportMailPhase(name, 'group_notice_and_leave', checkpoint);
       // A creator's POST only proposes. Ownership stays put until the
       // addressed participant explicitly accepts from their own session.
       await a.page.goto(base + groupPath);
@@ -496,6 +517,7 @@ module.exports = async (browser, base, out) => {
         .filter({ hasText: 'Предложение управлять группой' }).count(), 0,
         'accepted transfer must disappear from the recipient notification inbox');
 
+      checkpoint = reportMailPhase(name, 'group_transfer', checkpoint);
       // A pending invitation is not membership: D cannot read until accepting.
       await c.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' d'));
       await c.page.getByRole('button', { name: 'Почта', exact: true }).click();
@@ -530,9 +552,14 @@ module.exports = async (browser, base, out) => {
       await c.page.waitForURL('**/mail/groups');
       assert.equal((await c.context.request.get(base + groupPath)).status(), 404,
         'explicit disband permanently removes the group');
+      checkpoint = reportMailPhase(name, 'group_invite_disband', checkpoint);
       console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline/disband PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
-    } finally { for (const client of clients) await client.context.close(); }
+    } finally {
+      // Preserve original failure propagation and serial context cleanup.
+      for (const client of clients) await client.context.close();
+      reportMailPhase(name, 'context_cleanup', checkpoint);
+    }
   }));
 };
 

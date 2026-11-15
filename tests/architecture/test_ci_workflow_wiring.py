@@ -344,6 +344,37 @@ class WorkflowWiringTests(unittest.TestCase):
         for filename in ("reader_visual_smoke.cjs", "search_visual_smoke.cjs"):
             self.assertIn("ci_timed_browser tools/" + filename, reader)
 
+    def test_reader_visual_phase_timing_preserves_serial_postgres_journeys(self):
+        script = (ROOT / "tools/reader_visual_smoke.cjs").read_text()
+        self.assertIn("const { performance } = require('node:perf_hooks');", script)
+        self.assertIn("CI_BROWSER_PHASE_SECONDS scenario=", script)
+        self.assertIn("CI_BROWSER_IO_SECONDS scenario=", script)
+        self.assertIn("reportPhase('total', 'all', suiteStarted)", script)
+        self.assertIn("reportIoTotals();", script)
+        self.assertEqual(script.count("for (const [name, width, height] of"), 3)
+        self.assertNotIn("Promise.all([['desktop'", script)
+        self.assertEqual(script.count("await page.screenshot({"), 1)
+        self.assertIn("fullPage: true", script)
+        for phase in (
+            "guest_toc", "guest_paywall", "guest_comments", "guest_reader",
+            "guest_denials", "theme_light", "registration_validation",
+            "registration_success", "reader_resume", "chapter_discussion",
+            "completion_ranking", "login_and_errors", "comment_spoilers",
+            "mail_browser", "support_browser",
+        ):
+            with self.subTest(phase=phase):
+                self.assertIn(phase, script)
+        self.assertIn("await require('./mail_browser_pg.cjs')", script)
+        self.assertIn("await require('./support_browser_pg.cjs')", script)
+
+        mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
+        self.assertIn("CI_BROWSER_MAIL_PHASE_SECONDS scenario=", mail)
+        self.assertIn("await Promise.all([['desktop', 1440], ['mobile', 390]]", mail)
+        self.assertIn("for (let n = 0; n < 53; n++)", mail)
+        self.assertEqual(mail.count("reportMailPhase(name, '"), 16)
+        self.assertIn("reportMailPhase(name, 'group_transfer', checkpoint)", mail)
+        self.assertIn("reportMailPhase(name, 'context_cleanup', checkpoint)", mail)
+
     def test_pg_timing_keeps_six_ordered_phases_and_full_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
         manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]

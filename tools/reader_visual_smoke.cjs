@@ -2,6 +2,46 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { performance } = require('node:perf_hooks');
+const timingScenario = 'tools/reader_visual_smoke.cjs';
+const ioTotals = {
+  goto: { count: 0, elapsedMs: 0 },
+  reload: { count: 0, elapsedMs: 0 },
+  screenshot: { count: 0, elapsedMs: 0 }
+};
+
+function reportPhase(phase, viewport, started) {
+  const finished = performance.now();
+  console.log(`CI_BROWSER_PHASE_SECONDS scenario=${timingScenario} phase=${phase} viewport=${viewport} seconds=${((finished - started) / 1000).toFixed(3)}`);
+  return finished;
+}
+
+async function measureIo(operation, execute) {
+  const started = performance.now();
+  try {
+    return await execute();
+  } finally {
+    ioTotals[operation].count += 1;
+    ioTotals[operation].elapsedMs += performance.now() - started;
+  }
+}
+
+async function timedGoto(page, ...args) {
+  return measureIo('goto', () => page.goto(...args));
+}
+
+async function timedReload(page, ...args) {
+  return measureIo('reload', () => page.reload(...args));
+}
+
+function reportIoTotals() {
+  // Only direct calls in this script are included; click-driven navigations
+  // and nested browser modules are covered by phase totals, not IO totals.
+  for (const [operation, values] of Object.entries(ioTotals)) {
+    console.log(`CI_BROWSER_IO_SECONDS scenario=${timingScenario} operation=${operation} scope=main_script count=${values.count} seconds=${(values.elapsedMs / 1000).toFixed(3)}`);
+  }
+}
+
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_READER_SHOTS || 'reader-shots';
 fs.mkdirSync(out, { recursive: true });
@@ -41,15 +81,24 @@ async function inspect(page, name, where) {
   assert(metrics.content <= metrics.viewport + 1 && metrics.body <= metrics.viewport + 1,
     name + ': ' + where + ' horizontal overflow ' + JSON.stringify(metrics));
   assert(await page.locator('h1').isVisible(), name + ': missing h1');
-  await page.screenshot({ path: path.join(out, name + '-' + where + '.png'), fullPage: true });
+  const screenshotStarted = performance.now();
+  try {
+    await page.screenshot({ path: path.join(out, name + '-' + where + '.png'), fullPage: true });
+  } finally {
+    ioTotals.screenshot.count += 1;
+    ioTotals.screenshot.elapsedMs += performance.now() - screenshotStarted;
+  }
 }
 
 (async () => {
+  const suiteStarted = performance.now();
   const browser = await chromium.launch({ headless: true });
+  reportPhase('chromium_launch', 'all', suiteStarted);
   try {
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      let checkpoint = performance.now();
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-      const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
+      const book = await timedGoto(page, base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
       const hero = await page.locator('.book-hero-card').evaluate(node => {
         const bounds = selector => node.querySelector(selector).getBoundingClientRect().toJSON();
@@ -71,6 +120,7 @@ async function inspect(page, name, where) {
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');
       await inspectBookTocContrast(page, name);
       await inspect(page, name, 'toc');
+      checkpoint = reportPhase('guest_toc', name, checkpoint);
       // S005: a visible paid TOC entry must lead to an explanatory page,
       // not an empty 404, an invented checkout, or private chapter text.
       const paidLink = page.getByRole('link', { name: /Глава 3\. Платная глава/ });
@@ -85,7 +135,7 @@ async function inspect(page, name, where) {
         name + ': paywall return link missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
         name + ': paid chapter leaked in paywall');
-      const paidResponse = await page.goto(base + '/reader/103');
+      const paidResponse = await timedGoto(page, base + '/reader/103');
       assert(paidResponse && paidResponse.status() === 200,
         name + ': published paid chapter should show access explanation');
       assert((paidResponse.headers()['cache-control'] || '').includes('no-store'),
@@ -93,7 +143,8 @@ async function inspect(page, name, where) {
       assert((paidResponse.headers()['x-robots-tag'] || '').includes('noindex'),
         name + ': paywall must not be indexed');
       await inspect(page, name, 'paywall');
-      await page.goto(base + '/books/1');
+      checkpoint = reportPhase('guest_paywall', name, checkpoint);
+      await timedGoto(page, base + '/books/1');
       // E-02: Chromium must exercise the actual NEwBOO discussion link and page,
       // not just HTTP tests of the Rust handlers. Use only public fixture data.
       const commentsLink = page.getByRole('link', { name: 'Читать и оставить комментарий' });
@@ -113,13 +164,14 @@ async function inspect(page, name, where) {
         !commentsHTML.includes('PRIVATE-DRAFT-MARKER'),
         name + ': private text leaked through discussion page');
       await inspect(page, name, 'comments-guest');
-      const hiddenDiscussion = await page.goto(base + '/books/2/comments');
+      checkpoint = reportPhase('guest_comments', name, checkpoint);
+      const hiddenDiscussion = await timedGoto(page, base + '/books/2/comments');
       assert(hiddenDiscussion && hiddenDiscussion.status() === 404,
         name + ': hidden book discussion must be denied');
       assert((hiddenDiscussion.headers()['cache-control'] || '').includes('no-store'),
         name + ': hidden discussion response must not enter shared caches');
-      await page.goto(base + '/books/1');
-      const pageOne = await page.goto(base + '/books/1?limit=1');
+      await timedGoto(page, base + '/books/1');
+      const pageOne = await timedGoto(page, base + '/books/1?limit=1');
       assert(pageOne && pageOne.status() === 200, name + ': paginated book HTTP');
       assert(await page.getByRole('link', { name: 'Следующие главы' }).isVisible(),
         name + ': missing keyset navigation');
@@ -129,7 +181,7 @@ async function inspect(page, name, where) {
         name + ': second keyset page invisible');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
         name + ': paid body leaked in keyset page');
-      await page.goto(base + '/books/1');
+      await timedGoto(page, base + '/books/1');
       await page.getByRole('link', { name: /Глава 1\. Начало истории/ }).click();
       await page.waitForURL('**/reader/101');
       assert(await page.locator('.reader-public .reader-topbar__back[href="/books/1"]').isVisible(),
@@ -191,7 +243,7 @@ async function inspect(page, name, where) {
         localStorage.setItem('readerSettings',
           JSON.stringify({ ...saved, renderMode: 'paginated' }));
       });
-      await page.reload({ waitUntil: 'load' });
+      await timedReload(page, { waitUntil: 'load' });
       await page.locator('[data-free-settings-open]').click();
       await page.locator('[data-free-theme="sepia"]').click();
       await page.locator('[data-free-font-family="sans"]').click();
@@ -199,7 +251,7 @@ async function inspect(page, name, where) {
       await page.locator('[data-free-line-height]').fill('200');
       await page.locator('[data-free-reader-width]').fill('980');
       await page.keyboard.press('Escape');
-      await page.reload({ waitUntil: 'load' });
+      await timedReload(page, { waitUntil: 'load' });
       const preferences = await page.evaluate(() => ({
         theme: document.documentElement.dataset.freeReaderTheme,
         width: document.querySelector('[data-free-reader]').style.getPropertyValue('--free-reader-width'),
@@ -214,7 +266,7 @@ async function inspect(page, name, where) {
       await page.locator('[data-free-settings-open]').click();
       await page.locator('[data-free-settings-reset]').click();
       await page.keyboard.press('Escape');
-      await page.reload({ waitUntil: 'load' });
+      await timedReload(page, { waitUntil: 'load' });
       assert(await page.locator('[data-free-font-output]').textContent() === '100%',
         name + ': reset not persisted');
       const afterReset = await page.evaluate(() =>
@@ -228,12 +280,13 @@ async function inspect(page, name, where) {
       assert(!html.includes('PRIVATE-PAID-MARKER'), name + ': paid body leaked');
       assert(html.includes('д'.repeat(1200)), name + ': long Unicode fixture missing');
       await inspect(page, name, 'reader');
+      checkpoint = reportPhase('guest_reader', name, checkpoint);
       for (const url of [
         '/api/v1/chapters/101/read',
         '/api/v1/chapters/103/read?purchase_id=999',
         '/api/v1/chapters/102/read?preview=1'
       ]) {
-        const denied = await page.goto(base + url);
+        const denied = await timedGoto(page, base + url);
         assert(denied && denied.status() === 404, name + ': alternative reader access ' + url);
         assert((denied.headers()['cache-control'] || '').includes('no-store'),
           name + ': cacheable alternative reader denial ' + url);
@@ -241,7 +294,7 @@ async function inspect(page, name, where) {
           name + ': private marker leaked from ' + url);
       }
       for (const denied of ['/reader/102', '/reader/104', '/books/2', '/api/v1/books/2/toc']) {
-        const response = await page.goto(base + denied);
+        const response = await timedGoto(page, base + denied);
         assert(response && response.status() === 404, name + ': denied URL ' + denied);
         assert((response.headers()['cache-control'] || '').includes('no-store'),
           name + ': shared-cacheable denied URL ' + denied);
@@ -258,11 +311,13 @@ async function inspect(page, name, where) {
         }
       }
       await page.close();
+      reportPhase('guest_denials', name, checkpoint);
     }
     // H-web-07: real source dark tokens and original dark logo, no JavaScript.
     // The old NEwBOO manual theme control is intentionally not advertised
     // until the strict script-src 'none' policy has a reviewed server alternative.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      let checkpoint = performance.now();
       const page = await browser.newPage({
         viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
       });
@@ -274,7 +329,7 @@ async function inspect(page, name, where) {
         ['reader', '/reader/101'],
         ['register', '/register']
       ]) {
-        const response = await page.goto(base + url, { waitUntil: 'load' });
+        const response = await timedGoto(page, base + url, { waitUntil: 'load' });
         assert(response && response.status() === 200,
           name + ': dark theme ' + location + ' failed HTTP');
         const css = await page.evaluate(() => {
@@ -304,9 +359,10 @@ async function inspect(page, name, where) {
             name + ': dark mobile menu not usable');
           await page.locator('.site-mobile-menu__trigger').click();
         }
+        checkpoint = reportPhase('theme_dark_' + location, name, checkpoint);
       }
       await page.emulateMedia({ colorScheme: 'light' });
-      await page.goto(base + '/catalog', { waitUntil: 'load' });
+      await timedGoto(page, base + '/catalog', { waitUntil: 'load' });
       const restored = await page.evaluate(() => {
         const root = getComputedStyle(document.documentElement);
         return {
@@ -324,14 +380,16 @@ async function inspect(page, name, where) {
         name + ': original light logo and surface not restored');
       await inspect(page, name + '-light', 'catalog');
       await page.close();
+      reportPhase('theme_light', name, checkpoint);
     }
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      let checkpoint = performance.now();
       const context = await browser.newContext({
         viewport: { width, height }, deviceScaleFactor: 1
       });
       const page = await context.newPage();
-      await page.goto(base + '/register');
+      await timedGoto(page, base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
       assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
         name + ': original NEwBOO panda missing on registration');
@@ -340,6 +398,7 @@ async function inspect(page, name, where) {
       assert(await page.locator('form[action="/register"][novalidate]').count() === 1,
         name + ': browser-native English validation must be disabled');
       await inspect(page, name, 'register');
+      checkpoint = reportPhase('registration_form', name, checkpoint);
       await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('1234');
@@ -356,6 +415,7 @@ async function inspect(page, name, where) {
       assert(await page.getByLabel('Пароль (12–128 символов)').inputValue() === '',
         name + ': submitted password must not be replayed');
       await inspect(page, name, 'register-validation');
+      checkpoint = reportPhase('registration_validation', name, checkpoint);
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
       const beforeCookies = await page.context().cookies(base);
       const beforeCsrf = beforeCookies.find(c => c.name === 'tor-dev-csrf');
@@ -402,12 +462,13 @@ async function inspect(page, name, where) {
       assert(!(await page.content()).includes('<h2>Приватность</h2>'),
         name + ': obsolete privacy panel still rendered');
       await inspect(page, name, 'me');
+      checkpoint = reportPhase('registration_success', name, checkpoint);
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
       // S007: a book can be saved before any progress or purchase is recorded.
-      await page.goto(base + '/books/1');
+      await timedGoto(page, base + '/books/1');
       await page.getByRole('link', { name: 'Добавить в библиотеку' }).click();
       await page.waitForURL('**/me/library/add/1');
       assert(await page.getByRole('button', { name: 'Сохранить книгу' }).isVisible(),
@@ -419,6 +480,7 @@ async function inspect(page, name, where) {
       assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
         name + ': personal bookmark missing');
       await inspect(page, name, 'bookmarked');
+      checkpoint = reportPhase('library_bookmark', name, checkpoint);
       await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
       await page.waitForURL('**/me/library');
       await page.getByRole('link', { name: 'Сохранено' }).click();
@@ -427,7 +489,7 @@ async function inspect(page, name, where) {
         name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
-      await page.goto(base + '/reader/101', { waitUntil: 'load' });
+      await timedGoto(page, base + '/reader/101', { waitUntil: 'load' });
       const progressArticle = page.locator('[data-free-progress-chapter="101"]');
       assert(await progressArticle.count() === 1,
         name + ': authenticated free reader has no progress metadata');
@@ -436,14 +498,14 @@ async function inspect(page, name, where) {
       await page.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
       // Merely opening a chapter and leaving must NOT create ChapterStarted.
-      await page.goto(base + '/books/1', { waitUntil: 'load' });
+      await timedGoto(page, base + '/books/1', { waitUntil: 'load' });
       const unopened = await page.request.get(base +
         '/api/v1/me/progress/free?chapter_id=101');
       const untouched = await unopened.json();
       assert(unopened.status() === 200 && untouched.revision === 0 &&
         untouched.block_id === null,
         name + ': GET/pagehide created progress without reading');
-      await page.goto(base + '/reader/101', { waitUntil: 'load' });
+      await timedGoto(page, base + '/reader/101', { waitUntil: 'load' });
       await page.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
       const progressPost = page.waitForResponse(response =>
@@ -468,7 +530,7 @@ async function inspect(page, name, where) {
       assert(cursor.block_id === sent.block_id &&
         cursor.char_offset === sent.char_offset && cursor.revision > 0,
         name + ': PostgreSQL cursor does not match auto-save');
-      await page.reload({ waitUntil: 'load' });
+      await timedReload(page, { waitUntil: 'load' });
       await page.waitForFunction(() => {
         const article = document.querySelector('[data-free-progress-chapter]');
         return article && (article.dataset.freeProgressRestored === '1' ||
@@ -482,6 +544,7 @@ async function inspect(page, name, where) {
         name + ': second browser tab did not restore PostgreSQL cursor');
       await secondTab.close();
       await inspect(page, name, 'free-resume');
+      checkpoint = reportPhase('reader_resume', name, checkpoint);
       // S047: a selected excerpt on the public themed page must bind to the
       // exact current ChapterVersion and canonical UTF-16 block, not free text.
       const selectIssueQuote = async () => page.evaluate(() => {
@@ -617,14 +680,15 @@ async function inspect(page, name, where) {
       assert(await chapterComments.getByText('Ответ ' + name, { exact: true }).count() === 1,
         name + ': chapter reply not visible after posting');
       await inspect(page, name, 'chapter-discussion');
+      checkpoint = reportPhase('chapter_discussion', name, checkpoint);
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
-      await page.goto(base + '/read/101');
+      await timedGoto(page, base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
       assert(await page.getByRole('button', { name: 'Сохранить после фрагмента 1' }).isVisible(), name + ': save control missing');
       await inspect(page, name, 'private-reader');
       await page.getByRole('button', { name: 'Сохранить после фрагмента 1' }).click();
       await page.waitForURL('**/read/101#p-1');
-      await page.goto(base + '/me/library');
+      await timedGoto(page, base + '/me/library');
       assert(await page.getByRole('link', { name: 'Продолжить' }).isVisible(), name + ': resume card missing');
       assert(await page.getByText('Фрагмент 1').isVisible(), name + ': saved anchor missing');
       // The fixture has no published cover slot: the server must not render an image.
@@ -633,16 +697,17 @@ async function inspect(page, name, where) {
       assert(await page.locator('.library-reading-card .library-book-art__glyph').count() === 1,
         name + ': missing cover must preserve the illustrated fallback');
       await inspect(page, name, 'library-saved');
+      checkpoint = reportPhase('private_library', name, checkpoint);
       await page.getByRole('link', { name: 'Продолжить' }).click();
       await page.waitForURL('**/read/101#p-1');
       assert(await page.getByRole('link', { name: 'Перейти к сохранённому месту' }).isVisible(), name + ': resume target missing');
 
       // F-05: real browser, no script required in the reader itself.
       // Saving an ordinary paragraph must not mint a completion or a ranking.
-      await page.goto(base + '/me/rankings');
+      await timedGoto(page, base + '/me/rankings');
       assert(await page.getByText('Пока нет книг для сравнения').isVisible(),
         name + ': saved position incorrectly counted as completed chapter');
-      await page.goto(base + '/read/101');
+      await timedGoto(page, base + '/read/101');
       const completeButton = page.getByRole('button', { name: 'Глава прочитана' });
       assert(await completeButton.isVisible(), name + ': explicit finish button missing');
       assert(await page.locator('form[action="/read/101/complete"]').count() === 1,
@@ -669,17 +734,18 @@ async function inspect(page, name, where) {
       assert(await page.locator('.ranking-book__place').innerText() === 'Место 1',
         name + ': verified first book must occupy first rank');
       await inspect(page, name, 'completed-ranking');
-      await page.goto(base + '/read/101');
+      checkpoint = reportPhase('completion_ranking', name, checkpoint);
+      await timedGoto(page, base + '/read/101');
       assert(await page.getByText('Глава уже отмечена прочитанной').isVisible(),
         name + ': durable completed state missing after reload');
       assert(await page.getByRole('button', { name: 'Глава прочитана' }).count() === 0,
         name + ': repeat completion action must be hidden');
 
       for (const denied of ['/read/102', '/read/103', '/read/104', '/read/105']) {
-        const response = await page.goto(base + denied);
+        const response = await timedGoto(page, base + denied);
         assert(response && response.status() === 404, name + ': private denied ' + denied);
       }
-      await page.goto(base + '/me');
+      await timedGoto(page, base + '/me');
       await page.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
@@ -691,7 +757,7 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me');
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
       // Same address as an existing account: a proper styled 409 page, never raw text.
-      await page.goto(base + '/register');
+      await timedGoto(page, base + '/register');
       await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
@@ -720,12 +786,23 @@ async function inspect(page, name, where) {
         name + ': registration error has unreadable foreground in dark mode');
       await inspect(page, name + '-dark', 'registration-error');
       await context.close();
+      reportPhase('login_and_errors', name, checkpoint);
     }
+    let auxiliaryStarted = performance.now();
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
+    reportPhase('comment_spoilers', 'all', auxiliaryStarted);
+    auxiliaryStarted = performance.now();
     await require('./mail_browser_pg.cjs')(browser, base, out);
+    reportPhase('mail_browser', 'all', auxiliaryStarted);
+    auxiliaryStarted = performance.now();
     await require('./support_browser_pg.cjs')(browser, base, out);
+    reportPhase('support_browser', 'all', auxiliaryStarted);
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
+    const closeStarted = performance.now();
     await browser.close();
+    reportPhase('chromium_close', 'all', closeStarted);
+    reportIoTotals();
+    reportPhase('total', 'all', suiteStarted);
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
