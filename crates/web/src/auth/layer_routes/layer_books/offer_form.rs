@@ -67,4 +67,3 @@ pub(super) fn offer_form_html(layer: i64, offer: &LayerOwnerOfferState, csrf: &s
         pages::escape_html(csrf),
     )
 }
-
