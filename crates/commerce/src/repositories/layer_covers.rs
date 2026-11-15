@@ -149,9 +149,9 @@ impl PgLayerCovers {
                 && key.len() <= 512
                 && !key.contains("..")
                 && !key.contains("//")
-                && key.bytes().all(|b| {
-                    b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.')
-                })
+                && key
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'))
         };
         if !safe_key(upload.card_key)
             || !safe_key(upload.main_key)
@@ -330,14 +330,12 @@ impl PgLayerCovers {
         if !authorized {
             return Err(LayerError::Inaccessible);
         }
-        let row = sqlx::query(
-            "SELECT layer_id FROM commerce_layer_cover_candidates WHERE id=$1",
-        )
-        .bind(candidate.get())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?
-        .ok_or(LayerError::Inaccessible)?;
+        let row = sqlx::query("SELECT layer_id FROM commerce_layer_cover_candidates WHERE id=$1")
+            .bind(candidate.get())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(unavailable)?
+            .ok_or(LayerError::Inaccessible)?;
         let layer_id: i64 = row.try_get("layer_id").map_err(unavailable)?;
         // Prevent two moderators from simultaneously approving different candidates.
         sqlx::query("SELECT id FROM commerce_layers WHERE id=$1 FOR UPDATE")
