@@ -337,7 +337,7 @@ mod tests {
         assert!(html.contains("name=\"expected_revision\" value=\"5\""));
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
         assert_eq!(html.matches("name=\"status\"").count(), 2);
-        assert_eq!(html.matches("name=\"description\"").count(), 2);
+        assert_eq!(html.matches("name=\"description\" maxlength=\"2000\" rows=\"3\"").count(), 2);
         assert_eq!(html.matches("name=\"title\"").count(), 2);
         assert!(html.contains("value=\"active\" selected"));
         assert!(html.contains("value=\"hidden\" selected"));
