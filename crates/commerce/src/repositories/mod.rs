@@ -10,6 +10,7 @@ pub mod direct_exposure;
 pub mod direct_swaps;
 pub mod entitlements;
 pub mod layer_composition;
+pub mod layer_cover_choice;
 pub mod layer_creation;
 pub mod layer_drafts;
 pub(crate) mod layer_economics;
