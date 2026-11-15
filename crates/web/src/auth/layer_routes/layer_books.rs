@@ -136,7 +136,7 @@ fn picker_html(
     offer: &LayerOwnerOfferState,
     csrf: &str,
 ) -> axum::response::Html<String> {
-    picker_html_with_query(layer, page, current, offer, csrf, "")
+    picker_html_with_query(layer, page, current, offer, csrf, "", true)
 }
 
 fn encoded_search_suffix(query: &str) -> String {
@@ -161,7 +161,58 @@ fn picker_html_with_query(
     offer: &LayerOwnerOfferState,
     csrf: &str,
     query: &str,
+    editable: bool,
 ) -> axum::response::Html<String> {
+    if !editable {
+        let mut current_list = String::from("<ul class=\"author-layers-page__books\">");
+        for book in &current.books {
+            write!(
+                current_list,
+                "<li><span>{}</span></li>",
+                pages::escape_html(&book.title),
+            )
+            .expect("write String");
+        }
+        current_list.push_str("</ul>");
+        if current.books.is_empty() {
+            current_list = String::from("<p>Книги пока не добавлены.</p>");
+        }
+        if let Some(cursor) = current.next_after {
+            write!(
+                current_list,
+                r#"<p><a href="/me/layers/{layer}/books?current_after={cursor}">Следующие книги в пакете</a></p>"#,
+            )
+            .expect("write String");
+        }
+        let terms = match (offer.price_minor, offer.term_kind) {
+            (Some(price), Some(kind)) => format!(
+                "Последняя опубликованная цена: {},{:02} ₽; {}.",
+                price / 100,
+                price % 100,
+                if kind == LayerTermKind::Lifetime { "бессрочно" } else { "30 дней" },
+            ),
+            _ => "Цена ещё не опубликована.".to_owned(),
+        };
+        let hint = "<p>Пакет скрыт от новых покупок. Состав и цену нельзя менять, пока он скрыт. Название, описание и видимость можно изменить в разделе «Мои пакеты».</p>";
+        let content = include_str!("../../../templates/author_layer_books.html")
+            .replace(
+                "<!--ACCOUNT_NAVIGATION-->",
+                &pages::account_navigation("/me/layers", csrf),
+            )
+            .replace("<!--CURRENT_BOOKS-->", &current_list)
+            .replace("<!--BOOK_SEARCH-->", hint)
+            .replace("<!--AVAILABLE_BOOKS-->", "")
+            .replace(
+                "<!--OFFER_FORM-->",
+                &format!("<h2>Текущие условия</h2><p>{terms}</p>{hint}"),
+            );
+        return pages::private_account_layout(
+            "Скрытый пакет книг",
+            "Просмотр состава скрытого пакета без права изменения оплаченных условий.",
+            &content,
+        );
+    }
+
     let suffix = encoded_search_suffix(query);
     let csrf = pages::escape_html(csrf);
     let mut current_list = String::new();
@@ -288,12 +339,25 @@ pub(super) async fn page(
     if search.chars().count() > 100 {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let candidates = match service
-        .addable_books_matching(actor, layer, after, PAGE_SIZE, search)
-        .await
-    {
-        Ok(candidates) => candidates,
+    let editable = match service.owner_layer_status(actor, layer).await {
+        Ok(status) if status == "active" => true,
+        Ok(status) if status == "hidden" => false,
+        Ok(_) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(status(error)),
+    };
+    let candidates = if editable {
+        match service
+            .addable_books_matching(actor, layer, after, PAGE_SIZE, search)
+            .await
+        {
+            Ok(candidates) => candidates,
+            Err(error) => return deny(status(error)),
+        }
+    } else {
+        LayerBookCandidatePage {
+            books: Vec::new(),
+            next_after: None,
+        }
     };
     let current_after = match query.current_after.map(PositiveId::new).transpose() {
         Ok(after) => after,
@@ -315,7 +379,7 @@ pub(super) async fn page(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        picker_html_with_query(layer.get(), &candidates, &current, &offer, &csrf, search),
+        picker_html_with_query(layer.get(), &candidates, &current, &offer, &csrf, search, editable),
         &cookies,
     )
 }
