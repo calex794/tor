@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 421] = [
+static ROUTES: [RouteRegistration; 427] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -431,6 +431,12 @@ static ROUTES: [RouteRegistration; 421] = [
     RouteRegistration::new("/sitemaps/books/{bucket}", "GET", "/catalog/", Prefix, Page, Catalog, CostClass::ExpensiveRead), // 418
     RouteRegistration::new("/admin/recommendations", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 419
     RouteRegistration::new("/admin/recommendations", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 420
+    RouteRegistration::new("/me/layers/{id}/cover", "POST", "/me/", Prefix, Page, Dashboard, Write), // 421
+    RouteRegistration::new("/layers/{layer_id}/cover/{variant}", "GET", "/layers/", Prefix, Page, ProductArea::Billing, Read), // 422
+    RouteRegistration::new("/me/layers/{layer_id}/cover/{mode}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 423
+    RouteRegistration::new("/moderation/layers/covers", "GET", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 424
+    RouteRegistration::new("/moderation/layers/covers/{id}/preview", "GET", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 425
+    RouteRegistration::new("/moderation/layers/covers/{id}/decision", "POST", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 426
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
