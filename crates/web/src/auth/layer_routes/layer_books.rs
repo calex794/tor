@@ -107,6 +107,7 @@ fn offer_form_html(layer: i64, offer: &LayerOwnerOfferState, csrf: &str) -> Stri
     )
 }
 
+#[cfg(test)]
 fn picker_html(
     layer: i64,
     page: &LayerBookCandidatePage,
@@ -114,87 +115,128 @@ fn picker_html(
     offer: &LayerOwnerOfferState,
     csrf: &str,
 ) -> axum::response::Html<String> {
-    let mut list = String::new();
-    if page.books.is_empty() {
-        list.push_str(
-            "<p class=\"empty-state\">Подходящих книг нет. Добавить можно только книгу с одним активным участником — владельцем.</p>",
-        );
-    } else {
-        list.push_str("<ul class=\"author-book-list\">");
-        for book in &page.books {
-            write!(
-                list,
-                "<li><form method=\"post\" action=\"/me/layers/{layer}/books\">
-                 <span>{}</span>
-                 <input type=\"hidden\" name=\"book_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-                 <button class=\"button button--small\" type=\"submit\">Добавить книгу</button>
-                 </form></li>",
-                pages::escape_html(&book.title),
-                book.book_id,
-                pages::escape_html(csrf),
-            )
-            .expect("write String");
+    picker_html_with_query(layer, page, current, offer, csrf, "")
+}
+
+fn encoded_search_suffix(query: &str) -> String {
+    if query.is_empty() {
+        return String::new();
+    }
+    let mut encoded = String::new();
+    for byte in query.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            write!(encoded, "%{byte:02X}").expect("write String");
         }
-        list.push_str("</ul>");
     }
-    if let Some(cursor) = page.next_after {
-        write!(
-            list,
-            "<p><a class=\"text-link\" href=\"/me/layers/{layer}/books?after={cursor}\">Следующие книги</a></p>"
-        )
-        .expect("write String");
-    }
-    let mut current_list = String::from("<h2>Книги в Layer</h2>");
+    format!("&amp;q={encoded}")
+}
+
+fn picker_html_with_query(
+    layer: i64,
+    page: &LayerBookCandidatePage,
+    current: &LayerCurrentBookPage,
+    offer: &LayerOwnerOfferState,
+    csrf: &str,
+    query: &str,
+) -> axum::response::Html<String> {
+    let suffix = encoded_search_suffix(query);
+    let csrf = pages::escape_html(csrf);
+    let mut current_list = String::new();
     if current.books.is_empty() {
         current_list.push_str("<p class=\"empty-state\">Книги пока не добавлены.</p>");
     } else {
-        current_list.push_str("<ul class=\"author-book-list\">");
+        write!(
+            current_list,
+            r#"<form method="post" action="/me/layers/{layer}/books" class="author-layer-card__form">
+            <input type="hidden" name="operation" value="remove">
+            <input type="hidden" name="expected_version_id" value="{}">
+            <input type="hidden" name="csrf_token" value="{csrf}">
+            <ul class="author-layers-page__books">"#,
+            current.current_version_id,
+        ).expect("write String");
         for book in &current.books {
             write!(
                 current_list,
-                "<li><form method=\"post\" action=\"/me/layers/{layer}/books\">
-                 <span>{}</span>
-                 <input type=\"hidden\" name=\"book_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"operation\" value=\"remove\">
-                 <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-                 <button class=\"button button--small\" type=\"submit\">Убрать из Layer</button>
-                 </form></li>",
+                r#"<li><span>{}</span><button class="ui-button ui-button--ghost" type="submit"
+                   name="book_id" value="{}">Убрать</button></li>"#,
                 pages::escape_html(&book.title),
                 book.book_id,
-                current.current_version_id,
-                pages::escape_html(csrf),
-            )
-            .expect("write String");
+            ).expect("write String");
         }
-        current_list.push_str("</ul>");
+        current_list.push_str(
+            r#"</ul><label class="author-layers-page__confirm">
+                <input type="checkbox" name="confirm_composition" value="yes" required>
+                Подтверждаю изменение состава и сохранение ранее оплаченных прав
+               </label></form>"#,
+        );
     }
     if let Some(cursor) = current.next_after {
         write!(
             current_list,
-            "<p><a class=\"text-link\" href=\"/me/layers/{layer}/books?current_after={cursor}\">Следующие книги в Layer</a></p>"
-        )
-        .expect("write String");
+            r#"<p><a class="text-link" href="/me/layers/{layer}/books?current_after={cursor}{suffix}">Следующие книги в пакете</a></p>"#,
+        ).expect("write String");
     }
-    let offer_section = offer_form_html(layer, offer, csrf);
-    let content = format!(
-        "<section class=\"section auth-section\"><div class=\"container\">
-         <div class=\"auth-card author-card\">
-         <p class=\"eyebrow\">Подписка Layer</p><h1>Управление книгами</h1>
-         {current_list}
-         <p>Удаление из текущего состава не отменяет чтение, уже оплаченное подписчиками.</p>
-         {offer_section}
-         <h2>Добавить книгу</h2>
-         <p>В списке только собственные книги без других активных участников.
-         Книги с переводчиками или модераторами, даже с долей 0%, недоступны.
-         Перед добавлением состав команды проверяется повторно.</p>
-         {list}<p><a href=\"/me/books\">Мои книги</a></p>
-         </div></div></section>"
+
+    let search = format!(
+        r#"<form method="get" action="/me/layers/{layer}/books" class="author-layers-page__search">
+          <label for="package-search">Найти свою книгу по названию</label>
+          <input id="package-search" name="q" type="search" maxlength="100"
+                 value="{}" placeholder="Введите название">
+          <button class="ui-button ui-button--ghost" type="submit">Найти</button>
+          <a class="text-link" href="/me/layers/{layer}/books">Сбросить</a>
+        </form>"#,
+        pages::escape_html(query),
     );
-    pages::layout(
-        "Книги для Layer",
-        "Подбор только личных книг для подписки.",
+
+    let mut available = String::new();
+    if page.books.is_empty() {
+        available.push_str(
+            "<p class=\"empty-state\">Подходящих книг не найдено. Проверьте запрос или состав команды книги.</p>",
+        );
+    } else {
+        write!(
+            available,
+            r#"<form method="post" action="/me/layers/{layer}/books" class="author-layer-card__form">
+               <input type="hidden" name="csrf_token" value="{csrf}">
+               <ul class="author-layers-page__books">"#,
+        ).expect("write String");
+        for book in &page.books {
+            write!(
+                available,
+                r#"<li><span>{}</span><button class="ui-button ui-button--ghost" type="submit"
+                   name="book_id" value="{}">Добавить</button></li>"#,
+                pages::escape_html(&book.title),
+                book.book_id,
+            ).expect("write String");
+        }
+        available.push_str(
+            r#"</ul><label class="author-layers-page__confirm">
+              <input type="checkbox" name="confirm_composition" value="yes" required>
+              Подтверждаю изменение состава и возможное расширение прав действующих покупателей
+              </label></form>"#,
+        );
+    }
+    if let Some(cursor) = page.next_after {
+        write!(
+            available,
+            r#"<p><a class="text-link" href="/me/layers/{layer}/books?after={cursor}{suffix}">Следующие книги</a></p>"#,
+        ).expect("write String");
+    }
+
+    let content = include_str!("../../../templates/author_layer_books.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &pages::account_navigation("/me/layers", &csrf),
+        )
+        .replace("<!--CURRENT_BOOKS-->", &current_list)
+        .replace("<!--BOOK_SEARCH-->", &search)
+        .replace("<!--AVAILABLE_BOOKS-->", &available)
+        .replace("<!--OFFER_FORM-->", &offer_form_html(layer, offer, &csrf));
+    pages::private_account_layout(
+        "Книги и цена пакета",
+        "Управление составом и условиями книжного пакета.",
         &content,
     )
 }
