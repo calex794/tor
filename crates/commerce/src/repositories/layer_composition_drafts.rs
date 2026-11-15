@@ -184,7 +184,7 @@ impl PgLayers {
         }
         let addition_ids: Vec<i64> = adds.into_iter().collect();
         let removal_ids: Vec<i64> = removes.into_iter().collect();
-        if addition_ids.len() + removal_ids.len() > 100 {
+        if addition_ids.len() + removal_ids.len() > 200 {
             return Err(LayerError::Invalid);
         }
         let members: i64 = sqlx::query_scalar(
