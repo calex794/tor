@@ -102,7 +102,16 @@ impl PgLayerCovers {
         owner: PositiveId,
         layer: PositiveId,
     ) -> Result<(Option<PackageCoverCandidate>, Option<PackageCoverCandidate>), LayerError> {
-        if !self.owner_can_upload(owner, layer).await? {
+        let owns: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2)",
+        )
+        .bind(layer.get())
+        .bind(owner.get())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        if !owns {
             return Err(LayerError::Inaccessible);
         }
         let rows = sqlx::query(
@@ -153,24 +162,21 @@ impl PgLayerCovers {
             return Err(LayerError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let owned: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM commerce_layers
-             WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden'))",
+        // Lock and check owner/visibility atomically. An ownership transfer
+        // cannot race a stale owner's upload reservation.
+        let locked: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2
+               AND status IN ('active','hidden') FOR UPDATE",
         )
         .bind(layer.get())
         .bind(owner.get())
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if !owned {
+        if locked.is_none() {
             return Err(LayerError::Inaccessible);
         }
-        // Lock the Layer first, as in other owner-only mutations.
-        sqlx::query("SELECT id FROM commerce_layers WHERE id=$1 FOR UPDATE")
-            .bind(layer.get())
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(unavailable)?;
         // A crashed upload can be retired after the bounded upload timeout.
         sqlx::query(
             "UPDATE commerce_layer_cover_candidates SET status='failed'
@@ -307,6 +313,23 @@ impl PgLayerCovers {
             return Err(LayerError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        // Serialize authority revocation with a moderation decision.
+        sqlx::query("SELECT pg_advisory_xact_lock(18001,1)")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        let authorized: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_roles r
+              WHERE r.user_id=$1 AND r.role IN ('moderator','administrator')
+                AND r.is_active)",
+        )
+        .bind(reviewer.get())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if !authorized {
+            return Err(LayerError::Inaccessible);
+        }
         let row = sqlx::query(
             "SELECT layer_id FROM commerce_layer_cover_candidates WHERE id=$1",
         )
