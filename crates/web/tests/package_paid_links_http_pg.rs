@@ -11,9 +11,7 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_commerce::{
-    repositories::{layer_package_sales::PackagePaidMode, layers::PgLayers},
-};
+use tor_commerce::repositories::{layer_package_sales::PackagePaidMode, layers::PgLayers};
 use tor_contracts::paid_delivery::PositiveId;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -28,10 +26,25 @@ fn pg(url: &str, sql: &str) -> String {
         "H/UI-20 tests may only change disposable tor_ci"
     );
     let run = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql required");
-    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
     String::from_utf8(run.stdout).unwrap().trim().to_owned()
 }
 
@@ -63,9 +76,19 @@ async fn get(app: &Router, path: &str, token: Option<&str>) -> (StatusCode, Stri
     if let Some(token) = token {
         request = request.header(header::COOKIE, format!("tor-dev-session={token}"));
     }
-    let result = app.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+    let result = app
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = result.status();
-    let html = String::from_utf8(to_bytes(result.into_body(), 128 * 1024).await.unwrap().to_vec()).unwrap();
+    let html = String::from_utf8(
+        to_bytes(result.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     (status, html)
 }
 
@@ -163,14 +186,35 @@ async fn h_ui_20_book_and_batch_http_link_only_to_current_public_package() {
     );
     let chapter = create_attached_paid_chapter(&url, book);
     let layers = PgLayers::new(pool.clone());
-    let layer = layers.create_layer(id(owner), "H20 <b>пакет</b>").await.unwrap();
-    let version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
-    layers.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
-    layers.set_package_paid_mode(
-        id(owner), id(layer), id(book), id(version), 0, PackagePaidMode::PackageOnly,
-    ).await.unwrap();
+    let layer = layers
+        .create_layer(id(owner), "H20 <b>пакет</b>")
+        .await
+        .unwrap();
+    let version = layers
+        .add_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
+    layers
+        .publish_offer(id(owner), id(layer), 125, false)
+        .await
+        .unwrap();
+    layers
+        .set_package_paid_mode(
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::PackageOnly,
+        )
+        .await
+        .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, reader, accounts, false, "http://127.0.0.1:3098".to_owned(),
+        catalog,
+        reader,
+        accounts,
+        false,
+        "http://127.0.0.1:3098".to_owned(),
     );
     let (status, card) = get(&app, &format!("/books/{book}"), None).await;
     assert_eq!(status, StatusCode::OK);
@@ -180,21 +224,35 @@ async fn h_ui_20_book_and_batch_http_link_only_to_current_public_package() {
     assert!(!card.contains("<script>unsafe</script>"));
     assert!(!card.contains("H20 sealed fixture"));
 
-    let (status, batch) = get(&app, &format!("/me/books/{book}/buy-chapters"), Some(&token)).await;
+    let (status, batch) = get(
+        &app,
+        &format!("/me/books/{book}/buy-chapters"),
+        Some(&token),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(batch.contains("Доступно через пакет"));
     assert!(batch.contains(&format!("href=\"/layers/{layer}\"")));
-    assert!(!batch.contains("name=\"chapter_"), "do not invite a blocked direct purchase");
+    assert!(
+        !batch.contains("name=\"chapter_"),
+        "do not invite a blocked direct purchase"
+    );
     let (status, storefront) = get(&app, &format!("/layers/{layer}"), Some(&token)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(storefront.contains("H20 &lt;b&gt;пакет&lt;/b&gt;"));
     assert!(!storefront.contains("H20 sealed fixture"));
     assert_eq!(
-        number(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")),
+        number(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
         500,
     );
     assert_eq!(
-        number(&url, &format!("SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id={buyer}")),
+        number(
+            &url,
+            &format!("SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id={buyer}")
+        ),
         0,
         "the navigation must not create purchases",
     );
