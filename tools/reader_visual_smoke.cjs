@@ -47,7 +47,9 @@ async function inspect(page, name, where) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+    // Guest journeys are read-only and each page has its own browser context.
+    const guestStart = Date.now();
+    await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map(async ([name, width, height]) => {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
@@ -258,11 +260,14 @@ async function inspect(page, name, where) {
         }
       }
       await page.close();
-    }
+    }));
+    console.log('CI_READER_VIEWPORT_PHASE_SECONDS phase=guest seconds=' +
+      ((Date.now() - guestStart) / 1000).toFixed(3));
     // H-web-07: real source dark tokens and original dark logo, no JavaScript.
     // The old NEwBOO manual theme control is intentionally not advertised
     // until the strict script-src 'none' policy has a reviewed server alternative.
-    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+    const darkStart = Date.now();
+    await Promise.all([['desktop', 1440, 900], ['mobile', 390, 844]].map(async ([name, width, height]) => {
       const page = await browser.newPage({
         viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
       });
@@ -324,7 +329,11 @@ async function inspect(page, name, where) {
         name + ': original light logo and surface not restored');
       await inspect(page, name + '-light', 'catalog');
       await page.close();
-    }
+    }));
+    console.log('CI_READER_VIEWPORT_PHASE_SECONDS phase=dark seconds=' +
+      ((Date.now() - darkStart) / 1000).toFixed(3));
+    // The two signed-in journeys mutate shared book/comment fixtures: keep
+    // their ordering to avoid racing database assertions and reply selection.
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const context = await browser.newContext({
