@@ -1,5 +1,6 @@
 //! Package picker unit tests (kept separate from the HTTP handler).
 use super::*;
+use super::draft::stage_choices;
 use tor_commerce::domain::layers::LayerBookCandidate;
 
 fn current_empty() -> LayerCurrentBookPage {
