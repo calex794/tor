@@ -64,7 +64,8 @@ pub(super) fn detail(
             layer.layer_id
         )
     } else {
-        books.hero_cover_id
+        books
+            .hero_cover_id
             .map(|id| cover(id, "", true))
             .unwrap_or_else(|| {
                 r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
@@ -86,11 +87,10 @@ pub(super) fn detail(
     } else {
         String::new()
     };
-    let cover_form = if cover_state.upload_enabled && !cover_state.pending
-        && layer.status != "blocked"
-    {
-        format!(
-            r#"<form method="post" action="/me/layers/{}/cover"
+    let cover_form =
+        if cover_state.upload_enabled && !cover_state.pending && layer.status != "blocked" {
+            format!(
+                r#"<form method="post" action="/me/layers/{}/cover"
                      enctype="multipart/form-data" class="package-cover-upload">
                  <input type="hidden" name="csrf_token" value="{}">
                  <label>Собственная обложка пакета (PNG, JPEG, WebP до 8 МиБ)
@@ -101,15 +101,15 @@ pub(super) fn detail(
                    Отправить обложку на модерацию
                  </button>
                </form>"#,
-            layer.layer_id,
-            pages::escape_html(csrf),
-        )
-    } else if cover_state.pending {
-        "<p>Новая загрузка доступна после решения по текущей заявке.</p>".to_owned()
-    } else {
-        "<p>Загрузка отдельной обложки недоступна без подключённого хранилища S3.</p>"
-            .to_owned()
-    };
+                layer.layer_id,
+                pages::escape_html(csrf),
+            )
+        } else if cover_state.pending {
+            "<p>Новая загрузка доступна после решения по текущей заявке.</p>".to_owned()
+        } else {
+            "<p>Загрузка отдельной обложки недоступна без подключённого хранилища S3.</p>"
+                .to_owned()
+        };
     let tariff = match (offer.price_minor, offer.term_kind) {
         (Some(price), Some(kind)) => format!(
             "{},{:02} руб. · {}",
