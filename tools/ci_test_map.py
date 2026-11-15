@@ -74,6 +74,8 @@ TEST_SUITES = {
     "tools/rec13_browser_acceptance.sh": {"rec_browser"},
     "tools/rec13_browser.cjs": {"rec_browser"},
     "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
+    "crates/recommendations/tests/catalog_feed_pg.rs": {"rust", "postgres", "rec_browser"},
+    "crates/recommendations/tests/catalog_feed_pg/contextual_scale.rs": {"rust", "rec_browser"},
     "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
     "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
