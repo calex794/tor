@@ -142,7 +142,10 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(fixture_events_before, 0, "F-05 fixture queue must start empty");
+    assert_eq!(
+        fixture_events_before, 0,
+        "F-05 fixture queue must start empty"
+    );
     let first = completed_fixture(&pool, 99520).await;
     assert!(ranking
         .pending_completion_event_ids()
