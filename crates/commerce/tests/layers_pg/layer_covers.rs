@@ -17,8 +17,7 @@ fn upload<'a>(card_key: &'a str, main_key: &'a str) -> PackageCoverUpload<'a> {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn h_ui_18_owner_private_cover_moderation_keeps_paid_rights() {
     let (pool, layers, owner, moderator, book) = setup("package-cover").await;
-    let layer = layers.create_layer(id(owner), "Package Cover").await.unwrap();
-    let old_version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    let (layer, old_version, _offer_id) = offer(&layers, owner, book, 200, true).await;
     let repo = PgLayerCovers::new(pool.clone());
     let (approved, pending) = repo.owner_view(id(owner), id(layer)).await.unwrap();
     assert!(approved.is_none() && pending.is_none());
@@ -59,8 +58,13 @@ async fn h_ui_18_owner_private_cover_moderation_keeps_paid_rights() {
     let (approved, pending) = repo.owner_view(id(owner), id(layer)).await.unwrap();
     assert_eq!(approved.unwrap().id, first);
     assert!(pending.is_none());
+    assert_eq!(repo.public_current(id(layer)).await.unwrap().unwrap().id, first);
+    sqlx::query("UPDATE commerce_layers SET status='hidden' WHERE id=$1")
+        .bind(layer).execute(&pool).await.unwrap();
     assert!(repo.public_current(id(layer)).await.unwrap().is_none(),
-        "unpublished package cannot expose its approved private object");
+        "a hidden package cannot expose its approved artwork");
+    sqlx::query("UPDATE commerce_layers SET status='active' WHERE id=$1")
+        .bind(layer).execute(&pool).await.unwrap();
 
     let card_b = format!("staging/covers/variants/packages/{layer}/b/card.webp");
     let main_b = format!("staging/covers/variants/packages/{layer}/b/main.webp");
