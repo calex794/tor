@@ -128,7 +128,10 @@ pub fn cover_settings(
 }
 /// H-09: only the author sees a private, unpublished-book import preview.
 pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+    let nav_path = format!("/me/books/{book_id}/chapters/import");
+    let navigation = crate::pages::account_navigation(&nav_path, csrf);
     let html = include_str!("../templates/author_import_chapters.html")
+        .replace("<!--ACCOUNT_NAVIGATION-->", &navigation)
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
