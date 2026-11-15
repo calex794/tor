@@ -66,3 +66,55 @@ pub fn chapter_purchase_problem(chapter_id: i64, message: &str) -> Html<String> 
     );
     layout("Покупка не выполнена", "Средства не списаны.", &body)
 }
+
+pub fn package_only_notice(
+    book_id: i64,
+    layer_id: i64,
+    layer_title: &str,
+    until_utc: Option<&str>,
+) -> Html<String> {
+    let title = escape_html(layer_title);
+    let deadline = until_utc.map_or_else(
+        || {
+            "Прямая покупка новых платных глав недоступна, пока автор не изменит условия."
+                .to_owned()
+        },
+        |until| {
+            format!(
+                "До {} UTC новые платные главы продаются только в пакете.",
+                escape_html(until)
+            )
+        },
+    );
+    layout(
+        "Глава доступна через пакет",
+        "Способ приобретения платных глав.",
+        &format!(
+            "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card reader-access-page\">
+             <h1>Доступно через пакет</h1><p>{deadline}</p>
+             <p>Пакет: <strong>{title}</strong>. Проверьте состав, срок действия и цену до оплаты.</p>
+             <a class=\"button\" href=\"/layers/{}\">Посмотреть пакет</a>
+             <p><a href=\"/books/{book_id}#chapters\">Вернуться к книге</a> · <a href=\"/me/purchases\">Мои покупки</a></p>
+             </div></div></section>",
+            layer_id
+        ),
+    )
+}
+
+#[cfg(test)]
+mod package_notice_tests {
+    use super::*;
+
+    #[test]
+    fn package_notice_escapes_title_and_exposes_only_public_destination() {
+        let page =
+            package_only_notice(41, 19, "<script>unsafe</script>", Some("22.11.2026 12:00")).0;
+        assert!(page.contains("Доступно через пакет"));
+        assert!(page.contains("href=\"/layers/19\""));
+        assert!(page.contains("href=\"/books/41#chapters\""));
+        assert!(page.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
+        assert!(!page.contains("<script>unsafe</script>"));
+        assert!(page.contains("22.11.2026 12:00 UTC"));
+        assert!(!page.contains("name=\"expected_price_minor\""));
+    }
+}

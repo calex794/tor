@@ -36,7 +36,7 @@ pub use reader_private::{private_reader_with_options, PrivateReaderOptions};
 mod paywall;
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
-pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
+pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem, package_only_notice};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;

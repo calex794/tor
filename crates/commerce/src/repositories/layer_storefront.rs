@@ -166,6 +166,111 @@ pub async fn storefront(
     }))
 }
 
+/// A read-only alternative to a blocked direct paid-chapter sale.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExclusivePackageLink {
+    pub layer_id: i64,
+    pub title: String,
+    /// UTC deadline for timed early access; None means package-only indefinitely.
+    pub until_utc: Option<String>,
+}
+
+/// Show a real package link only when the book, the optional paid chapter,
+/// and the current package offer are public and accessible to this viewer.
+/// An unauthorized age tier, a hidden package, unpublished chapters or
+/// unattached paid editions must never be described as purchasable.
+pub async fn exclusive_package_link(
+    pool: &PgPool,
+    book_id: i64,
+    chapter_id: Option<i64>,
+    viewer: Option<i64>,
+) -> Result<Option<ExclusivePackageLink>, LayerError> {
+    if book_id <= 0 || chapter_id.is_some_and(|id| id <= 0) || viewer.is_some_and(|id| id <= 0) {
+        return Ok(None);
+    }
+    let row = sqlx::query(
+        "SELECT l.id AS layer_id,l.title AS layer_title,
+                CASE WHEN b.package_only_until IS NOT NULL
+                     THEN TO_CHAR(b.package_only_until AT TIME ZONE 'UTC','DD.MM.YYYY HH24:MI')
+                     ELSE NULL END AS until_utc
+         FROM books b
+         JOIN commerce_layers l ON l.id=b.package_only_layer_id
+           AND l.status='active' AND l.current_version_id IS NOT NULL
+         JOIN commerce_layer_offers offer ON offer.id=l.current_offer_id AND offer.layer_id=l.id
+         JOIN commerce_layer_version_books vb
+           ON vb.layer_version_id=l.current_version_id AND vb.book_id=b.id
+         WHERE b.id=$1 AND (b.package_only_until IS NULL OR b.package_only_until>now())
+           AND b.visibility='public' AND b.visibility_status='active'
+           AND b.lifecycle_status NOT IN ('pending_deletion','ordinary_deleted')
+           AND NOT b.admin_hold AND NOT b.is_deleted
+           AND (
+             b.access_level='basic'
+             OR (b.access_level='adult' AND EXISTS(
+               SELECT 1 FROM users u WHERE u.id=$3 AND u.account_state='active' AND u.adult_enabled
+             ))
+             OR (b.access_level='pro_adult' AND EXISTS(
+               SELECT 1 FROM users u JOIN user_level_grants g
+                 ON g.user_id=u.id AND g.level='pro_adult' AND g.is_active
+               WHERE u.id=$3 AND u.account_state='active'
+             ))
+           )
+           AND EXISTS (
+             SELECT 1 FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+             JOIN storage_objects obj ON obj.id=v.storage_object_id
+               AND obj.state='attached' AND obj.object_kind='chapter'
+             WHERE c.book_id=b.id AND ($2::BIGINT IS NULL OR c.id=$2)
+               AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+           )
+         LIMIT 1",
+    )
+    .bind(book_id)
+    .bind(chapter_id)
+    .bind(viewer)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| LayerError::Unavailable)?;
+    row.map(|r| {
+        Ok(ExclusivePackageLink {
+            layer_id: r.try_get("layer_id").map_err(|_| LayerError::Unavailable)?,
+            title: r
+                .try_get("layer_title")
+                .map_err(|_| LayerError::Unavailable)?,
+            until_utc: r
+                .try_get("until_utc")
+                .map_err(|_| LayerError::Unavailable)?,
+        })
+    })
+    .transpose()
+}
+
+/// Resolve the owning public Book inside commerce. Web must not issue SQL.
+pub async fn exclusive_package_for_chapter(
+    pool: &PgPool,
+    chapter_id: i64,
+    viewer: Option<i64>,
+) -> Result<Option<(i64, ExclusivePackageLink)>, LayerError> {
+    if chapter_id <= 0 {
+        return Ok(None);
+    }
+    let book_id: Option<i64> = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+        .bind(chapter_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+    let Some(book_id) = book_id else {
+        return Ok(None);
+    };
+    Ok(
+        exclusive_package_link(pool, book_id, Some(chapter_id), viewer)
+            .await?
+            .map(|link| (book_id, link)),
+    )
+}
+
 /// Historical terms are private even if a Layer was later hidden.
 /// Future prepaid renewals are shown as pending; refund facts mark revoked.
 pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermCard>, LayerError> {

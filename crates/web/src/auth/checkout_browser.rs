@@ -58,6 +58,32 @@ fn browser_error(chapter_id: i64, status: StatusCode, message: &str) -> Response
     ))
 }
 
+/// Render an alternative only after the same public age and chapter guards
+/// as the package storefront. Keep hidden and missing chapters indistinguishable.
+async fn package_alternative(state: &AuthState, chapter_id: i64, actor: i64) -> Option<Response> {
+    if !state.layer_checkout_enabled {
+        return None;
+    }
+    let (book_id, link) =
+        tor_commerce::repositories::layer_storefront::exclusive_package_for_chapter(
+            state.accounts.pool(),
+            chapter_id,
+            Some(actor),
+        )
+        .await
+        .ok()
+        .flatten()?;
+    Some(noindex(private_response(
+        pages::package_only_notice(
+            book_id,
+            link.layer_id,
+            &link.title,
+            link.until_utc.as_deref(),
+        ),
+        &[],
+    )))
+}
+
 /// GET shows the exact B-published version and price, or redirects an
 /// existing buyer to their authorized purchase library without charging.
 pub(super) async fn browser_offer(
@@ -80,7 +106,11 @@ pub(super) async fn browser_offer(
     }
     let offer = match state.checkout.published_chapter_offer(chapter_id).await {
         Ok(Some(offer)) => offer,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Ok(None) => {
+            return package_alternative(&state, chapter_id, actor)
+                .await
+                .unwrap_or_else(|| deny(StatusCode::NOT_FOUND));
+        }
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     // A fresh random purchase intent and a matching CSRF cookie are issued
@@ -135,6 +165,9 @@ pub(super) async fn browser_buy(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !allowed {
+        if let Some(alternative) = package_alternative(&state, chapter_id, actor).await {
+            return alternative;
+        }
         return browser_error(
             chapter_id,
             StatusCode::CONFLICT,
@@ -164,6 +197,11 @@ pub(super) async fn browser_buy(
             &[],
         )),
         Err(error) => {
+            if error == CheckoutError::Inaccessible {
+                if let Some(alternative) = package_alternative(&state, chapter_id, actor).await {
+                    return alternative;
+                }
+            }
             let message = match error {
                 CheckoutError::InsufficientBalance => {
                     "Недостаточно средств во внутреннем кошельке. Деньги не списаны."
