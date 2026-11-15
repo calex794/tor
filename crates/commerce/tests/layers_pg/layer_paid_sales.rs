@@ -306,14 +306,21 @@ async fn h_ui_19_layer_membership_guard_preserves_sales_and_removal_clears_them(
     .bind(collaborator)
     .execute(&pool)
     .await;
-    assert!(change.is_err(), "B09 must reject a translator joining a locked Book");
+    assert!(
+        change.is_err(),
+        "B09 must reject a translator joining a locked Book"
+    );
     let (current, revision): (Option<i64>, i64) =
         sqlx::query_as("SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1")
             .bind(book)
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(current, Some(layer), "rejected member edit must not alter sales");
+    assert_eq!(
+        current,
+        Some(layer),
+        "rejected member edit must not alter sales"
+    );
     assert_eq!(revision, applied);
     // Once the book is removed from the live package, the H19 trigger lifts
     // the sales restriction; B09's historical membership policy stays intact.
@@ -330,7 +337,11 @@ async fn h_ui_19_layer_membership_guard_preserves_sales_and_removal_clears_them(
     assert!(revision > applied);
     assert_eq!(
         repo.set_package_paid_mode(
-            id(owner), id(layer), id(book), id(version), revision,
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            revision,
             PackagePaidMode::PackageOnly,
         )
         .await,
