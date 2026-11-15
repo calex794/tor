@@ -177,6 +177,10 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     .execute(&pool)
     .await
     .unwrap();
+    // Boundary arguments must be rejected, not silently clamped.
+    assert!(repo.stage_immediate_email_intents(0, 8).await.is_err());
+    assert!(repo.stage_immediate_email_intents(follower, 0).await.is_err());
+    assert!(repo.stage_immediate_email_intents(follower, 51).await.is_err());
     // Explicit opt-in and mailbox proof must precede even queue staging.
     assert_eq!(
         repo.stage_immediate_email_intents(follower, 8)
@@ -256,6 +260,22 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         0,
         "disabled delivery mode cannot create new send intentions"
     );
+    // Isolate the consent check: restoring the immediate mode and removing
+    // this disposable fixture's already-staged intent prevents an existing
+    // UNIQUE receipt or disabled mode from masking a missing revocation guard.
+    sqlx::query("DELETE FROM reader_email_notification_intents WHERE recipient_user_id=$1")
+        .bind(follower)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE reader_notification_delivery_preferences
+         SET delivery_mode='immediate' WHERE user_id=$1",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "UPDATE reader_notification_email_proofs
          SET opted_in_at=NULL,revoked_at=clock_timestamp()
@@ -269,8 +289,18 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         repo.stage_immediate_email_intents(follower, 8)
             .await
             .unwrap(),
-        0
+        0,
+        "revoked email consent must block a newly eligible immediate intent"
     );
+    // Preserve the surrounding disabled-mode fixture for subsequent assertions.
+    sqlx::query(
+        "UPDATE reader_notification_delivery_preferences
+         SET delivery_mode='disabled' WHERE user_id=$1",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let received: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT recipient_user_id,kind,url FROM user_notifications
