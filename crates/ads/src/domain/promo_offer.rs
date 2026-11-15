@@ -48,7 +48,10 @@ impl BoostyUrl {
             || url.port().is_some()
             || url.fragment().is_some()
             || url.cannot_be_a_base()
-            || url.path_segments().and_then(|mut p| p.next()).is_none_or(str::is_empty)
+            || url
+                .path_segments()
+                .and_then(|mut p| p.next())
+                .is_none_or(str::is_empty)
         {
             return Err(OfferError::InvalidDestination);
         }
@@ -117,9 +120,9 @@ fn text_valid(value: &str, maximum: usize, required: bool, multiline: bool) -> b
     if count > maximum || (required && (count == 0 || value.trim().is_empty())) {
         return false;
     }
-    value.chars().all(|character| {
-        !character.is_control() || (multiline && character == '\n')
-    })
+    value
+        .chars()
+        .all(|character| !character.is_control() || (multiline && character == '\n'))
 }
 
 impl PromoCreative {
