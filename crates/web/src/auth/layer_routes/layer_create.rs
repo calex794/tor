@@ -33,6 +33,14 @@ pub(super) struct MetadataForm {
     csrf_token: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CoverChoiceForm {
+    cover_book_id: i64,
+    expected_revision: i64,
+    csrf_token: Option<String>,
+}
+
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .route("/me/layers", get(index))
@@ -40,6 +48,10 @@ pub(super) fn routes() -> Router<AuthState> {
         .route(
             "/me/layers/{layer_id}/metadata",
             axum::routing::post(update_metadata),
+        )
+        .route(
+            "/me/layers/{layer_id}/cover",
+            axum::routing::post(select_cover),
         )
 }
 
@@ -115,6 +127,48 @@ pub(super) async fn update_metadata(
         .await
     {
         Ok(()) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
+        Err(error) => deny(layer_books::status(error)),
+    }
+}
+
+/// Changing the cover is cosmetic; only a previously approved, public
+/// cover from the owner's current package is eligible.
+pub(super) async fn select_cover(
+    State(state): State<AuthState>,
+    Path(raw_layer): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<CoverChoiceForm>,
+) -> Response {
+    if !layer_books::enabled() {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let (Ok(actor), Ok(layer), Ok(book)) = (
+        PositiveId::new(actor),
+        PositiveId::new(raw_layer),
+        PositiveId::new(form.cover_book_id),
+    ) else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service
+        .choose_package_cover(actor, layer, book, form.expected_revision)
+        .await
+    {
+        Ok(()) => private_response(
+            Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[],
+        ),
         Err(error) => deny(layer_books::status(error)),
     }
 }
