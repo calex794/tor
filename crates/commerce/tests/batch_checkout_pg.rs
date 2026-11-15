@@ -316,3 +316,70 @@ async fn d_s035_postgres_refuses_orphaned_batch_command_at_commit() {
     assert!(result.is_err(), "an unbacked batch must fail at COMMIT");
     no_partial(&f, 1_000).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn h_ui_19_batch_checkout_does_not_bypass_package_paid_exclusivity() {
+    use tor_commerce::{
+        repositories::{
+            layer_package_sales::PackagePaidMode,
+            layers::PgLayers,
+        },
+    };
+    let f = fixture("h19-batch-exclusive", 1_000).await;
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(f.book)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    let layers = PgLayers::new(f.pool.clone());
+    let layer = layers
+        .create_layer(PositiveId::new(owner).unwrap(), "Book package only")
+        .await
+        .unwrap();
+    let version = layers
+        .add_book(PositiveId::new(owner).unwrap(), PositiveId::new(layer).unwrap(),
+                  PositiveId::new(f.book).unwrap())
+        .await
+        .unwrap();
+    layers
+        .publish_offer(PositiveId::new(owner).unwrap(), PositiveId::new(layer).unwrap(), 250, true)
+        .await
+        .unwrap();
+    let store = PgCheckout::new(f.pool.clone());
+    assert_eq!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().len(), 3);
+    let revision = layers
+        .set_package_paid_mode(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+            PositiveId::new(version).unwrap(),
+            0,
+            PackagePaidMode::PackageOnly,
+        )
+        .await
+        .unwrap();
+    assert!(revision > 0);
+    assert!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().is_empty());
+    assert_eq!(
+        store
+            .checkout_batch_once(&command(f.buyer, &f.offers[..2], 'J'))
+            .await,
+        Err(BatchCheckoutError::Checkout(CheckoutError::Inaccessible)),
+        "forged native batch checkout cannot debit a package-only Book",
+    );
+    no_partial(&f, 1_000).await;
+    layers
+        .set_package_paid_mode(
+            PositiveId::new(owner).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(f.book).unwrap(),
+            PositiveId::new(version).unwrap(),
+            revision,
+            PackagePaidMode::Direct,
+        )
+        .await
+        .unwrap();
+    assert_eq!(store.selectable_batch_offers(f.buyer, f.book).await.unwrap().len(), 3);
+    f.pool.close().await;
+}
