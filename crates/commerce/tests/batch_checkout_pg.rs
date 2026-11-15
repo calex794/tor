@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use tor_commerce::{
     domain::{
         batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand},
-        money::{CheckoutError, IdempotencyKey, MoneyMinor, WalletId},
+        money::{CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, WalletId},
     },
     repositories::checkout::PgCheckout,
 };
