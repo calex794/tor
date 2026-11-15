@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { check } from 'k6';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 
 const base = 'http://127.0.0.1:3089';
 const failures = new Counter('journey_failures');
@@ -11,24 +11,40 @@ const publicJourneys = new Counter('public_journeys');
 const publicFailures = new Counter('public_journey_failures');
 const purchased = new Counter('purchased_journeys');
 const purchaseFailures = new Counter('purchase_journey_failures');
-// 25 full journeys/s: 13 progress/comment, 10 public reading, 2 paid.
+const bookLatency = new Trend('perf252_public_book_ms', true);
+const progressLatency = new Trend('perf252_progress_save_ms', true);
+const purchaseLatency = new Trend('perf252_purchase_ms', true);
+
+// PERF-02h runs strictly sequenced profiles on ONE disposable database.
+// Each stage reserves rate * duration purchases plus one endpoint iteration.
+// Subsequent profiles log into existing users and own disjoint paid ranges:
+// 1..121, 122..182, 183..303. Unexpected exhaustion remains a failure.
+// A journey contains multiple HTTP requests; rate is NOT raw GET/s.
+const journeysPerSecond = Number(__ENV.TOR_PERF252_JOURNEYS_PER_SECOND || '25');
+const profiles = {
+  25: { scale: 1, seconds: 60, paidOffset: 0, paidCapacity: 121, loginExisting: false },
+  50: { scale: 2, seconds: 15, paidOffset: 121, paidCapacity: 61, loginExisting: true },
+  100: { scale: 4, seconds: 15, paidOffset: 182, paidCapacity: 121, loginExisting: true },
+};
+const profile = profiles[journeysPerSecond];
+if (!profile) throw new Error('Unsupported PERF-252 mixed journey rate');
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     writers: {
       executor: 'constant-arrival-rate', exec: 'authenticatedWriter',
-      rate: 13, timeUnit: '1s', duration: '60s',
-      preAllocatedVUs: 24, maxVUs: 32,
+      rate: 13 * profile.scale, timeUnit: '1s', duration: profile.seconds + 's',
+      preAllocatedVUs: 24 * profile.scale, maxVUs: 32 * profile.scale,
     },
     readers: {
       executor: 'constant-arrival-rate', exec: 'publicReader',
-      rate: 10, timeUnit: '1s', duration: '60s',
-      preAllocatedVUs: 16, maxVUs: 24,
+      rate: 10 * profile.scale, timeUnit: '1s', duration: profile.seconds + 's',
+      preAllocatedVUs: 16 * profile.scale, maxVUs: 24 * profile.scale,
     },
     buyers: {
       executor: 'constant-arrival-rate', exec: 'paidReader',
-      rate: 2, timeUnit: '1s', duration: '60s',
-      preAllocatedVUs: 4, maxVUs: 8,
+      rate: 2 * profile.scale, timeUnit: '1s', duration: profile.seconds + 's',
+      preAllocatedVUs: 4 * profile.scale, maxVUs: 8 * profile.scale,
     },
   },
   thresholds: {
@@ -69,6 +85,7 @@ export function publicReader() {
   })) { publicFailures.add(1); return; }
   for (const path of ['/books/1', '/reader/101', '/api/v1/books/1/toc']) {
     const response = http.get(base + path, { tags: { name: 'public_reading' }, timeout: '10s' });
+    if (path === '/books/1') bookLatency.add(response.timings.duration);
     if (!check(response, { 'public chapter 200': r => r.status === 200 })) {
       publicFailures.add(1); return;
     }
@@ -93,27 +110,26 @@ function csrf(html) {
 export function setup() {
   const users = [];
   for (let n = 1; n <= 32; n++) {
-    const page = http.get(base + '/register');
+    const endpoint = profile.loginExisting ? '/login' : '/register';
+    const page = http.get(base + endpoint);
     const csrfCookie = cookie(page, 'tor-dev-csrf');
-    const key = csrf(page.body);
-    if (!csrfCookie || !key) throw new Error('registration CSRF failed');
+    const key = csrf(page.body || '');
+    if (!csrfCookie || !key) throw new Error('reader CSRF missing');
     const form = {
       email: 'perf252-' + n + '@example.invalid',
-      display_name: 'Perf Reader ' + n,
       password: 'IsolatedStrongPassword2026',
       csrf_token: key,
     };
-    // k6's setup cookie jar already holds the CSRF cookie from GET /register.
-    // A second explicit Cookie header would cause TOR's duplicate-cookie guard
-    // to reject the registration with HTTP 403.
-    const registered = http.post(base + '/register', form, {
-      headers: { Origin: base },
-      redirects: 0,
+    if (!profile.loginExisting) form.display_name = 'Perf Reader ' + n;
+    // The setup VU already holds the issued CSRF cookie. Do not add a
+    // second explicit Cookie header: TOR rejects duplicated cookies.
+    const admitted = http.post(base + endpoint, form, {
+      headers: { Origin: base }, redirects: 0, timeout: '10s',
     });
-    const session = cookie(registered, 'tor-dev-session');
-    if (registered.status !== 303 || !session) throw new Error('registration failed ' + registered.status);
-    // The registration token remains valid after the session is issued.
-    // /me normally reuses the same token without setting another cookie.
+    const session = cookie(admitted, 'tor-dev-session');
+    if (admitted.status !== 303 || !session) {
+      throw new Error('disposable reader ' + endpoint + ' failed: ' + admitted.status);
+    }
     users.push({ session, csrfCookie, csrfValue: key });
   }
   const buyers = [];
@@ -136,8 +152,9 @@ export function setup() {
 }
 export function paidReader(data) {
   // Unique across every VU, even when the scheduler reuses VUs under load.
-  const ordinal = exec.scenario.iterationInTest + 1;
-  if (ordinal > 300) { purchaseFailures.add(1); return; }
+  const iteration = exec.scenario.iterationInTest;
+  if (iteration >= profile.paidCapacity) { purchaseFailures.add(1); return; }
+  const ordinal = profile.paidOffset + iteration + 1;
   const actor = data.buyers[(ordinal - 1) % data.buyers.length];
   const chapter = (2000000 + ordinal).toString();
   const version = (3000000 + ordinal).toString();
@@ -154,6 +171,7 @@ export function paidReader(data) {
   const first = http.post(base + '/api/v1/purchases', body, {
     headers, tags: { name: 'paid_checkout' }, timeout: '10s',
   });
+  purchaseLatency.add(first.timings.duration);
   if (!check(first, { 'paid checkout succeeds once': r => r.status === 200 })) {
     purchaseFailures.add(1); return;
   }
@@ -195,6 +213,7 @@ export function authenticatedWriter(data) {
     chapter_id: '401', version_id: '501', block_id: 1,
     char_offset: position, expected_revision: prior.revision,
   }), { headers: Object.assign({}, headers, { 'x-csrf-token': user.csrfValue, 'Content-Type': 'application/json' }), tags: { name: 'progress_write' } });
+  progressLatency.add(saved.timings.duration);
   if (!check(saved, { 'progress saved': r => r.status === 200 })) { failures.add(1); return; }
   const receipt = saved.json();
   if (receipt.revision !== position) { failures.add(1); return; }
@@ -224,7 +243,8 @@ export function authenticatedWriter(data) {
       failures.add(1);
       return;
     }
-    const body = 'PERF252 LOAD reader ' + __VU + ' iteration ' + __ITER;
+    const body = 'PERF252 LOAD reader ' + __VU + ' iteration ' + __ITER +
+      ' stage ' + journeysPerSecond;
     const posted = http.post(base + '/books/1/comments', {
       body,
       command_key: issuedKey[1],
