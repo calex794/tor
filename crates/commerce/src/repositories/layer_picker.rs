@@ -113,7 +113,21 @@ impl PgLayers {
         after: Option<PositiveId>,
         limit: u16,
     ) -> Result<LayerBookCandidatePage, LayerError> {
-        if !(1..=50).contains(&limit) {
+        self.addable_books_matching(actor, layer, after, limit, "").await
+    }
+
+    /// Search is server-side and scoped to owned, eligible Books. The
+    /// submitted text is a literal substring, never a SQL wildcard.
+    pub async fn addable_books_matching(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+        query: &str,
+    ) -> Result<LayerBookCandidatePage, LayerError> {
+        let query = query.trim();
+        if !(1..=50).contains(&limit) || query.chars().count() > 100 {
             return Err(LayerError::Invalid);
         }
         let current: Option<i64> = sqlx::query_scalar(
@@ -149,12 +163,14 @@ impl PgLayers {
                  SELECT 1 FROM commerce_layer_version_books vb
                  WHERE vb.layer_version_id=$3 AND vb.book_id=b.id
                )
+               AND ($5='' OR POSITION(lower($5) IN lower(b.title))>0)
              ORDER BY b.id LIMIT $4",
         )
         .bind(actor.get())
         .bind(after.map_or(0, PositiveId::get))
         .bind(current)
         .bind(i64::from(limit) + 1)
+        .bind(query)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| LayerError::Unavailable)?;
