@@ -726,7 +726,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     .parse()
     .unwrap();
     assert_eq!((versions, books), (1, 0));
-    let author's_book: i64 = pg(
+    let authors_book: i64 = pg(
         &url,
         &format!(
             "SELECT id FROM books WHERE source_identity='ci:d05:create-author:{nonce}'"
@@ -742,9 +742,9 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     .unwrap();
     let grid = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
     assert!(grid.contains("class=\"package-grid\""));
-    assert!(grid.contains(&format!("name=\"chosen_{author's_book}\"")));
+    assert!(grid.contains(&format!("name=\"chosen_{authors_book}\"")));
     let staged = format!(
-        "operation=preview&expected_version_id={current_version}&visible_csv={author's_book}&included_csv=&chosen_{author's_book}=1&csrf_token={csrf}"
+        "operation=preview&expected_version_id={current_version}&visible_csv={authors_book}&included_csv=&chosen_{authors_book}=1&csrf_token={csrf}"
     );
     let review = request(&app, "POST", &destination, &cookie, ORIGIN, &staged).await;
     assert_eq!(review.status(), StatusCode::OK);
@@ -762,7 +762,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         "preview must not change composition",
     );
     let apply = format!(
-        "operation=apply&expected_version_id={current_version}&add_csv={author's_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
+        "operation=apply&expected_version_id={current_version}&add_csv={authors_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
     );
     let wrong_count = apply.replace("active_buyers=0", "active_buyers=1");
     assert_eq!(
@@ -778,7 +778,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
             &format!(
                 "SELECT count(*) FROM commerce_layer_version_books vb
                  JOIN commerce_layers l ON l.current_version_id=vb.layer_version_id
-                 WHERE l.id={id} AND vb.book_id={author's_book}"
+                 WHERE l.id={id} AND vb.book_id={authors_book}"
             )
         ),
         "1",
