@@ -290,45 +290,84 @@ async fn h_ui_21_chapter_registration_clock_ignores_later_publication() {
         .await
         .unwrap();
 
-    let revision = repo.set_package_paid_mode(
-        id(owner), id(layer), id(book), id(version), 0,
-        PackagePaidMode::EarlyDays(5),
-    ).await.unwrap();
+    let revision = repo
+        .set_package_paid_mode(
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::EarlyDays(5),
+        )
+        .await
+        .unwrap();
     assert!(revision > 0);
     let owner_page = repo.package_sale_page(id(owner), id(layer)).await.unwrap();
     assert_eq!(owner_page.books[0].days, Some(5));
     assert_eq!(owner_page.books[0].until_utc, None);
 
     let locked = exclusive_package_link(&pool, book, Some(recent), Some(buyer))
-        .await.unwrap().expect("new chapter must show package");
+        .await
+        .unwrap()
+        .expect("new chapter must show package");
     assert!(locked.until_utc.is_some());
     assert_eq!(locked.layer_id, layer);
-    assert!(exclusive_package_link(&pool, book, Some(old), Some(buyer))
-        .await.unwrap().is_none(), "late publication cannot reset registration time");
+    assert!(
+        exclusive_package_link(&pool, book, Some(old), Some(buyer))
+            .await
+            .unwrap()
+            .is_none(),
+        "late publication cannot reset registration time"
+    );
     let checkout = PgCheckout::new(pool.clone());
-    assert!(checkout.published_chapter_offer(recent).await.unwrap().is_none());
-    assert!(checkout.published_chapter_offer(old).await.unwrap().is_some());
+    assert!(checkout
+        .published_chapter_offer(recent)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(checkout
+        .published_chapter_offer(old)
+        .await
+        .unwrap()
+        .is_some());
     let offers = checkout.selectable_batch_offers(buyer, book).await.unwrap();
     assert_eq!(offers.len(), 1);
     assert_eq!(offers[0].chapter_id, old);
 
-    let moved = sqlx::query(
-        "UPDATE chapters SET registered_at=now()-interval '50 days' WHERE id=$1",
-    )
-    .bind(recent)
-    .execute(&pool)
-    .await;
-    assert!(moved.is_err(), "registration cannot be backdated after INSERT");
-    assert!(exclusive_package_link(&pool, book, Some(recent), Some(buyer))
-        .await.unwrap().is_some());
+    let moved =
+        sqlx::query("UPDATE chapters SET registered_at=now()-interval '50 days' WHERE id=$1")
+            .bind(recent)
+            .execute(&pool)
+            .await;
+    assert!(
+        moved.is_err(),
+        "registration cannot be backdated after INSERT"
+    );
+    assert!(
+        exclusive_package_link(&pool, book, Some(recent), Some(buyer))
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // After the owner selects a shorter window, still no money is debited:
     // newly expired chapters become directly purchasable.
     repo.set_package_paid_mode(
-        id(owner), id(layer), id(book), id(version), revision,
+        id(owner),
+        id(layer),
+        id(book),
+        id(version),
+        revision,
         PackagePaidMode::EarlyDays(1),
-    ).await.unwrap();
-    assert!(exclusive_package_link(&pool, book, Some(recent), Some(buyer))
-        .await.unwrap().is_some(), "same-day registration is still protected");
+    )
+    .await
+    .unwrap();
+    assert!(
+        exclusive_package_link(&pool, book, Some(recent), Some(buyer))
+            .await
+            .unwrap()
+            .is_some(),
+        "same-day registration is still protected"
+    );
     pool.close().await;
 }
