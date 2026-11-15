@@ -352,6 +352,8 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("fail-fast: false", body)
                 self.assertIn("image: postgres:18", body)
                 self.assertIn("TOR_CI_READER_LANE: ${{ matrix.lane }}", body)
+                self.assertIn("ci_reader_lane_started=$SECONDS", body)
+                self.assertIn("CI_BROWSER_LANE_SECONDS lane=$TOR_CI_READER_LANE", body)
                 self.assertIn('case "$TOR_CI_READER_LANE" in', body)
                 self.assertIn("reading|publishing) ;;", body)
                 self.assertEqual(body.count('if [[ "$TOR_CI_READER_LANE" == reading ]]; then'), 2)

@@ -1087,6 +1087,7 @@ jobs:
           TOR_CI_READER_LANE: ${{ matrix.lane }}
         run: |
           set -euo pipefail
+          ci_reader_lane_started=$SECONDS
           mkdir -p "$RUNNER_TEMP/reader-shots"
           TOR_AUTH_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
           server=$!
@@ -1135,6 +1136,7 @@ jobs:
             node --check tools/s039_payout_post_browser.cjs
             TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
           fi
+          echo "CI_BROWSER_LANE_SECONDS lane=$TOR_CI_READER_LANE seconds=$((SECONDS-ci_reader_lane_started))"
       - name: S059 real SQL delay, operator diagnostics and writer recovery
         if: ${{ matrix.lane == 'reading' }}
         run: python3 tools/operator_trace_pg_smoke.py
