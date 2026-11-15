@@ -297,6 +297,9 @@ fn author_book_draft_guidance_does_not_invent_metadata_readiness() {
     assert!(html.contains("Подготовка к публикации"));
     assert!(html.contains("Добавьте хотя бы одну бесплатную главу"));
     assert!(html.contains("Проверьте перед публикацией"));
+    assert_eq!(html.matches(">Редактировать аннотацию</a>").count(), 1);
+    assert!(html.contains(">Проверить описание</a>"));
+    assert!(html.contains(">Создать главу</a>"));
     assert!(!html.contains("action=\"/me/books/42/publish\""));
     assert!(!html.contains("src=\"/covers/42/main.webp\""));
     assert!(html.contains("author-book-workspace__cover-placeholder"));
