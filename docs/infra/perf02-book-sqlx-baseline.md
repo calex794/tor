@@ -135,11 +135,16 @@ executors, business authorization or PostgreSQL schema are changed.
 The existing RIL task-local subscriber now independently counts successful
 pool acquisitions, their total elapsed microseconds and worst acquisition
 duration for each HTTP request. The original SQLx query count/timing and
-bounded query-span evidence remain unchanged. Every 16th completed Book
-request emits one numeric-only diagnostic line without route IDs, SQL text,
+bounded query-span evidence remain unchanged. Approximately one in sixteen Book
+requests is selected using SplitMix64 over a process-local sequence number, not
+fixed periodic sampling. This avoids phase-lock bias between equal-rate guest
+and authenticated k6 scenarios. Each selected request emits a numeric line
+without route IDs, SQL text,
 session cookies, IP addresses, user IDs, book IDs or trace IDs. The benchmark
 collects stage-labeled summaries of these values, along with existing k6
-guest/reader p50/p95/p99, PG activity and pidstat artifacts.
+guest/reader p50/p95/p99, PG activity and pidstat artifacts. The report
+also groups selected requests by observed numeric SQLx query count to expose
+cohort imbalance; query counts are not actor or authorization labels.
 
 **Important scope:** SQLx acquisition duration includes time waiting for a
 semaphore, checking idle connections, and establishing new connections. It is
@@ -149,7 +154,9 @@ acquisitions, not after timeouts. Stage samples include the few GETs used by
 k6 `setup()` to verify active sessions; they are diagnostic and **not** a
 paired request-level A/B study. `tools/perf02_pool_evidence.py` fails a
 nominally successful k6 stage if there are insufficient real numeric samples;
-missing acquisition evidence must never be reported as zero latency.
+missing acquisition evidence must never be reported as zero latency. k6
+--summary-export metrics may expose p50/p95/p99 directly or nested in values;
+the parser accepts both formats and validates the numeric statistics.
 
 Acceptance requires Repository rules, full Integration CI and isolated HTTP
 load on the current HEAD, including unit checks of the actual SQLx 0.8.6
