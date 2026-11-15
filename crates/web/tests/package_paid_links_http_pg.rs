@@ -184,17 +184,14 @@ async fn chromium_public_package(app: &Router, book: i64, layer: i64) {
     .expect("Node and Chromium required");
     server.abort();
     let _ = server.await;
-    std::fs::remove_file(std::path::Path::new(&temporary).join("h20-public-package.json"))
-        .unwrap();
+    std::fs::remove_file(std::path::Path::new(&temporary).join("h20-public-package.json")).unwrap();
     assert!(
         output.status.success(),
         "H/UI-20 Chromium failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        String::from_utf8_lossy(&output.stdout)
-            .contains("H/UI-20 Chromium PASS: desktop and mobile")
-    );
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains("H/UI-20 Chromium PASS: desktop and mobile"));
 }
 
 #[tokio::test]
