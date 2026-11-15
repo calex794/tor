@@ -25,8 +25,8 @@ struct ReviewForm {
 
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
-        .route("/layers/{layer_id}/cover/{variant}.webp", get(public_cover))
-        .route("/me/layers/{layer_id}/cover/preview", get(owner_preview))
+        .route("/layers/{layer_id}/cover/{variant}", get(public_cover))
+        .route("/me/layers/{layer_id}/cover/{mode}", get(owner_preview))
         .route("/moderation/layers/covers", get(queue))
         .route("/moderation/layers/covers/{id}/preview", get(moderator_preview))
         .route("/moderation/layers/covers/{id}/decision", post(decide))
@@ -105,11 +105,13 @@ async fn public_cover(
     State(state): State<AuthState>,
     Path((raw_layer, variant)): Path<(i64, String)>,
 ) -> Response {
-    let (Ok(layer), true) = (
-        PositiveId::new(raw_layer),
-        matches!(variant.as_str(), "main" | "card"),
-    ) else {
+    let Ok(layer) = PositiveId::new(raw_layer) else {
         return deny(StatusCode::NOT_FOUND);
+    };
+    let kind = match variant.as_str() {
+        "main.webp" => "main",
+        "card.webp" => "card",
+        _ => return deny(StatusCode::NOT_FOUND),
     };
     let repo = repository(&state);
     let cover = match repo.public_current(layer).await {
@@ -117,7 +119,7 @@ async fn public_cover(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let image = match read_image(&state, &cover, &variant).await {
+    let image = match read_image(&state, &cover, kind).await {
         Ok(image) => image,
         Err(error) => return deny(error),
     };
@@ -130,7 +132,7 @@ async fn public_cover(
 
 async fn owner_preview(
     State(state): State<AuthState>,
-    Path(raw_layer): Path<i64>,
+    Path((raw_layer, mode)): Path<(i64, String)>,
     headers: HeaderMap,
 ) -> Response {
     let raw_owner = match session_user(&state, &headers).await {
@@ -142,18 +144,27 @@ async fn owner_preview(
         return deny(StatusCode::NOT_FOUND);
     };
     let repo = repository(&state);
-    let pending = match repo.owner_view(owner, layer).await {
-        Ok((_, Some(pending))) => pending,
-        Ok(_) => return deny(StatusCode::NOT_FOUND),
+    let candidate = match repo.owner_view(owner, layer).await {
+        Ok((approved, pending)) => match mode.as_str() {
+            "preview" => pending,
+            "approved" => approved,
+            _ => return deny(StatusCode::NOT_FOUND),
+        },
         Err(_) => return deny(StatusCode::NOT_FOUND),
     };
-    let image = match read_image(&state, &pending, "card").await {
+    let Some(candidate) = candidate else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    let image = match read_image(&state, &candidate, "main").await {
         Ok(image) => image,
         Err(error) => return deny(error),
     };
     let unchanged = repo.owner_view(owner, layer).await.ok()
-        .and_then(|(_, p)| p)
-        .as_ref() == Some(&pending);
+        .and_then(|(approved, pending)| match mode.as_str() {
+            "preview" => pending,
+            _ => approved,
+        })
+        .as_ref() == Some(&candidate);
     if !unchanged {
         return deny(StatusCode::NOT_FOUND);
     }
