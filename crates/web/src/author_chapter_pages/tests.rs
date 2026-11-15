@@ -253,7 +253,63 @@ fn release_form_escapes_chapter_body_and_pins_version() {
     assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
     assert!(page.0.contains("&lt;/pre&gt;"));
     assert!(!page.0.contains("<script>bad()"));
+    assert!(page.0.contains("&lt;svg onload=1&gt;"));
+    assert!(page.0.contains("account-sidebar"));
+    assert!(page
+        .0
+        .contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(page
+        .0
+        .contains("tabindex=\"0\" aria-label=\"Текст выбранной редакции\""));
+    assert_eq!(
+        page.0
+            .matches("name=\"expected_revision\" value=\"3\"")
+            .count(),
+        2
+    );
+    assert_eq!(
+        page.0.matches("name=\"version_id\" value=\"86\"").count(),
+        2
+    );
+    assert_eq!(
+        page.0
+            .matches("name=\"csrf_token\" value=\"token\"")
+            .count(),
+        3
+    );
+    assert!(!page.0.contains("cancel-schedule"));
+    assert!(!page.0.contains("смогут читать все"));
+    for (status, label, cancellable) in [
+        ("pending", "Ожидает выпуска", true),
+        ("claimed", "Выпуск выполняется", false),
+        ("published", "Опубликовано", false),
+        ("cancelled", "Отменено", false),
+        ("stale", "Нужно проверить редакцию", true),
+        ("<script>bad()</script>", "Состояние недоступно", false),
+    ] {
+        let page = release_chapter(
+            2,
+            5,
+            &chapter,
+            "token",
+            Some(&ScheduledChapter {
+                scheduled_utc: "2030-11-15T12:00<unsafe>".into(),
+                status: status.into(),
+            }),
+        )
+        .0;
+        assert!(page.contains(label));
+        assert!(page.contains("2030-11-15T12:00&lt;unsafe&gt; UTC"));
+        assert!(!page.contains("<unsafe>"));
+        assert!(!page.contains("<script>bad()"));
+        assert_eq!(page.contains("/cancel-schedule"), cancellable);
+        assert_eq!(
+            page.matches("name=\"csrf_token\" value=\"token\"").count(),
+            if cancellable { 4 } else { 3 }
+        );
+    }
 }
+
 #[test]
 fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
     let published_book = OwnedBook {
