@@ -179,7 +179,15 @@ module.exports = async (browser, base, out) => {
       // the next GET must carry exactly the same decimal digits. The fixture
       // stays entirely within this browser page; no DB sequences are changed.
       const largeId = '9007199254740993';
-      const probe = await b.context.newPage();
+      // Clock emulation is BrowserContext-scoped. This synthetic cursor check
+      // must never affect the real mail/notification polling in b.context.
+      const probeContext = await browser.newContext({
+        storageState: await b.context.storageState(),
+        viewport: { width, height: 900 }
+      });
+      const probe = await probeContext.newPage();
+      // Install before loading the real production polling script.
+      await probe.clock.install();
       const seenCursors = [];
       let firstProbe = true;
       try {
@@ -209,11 +217,16 @@ module.exports = async (browser, base, out) => {
             url.searchParams.get('after_id') === largeId;
         }, { timeout: 12000 });
         await probe.goto(base + conversation);
+        // Exercise both real 3s polling timers without sleeping for 6s.
+        // The initial GET installs the huge ID; the next GET must return it
+        // byte-for-byte as after_id (no Number.MAX_SAFE_INTEGER rounding).
+        await probe.clock.fastForward(3000);
         await probe.locator('[data-message-id="' + largeId + '"]').waitFor({ timeout: 8000 });
+        await probe.clock.fastForward(3000);
         await nextPoll;
         assert(seenCursors.includes(largeId), 'BIGINT polling cursor was rounded');
       } finally {
-        await probe.close();
+        await probeContext.close();
       }
       assert.equal((await c.context.request.get(base + '/api/v1/me/messages?conversation_id=' + conversationId)).status(), 404);
       assert.equal(await b.page.getByRole('button', { name: /прочитанными/ }).count(), 0,
