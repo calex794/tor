@@ -38,7 +38,7 @@ impl PgCheckout {
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
-               AND (b.package_only_layer_id IS NULL OR (b.package_only_until IS NOT NULL AND b.package_only_until<=now()))
+               AND NOT tor_package_chapter_locked(b.package_only_layer_id, b.package_only_until, b.package_only_days, c.registered_at)
                AND NOT EXISTS (
                    SELECT 1 FROM library_purchased_chapters owned
                    WHERE owned.user_id=$2 AND owned.chapter_id=c.id
@@ -213,7 +213,7 @@ impl PgCheckout {
                    AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                    AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                    AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
-                   AND (b.package_only_layer_id IS NULL OR (b.package_only_until IS NOT NULL AND b.package_only_until<=now()))
+                   AND NOT tor_package_chapter_locked(b.package_only_layer_id, b.package_only_until, b.package_only_days, c.registered_at)
                  FOR SHARE OF c,p,b",
             )
             .bind(offer.edition.chapter_id.get())
