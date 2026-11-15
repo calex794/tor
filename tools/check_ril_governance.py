@@ -120,6 +120,7 @@ OWNER_CALLS = {
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "owner_view", "owner_can_upload",
+    "package_sale_page", "set_package_paid_mode",
     "add_book", "remove_book_if_current", "create_once",
     "update_metadata_if_current", "offer_if_current", "delete_owned_collection",
 }
