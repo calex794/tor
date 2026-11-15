@@ -24,8 +24,8 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::PositiveId;
 
-mod grid;
 mod actions;
+mod grid;
 
 const PAGE_SIZE: u16 = 20;
 const GRID_PAGE_SIZE: u16 = 50;
