@@ -329,7 +329,7 @@ impl PgLayers {
         .map_err(|_| LayerError::Unavailable)?;
         sqlx::query(
             "INSERT INTO commerce_layer_version_books(layer_version_id,book_id)
-             SELECT $1,book_id FROM unnest($2::bigint[]) AS book_id",
+             SELECT $1,src.book_id FROM unnest($2::bigint[]) AS src(book_id)",
         )
         .bind(next)
         .bind(additions)
