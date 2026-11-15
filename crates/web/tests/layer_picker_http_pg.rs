@@ -816,6 +816,33 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(detail_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
     assert!(detail_html.contains("name=\"expected_revision\" value=\"1\""));
 
+    // A forged package-cover choice must never bypass the approval ledger.
+    let cover_route = format!("/me/layers/{id}/cover");
+    let choose_cover = format!(
+        "cover_book_id={authors_book}&expected_revision=1&csrf_token={csrf}"
+    );
+    assert_eq!(
+        request(&app, "POST", &cover_route, &cookie, ORIGIN, &choose_cover)
+            .await.status(),
+        StatusCode::NOT_FOUND,
+        "a book without an approved cover cannot be used as a package cover",
+    );
+    assert_eq!(
+        request(&app, "POST", &cover_route, &outsider_cookie, ORIGIN, &choose_cover)
+            .await.status(),
+        StatusCode::NOT_FOUND,
+        "another user cannot edit the package",
+    );
+    assert_eq!(
+        request(&app, "POST", &cover_route, &cookie, "https://evil.invalid", &choose_cover)
+            .await.status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        request(&app, "POST", &cover_route, "", ORIGIN, &choose_cover)
+            .await.status(),
+        StatusCode::UNAUTHORIZED,
+    );
     let update = format!(
         "title=Owner+Updated&description=Private+description&status=hidden&expected_revision=1&csrf_token={csrf}"
     );
