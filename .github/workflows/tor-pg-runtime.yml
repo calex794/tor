@@ -428,6 +428,9 @@ jobs:
             cargo test -p tor-commerce --test d09_payout_reject_pg d_09_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test d09_payout_approval_quote_pg d_09_quote_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test d09_payout_posting_pg d_09_post_ -- --ignored --test-threads=1
+            cargo test -p tor-commerce --test paid_ads_pg -- --ignored --test-threads=1
+            env -u TOR_CHAPTER_ADS_PURCHASE_ENABLED cargo test -p tor-web --test paid_ads_http_pg paid_ads_http_purchase_off_by_default -- --ignored --test-threads=1
+            TOR_CHAPTER_ADS_PURCHASE_ENABLED=1 cargo test -p tor-web --test paid_ads_http_pg paid_ads_http_enabled_ -- --ignored --test-threads=1
             cargo test -p tor-commerce --test d09_payout_mature_pg d_09_post_ -- --ignored --test-threads=1
             cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
             cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1

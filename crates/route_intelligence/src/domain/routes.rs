@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 431] = [
+static ROUTES: [RouteRegistration; 458] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -441,6 +441,33 @@ static ROUTES: [RouteRegistration; 431] = [
     RouteRegistration::new("/me/layers/{layer_id}/sales", "POST", "/me/", Prefix, Page, Dashboard, Write), // 428
     RouteRegistration::new("/admin/finance/payouts/{id}/post", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 429
     RouteRegistration::new("/me/layers/{layer_id}/cover-choice", "POST", "/me/", Prefix, Page, Dashboard, Write), // 430
+    RouteRegistration::new("/me/ads", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 431
+    RouteRegistration::new("/me/ads/daily", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 432
+    RouteRegistration::new("/me/ads/chapter", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 433
+    RouteRegistration::new("/me/ads/{product}/{id}/cancel", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 434
+    RouteRegistration::new("/me/ads/publisher/settings", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 435
+    RouteRegistration::new("/me/ads/publisher/credit", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 436
+    RouteRegistration::new("/api/v1/ads/daily-offers", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 437
+    RouteRegistration::new("/api/v1/ads/daily-campaigns", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 438
+    RouteRegistration::new("/api/v1/me/ads/daily-campaigns", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 439
+    RouteRegistration::new("/api/v1/ads/daily-campaigns/{id}/cancel", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 440
+    RouteRegistration::new("/api/v1/ads/chapter/packages", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 441
+    RouteRegistration::new("/api/v1/ads/chapter/campaigns", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 442
+    RouteRegistration::new("/api/v1/ads/chapter/campaigns/{id}", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 443
+    RouteRegistration::new("/api/v1/me/ads/chapter-campaigns", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 444
+    RouteRegistration::new("/api/v1/ads/chapter/impressions", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 445
+    RouteRegistration::new("/api/v1/ads/chapter/click", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 446
+    RouteRegistration::new("/api/v1/ads/chapter/campaigns/{id}/cancel", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 447
+    RouteRegistration::new("/api/v1/me/chapter-ads/publisher-ledger", "GET", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Read), // 448
+    RouteRegistration::new("/api/v1/me/chapter-ads/publisher-settings", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 449
+    RouteRegistration::new("/api/v1/me/chapter-ads/publisher-credit", "POST", "/api/v1/ads/", Prefix, Api, ProductArea::Billing, Write), // 450
+    RouteRegistration::new("/admin/promotion/paid", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 451
+    RouteRegistration::new("/admin/promotion/paid/daily-offer", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 452
+    RouteRegistration::new("/admin/promotion/paid/chapter-package", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 453
+    RouteRegistration::new("/admin/promotion/paid/slot-policy", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 454
+    RouteRegistration::new("/admin/promotion/paid/{product}/{id}/cancel", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 455
+    RouteRegistration::new("/assets/paid-ads.js", "GET", "/assets/", Prefix, Static, System, Read), // 456
+    RouteRegistration::new("/assets/paid-ads.css", "GET", "/assets/", Prefix, Static, System, Read), // 457
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

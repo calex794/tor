@@ -1,3 +1,4 @@
+pub mod ad_posting;
 pub mod admin_reader_audit;
 pub mod admin_reader_entitlements;
 pub mod admin_support_refunds;

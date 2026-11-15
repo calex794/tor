@@ -239,6 +239,7 @@ pub(super) async fn reader_page(
                 &headers,
                 tor_contracts::exposure::PromotionSlot::ChapterEndFree,
                 i64::try_from(chapter.book_id).ok(),
+                i64::try_from(id).ok(),
                 html,
                 crate::editorial_http::display::issuer(&observation),
             )

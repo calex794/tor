@@ -156,6 +156,9 @@ def check_repository(root: Path = ROOT) -> list[str]:
                             and key in AUDITED_REFUND_ADMIN)
             allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
                          and key in AUDITED_G09_ADMIN)
+            from paid_ads_route_proofs import BINDINGS as PAID_ADS_BINDINGS
+            allow_paid_ads = (row["source"] == "crates/web/src/paid_ads_http/mod.rs"
+                              and key[:3] in PAID_ADS_BINDINGS and key[3] == "paid_ads")
             allow_editorial = (row["source"] == "crates/web/src/editorial_http/mod.rs"
                                and key in {("GET", "/admin/promotion/editorial", "admin::page", "admin_editorial"),
                                            ("POST", "/admin/promotion/editorial", "admin::submit", "admin_editorial")})
@@ -206,7 +209,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
+                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial or allow_paid_ads
                     or allow_ratio_admin):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":

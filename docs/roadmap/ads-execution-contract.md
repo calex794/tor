@@ -11,6 +11,15 @@
 
 Старый Python имеет: [legacy daily campaigns](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/advertising), [Chapter Ads](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/advertising/chapter_ads). Legacy покупает **дни и размещения**, Chapter Ads — **пакет оплачиваемых показов**. Это **внутренние** рекламные продукты сайта; отсутствие сторонней рекламной сети само по себе не является причиной не реализовывать собственный рекламный движок. Но оплата и billable serving по умолчанию **OFF**, пока не доказан внутренний финансовый контур.
 
+## Реализация S042/S043 — 16 ноября 2026
+
+Владелец выбрал обе платные модели для реализации. Технический срез и границы
+включения описаны в [Paid Ads V1](../contracts/paid-ads-v1.md): отдельные кампании,
+полная предоплата, immutable intents/offers, атомарный D posting, bounded planner,
+viewability, durable caps, settlement/refund и publisher wallet. Прежнее «будущий
+этап» выше описывает исходную очередь, а не запрет текущей разработки. Приёмку
+фиксируют только результаты exact-head PG/Chromium/CI; production-флаги остаются OFF.
+
 ## 1. Два независимых продукта, общие ограничения
 
 | Инвариант | Legacy campaigns | Chapter Ads |

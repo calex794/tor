@@ -210,7 +210,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 102)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
@@ -410,6 +410,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "referral_share_browser_smoke.cjs",
             "editorial_pg_browser.cjs",
             "s039_payout_post_browser.cjs",
+            "paid_ads_browser.cjs",
         )
         commands = []
         for name, body in (("required", required), ("manual", manual)):

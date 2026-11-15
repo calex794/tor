@@ -3032,6 +3032,195 @@
       "source": "crates/web/src/auth/layer_routes/layer_cover_choice.rs",
       "handler": "choose",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/ads",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::page",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/me/ads/daily",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::daily",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/me/ads/chapter",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::chapter",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/me/ads/{product}/{id}/cancel",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::cancel",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/me/ads/publisher/settings",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::publisher_settings",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/me/ads/publisher/credit",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "console::publisher_credit",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/ads/daily-offers",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::offers",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/daily-campaigns",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::daily",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/ads/daily-campaigns",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::daily_campaigns",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/daily-campaigns/{id}/cancel",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::cancel_daily",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/ads/chapter/packages",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::packages",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/chapter/campaigns",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::chapter",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/ads/chapter/campaigns/{id}",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::campaign",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/ads/chapter-campaigns",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::chapter_campaigns",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/chapter/impressions",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::impression",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/chapter/click",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::click",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/ads/chapter/campaigns/{id}/cancel",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::cancel_chapter",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/chapter-ads/publisher-ledger",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::publisher",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/chapter-ads/publisher-settings",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::publisher_settings",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/chapter-ads/publisher-credit",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "api::publisher_credit",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/promotion/paid",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "admin::page",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/paid/daily-offer",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "admin::daily",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/paid/chapter-package",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "admin::package",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/paid/slot-policy",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "admin::slot_policy",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/promotion/paid/{product}/{id}/cancel",
+      "source": "crates/web/src/paid_ads_http/mod.rs",
+      "handler": "admin::cancel",
+      "policy": "paid_ads"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/paid-ads.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "paid_ads_http::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/paid-ads.css",
+      "source": "crates/web/src/lib.rs",
+      "handler": "paid_ads_http::stylesheet",
+      "policy": "public"
     }
   ]
 }

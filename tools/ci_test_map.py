@@ -147,6 +147,8 @@ TEST_SUITES = {
 # verifies every target is directly invoked in both PG workflows and no other
 # specialized job. Changes to this authority map itself always use full CI.
 POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
+    "crates/commerce/tests/paid_ads_pg.rs",
+    "crates/web/tests/paid_ads_http_pg.rs",
     "crates/migrations/tests/e08_installed_upgrade_pg.rs",
     "crates/traffic_behavior/tests/ril_rollups_pg.rs",
     "crates/traffic_behavior/tests/ril_costs_pg.rs",

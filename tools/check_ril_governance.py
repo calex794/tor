@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+POLICIES = {"paid_ads", "admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
+PROTECTED = {"paid_ads", "admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -262,6 +262,8 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_referral_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/lib.rs" and module == "paid_ads_http":
+        return source.parent / "paid_ads_http/mod.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
     return source.with_suffix("") / f"{module}.rs"
@@ -391,9 +393,12 @@ def _audience_funnel_is_bounded(body: str) -> bool:
     )
 
 
-def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
+def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str, root: Path = ROOT) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
+    if entry.get("policy") == "paid_ads":
+        from paid_ads_route_proofs import verify
+        return verify(root, entry, _functions)
     handler = entry["handler"].rsplit("::", 1)[-1]
     body = functions.get(handler)
     if body is None:
@@ -2196,7 +2201,7 @@ def check(root: Path = ROOT) -> list[str]:
                 source_cache[path]["__retired_csrf"] = api.get("csrf", "")
             except OSError:
                 source_cache[path]["__retired_response"] = ""
-        errors.extend(_verify(entry, source_cache[path], limiter))
+        errors.extend(_verify(entry, source_cache[path], limiter, root))
     return errors
 
 
