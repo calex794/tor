@@ -143,11 +143,11 @@ async fn owner_preview(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(error) => return deny(error),
     };
-    let (Ok(owner), Ok(layer)) = (PositiveId::new(raw_owner), PositiveId::new(raw_layer)) else {
+    let (Ok(actor), Ok(layer)) = (PositiveId::new(raw_owner), PositiveId::new(raw_layer)) else {
         return deny(StatusCode::NOT_FOUND);
     };
     let repo = repository(&state);
-    let candidate = match repo.owner_view(owner, layer).await {
+    let candidate = match repo.owner_view(actor, layer).await {
         Ok((approved, pending)) => match mode.as_str() {
             "preview" => pending,
             "approved" => approved,
