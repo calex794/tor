@@ -130,6 +130,7 @@ pub(super) fn period(row: &PgRow, ordinal: i32) -> Result<BookDiscoveryPeriod, D
 
 pub(super) fn counts(row: &PgRow) -> Result<BookDiscoveryCounts, DiscoveryError> {
     Ok(BookDiscoveryCounts {
+        unknown_evidence: row.try_get("unknown_evidence").map_err(unavailable)?,
         no_observations: row.try_get("no_observations").map_err(unavailable)?,
         observed_without_starts: row
             .try_get("observed_without_starts")
@@ -140,6 +141,7 @@ pub(super) fn counts(row: &PgRow) -> Result<BookDiscoveryCounts, DiscoveryError>
 
 pub(super) fn metrics(row: &PgRow) -> Result<BookDiscoveryMetrics, DiscoveryError> {
     Ok(BookDiscoveryMetrics {
+        evidence_invalidated: row.try_get("evidence_invalidated").map_err(unavailable)?,
         issued: row.try_get("issued").map_err(unavailable)?,
         impressions: row.try_get("impressions").map_err(unavailable)?,
         clicks: row.try_get("clicks").map_err(unavailable)?,

@@ -7,7 +7,6 @@ use crate::{
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    middleware,
     response::{Redirect, Response},
     routing::{get, post},
     Router,
@@ -16,7 +15,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tor_accounts::{
     repositories::PgAccounts,
-    services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
@@ -74,6 +72,7 @@ mod continuation_demand;
 mod creator_finance;
 mod creator_follows;
 mod direct_swap_browser;
+mod flow_reading;
 mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
@@ -93,8 +92,10 @@ mod mail_pages;
 mod moderation_books;
 mod moderation_confirm;
 mod moderation_covers;
+mod notification_proof_delivery;
 mod notification_settings;
 mod notifications;
+mod package_covers;
 mod paid_completion;
 mod password_change;
 mod password_reset;
@@ -114,6 +115,8 @@ pub(crate) mod security_retention;
 mod session_security;
 mod settings_routes;
 mod support_bundle;
+mod surprise_admin;
+pub(crate) mod surprise_http;
 mod sync_actions;
 mod teams;
 mod text_issues;
@@ -181,10 +184,12 @@ fn router_inner(
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
+    let notification_proof_delivery = notification_proof_delivery::ProofDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let audience_routes = audience_http::routes(accounts.clone(), cookies.clone());
+    let editorial_routes = crate::editorial_http::routes(accounts.clone(), cookies.clone());
     let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -195,11 +200,13 @@ fn router_inner(
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
-    let progress = PgReadingProgress::new(accounts.pool().clone());
-    let sync = PgReadingSync::new(accounts.pool().clone());
-    let bookmarks = PgLibrary::new(accounts.pool().clone());
+    let flow_reading::Stores {
+        progress,
+        sync,
+        bookmarks,
+        book_follows,
+    } = flow_reading::stores(&accounts);
     let demand = PgContinuationDemand::new(accounts.pool().clone());
-    let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let creator_follows = tor_social::services::follow::PgCreatorFollows::new(pool.clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
@@ -215,8 +222,14 @@ fn router_inner(
 
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        editorial: crate::editorial_http::display::DisplayRuntime::new(
+            tor_ads::repositories::editorial::PgEditorial::new(pool.clone()),
+            tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
+            Some((accounts.clone(), cookies.clone())),
+        ),
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
+        notification_proof_delivery,
         notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
         checkout,
@@ -239,15 +252,16 @@ fn router_inner(
         achievements,
         cookies,
         password_jobs: PasswordJobs::new(4),
-        ril_signer: behavior_consent::configured_ril_signer(),
         cover_preview_storage: storage.clone(),
         cover_upload_enabled,
         age_editor_enabled: std::env::var("TOR_S020_ACCESS_EDITOR_ENABLED").as_deref() == Ok("1"),
     };
-    let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(surprise_http::router())
+        .merge(surprise_admin::router())
         .merge(layer_routes::routes())
+        .merge(package_covers::routes())
         .merge(layer_storefront::router())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
@@ -434,16 +448,13 @@ fn router_inner(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
-        .layer(middleware::from_fn_with_state(
-            observation_state,
-            behavior_consent::annotate_verified_ril,
-        ))
         .merge(chapter_routes)
         .merge(social_routes);
     let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app
         .merge(crate::recommendation_http::routes(rec_runtime.clone()))
         .merge(audience_routes);
+    let app = app.merge(editorial_routes);
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
 
@@ -454,7 +465,7 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(status) => return deny(status),
     };
     match state.authoring.list_owned_books(actor).await {
-        Ok(books) => layer_routes::author_index(&state, actor, &books).await,
+        Ok(books) => layer_routes::author_index(&state, actor, &books, &headers).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }

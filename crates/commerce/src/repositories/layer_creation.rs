@@ -8,6 +8,18 @@ use crate::domain::{
 use tor_contracts::paid_delivery::PositiveId;
 
 impl PgLayers {
+    /// A creator is a signed-in owner of at least one non-deleted Book.
+    /// Package management itself never needs a moderator-granted creator role.
+    pub async fn author_has_book(&self, actor: PositiveId) -> Result<bool, LayerError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM books WHERE owner_user_id=$1 AND NOT is_deleted)",
+        )
+        .bind(actor.get())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)
+    }
+
     /// Replaying one authenticated command yields exactly the original Layer.
     /// Changing the title under the same key is an explicit replay conflict.
     /// The unique owner/key constraint arbitrates concurrent requests in PG.
@@ -29,7 +41,9 @@ impl PgLayers {
         let created: Option<i64> = sqlx::query_scalar(
             "INSERT INTO commerce_layers
                 (owner_user_id,title,create_command_key,create_command_title)
-             VALUES($1,$2,$3,$2)
+             SELECT $1,$2,$3,$2 WHERE EXISTS (
+                 SELECT 1 FROM books WHERE owner_user_id=$1 AND NOT is_deleted
+             )
              ON CONFLICT (owner_user_id,create_command_key) DO NOTHING
              RETURNING id",
         )
@@ -73,7 +87,7 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?;
         let Some((layer_id, saved_title, Some(_))) = row else {
-            return Err(LayerError::Unavailable);
+            return Err(LayerError::Inaccessible);
         };
         if saved_title != title {
             return Err(LayerError::ReplayConflict);

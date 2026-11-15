@@ -1,10 +1,12 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
+mod flow_health;
 use crate::domain::{
     BehaviorEvent, BehaviorSketch, FlowPageview, FlowVisitWindows, PathReport, RollupDelta,
     SketchSnapshot, SqlCostEvent, VerifiedSubjectKey, MAX_SUBJECTS,
 };
 use crate::services::paths_worker::PathRecorder;
+use flow_health::FlowGate;
 use std::collections::{HashSet, VecDeque};
 use std::{
     sync::{
@@ -18,10 +20,13 @@ use std::{
 
 const MAX_QUEUE: usize = 4_096;
 enum Message {
-    Event(BehaviorEvent, Option<FlowPageview>),
+    Event(BehaviorEvent, Option<FlowPageview>, Option<i64>),
     Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
+    DrainAsync(tokio::sync::oneshot::Sender<RollupDelta>),
+    #[cfg(test)]
+    Pause(mpsc::Sender<()>, mpsc::Receiver<()>),
     Forget(VerifiedSubjectKey, mpsc::Sender<bool>),
 }
 
@@ -32,6 +37,7 @@ pub struct TrafficRecorder {
     dropped: Arc<AtomicU64>,
     flow_candidates: Arc<AtomicU64>,
     flow_dropped: Arc<AtomicU64>,
+    flow_gate: Arc<FlowGate>,
     paths: PathRecorder,
     started: Instant,
 }
@@ -54,7 +60,7 @@ impl TrafficRecorder {
                 let mut fail_closed = false;
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(mut event, flow) => {
+                        Message::Event(mut event, flow, observed_hour) => {
                             // An in-flight request may arrive after consent has
                             // been revoked. It cannot recreate the old path.
                             while let Some((time, key)) = expirations.front().copied() {
@@ -77,6 +83,7 @@ impl TrafficRecorder {
                                     .subject
                                     .is_some_and(|key| visits.observe(key, event.at_millis));
                                 rollup.record_flow(pageview, event.subject.is_some(), started);
+                                rollup.record_observed_flow(pageview, observed_hour);
                             }
                             if event.subject.is_some() {
                                 let _ = path_sink.try_record(event);
@@ -89,6 +96,19 @@ impl TrafficRecorder {
                         Message::Drain(reply) => {
                             let batch = std::mem::take(&mut rollup);
                             let _ = reply.send(batch);
+                        }
+                        Message::DrainAsync(reply) => {
+                            let batch = std::mem::take(&mut rollup);
+                            if let Err(batch) = reply.send(batch) {
+                                // No other FIFO message ran between take/send.
+                                // A cancelled receiver must not consume the data.
+                                rollup = batch;
+                            }
+                        }
+                        #[cfg(test)]
+                        Message::Pause(ready, resume) => {
+                            let _ = ready.send(());
+                            let _ = resume.recv();
                         }
                         Message::Forget(key, reply) => {
                             if revoked.insert(key) {
@@ -117,6 +137,7 @@ impl TrafficRecorder {
             dropped,
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths,
             started: Instant::now(),
         }
@@ -138,16 +159,30 @@ impl TrafficRecorder {
         if has_flow {
             self.flow_candidates.fetch_add(1, Ordering::Relaxed);
         }
-        match self.sender.try_send(Message::Event(event, flow)) {
-            Ok(()) => true,
+        let guard = has_flow.then(|| self.flow_gate.lock()).flatten();
+        let observed_at = guard.as_ref().and_then(|guard| guard.observation_time());
+        let unavailable = has_flow && observed_at.is_none();
+        if unavailable {
+            self.flow_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+        let flow = if unavailable { None } else { flow };
+        // Timestamp and enqueue are fenced together against the pump barrier.
+        let observed_hour = observed_at.and_then(crate::domain::observation_hour);
+        let accepted = match self
+            .sender
+            .try_send(Message::Event(event, flow, observed_hour))
+        {
+            Ok(()) => !unavailable,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
-                if has_flow {
+                if has_flow && !unavailable {
                     self.flow_dropped.fetch_add(1, Ordering::Relaxed);
                 }
                 false
             }
-        }
+        };
+        drop(guard);
+        accepted
     }
 
     /// Best effort, nonblocking finite per-route SQLx completion telemetry.
@@ -178,6 +213,37 @@ impl TrafficRecorder {
         let (reply, response) = mpsc::channel();
         self.sender.try_send(Message::Drain(reply)).ok()?;
         response.recv_timeout(Duration::from_secs(2)).ok()
+    }
+
+    pub(crate) fn manage_flow_health(&self) {
+        self.flow_gate.manage();
+    }
+    pub(crate) fn flow_health_started(&self) -> Instant {
+        self.flow_gate.created()
+    }
+    pub(crate) fn activate_flow_health(&self, clock_ms: i64, started: Instant) -> bool {
+        self.flow_gate.activate(clock_ms, started)
+    }
+    pub(crate) fn close_flow_health(&self) {
+        self.flow_gate.close();
+    }
+    /// Enqueue the FIFO barrier immediately; only its reply is asynchronous.
+    /// The pump retains the receiver across cancellation of a progress cycle.
+    pub(crate) fn start_persistence_drain(
+        &self,
+        managed: bool,
+    ) -> Option<tokio::sync::oneshot::Receiver<RollupDelta>> {
+        let guard = if managed {
+            let guard = self.flow_gate.lock()?;
+            guard.observation_time()?;
+            Some(guard)
+        } else {
+            None
+        };
+        let (reply, response) = tokio::sync::oneshot::channel();
+        self.sender.try_send(Message::DrainAsync(reply)).ok()?;
+        drop(guard);
+        Some(response)
     }
 
     /// Serializes against earlier traffic events, then queries the independent
@@ -336,6 +402,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -353,6 +420,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -370,6 +438,7 @@ mod tests {
             dropped: Arc::new(AtomicU64::new(0)),
             flow_candidates: Arc::new(AtomicU64::new(0)),
             flow_dropped: Arc::new(AtomicU64::new(0)),
+            flow_gate: Arc::new(FlowGate::default()),
             paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
@@ -421,7 +490,7 @@ mod tests {
         let row = first_batch.flow_rows()[0];
         assert_eq!(row.html_requests, 3);
         assert_eq!(row.opted_in_html_requests, 2);
-        assert_eq!(row.observed_opted_in_visit_starts, 1);
+        assert_eq!(row.observed_opted_in_visit_starts, 0);
         assert!(recorder
             .drain_for_persistence()
             .unwrap()
@@ -444,3 +513,7 @@ mod tests {
         assert_eq!(revoked.flow_rows()[0].html_requests, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "recorder/drain_tests.rs"]
+mod drain_tests;

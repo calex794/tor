@@ -6,10 +6,13 @@ use tor_recommendations::{
     services::feedback::new_ticket,
 };
 
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
+
 async fn setup() -> (PgPool, PgRecommendations, i64, Vec<i64>) {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable database");
-    assert!(url.ends_with("/tor_ci"));
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     let actor:i64=sqlx::query_scalar("INSERT INTO users(email_normalized,display_name,password_hash) VALUES('rec13-gen@tor-ci.example','Reader','$argon2id$test') ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name RETURNING id")
         .fetch_one(&pool).await.unwrap();
     let mut books = Vec::new();
@@ -69,9 +72,36 @@ async fn rec13_generation_visibility_cas_and_rollback() {
         .await
         .unwrap();
     let feed = store.feed(None, Some(books[0]), 20).await.unwrap();
-    assert_eq!(feed.generation_id.as_deref(), Some(generation.as_str()));
-    assert_eq!(feed.items[0].book_id, books[1].to_string());
-    assert_eq!(feed.items[0].source, "related_books");
+    // Legacy generation construction remains an independently tested adapter.
+    // Production serving no longer consumes it or its combined ranking.
+    let manual: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_candidate_edges
+         WHERE generation_id=$1::uuid AND seed_id=$2 AND book_id=$3
+           AND source='related_books' AND reason='manually_related' AND score=1000",
+    )
+    .bind(&generation)
+    .bind(books[0])
+    .bind(books[1])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(manual, 1);
+    assert!(feed.generation_id.is_none() && !feed.personalized);
+    assert!(feed
+        .items
+        .iter()
+        .all(|item| item.source == "catalog" && item.reason == "new_release"));
+    assert_eq!(
+        feed.items
+            .iter()
+            .map(|item| &item.book_id)
+            .collect::<Vec<_>>(),
+        before
+            .items
+            .iter()
+            .map(|item| &item.book_id)
+            .collect::<Vec<_>>()
+    );
     assert!(feed
         .items
         .iter()
@@ -331,9 +361,9 @@ async fn rec13_content_edits_keep_eligibility_and_b_policy_changes_apply_live() 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn s020_rec_actor_age_discovery_uses_live_opt_in_and_grant() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable database");
-    assert!(url.ends_with("/tor_ci"), "never modify production");
+    let url = legacy_analytics::url("LEGACY_ANALYTICS_DATABASE_URL", "tor_app");
     let pool = PgPool::connect(&url).await.unwrap();
+    legacy_analytics::assert_schema(&pool).await;
     let actor: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash,adult_enabled)
          VALUES('s020-rec-tier@tor-ci.example','REC age reader','$argon2id$test',FALSE)

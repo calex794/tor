@@ -50,7 +50,10 @@ pub(super) fn section(body: &mut String, days: i32, report: Option<&FlowHourlyRe
     period(body, "current", "Текущий период", &report.current);
     period(body, "previous", "Предыдущий период", &report.previous);
     body.push_str(
-        "</div><p>В часах без записей нет измерения. Это не доказывает отсутствие просмотров. \
+        "</div><p>Индивидуальное измерение визитов прекращено. Эти суммы открытий страниц \
+         не определяют число визитов или уникальных посетителей. Старые показатели \
+         с согласием не подставляются как текущие. Личный кабинет здесь не учитывается.</p>\
+         <p>В часах без записей нет измерения. Это не доказывает отсутствие просмотров. \
          Час с записью тоже не гарантирует полный сбор: часть запросов могла быть потеряна \
          до сохранения. Количество часов с записями не является оценкой полноты.</p>",
     );
@@ -62,7 +65,7 @@ pub(super) fn section(body: &mut String, days: i32, report: Option<&FlowHourlyRe
          Этот фильтр не доказывает, что каждый оставшийся запрос сделал человек.</p>\
          <p>Здесь только обезличенные суммы четырёх публичных категорий. \
          Личный кабинет и история отдельных посетителей не показываются. \
-         Отказ от поведенческого учёта не останавливает обезличенный подсчёт страниц.</p>\
+         Подсчёт страниц не связывает эти открытия с аккаунтом или историей посетителя.</p>\
          <p>Время расчёта: ",
     );
     body.push_str(&time(&report.measured_at_utc));
@@ -80,6 +83,8 @@ fn period(body: &mut String, key: &str, label: &str, period: &FlowHourlyPeriod) 
             body,
             "<div class=\"audience-hour-total\" data-surface=\"{key}\"><h4>{label}</h4>\
             <p><strong data-metric=\"saved-views\">{views}</strong> — сохранённые просмотры</p>\
+            <p><strong data-metric=\"opted-in-requests\">Не измеряется</strong> — индивидуально учтённые запросы</p>\
+            <p><strong data-metric=\"observed-visit-starts\">Не измеряется</strong> — начала индивидуальных визитов</p>\
             <p>Часов с записями: <span data-metric=\"recorded-hours\">{}</span> из {}.</p></div>",
             period.recorded_hours[index],
             period.hours.len()
@@ -178,11 +183,16 @@ mod tests {
             until_utc: "2026-11-09T01:00:00Z".into(),
             hours: vec![],
             saved_views: [Some(0), None, Some(2), None],
+            saved_opted_in_requests: [Some(0), None, Some(1), None],
+            observed_visit_starts: [Some(0), None, Some(1), None],
             recorded_hours: [1, 0, 1, 0],
         };
         let mut body = String::new();
         period(&mut body, "current", "Текущий период", &period_data);
         assert!(body.contains("data-metric=\"saved-views\">0</strong>"));
+        assert!(body.contains("data-metric=\"opted-in-requests\">Не измеряется</strong>"));
+        assert!(body.contains("data-metric=\"observed-visit-starts\">Не измеряется</strong>"));
+        assert!(!body.contains("data-metric=\"observed-visit-starts\">1</strong>"));
         assert_eq!(
             body.matches("data-metric=\"saved-views\">Нет данных")
                 .count(),

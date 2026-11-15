@@ -17,11 +17,11 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
-    my_account_with_achievements_and_swap, my_account_with_achievements_refunds_and_swap,
-    my_account_with_follow_updates, password_change_form, registration_form,
-    registration_form_with_error, registration_form_with_error_and_next,
-    registration_form_with_next,
+    account_error_page, account_navigation, login_form, login_form_with_next, my_account,
+    my_account_with_achievements, my_account_with_achievements_and_swap,
+    my_account_with_achievements_refunds_and_swap, my_account_with_follow_updates,
+    password_change_form, private_account_layout, registration_form, registration_form_with_error,
+    registration_form_with_error_and_next, registration_form_with_next,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
@@ -42,8 +42,7 @@ pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
-    catalog, catalog_search_with_covers, home, home_recent_with_covers, home_recent_with_growth,
-    home_recent_with_updates, CatalogPageQuery, PublicBookCard,
+    catalog, catalog_search_observed, home, home_observed, CatalogPageQuery, PublicBookCard,
 };
 
 pub fn escape_html(value: &str) -> String {
@@ -84,13 +83,23 @@ fn layout_with_seo(
     content: &str,
     seo_markup: &str,
 ) -> Html<String> {
-    Html(
-        include_str!("../templates/layout.html")
-            .replace("<!--PAGE_TITLE-->", &escape_html(title))
-            .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
-            .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
-            .replace("<!--PAGE_CONTENT-->", content),
-    )
+    let mut html = include_str!("../templates/layout.html")
+        .replace("<!--PAGE_TITLE-->", &escape_html(title))
+        .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+        .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
+        .replace("<!--PAGE_CONTENT-->", content);
+    if crate::auth::surprise_http::enabled() {
+        html = html
+            .replace(
+                "</head>",
+                "<link rel=\"stylesheet\" href=\"/assets/surprise.css\">\\n</head>",
+            )
+            .replace(
+                "</body>",
+                "<script src=\"/assets/surprise.js\" defer></script>\\n</body>",
+            );
+    }
+    Html(crate::header_nav::render(html))
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
@@ -252,7 +261,15 @@ fn book_detail_body(
     batch_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&book.title);
-    let language = escape_html(&book.language);
+    let language = escape_html(match book.language.as_str() {
+        "ru" => "Русский",
+        "en" => "Английский",
+        "zh" => "Китайский",
+        "ko" => "Корейский",
+        "ja" => "Японский",
+        "vi" => "Вьетнамский",
+        other => other,
+    });
     let (description_html, meta_description) = match published_description {
         Some(raw) if !raw.trim().is_empty() => {
             let clean = raw.trim();
@@ -400,7 +417,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates_and_layers_and_purchased_only;
+pub use library::my_library_with_updates_and_layers_and_purchased_only_selected;
 mod library_saved_free;
 pub use library_saved_free::{
     saved_archive_list, saved_free_reader, saved_free_reader_with_paginated_toc,
@@ -437,6 +454,12 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/account-ui.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/author-layers.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-library.css"));
         css
     });
     (

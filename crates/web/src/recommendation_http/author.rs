@@ -132,8 +132,9 @@ pub(super) async fn save(
         .await
     {
         Ok(_) => {
-            // Scheduling failure never rolls back an already committed B policy.
-            let _ = state.store.request_refresh().await;
+            // Live visibility and removal apply immediately. Newly selected
+            // candidates enter the separately built/activated contextual model;
+            // this B command must not revive the retired generation writer.
             private_response(
                 Redirect::to(&format!("/me/books/{id}/recommendations")),
                 &[],

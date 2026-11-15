@@ -44,3 +44,8 @@
   .layer-panel { padding: 16px; }
   .layer-storefront-books, .layer-term-grid { grid-template-columns: minmax(0,1fr); }
 }
+
+/* A package has its own moderated cover; book covers remain independent. */
+.layer-cover__image { display:block; width:min(190px,100%); height:auto; aspect-ratio:2/3;
+  object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--border-color);
+  margin:0 0 22px; box-shadow:0 8px 24px rgba(15,23,42,.12); }

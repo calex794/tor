@@ -91,6 +91,30 @@ impl PgBookStars {
         book_id: i64,
         actor: Option<i64>,
     ) -> Result<Option<BookStars>, StarRatingError> {
+        Ok(self
+            .summary_for_actor_with_likes(book_id, actor, false)
+            .await?
+            .map(|(summary, _)| summary))
+    }
+
+    /// Book-detail projection: star votes and likes share a single read-only
+    /// book/age entitlement snapshot. Other rating routes skip the like count.
+    /// A page snapshot never authorizes POST like/rating mutations.
+    pub async fn book_page_summary_for_actor(
+        &self,
+        book_id: i64,
+        actor: Option<i64>,
+    ) -> Result<Option<(BookStars, i64)>, StarRatingError> {
+        self.summary_for_actor_with_likes(book_id, actor, true)
+            .await
+    }
+
+    async fn summary_for_actor_with_likes(
+        &self,
+        book_id: i64,
+        actor: Option<i64>,
+        include_likes: bool,
+    ) -> Result<Option<(BookStars, i64)>, StarRatingError> {
         if book_id <= 0 {
             return Err(StarRatingError::Invalid);
         }
@@ -106,7 +130,10 @@ impl PgBookStars {
                 COALESCE(SUM(r.rating::bigint) FILTER
                     (WHERE r.rating_kind='translation'),0)::bigint AS translation_sum,
                 COUNT(*) FILTER
-                    (WHERE r.rating_kind='translation')::bigint AS translation_votes
+                    (WHERE r.rating_kind='translation')::bigint AS translation_votes,
+                CASE WHEN $3::boolean
+                    THEN (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::bigint
+                    ELSE 0::bigint END AS book_likes_count
              FROM books b
              LEFT JOIN user_book_star_ratings r ON r.book_id=b.id
              WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
@@ -132,6 +159,7 @@ impl PgBookStars {
         )
         .bind(book_id)
         .bind(actor)
+        .bind(include_likes)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| StarRatingError::Unavailable)?;
@@ -164,7 +192,10 @@ impl PgBookStars {
         {
             return Err(StarRatingError::Unavailable);
         }
-        Ok(Some(summary))
+        let likes: i64 = row
+            .try_get("book_likes_count")
+            .map_err(|_| StarRatingError::Unavailable)?;
+        Ok(Some((summary, likes)))
     }
 
     /// Only the session user may read these two choices. The actor is never

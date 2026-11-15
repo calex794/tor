@@ -340,8 +340,18 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "1",
         "one author Save must create exactly one reader-visible first release"
     );
-    let follower_updates =
-        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    let follower_updates = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(follower_updates.contains("Demand fulfilled"));
     assert!(follower_updates.contains(&format!("href=\"/read/{released}\"")));
     assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
@@ -405,8 +415,18 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         ),
         "1"
     );
-    let acknowledged =
-        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    let acknowledged = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(acknowledged.contains("Просмотрено"));
     assert!(acknowledged.contains("Отметить непрочитанной"));
     assert_eq!(
@@ -422,7 +442,18 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         .status(),
         StatusCode::SEE_OTHER
     );
-    let unread = html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    let unread = html(
+        call(
+            &app,
+            "GET",
+            "/me/library?view=updates",
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
     assert!(unread.contains("Отметить прочитанной"));
     assert_eq!(
         pg(

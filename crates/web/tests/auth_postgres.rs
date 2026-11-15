@@ -26,6 +26,8 @@ mod c11_cases;
 mod f05_ranking_cases;
 #[path = "auth_postgres/h_account_cases.rs"]
 mod h_account_cases;
+#[path = "auth_postgres/h_author_index_cases.rs"]
+mod h_author_index_cases;
 #[path = "auth_postgres/h_cover_cases.rs"]
 mod h_cover_cases;
 #[path = "auth_postgres/http_helpers.rs"]
@@ -96,7 +98,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         "Never run auth integration against production"
     );
     let lookup = accounts.clone();
-
     let cover_store = h_cover_cases::MemoryCoverStore::default();
     let app = tor_web::router_with_postgres_reading_auth_cover_uploads(
         catalog,
@@ -106,7 +107,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         ORIGIN.to_owned(),
         Arc::new(cover_store.clone()),
     );
-    let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    let page = h_account_cases::registration_after_library(&app).await;
     assert_eq!(page.status(), StatusCode::OK);
     assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
@@ -117,7 +118,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("register-password-hint"));
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
-    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&csrf_token=".to_owned() + csrf;
+    let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&next=%2Fme%2Flibrary&csrf_token=".to_owned() + csrf;
     assert_eq!(
         send(&app, request("POST", "/register", &form, "", ORIGIN))
             .await
@@ -147,7 +148,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    assert_eq!(created.headers()[header::LOCATION], "/me");
+    assert_eq!(created.headers()[header::LOCATION], "/me/library");
     let session = cookie(&created, "tor-dev-session=");
     assert!(session.contains("tor-dev-session="));
     assert!(created
@@ -155,7 +156,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .get_all(header::SET_COOKIE)
         .iter()
         .any(|v| v.to_str().unwrap().contains("HttpOnly")));
-
     let hash = lookup
         .find_user("tor_ci_account@example.com")
         .await
@@ -164,7 +164,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .password_hash;
     assert!(hash.starts_with("$argon2id$"));
     assert!(!hash.contains("LongSecurePassword2026"));
-
     let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
     assert_eq!(private.status(), StatusCode::OK);
     assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
@@ -172,17 +171,19 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let private_html = body_of(private).await;
     assert!(private_html.contains("href=\"/me/library\""));
     assert!(private_html.contains("href=\"/me/books\""));
+    assert!(private_html.contains("action=\"/logout\""));
     assert!(!private_html.contains("Приватность"));
     assert!(!private_html.contains("Анализ ваших переходов"));
     assert!(!private_html.contains("/me/behavior"));
+    h_account_cases::assert_session_navigation(&app, &session).await;
     // B-01/B-02: the first genuine author journey persists a private book.
-    let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
-    assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
-    assert_eq!(anon_new.headers()[header::LOCATION], "/login");
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
+    let csrf_set = new_page.headers().get_all(header::SET_COOKIE);
+    assert_eq!(csrf_set.iter().count(), 1);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
     let new_html = body_of(new_page).await;
+    h_author_index_cases::editor_navigation(&new_html, "/me/books/new", "page");
     let author_csrf = csrf_token(&new_html);
     let command_key = new_html
         .split("name=\"command_key\" value=\"")
@@ -193,6 +194,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .expect("valid key");
     assert_eq!(command_key.len(), 43);
     assert!(new_html.contains("name=\"author_name\""));
+    assert!(new_html.contains("href=\"/me/books\">Мои книги</a>"));
     assert!(new_html.contains("name=\"genres\""));
     let create_form = format!(
         "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&genres=fantasy%2Cadventure&command_key={command_key}&csrf_token={author_csrf}"
@@ -253,20 +255,11 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         StatusCode::CONFLICT,
         "replay with altered payload must not mutate the original book"
     );
-    let book_page = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
-    assert_eq!(book_page.status(), StatusCode::OK);
-    let authored_html = body_of(book_page).await;
-    assert!(authored_html.contains("&lt;script&gt;"));
-    assert!(!authored_html.contains("<script>"));
-    let owner_index = send(&app, request("GET", "/me/books", "", &session, ORIGIN)).await;
-    assert_eq!(owner_index.status(), StatusCode::OK);
-    let index_html = body_of(owner_index).await;
-    assert!(index_html.contains(&format!("href=\"{book_path}\"")));
-    assert!(!index_html.contains("<script>"));
+    h_author_index_cases::owner_workspace(&app, &session, &book_path).await;
+    h_author_index_cases::owner_index(&app, &session, &book_path).await;
     let anon_detail = send(&app, request("GET", &book_path, "", "", ORIGIN)).await;
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
-
     // B-03/B-04: authenticated author release; the site review is separate.
     let book_id = book_path
         .trim_start_matches("/me/books/")
@@ -295,6 +288,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     .await;
     assert_eq!(chapter_page.status(), StatusCode::OK);
     let chapter_html = body_of(chapter_page).await;
+    h_author_index_cases::editor_navigation(&chapter_html, "/me/books", "location");
     let chapter_csrf = csrf_token(&chapter_html);
     let chapter_key = chapter_html
         .split("name=\"command_key\" value=\"")
@@ -520,7 +514,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     );
     let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
     let published_html = body_of(published_detail).await;
-    assert!(published_html.contains("Опубликована"));
+    assert!(published_html.contains("Публикация включена"));
     assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
     assert_eq!(
         send(
@@ -552,14 +546,12 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         "Publishing the same book twice is safe"
     );
 
-    let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
-    assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
-    assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
+    h_account_cases::assert_anonymous_library_sign_in(&app).await;
     let private_library = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
     assert_eq!(private_library.status(), StatusCode::OK);
     assert_eq!(private_library.headers()[header::CACHE_CONTROL], "no-store");
     let library_html = body_of(private_library).await;
-    assert!(library_html.contains("Вы пока не сохраняли место чтения"));
+    assert!(library_html.contains("Ваша книжная полка пока пуста"));
     assert!(!library_html.contains("PRIVATE-PAID-MARKER"));
     // C-08: a book bookmark is independent of the stored reading position.
     let bookmark_prompt = send(
@@ -640,8 +632,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(bookmarks.contains("\"book_id\":\"1\""));
     assert_eq!(bookmarks.matches("\"book_id\"").count(), 1);
     assert!(!bookmarks.contains("PRIVATE-PAID-MARKER"));
+    let saved_path = "/me/library?view=saved";
     let saved_html =
-        body_of(send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await).await;
+        body_of(send(&app, request("GET", saved_path, "", &session, ORIGIN)).await).await;
     assert!(saved_html.contains("Убрать из библиотеки"));
     assert_eq!(
         send(
@@ -945,12 +938,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
     h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
+    let with_next = format!("{good_login}&next=%2Freader%2F101");
     let logged = send(
         &app,
-        request("POST", "/login", &good_login, &login_csrf_cookie, ORIGIN),
+        request("POST", "/login", &with_next, &login_csrf_cookie, ORIGIN),
     )
     .await;
-    assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    h_account_cases::login_returns_to_public_reader(&app, &logged).await;
     c11_cases::resume_after_login(&app, &logged).await;
     let second_session = cookie(&logged, "tor-dev-session=");
     c11_cases::second_session_reads_saved_progress(&app, &second_session).await;

@@ -1,6 +1,62 @@
 //! Dedicated real-PostgreSQL account validation checks. Never tests production data.
 use super::*;
 
+pub(super) async fn assert_anonymous_library_sign_in(app: &Router) {
+    let library = send(app, request("GET", "/me/library", "", "", ORIGIN)).await;
+    assert_eq!(library.status(), StatusCode::SEE_OTHER);
+    assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        library.headers()[header::LOCATION],
+        "/login?next=/me/library"
+    );
+}
+
+pub(super) async fn registration_after_library(app: &Router) -> Response {
+    assert_anonymous_library_sign_in(app).await;
+    let new_book = send(app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
+    assert_eq!(new_book.status(), StatusCode::SEE_OTHER);
+    assert_eq!(new_book.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        new_book.headers()[header::LOCATION],
+        "/login?next=/me/books/new"
+    );
+    for target in ["/me/library", "/me/books/new", "/read/101", "/reader/101"] {
+        let path = format!("/login?next={target}");
+        let login = send(app, request("GET", &path, "", "", ORIGIN)).await;
+        assert_eq!(login.status(), StatusCode::OK);
+        let html = body_of(login).await;
+        assert!(html.contains(&format!("name=\"next\" value=\"{target}\"")));
+        assert!(html.contains(&format!("href=\"/register?next={target}\"")));
+    }
+    for target in ["https://evil.test", "//evil.test", "/admin", "/reader/0"] {
+        let login = send(
+            app,
+            request("GET", &format!("/login?next={target}"), "", "", ORIGIN),
+        )
+        .await;
+        assert_eq!(login.status(), StatusCode::OK);
+        assert!(!body_of(login).await.contains("name=\"next\""));
+    }
+    let registration = send(
+        app,
+        request("GET", "/register?next=/me/library", "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(registration.status(), StatusCode::OK);
+    registration
+}
+
+pub(super) async fn login_returns_to_public_reader(app: &Router, logged: &Response) {
+    assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    assert_eq!(logged.headers()[header::LOCATION], "/reader/101");
+    let session = cookie(logged, "tor-dev-session=");
+    let reader = send(app, request("GET", "/reader/101", "", &session, ORIGIN)).await;
+    assert_eq!(reader.status(), StatusCode::OK);
+    let html = body_of(reader).await;
+    assert!(html.contains("data-chapter-comment-form"));
+    assert!(!html.contains("PRIVATE-PAID-MARKER"));
+}
+
 pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: &str) {
     let weak_password = format!(
         "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"
@@ -712,4 +768,49 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
         referrals.reader_overview(owners[1].0).await.unwrap().active,
         0,
     );
+}
+
+pub(super) async fn assert_session_navigation(app: &Router, session: &str) {
+    for path in ["/", "/catalog", "/books/1", "/me/books/new"] {
+        let reply = send(app, request("GET", path, "", session, ORIGIN)).await;
+        assert_eq!(reply.status(), StatusCode::OK, "{path}");
+        assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+        assert!(
+            reply.headers().get_all(header::VARY).iter().any(|value| {
+                value
+                    .to_str()
+                    .unwrap()
+                    .split(',')
+                    .any(|part| part.trim() == "Cookie")
+            }),
+            "{path}: personalized header must vary by Cookie"
+        );
+        let html = body_of(reply).await;
+        let header = html
+            .split("<header")
+            .nth(1)
+            .unwrap()
+            .split("</header>")
+            .next()
+            .unwrap();
+        assert!(header.contains("action=\"/logout\""), "{path}");
+        assert!(!header.contains("href=\"/login\""), "{path}");
+        assert!(!header.contains("href=\"/register\""), "{path}");
+    }
+    let forged = format!("tor-dev-session={}", "A".repeat(43));
+    for cookies in ["", forged.as_str()] {
+        let reply = send(app, request("GET", "/catalog", "", cookies, ORIGIN)).await;
+        assert_eq!(reply.status(), StatusCode::OK);
+        let html = body_of(reply).await;
+        let header = html
+            .split("<header")
+            .nth(1)
+            .unwrap()
+            .split("</header>")
+            .next()
+            .unwrap();
+        assert!(header.contains("href=\"/login\""));
+        assert!(header.contains("href=\"/register\""));
+        assert!(!header.contains("action=\"/logout\""));
+    }
 }

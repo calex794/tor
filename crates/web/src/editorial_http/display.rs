@@ -1,0 +1,247 @@
+use crate::{auth_cookies::CookiePolicy, pages};
+use axum::{http::HeaderMap, response::Html};
+use std::{sync::Arc, time::Duration};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_ads::{
+    domain::editorial::{EditorialCard, Viewer},
+    repositories::editorial::PgEditorial,
+    services::editorial::Editorial,
+};
+use tor_contracts::exposure::{
+    CardObservation, EditorialPlacement, ObservationIssuer, PromotionSlot,
+};
+use tor_recommendations::repositories::{feedback::ShelfCardPreview, PgRecommendations};
+
+pub(crate) const MARKER: &str = "<!--EDITORIAL_PROMOTION-->";
+pub(crate) type Issuer = Option<axum::Extension<Arc<dyn ObservationIssuer>>>;
+pub(crate) fn issuer(value: &Issuer) -> Option<&dyn ObservationIssuer> {
+    value.as_ref().map(|extension| extension.0.as_ref())
+}
+pub(crate) fn configured(
+    catalog: Option<&tor_books::repositories::PgCatalog>,
+    control: Option<&crate::book_follow_page::FollowBookControl>,
+) -> Option<DisplayRuntime> {
+    let catalog = catalog?;
+    let authority = control.map(|control| {
+        let (accounts, cookies) = control.browser_context();
+        (accounts.clone(), cookies.clone())
+    });
+    Some(DisplayRuntime::new(
+        PgEditorial::new(catalog.pool()),
+        PgRecommendations::new(catalog.pool().clone()),
+        authority,
+    ))
+}
+
+pub(crate) async fn book(
+    state: &crate::AppState,
+    headers: &HeaderMap,
+    id: i64,
+    html: Html<String>,
+    observation: Issuer,
+) -> Html<String> {
+    if let Some(editorial) = &state.editorial {
+        editorial
+            .attach(
+                headers,
+                PromotionSlot::BookDetailRelated,
+                Some(id),
+                html,
+                issuer(&observation),
+            )
+            .await
+    } else {
+        html
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct DisplayRuntime {
+    store: PgEditorial,
+    previews: PgRecommendations,
+    authority: Option<(PgAccounts, CookiePolicy)>,
+    enabled: bool,
+}
+impl DisplayRuntime {
+    pub(crate) fn new(
+        store: PgEditorial,
+        previews: PgRecommendations,
+        authority: Option<(PgAccounts, CookiePolicy)>,
+    ) -> Self {
+        Self {
+            store,
+            previews,
+            authority,
+            enabled: super::enabled(),
+        }
+    }
+    pub(crate) async fn attach(
+        &self,
+        headers: &HeaderMap,
+        slot: PromotionSlot,
+        host: Option<i64>,
+        html: Html<String>,
+        observation: Option<&dyn ObservationIssuer>,
+    ) -> Html<String> {
+        if !self.enabled {
+            return Html(html.0.replace(MARKER, ""));
+        }
+        let started = tokio::time::Instant::now();
+        let operation = async {
+            let viewer = if let Some((accounts, cookies)) = &self.authority {
+                if let Some(token) = cookies.session_token(headers) {
+                    let session_digest = session_token_digest(&token);
+                    let actor = accounts.session_actor(&session_digest).await.ok()??;
+                    Some(Viewer {
+                        user_id: actor.actor.user_id.get(),
+                        session_digest,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            Editorial::new(&self.store)
+                .cards(viewer.as_ref(), slot, host)
+                .await
+                .ok()
+                .map(|cards| (cards, viewer))
+        };
+        // The 400 ms reader budget belongs to the core editorial selection.
+        // Once eligible cards exist, optional metadata can never erase them.
+        let (cards, viewer) = tokio::time::timeout(Duration::from_millis(400), operation)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let remaining = Duration::from_millis(400).saturating_sub(started.elapsed());
+        let preview_budget = remaining.min(Duration::from_millis(150));
+        let previews = if slot == PromotionSlot::ChapterEndFree
+            && !cards.is_empty()
+            && !preview_budget.is_zero()
+        {
+            let ids = cards
+                .iter()
+                .take(4)
+                .map(|card| card.book_id)
+                .collect::<Vec<_>>();
+            tokio::time::timeout(
+                preview_budget,
+                self.previews
+                    .shelf_card_previews(viewer.as_ref().map(|v| v.user_id), &ids),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Html(html.0.replace(
+            MARKER,
+            &render_cards_with_previews(&cards, &previews, observation),
+        ))
+    }
+}
+
+/// Only a trusted server renderer can ask the shared issuer for an opaque proof.
+/// Preview deliberately supplies None; arbitrary HTML data attributes are not read.
+pub(super) fn render_cards(
+    cards: &[EditorialCard],
+    issuer: Option<&dyn ObservationIssuer>,
+) -> String {
+    render_cards_with_previews(cards, &[], issuer)
+}
+
+fn render_cards_with_previews(
+    cards: &[EditorialCard],
+    previews: &[ShelfCardPreview],
+    issuer: Option<&dyn ObservationIssuer>,
+) -> String {
+    let mut items = String::new();
+    for card in cards.iter().take(4) {
+        let proof = issuer
+            .and_then(|issuer| {
+                issuer.issue(CardObservation {
+                    book_id: card.book_id,
+                    surface: card.slot.surface(),
+                    editorial: Some(EditorialPlacement {
+                        campaign_id: card.campaign_id,
+                        revision: card.revision,
+                        slot: card.slot,
+                    }),
+                })
+            })
+            .map(|proof| format!(" data-flow-proof=\"{}\"", pages::escape_html(&proof)))
+            .unwrap_or_default();
+        if card.slot == PromotionSlot::ChapterEndFree {
+            let markup = crate::recommendation_http::shelf_card::markup(
+                card.book_id,
+                &card.title,
+                previews
+                    .iter()
+                    .find(|preview| preview.book_id == card.book_id),
+            );
+            items.push_str(&format!(
+                r#"<article class="book-mini-card book-mini-card--shelf editorial-card" data-editorial-campaign="{}" data-editorial-book="{}"{proof}>{markup}</article>"#,
+                card.campaign_id, card.book_id
+            ));
+        } else {
+            items.push_str(&format!("<article class=\"book-section-card editorial-card\" data-editorial-campaign=\"{}\"{proof}><p class=\"book-section-card__kicker\">Выбор редакции</p><h3 class=\"book-section-card__title\"><a data-flow-link href=\"/books/{}\">{}</a></h3><p>Открыть книгу</p></article>",card.campaign_id,card.book_id,pages::escape_html(&card.title)));
+        }
+    }
+    if items.is_empty() {
+        return items;
+    }
+    if cards[0].slot == PromotionSlot::ChapterEndFree {
+        return format!(
+            r#"<section class="section reader-end-shelf editorial-promotion" data-rec-panel aria-label="Рекомендации после главы"><div class="container"><h2>Ещё книги</h2><div class="home-shelf__track" aria-label="Подборка книг">{items}<!--READER_END_ORGANIC_CARDS--></div></div></section>"#
+        );
+    }
+    format!("<section class=\"section editorial-promotion\" aria-label=\"Редакционное продвижение\"><div class=\"container\"><h2>Выбор редакции</h2><div class=\"book-related-grid\">{items}</div></div></section>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Issuer;
+    impl ObservationIssuer for Issuer {
+        fn issue(&self, card: CardObservation) -> Option<String> {
+            assert_eq!(card.editorial.unwrap().slot, PromotionSlot::HomeFeatured);
+            Some("proof&safe".into())
+        }
+    }
+    #[test]
+    fn chapter_end_editorial_card_is_plain_cover_title_without_source_badge() {
+        let cards = vec![EditorialCard {
+            campaign_id: 4,
+            revision: 2,
+            book_id: 9,
+            title: "Пробная книга".into(),
+            slot: PromotionSlot::ChapterEndFree,
+        }];
+        let markup = render_cards(&cards, None);
+        assert!(markup.contains("<h2>Ещё книги</h2>"));
+        assert!(markup.contains("/covers/9/card.webp"));
+        assert!(markup.contains("Пробная книга"));
+        assert!(!markup.contains("book-mini-card__meta"));
+        assert!(!markup.contains("Выбор редакции"));
+        assert!(markup.contains("<!--READER_END_ORGANIC_CARDS-->"));
+    }
+    #[test]
+    fn preview_does_not_mint_measurements_and_markup_is_escaped() {
+        let cards = vec![EditorialCard {
+            campaign_id: 4,
+            revision: 2,
+            book_id: 9,
+            title: "<script>&".into(),
+            slot: PromotionSlot::HomeFeatured,
+        }];
+        let preview = render_cards(&cards, None);
+        assert!(!preview.contains("data-flow-proof"));
+        assert!(!preview.contains("<script>"));
+        assert!(preview.contains("&lt;script&gt;&amp;"));
+        assert!(render_cards(&cards, Some(&Issuer)).contains("data-flow-proof=\"proof&amp;safe\""));
+    }
+}

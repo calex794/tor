@@ -20,7 +20,7 @@ jobs:
     with:
       caller: all
   preflight:
-    # Cheap fail-fast checks must pass before any of the 14 expensive suites.
+    # Cheap fail-fast checks must pass before any of the selected expensive suites.
     # Failure of the selector still triggers full fallback, but a malformed
     # tree or rustfmt error must never start a costly build.
     runs-on: ubuntu-24.04
@@ -133,6 +133,12 @@ jobs:
       PGPASSWORD: tor-ci-postgres
       TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
       MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      LEGACY_ANALYTICS_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_legacy_analytics
+      LEGACY_ANALYTICS_MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_legacy_analytics
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci_collection_retirement_startup
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,6 +147,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - name: Disk usage after cache restore
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -198,11 +210,58 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Native HTML quality on the fresh schema
+        env:
+          TOR_AUDIENCE_SHOTS: ${{ runner.temp }}/rec13-browser/shots
+          TOR_HTML_HEALTH_LOG: ${{ runner.temp }}/rec13-browser/server-html-health.log
+          TOR_FLOW_EMIT_SCREENSHOTS: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          cargo build -p tor-web
+          bash tools/flow_html_health_browser_acceptance.sh
+      - name: FLOW catalogue index migration and recovery (disposable databases)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_flow_index_fresh OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_invalid OWNER tor_migrator;
+          CREATE DATABASE tor_ci_flow_index_unrecorded OWNER tor_migrator;
+          SQL
+          FLOW_BOOK_INDEX_MIGRATOR_URL="${MIGRATOR_URL%/tor_ci}/tor_ci_flow_index_fresh" \
+            cargo test -p tor-migrations --test flow_book_indexes_pg -- --ignored --test-threads=1 --nocapture
       - name: E-08 baseline-to-Draft installed SQLx ledger upgrade (disposable database)
         run: |
           psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_e08_upgrade OWNER tor_migrator'
           E08_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_e08_upgrade' \
             cargo test -p tor-migrations --test e08_installed_upgrade_pg -- --ignored --test-threads=1
+      - name: REC explicit preferences installed upgrade (disposable database)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_ci_rec_preferences_upgrade OWNER tor_migrator'
+          REC_PREFERENCES_UPGRADE_DATABASE_URL='postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci_rec_preferences_upgrade' \
+            cargo test -p tor-migrations --test rec_preferences_installed_upgrade_pg -- --ignored --test-threads=1
+      - name: Prepare explicit legacy and installed-upgrade analytics databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
+          SQL
+          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
+            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
+          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
+          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          done
+          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+      - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
@@ -263,13 +322,14 @@ jobs:
           # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
           # Fix all seeded entities before running tests that INSERT default IDs.
           PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT max(id) FROM users),1), true);
           SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
           SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
           SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
           SQL
       - name: Database and HTTP integration
         run: |
-          # Timing only; all original commands and ordering remain unchanged.
+          # REC13 Chromium runs in its own required PostgreSQL job; remaining commands keep their order.
           ci_pg_started=$SECONDS
           ci_pg_phase_done() {
             local phase="$1"
@@ -277,7 +337,7 @@ jobs:
             ci_pg_started=$SECONDS
           }
           # Diagnose compilation versus test execution without changing any Cargo command.
-          # The env -u executions and nested REC13 shell have their own boundaries.
+          # The env -u executions retain their own timing boundaries.
           ci_pg_cargo_index=0
           cargo() {
             local start_us=${EPOCHREALTIME/./}
@@ -322,7 +382,6 @@ jobs:
           cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test actor_catalog_age_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
-          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_lifecycle_pg -- --ignored --test-threads=1
@@ -331,6 +390,7 @@ jobs:
           cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_import_worker_contention_pg -- --ignored --test-threads=1 --show-output
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test book_related_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test public_related_http_pg -- --ignored --test-threads=1
@@ -373,16 +433,6 @@ jobs:
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_tier_entitlement_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
-          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-reading --test library_age_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_saved_free_pg -- --ignored --nocapture --test-threads=1
@@ -390,16 +440,22 @@ jobs:
           cargo test -p tor-books --test ordinary_deletion_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test c08_pending_library_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1 --show-output
           ci_pg_phase_done "reading_library"
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test recommendation_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test recommendation_preferences_legacy_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test catalog_feed_pg -- --ignored --test-threads=1 --skip contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests
+          cargo test -p tor-recommendations --test catalog_legacy_history_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test analytics_invalidation_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
-          TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh
+          cargo test -p tor-web --test recommendation_preferences_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_retirement_http_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
@@ -415,8 +471,10 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
-           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1 --show-output
           cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          # H/UI-18: execute new package-cover ownership, moderation, cleanup and entitlement PG test.
+          cargo test -p tor-commerce --test layers_pg h_ui_18_ -- --ignored --test-threads=1
           # Enable owner Layer management for exactly this isolated PG/HTTP suite.
           # All other tests and the actual application retain the default OFF gate.
           TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
@@ -470,14 +528,10 @@ jobs:
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
           ci_pg_phase_done "http_security"
 
-      - name: Preserve FLOW audience browser evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flow-audience-pg-browser
-          path: ${{ runner.temp }}/rec13-browser/shots/audience*.png
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Disk usage after database and HTTP integration
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
@@ -486,7 +540,7 @@ jobs:
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
         run: |
           set -euo pipefail
-          cargo build -p tor-web
+          test -x ./target/debug/tor-web
           TOR_PAID_CHECKOUT_ENABLED=0 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-disabled.log" 2>&1 &
           disabled_pid=$!
           enabled_pid=""
@@ -515,7 +569,7 @@ jobs:
         env:
           GITHUB_ACTIONS: 'true'
         run: |
-          # The D-04 step already built this exact debug binary in this job.
+          # Fresh-schema HTML acceptance already built this exact debug binary.
           test -x ./target/debug/tor-web
           bash tools/tor_pg_restart_smoke.sh
       - name: I-11 PostgreSQL 18 backup and clean restore drill
@@ -551,7 +605,7 @@ jobs:
           GITHUB_ACTIONS: 'true'
           TOR_S061_PREVIOUS_BINARY: ${{ github.event_name == 'workflow_dispatch' && inputs.s061_previous_sha != '' && format('{0}/s061-previous-tor-web', runner.temp) || '' }}
         run: |
-          # Use the existing D-04 binary; build a second only for manual two-SHA tests.
+          # Reuse this job's accepted binary; build a second only for manual two-SHA tests.
           test -x ./target/debug/tor-web
           python3 tools/s061_cutover_pg_smoke.py
       - name: Preserve S061 real cutover evidence
@@ -581,6 +635,259 @@ jobs:
         run: |
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
+      - name: Final PostgreSQL runner disk usage
+        if: ${{ always() }}
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
+  pg-rec-browser:
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rec_browser":true}').rec_browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-ci-only
+      TEST_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci
+      LEGACY_ANALYTICS_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_legacy_analytics
+      LEGACY_ANALYTICS_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_legacy_analytics
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      # Reuse the compact profiles already required by tor-integration.yml.
+      # REC runs several full workspace builds and otherwise exhausts runner disk.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      - name: Prepare isolated database
+        run: |
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply real SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Prepare explicit legacy and installed-upgrade analytics databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
+          SQL
+          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
+            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
+          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
+          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          done
+          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+      - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+      - name: REC13 real Chromium and historical HTTP acceptance
+        run: bash tools/rec13_browser_acceptance.sh
+      - name: 100k catalogue contextual model PostgreSQL acceptance
+        run: cargo test -p tor-recommendations --test catalog_feed_pg contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests -- --ignored --exact --test-threads=1
+      - name: Confirm committed source was tested
+        if: always()
+        run: git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pg-rec-browser-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/rec13-browser/*.log
+            ${{ runner.temp }}/rec13-browser/shots/*.png
+          retention-days: 3
+  pg-reading-analytics:
+    needs: [select, preflight]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"reading_analytics":true}').reading_analytics) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-ci-only
+      TEST_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci
+      LEGACY_ANALYTICS_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_legacy_analytics
+      LEGACY_ANALYTICS_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_legacy_analytics
+      COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_upgrade
+      COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      COLLECTION_RETIREMENT_STARTUP_APP_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci_collection_retirement_startup
+      # Reuse the compact profiles already required by tor-integration.yml.
+      # Analytics runs many Cargo targets, so retain compact disk settings.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      - name: Prepare isolated database
+        run: |
+          # GitHub ubuntu-24.04 typically includes psql and pg_isready already.
+          # Fall back to apt if a future runner image removes either binary.
+          if command -v psql >/dev/null 2>&1 && command -v pg_isready >/dev/null 2>&1; then
+            psql --version
+            echo "Using preinstalled PostgreSQL client"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y postgresql-client
+          fi
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply real SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Prepare explicit legacy and installed-upgrade analytics databases
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE tor_ci_legacy_analytics OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_upgrade OWNER tor_migrator;
+          CREATE DATABASE tor_ci_collection_retirement_startup OWNER tor_migrator;
+          SQL
+          for fixture_database in tor_ci_legacy_analytics tor_ci_collection_retirement_upgrade tor_ci_collection_retirement_startup; do
+            psql -X -v ON_ERROR_STOP=1 -v fixture_database="$fixture_database" -d "$fixture_database" <<'SQL'
+          REVOKE ALL ON DATABASE :"fixture_database" FROM PUBLIC;
+          GRANT CONNECT ON DATABASE :"fixture_database" TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          done
+          cargo test -p tor-migrations --test legacy_analytics_baseline_pg -- --ignored --test-threads=1
+          cargo test -p tor-migrations --test collection_retirement_startup_baseline_pg -- --ignored --test-threads=1
+      - name: Installed 190 to current analytics retirement with canonical and preference preservation
+        run: cargo test -p tor-migrations --test collection_retirement_installed_upgrade_pg -- --ignored --test-threads=1 --nocapture
+      - name: Reader audience, FLOW and SEO PostgreSQL acceptance
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          cargo test -p tor-reading --test audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_sources_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_sources_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_books_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_books_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test audience_groups_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_groups_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_book_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_book_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_group_returns_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_group_returns_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test flow_audience_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test audience_hours_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_signals_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test exposure_health_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_genres_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test public_pages_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test audience_closed_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test exposure_report_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_signals_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-ads --test editorial_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test editorial_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_share_admin_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendations_admin_policy_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test flow_capture_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test collection_retirement_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test flow_funnel_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test flow_funnel_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
+          echo "CI_PG_ANALYTICS_TEST_SECONDS seconds=$((SECONDS-started))"
+      - name: Confirm committed source was tested
+        if: always()
+        run: git diff --exit-code
   migrations:
     needs: [select, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
@@ -650,6 +957,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -749,6 +1058,8 @@ jobs:
           node --check tools/referral_share_browser_smoke.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
           TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
+          node --check tools/s039_payout_post_browser.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
       - name: S059 real SQL delay, operator diagnostics and writer recovery
         run: python3 tools/operator_trace_pg_smoke.py
       - name: Preserve S059 measured acceptance
@@ -778,6 +1089,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build HTTP and isolated trace-store binaries
@@ -852,6 +1165,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
@@ -1688,6 +2003,8 @@ jobs:
       - preflight
       - demo
       - postgres-runtime
+      - pg-rec-browser
+      - pg-reading-analytics
       - migrations
       - reader-browser
       - visual

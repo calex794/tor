@@ -13,11 +13,9 @@ pub(super) async fn draft_edit_case(
     let edit_prefix = format!("href=\"/me/books/{book_id}/chapters/");
     let chapter_id = author_book_html
         .split(&edit_prefix)
-        .nth(1)
-        .expect("draft edit link")
-        .split("/edit\"")
-        .next()
-        .expect("chapter ID");
+        .skip(1)
+        .find_map(|part| part.split('"').next()?.strip_suffix("/edit"))
+        .expect("draft edit link with chapter ID");
     let edit_path = format!("/me/books/{book_id}/chapters/{chapter_id}/edit");
     assert_eq!(
         send(app, request("GET", &edit_path, "", "", ORIGIN))
@@ -29,6 +27,7 @@ pub(super) async fn draft_edit_case(
     assert_eq!(editor.status(), StatusCode::OK);
     assert_eq!(editor.headers()[header::CACHE_CONTROL], "no-store");
     let edit_html = body_of(editor).await;
+    h_author_index_cases::editor_navigation(&edit_html, "/me/books", "location");
     assert!(edit_html.contains("name=\"expected_revision\" value=\"1\""));
     assert!(edit_html.contains("Real chapter"));
     let edit_key = edit_html

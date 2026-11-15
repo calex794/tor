@@ -1,4 +1,4 @@
-//! PG18 browser contract: explicit consent and local path erasure.
+//! Current-schema RIL: old flags and legacy writers cannot identify navigation.
 use axum::{
     body::{to_bytes, Body},
     http::{header, Request, StatusCode},
@@ -17,7 +17,12 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
 fn fixture_sql(url: &str, statement: &str) -> String {
-    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let target = reqwest::Url::parse(url).expect("fixture database URL");
+    assert!(matches!(target.scheme(), "postgres" | "postgresql"));
+    assert_eq!(target.host_str(), Some("127.0.0.1"));
+    assert_eq!(target.port(), Some(5432));
+    assert_eq!(target.path(), "/tor_ci");
+    assert!(target.query().is_none() && target.fragment().is_none());
     let output = std::process::Command::new("psql")
         .args([
             "-X",
@@ -61,8 +66,8 @@ async fn send(
 }
 
 #[tokio::test]
-#[ignore = "isolated PG18 and test-only RIL signer required"]
-async fn consent_is_default_off_and_local_erasure_is_confirmed() {
+#[ignore = "isolated PG18 with retirement 192 and enabled legacy RIL flags required"]
+async fn retired_consent_and_legacy_flags_never_identify_navigation() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG test URL");
     assert!(url.ends_with("/tor_ci"), "never run against production");
     assert_eq!(std::env::var("TOR_RIL_SINGLE_INSTANCE").as_deref(), Ok("1"));
@@ -71,21 +76,33 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         Ok("1")
     );
     let catalog = PgCatalog::connect(&url).await.unwrap();
+    let current_schema = fixture_sql(
+        &url,
+        "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations
+                       WHERE version=202611168903 AND success)
+            AND EXISTS(SELECT 1 FROM pg_trigger
+                       WHERE tgrelid='ril_behavior_consents'::regclass
+                         AND tgname='retired_collection_write_fence' AND tgenabled<>'D')",
+    );
+    assert_eq!(
+        current_schema, "t",
+        "current-schema RIL proof requires retirement 192"
+    );
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool());
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let user = accounts
         .insert_user(
-            "ril-opt-in-ci@example.invalid",
+            &format!("ril-retired-{stamp}@example.invalid"),
             "RIL Test",
             &hash_password("unused-test-passphrase").unwrap(),
         )
         .await
         .unwrap();
     // Real published pages, not just accepted route templates.
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
     let book: i64 = fixture_sql(
         &url,
         &format!(
@@ -156,7 +173,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .to_owned();
     let html =
         String::from_utf8(to_bytes(first.into_body(), 100_000).await.unwrap().to_vec()).unwrap();
-    // Internal RIL consent remains independent of the visible account UI.
+    // No separate consent UI remains on the ordinary account page.
     assert!(!html.contains("Анализ ваших переходов"));
     assert!(!html.contains("Приватность"));
     let csrf = html
@@ -167,8 +184,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .next()
         .unwrap();
     let cookies = format!("{session}; {csrf_cookie}");
-    // Before explicit opt-in, a valid logged-in cookie cannot become an
-    // identified public route path, even when the FLOW feature is available.
+    // A valid account cookie never enables the retired identity observer.
     assert_eq!(
         send(&app, "GET", "/", "", &cookies, ORIGIN).await.status(),
         StatusCode::OK
@@ -216,15 +232,40 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let retired = send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN).await;
+    assert_eq!(retired.status(), StatusCode::GONE);
+    assert_eq!(retired.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(retired.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(
-        send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
+        accounts.ril_behavior_consent(user).await.unwrap(),
+        (false, 0),
+        "retired HTTP writes no consent row"
+    );
+    // An old process cannot re-enable identity after the SQL fence.
+    // Preservation of real pre-fence rows is proved by the installed-upgrade suite.
+    let rejected = accounts
+        .set_ril_behavior_consent(user, true)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        rejected
+            .as_database_error()
+            .expect("retirement must reject the legacy SQL writer")
+            .code()
+            .as_deref(),
+        Some("55000")
     );
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
-        (true, 1)
+        (false, 0)
+    );
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!("SELECT count(*) FROM ril_behavior_consents WHERE user_id={user}")
+        ),
+        "0",
+        "the rejected legacy writer must not leave a disabled consent row"
     );
     for _ in 0..3 {
         assert_eq!(
@@ -235,10 +276,9 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         );
     }
     let report = tor_web::ril_path_report_for_diagnostics().unwrap();
-    assert_eq!(report.assessed_events, 3);
-    assert_eq!(report.active_subjects, 1);
-    // Explicitly opted-in live account sessions now carry the same verified
-    // HMAC across public home/catalog, with no additional tracking cookie.
+    assert_eq!(report.assessed_events, 0);
+    assert_eq!(report.active_subjects, 0);
+    // The rejected opt-in cannot produce a subject or path queue.
     for surface in ["/", "/catalog", book_path.as_str(), reader_path.as_str()] {
         let response = send(&app, "GET", surface, "", &cookies, ORIGIN).await;
         assert_eq!(response.status(), StatusCode::OK, "{surface}");
@@ -251,7 +291,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
 
     // Guests can read the same pages without becoming identified visitors.
@@ -264,15 +304,14 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
     }
 
     let disable = format!("choice=disable&csrf_token={csrf}");
-    assert_eq!(
-        send(&app, "POST", "/me/behavior", &disable, &cookies, ORIGIN)
-            .await
-            .status(),
-        StatusCode::SEE_OTHER
-    );
+    let retired = send(&app, "POST", "/me/behavior", &disable, &cookies, ORIGIN).await;
+    assert_eq!(retired.status(), StatusCode::GONE);
+    assert_eq!(retired.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(retired.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(
         accounts.ril_behavior_consent(user).await.unwrap(),
-        (false, 2)
+        (false, 0),
+        "the retired HTTP command cannot change consent or its epoch"
     );
     assert_eq!(
         tor_web::ril_path_report_for_diagnostics()
@@ -299,9 +338,17 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
 
+    assert_eq!(
+        fixture_sql(
+            &url,
+            &format!("SELECT count(*) FROM ril_behavior_consents WHERE user_id={user}")
+        ),
+        "0",
+        "navigation and both retired commands leave no consent row"
+    );
     accounts.revoke_session(&digest).await.unwrap();
     // A revoked login cookie must not restore identified public navigation.
     assert_eq!(
@@ -314,7 +361,7 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         tor_web::ril_path_report_for_diagnostics()
             .unwrap()
             .assessed_events,
-        7
+        0
     );
     assert_eq!(
         send(&app, "POST", "/me/behavior", &enable, &cookies, ORIGIN)

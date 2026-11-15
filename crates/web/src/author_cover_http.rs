@@ -26,6 +26,8 @@ use tor_ingest::{
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 
+mod package_cover;
+
 const MAX_MULTIPART_BYTES: usize = MAX_SOURCE_BYTES + 64 * 1024;
 
 #[derive(Clone)]
@@ -37,6 +39,7 @@ struct CoverUploadState {
     storage: Arc<dyn CoverObjectStore>,
     cookies: CookiePolicy,
     pending: Arc<Semaphore>,
+    package_processing: Arc<Semaphore>,
 }
 
 pub(crate) fn router(
@@ -53,9 +56,12 @@ pub(crate) fn router(
         storage,
         cookies,
         pending: Arc::new(Semaphore::new(2)),
+        // A timed-out blocking image decode still holds this second permit.
+        package_processing: Arc::new(Semaphore::new(2)),
     };
     Router::new()
         .route("/me/books/{id}/cover", post(upload_cover))
+        .route("/me/layers/{id}/cover", post(package_cover::upload))
         .layer(DefaultBodyLimit::max(MAX_MULTIPART_BYTES))
         .with_state(state)
 }

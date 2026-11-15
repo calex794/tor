@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
+const { inspectChapterRelease } = require('./author_release_visual.cjs');
+
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
 fs.mkdirSync(out, { recursive: true });
@@ -29,6 +31,120 @@ async function inspect(page, viewport, name) {
   });
 }
 
+async function inspectAuthorEditor(page, viewport, width, height, kind) {
+  const form = page.locator('.author-editor__form');
+  assert(await form.count() === 1, 'shared author form missing');
+  assert(await page.locator('.account-sidebar').count() === 1, 'author form lost account navigation');
+  const creation = kind === 'book';
+  const active = creation
+    ? '.dashboard-nav a[href="/me/books/new"][aria-current="page"]'
+    : '.dashboard-nav a[href="/me/books"][aria-current="location"]';
+  assert(await page.locator(active).count() === 1, 'author form selected the wrong navigation item');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === (creation ? 1 : 0),
+    'author form has an incorrect current-page marker');
+  const values = await form.evaluate(node => JSON.stringify([...new FormData(node)]));
+  for (const size of viewport === 'desktop' ? [1440, 1024, 768, 390] : [390]) {
+    await page.setViewportSize({ width: size, height: 844 });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      if (size === 1440) {
+        const sidebar = await page.locator('.account-sidebar').boundingBox();
+        assert(sidebar.y >= 0 && sidebar.y <= 180, 'sticky navigation did not settle before capture');
+      }
+      const title = form.locator('input[name="title"]');
+      assert((await title.boundingBox()).height >= 44, 'author title control is too small');
+      if (creation && size === 390) {
+        const box = await title.boundingBox();
+        assert(box.y >= 0 && box.y + box.height <= 844, 'book title is outside the first mobile screen');
+      }
+      await inspect(page, viewport + '-' + size + '-' + colorScheme, 'author-form-' + kind);
+    }
+  }
+  assert(await form.evaluate(node => JSON.stringify([...new FormData(node)])) === values,
+    'viewport/theme change lost author input');
+  await page.setViewportSize({ width, height });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await form.getByRole('button', { name: /Создать книгу|Сохранить/ }).focus();
+  assert(await form.getByRole('button', { name: /Создать книгу|Сохранить/ })
+    .evaluate(button => document.activeElement === button), 'save action cannot receive keyboard focus');
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+}
+
+async function inspectBookIndex(page, viewport, width, height, count) {
+  assert(await page.locator('.account-sidebar').count() === 1, 'author navigation missing');
+  const active = page.locator('.dashboard-nav a[aria-current="page"]');
+  assert(await active.count() === 1 && await active.getAttribute('href') === '/me/books',
+    'author list must have exactly one current navigation item');
+  assert(await page.locator('.author-workspace__book').count() === count,
+    'owner list leaked another account or lost an owned book');
+  const widths = viewport === 'desktop' ? [1440, 1024, 768, 390] : [390];
+  for (const size of widths) {
+    await page.setViewportSize({ width: size, height: 844 });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      if (size === 390) {
+        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
+          'mobile author navigation hides the workspace');
+        const create = await page.locator('.account-main > header .ui-button').boundingBox();
+        assert(create.y + create.height <= 844, 'create-book action is below the first screen');
+      }
+      await inspect(page, viewport + '-' + size + '-' + colorScheme, 'book-index-' + count);
+    }
+  }
+  await page.setViewportSize({ width, height });
+  await page.emulateMedia({ colorScheme: 'light' });
+  const authorMenu = page.locator('.account-nav-group').first();
+  await authorMenu.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  assert(await active.isVisible(), 'keyboard must reveal the current author page');
+  await page.keyboard.press('Enter');
+  if (count) {
+    const more = page.locator('.author-workspace__more').first();
+    assert(!await more.getByRole('link', { name: 'Удаление книги' }).isVisible(),
+      'deletion should be separate from the primary book action');
+    await more.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    assert(await more.getByRole('link', { name: 'Удаление книги' }).isVisible(),
+      'keyboard must reach the existing deletion request');
+    await page.keyboard.press('Enter');
+  }
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+}
+
+async function inspectBookWorkspace(page, viewport, width, height, state, count) {
+  assert(await page.locator('.account-sidebar').count() === 1, 'book workspace navigation missing');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
+    'book detail must not mark its parent list as the current page');
+  assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
+    'book detail must identify the author section');
+  assert(await page.locator('.author-chapter-row').count() === count, 'chapter list size changed');
+  const chapters = await page.locator('#author-book-chapters').boundingBox();
+  const settings = await page.locator('#author-book-settings').boundingBox();
+  assert(chapters.y < settings.y, 'settings must follow the chapter workspace');
+  for (const size of viewport === 'desktop' ? [1440,1024,768,390] : [390]) {
+    await page.setViewportSize({width:size,height:844});
+    for (const colorScheme of ['light','dark']) {
+      await page.emulateMedia({colorScheme});
+      if (size === 390) {
+        assert((await page.locator('.account-sidebar').boundingBox()).height <= 230,
+          'book workspace navigation obscures the first screen');
+        const add = await page.getByRole('link',{name:'Добавить главу',exact:true}).boundingBox();
+        assert(add.y + add.height <= 844, 'add-chapter action is below the first screen');
+      }
+      await inspect(page, viewport+'-'+size+'-'+colorScheme, 'book-workspace-'+state);
+    }
+  }
+  await page.setViewportSize({width,height});
+  await page.emulateMedia({colorScheme:'light'});
+  await page.getByRole('link',{name:'Настройки',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  assert(await page.getByRole('link',{name:'Редактировать аннотацию',exact:true}).isVisible(),
+    'keyboard must reach all book settings');
+  await page.evaluate(()=>window.scrollTo({ top: 0, behavior: 'instant' }));
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -42,18 +158,49 @@ async function inspect(page, viewport, name) {
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
       await page.waitForURL('**/me');
 
-      await page.getByRole('link', { name: 'Мои книги' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
-      await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
+      await inspectBookIndex(page, viewport, width, height, 0);
+      await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
+      const emptyTitle = page.getByLabel('Название книги');
+      await page.getByRole('button', { name: 'Создать книгу', exact: true }).click();
+      assert(page.url() === base + '/me/books/new', 'invalid book form navigated away');
+      assert(await emptyTitle.evaluate(input => input.validity.valueMissing
+        && document.activeElement === input), 'native required-title validation was lost');
       await page.getByLabel('Название книги').fill('Новая книга ' + viewport);
       await page.getByLabel('Язык', { exact: true }).fill('ru');
+      await inspectAuthorEditor(page, viewport, width, height, 'book');
       await page.getByRole('button', { name: 'Создать книгу' }).click();
       await page.waitForURL(/\/me\/books\/\d+$/);
 
       const bookId = page.url().split('/').pop();
+      await page.goto(base + '/me/books');
+      assert(await page.locator('.author-workspace__book').count() === 1,
+        'a newly created owned book must appear in the list');
+      await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
+      const longTitle = 'Длинное название '.repeat(8) + viewport + ' <script>window.authorTitleInjected=true</script>';
+      await page.getByLabel('Название книги').fill(longTitle);
+      await page.getByLabel('Язык', { exact: true }).fill('ru');
+      const [createdLong] = await Promise.all([
+        page.waitForResponse(response => response.request().method() === 'POST'
+          && response.url() === base + '/me/books'),
+        page.getByRole('button', { name: 'Создать книгу' }).click(),
+      ]);
+      assert(createdLong.status() === 303, 'long-title creation returned ' + createdLong.status());
+      await page.waitForURL(/\/me\/books\/\d+$/);
+      assert(await page.getByRole('heading', { level: 1 }).textContent() === longTitle,
+        'book workspace must preserve the complete escaped title');
+      await inspect(page, viewport, 'book-workspace-long-title');
+      await page.goto(base + '/me/books');
+      assert(await page.getByRole('link', { name: longTitle, exact: true }).count() === 1,
+        'long title must remain complete and escaped');
+      assert(await page.evaluate(() => window.authorTitleInjected === undefined), 'title executed as HTML');
+      await inspectBookIndex(page, viewport, width, height, 2);
+      await page.goto(base + '/me/books/' + bookId);
       assert(await page.getByRole('link', { name: 'Добавить главу' }).isVisible(),
         viewport + ': missing author chapter action');
+      await inspectBookWorkspace(page,viewport,width,height,'empty',0);
       await inspect(page, viewport, 'draft');
       const description = 'Аннотация ' + viewport + ': <script>window.seoInjected=true</script> & текст';
       await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
@@ -78,6 +225,7 @@ async function inspect(page, viewport, name) {
         viewport + ': automatic chapter number must be read-only');
       await page.getByLabel('Название главы').fill('Глава для проверки');
       await page.getByLabel('Текст главы').fill('Проверочный текст: **важная строка**.');
+      await inspectAuthorEditor(page, viewport, width, height, 'new-chapter');
       await inspect(page, viewport, 'editor');
       await page.getByRole('button', { name: 'Сохранить главу' }).click();
       await page.waitForURL(base + '/me/books/' + bookId);
@@ -87,6 +235,7 @@ async function inspect(page, viewport, name) {
         viewport + ': saving chapter must not publish the book');
       assert(await page.getByRole('button', { name: 'Опубликовать книгу' }).isVisible(),
         viewport + ': missing explicit publishing control');
+      await inspectBookWorkspace(page,viewport,width,height,'draft',1);
       await inspect(page, viewport, 'chapter-saved');
       await page.getByRole('link', { name: 'Редактировать', exact: true }).click();
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
@@ -97,6 +246,7 @@ async function inspect(page, viewport, name) {
       assert(await page.getByText('Редакция №1.').isVisible(),
         viewport + ': initial chapter revision missing');
       await page.getByLabel('Текст главы').fill('Обновлённая версия: **важная строка**.');
+      await inspectAuthorEditor(page, viewport, width, height, 'edit-draft');
       await inspect(page, viewport, 'edit-draft');
       await page.getByRole('button', { name: 'Сохранить изменения' }).click();
       await page.waitForURL(base + '/me/books/' + bookId);
@@ -150,6 +300,7 @@ async function inspect(page, viewport, name) {
         viewport + ': saved free chapter must be released immediately');
       assert(await page.getByRole('link', { name: 'Выпустить главу' }).count() === 0,
         viewport + ': released free chapter still asks for confirmation');
+      await inspectBookWorkspace(page,viewport,width,height,'published',2);
       await inspect(page, viewport, 'second-published-author');
 
       const publicBook = await page.goto(base + '/books/' + bookId);
@@ -179,7 +330,7 @@ async function inspect(page, viewport, name) {
       assert(await page.getByLabel('Номер главы').inputValue() === '3',
         viewport + ': delayed draft auto-number preview must be 3');
       await page.getByLabel('Название главы').fill('S058 scheduled draft');
-      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
+      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content\n' + ('Длиннаястрокапредпросмотра'.repeat(10) + '\n').repeat(60));
       await privateChoice.check();
       await Promise.all([
         page.waitForURL(/\/chapters\/\d+\/release$/),
@@ -191,10 +342,13 @@ async function inspect(page, viewport, name) {
         viewport + ': S058 new draft did not open release confirmation');
       assert(await page.getByText('PRIVATE S058 browser content').isVisible(),
         viewport + ': scheduled author preview lost exact private draft');
+      await page.goto(base + '/me/books/' + bookId);
+      await inspectBookWorkspace(page,viewport,width,height,'delayed',3);
       const beforeTime = await page.goto(base + '/reader/' + scheduledDraftId);
       assert(beforeTime && beforeTime.status() === 404,
         viewport + ': scheduled free chapter exposed before due time');
       await page.goto(scheduledDraftUrl);
+      await inspectChapterRelease(page, viewport, width, height, out);
       const scheduledUtc = new Date(Date.now() + 60 * 60 * 1000)
         .toISOString().slice(0, 16);
       await page.getByLabel('Дата и время (UTC)').fill(scheduledUtc);
@@ -202,7 +356,7 @@ async function inspect(page, viewport, name) {
         page.waitForNavigation(),
         page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
       ]);
-      assert(await page.getByText(/статус: pending/).isVisible(),
+      assert(await page.locator('.author-release__status').filter({ hasText: 'Ожидает выпуска' }).isVisible(),
         viewport + ': scheduled release not shown as pending');
       await inspect(page, viewport, 's058-scheduled');
       const rescheduledUtc = new Date(Date.now() + 2 * 60 * 60 * 1000)
@@ -218,7 +372,7 @@ async function inspect(page, viewport, name) {
         page.waitForNavigation(),
         page.getByRole('button', { name: 'Отменить отложенный выпуск' }).click(),
       ]);
-      assert(await page.getByText(/статус: cancelled/).isVisible(),
+      assert(await page.locator('.author-release__status').filter({ hasText: 'Отменено' }).isVisible(),
         viewport + ': cancelled S058 release still appears active');
       const afterCancel = await page.goto(base + '/reader/' + scheduledDraftId);
       assert(afterCancel && afterCancel.status() === 404,
@@ -246,6 +400,7 @@ async function inspect(page, viewport, name) {
       await page.goto(base + '/me/books/' + bookId +
         '/chapters/' + chapterId + '/edit');
       await inspect(page, viewport, 'published-editor-title-link');
+      await inspectAuthorEditor(page, viewport, width, height, 'edit-published');
       const release = await page.goto(base + '/me/books/' + bookId +
         '/chapters/' + chapterId + '/release');
       assert(release && release.status() === 404,
@@ -290,7 +445,8 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL(base + '/me/library/add/' + bookId);
         await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
         await reader.waitForURL('**/me/library');
-        assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
+        await reader.goto(base + '/me/library?view=saved');
+        assert(await reader.locator('.library-shelf-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
         // S010: real reader UI -> server-side book like -> public counter.
@@ -363,7 +519,7 @@ async function inspect(page, viewport, name) {
         await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
         await page.getByRole('button', { name: 'Сохранить главу' }).click();
         await page.waitForURL(base + '/me/books/' + bookId);
-        await reader.goto(base + '/me/library');
+        await reader.goto(base + '/me/library?view=updates');
         const updates = reader.locator('#new-chapters');
         assert(await updates.getByRole('heading', { name: 'Новые главы подписок' }).isVisible(),
           viewport + ': release feed missing');
@@ -398,37 +554,41 @@ async function inspect(page, viewport, name) {
 
         // C-08/S007: saved books and reading positions have independent lifetimes.
         // A second authenticated account must not inherit the reader's bookmark.
-        await page.goto(base + '/me/library');
-        assert(await page.getByRole('region', { name: 'Сохранённые книги' })
-          .locator('a[href="/books/' + bookId + '"]').count() === 0,
+        await page.goto(base + '/me/library?view=saved');
+        assert(await page.locator('#saved-books a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': reader bookmark leaked into the author account');
-        const savedBooks = reader.getByRole('region', { name: 'Сохранённые книги' });
-        const savedCard = savedBooks.locator('.library-card').filter({
+        await reader.goto(base + '/me/library?view=saved');
+        const savedBooks = reader.locator('#saved-books');
+        const savedCard = savedBooks.locator('.library-shelf-card').filter({
           has: reader.locator('a[href="/books/' + bookId + '"]'),
         });
         await savedCard.getByRole('button', { name: 'Убрать из библиотеки' }).click();
         await reader.waitForURL(base + '/me/library');
-        await reader.reload();
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': removed bookmark returned after reload');
+        await reader.goto(base + '/me/library');
         assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
           viewport + ': removing bookmark erased the saved reading position');
         await inspect(reader, viewport, 'bookmark-removed');
 
         await reader.goto(base + '/me');
-        await reader.getByRole('button', { name: 'Выйти' }).click();
+        await reader.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
         await reader.waitForURL('**/login');
         await reader.goto(base + '/me/library');
         assert(new URL(reader.url()).pathname === '/login',
           viewport + ': revoked reader session still accesses personal library');
+        assert(new URL(reader.url()).searchParams.get('next') === '/me/library',
+          viewport + ': library login lost its return destination');
         await reader.getByLabel('Электронная почта').fill(readerEmail);
         await reader.getByLabel('Пароль').fill('ReaderChapterPassword2026');
         await reader.getByRole('button', { name: 'Войти', exact: true }).click();
-        await reader.waitForURL('**/me');
-        await reader.goto(base + '/me/library');
+        await reader.waitForURL(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
           viewport + ': removed bookmark returned after logout and login');
+        await reader.goto(base + '/me/library');
         assert(await resume.isVisible(),
           viewport + ': reader lost saved place after logout and login');
         await resume.click();
@@ -444,8 +604,10 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL(base + '/me/library/add/' + bookId);
         await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
         await reader.waitForURL(base + '/me/library');
+        await reader.goto(base + '/me/library?view=saved');
         assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 1,
           viewport + ': removed book could not be saved again exactly once');
+        await reader.goto(base + '/me/library');
         assert(await resume.isVisible(),
           viewport + ': re-adding bookmark changed saved reading position');
         await inspect(reader, viewport, 'bookmark-restored');

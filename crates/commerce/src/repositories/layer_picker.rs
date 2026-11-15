@@ -46,6 +46,50 @@ impl PgLayers {
             .collect()
     }
 
+    /// Single owner-only package, independently of the 100-item index limit.
+    pub async fn owner_layer(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<OwnedLayerSummary, LayerError> {
+        let row = sqlx::query(
+            "SELECT id,title,description,status,metadata_revision FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?
+        .ok_or(LayerError::Inaccessible)?;
+        Ok(OwnedLayerSummary {
+            layer_id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
+            title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
+            description: row
+                .try_get("description")
+                .map_err(|_| LayerError::Unavailable)?,
+            status: row.try_get("status").map_err(|_| LayerError::Unavailable)?,
+            metadata_revision: row
+                .try_get("metadata_revision")
+                .map_err(|_| LayerError::Unavailable)?,
+        })
+    }
+
+    /// Owner-private state; hidden packages are viewable, not saleable.
+    pub async fn owner_layer_status(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<String, LayerError> {
+        sqlx::query_scalar("SELECT status FROM commerce_layers WHERE id=$1 AND owner_user_id=$2")
+            .bind(layer.get())
+            .bind(actor.get())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| LayerError::Unavailable)?
+            .ok_or(LayerError::Inaccessible)
+    }
+
     /// Read only the owner's immutable current version. This is advisory:
     /// remove_book_if_current() revalidates the version under the Layer lock.
     pub async fn current_books(
@@ -60,7 +104,7 @@ impl PgLayers {
         }
         let version: i64 = sqlx::query_scalar(
             "SELECT current_version_id FROM commerce_layers
-             WHERE id=$1 AND owner_user_id=$2 AND status='active'",
+             WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden')",
         )
         .bind(layer.get())
         .bind(actor.get())
@@ -113,7 +157,22 @@ impl PgLayers {
         after: Option<PositiveId>,
         limit: u16,
     ) -> Result<LayerBookCandidatePage, LayerError> {
-        if !(1..=50).contains(&limit) {
+        self.addable_books_matching(actor, layer, after, limit, "")
+            .await
+    }
+
+    /// Search is server-side and scoped to owned, eligible Books. The
+    /// submitted text is a literal substring, never a SQL wildcard.
+    pub async fn addable_books_matching(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+        query: &str,
+    ) -> Result<LayerBookCandidatePage, LayerError> {
+        let query = query.trim();
+        if !(1..=50).contains(&limit) || query.chars().count() > 100 {
             return Err(LayerError::Invalid);
         }
         let current: Option<i64> = sqlx::query_scalar(
@@ -149,12 +208,14 @@ impl PgLayers {
                  SELECT 1 FROM commerce_layer_version_books vb
                  WHERE vb.layer_version_id=$3 AND vb.book_id=b.id
                )
+               AND ($5='' OR POSITION(lower($5) IN lower(b.title))>0)
              ORDER BY b.id LIMIT $4",
         )
         .bind(actor.get())
         .bind(after.map_or(0, PositiveId::get))
         .bind(current)
         .bind(i64::from(limit) + 1)
+        .bind(query)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| LayerError::Unavailable)?;

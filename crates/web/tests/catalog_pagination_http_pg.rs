@@ -41,7 +41,7 @@ async fn b_18_catalog_http_is_bounded_and_rejects_invalid_page_parameters() {
 
     let (status, first) = get(app.clone(), "/catalog?sort=oldest").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(first.contains("Страница 1"));
+    assert_eq!(first.contains("Страница 1"), first.contains("rel=\"next\""));
     assert!(cards(&first) <= 20, "never send all books to a browser");
     assert!(!first.contains("TOR CI hidden"));
     assert!(!first.contains("TOR CI held"));

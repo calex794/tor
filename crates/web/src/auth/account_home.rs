@@ -58,10 +58,18 @@ pub(super) async fn page(
         false,
     );
     let audience_link = if administrator {
-        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
+        "<a class=\"dashboard-nav__item\" href=\"/admin/audience\">Аудитория</a><a class=\"dashboard-nav__item\" href=\"/admin/promotion/editorial\">Редакционное продвижение</a><a class=\"dashboard-nav__item\" href=\"/admin/finance/refunds\">Возвраты</a>"
     } else {
         ""
     };
     page.0 = page.0.replace("<!--AUDIENCE_NAV_LINK-->", audience_link);
+    // Admin tools must be discoverable without an extra disclosure click.
+    if administrator {
+        page.0 = page.0.replacen(
+            "<details class=\"account-nav-group\">",
+            "<details class=\"account-nav-group\" open>",
+            1,
+        );
+    }
     private_response(page, &cookies)
 }

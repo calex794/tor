@@ -26,6 +26,10 @@ pub(crate) fn page(
         query.days
     )
     .expect("String");
+    super::retirement::notice(
+        &mut body,
+        "показы, переходы и связанное с источником первое чтение",
+    );
     fields::filters(&mut body, query, report);
     match report {
         Some(report) => report_body(&mut body, query, report),
@@ -43,8 +47,8 @@ pub(crate) fn page(
         Если указаны оба фильтра, книга должна подходить под оба. Группы могут пересекаться.</p>
         <p>Выданная ссылка каталога или поиска не доказывает видимый показ карточки.
         Показы рекомендаций — принятые наблюдения видимости карточек, а не доказательство внимания.</p>
-        <p>Для каталога, поиска и рекомендаций день относится к выдаче карточки;
-        переход, открытие и первое чтение могут случиться позднее и дополнить прежний период.
+        <p>В прежней модели для каталога, поиска и рекомендаций день относился к выдаче карточки;
+        переход, открытие и первое чтение могли случиться позднее и дополнить тот период.
         Первые чтения с неизвестным источником относятся ко дню самого события.</p>
         <p>Переходы и открытия учитываются только из каталога, поиска и рекомендаций.
         Первые чтения включают также события с неизвестным источником.
@@ -54,10 +58,11 @@ pub(crate) fn page(
         Измеренный ноль показан как 0. «Нет сохранённых наблюдений» не означает,
         что книгу нигде не показывали или что она никому не интересна.</p>
         <p>Это не число людей и не строгая последовательность действий.
-        Доля начавших чтение и возвращаемость здесь не вычисляются.</p>
-        <p>Данные учитывают действующие правила согласия. Отзыв останавливает новый сбор;
-        недавние сведения убираются при обновлении итогов. Обезличенные исторические
-        итоги сохраняются в пределах действующего срока хранения.</p></details>
+        Доля начавших чтение здесь не вычисляется. Ссылка «Возвращения к книге» открывает
+        отдельный отчёт о подтверждённом продолжении чтения этой книги на 7-й и 30-й день.</p>
+        <p>Данные относятся к прежней выборке с согласием. Новый сбор прекращён.
+        Удаление индивидуальных записей делает связанные исторические показатели неизвестными.
+        Незатронутые итоги сохраняются в пределах действующего срока хранения.</p></details>
         <p><a href="/me">Вернуться в личный кабинет</a></p></div></section>"#);
     layout(
         "Книги — Аудитория",
@@ -87,14 +92,14 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
         body,
         "audience-books",
         "current",
-        "Текущий период",
+        super::retirement::CURRENT,
         &report.current,
     );
     evidence::period(
         body,
         "audience-books",
         "previous",
-        "Предыдущий период",
+        super::retirement::PREVIOUS,
         &report.previous,
     );
     body.push_str("</div>");
@@ -118,7 +123,7 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
         .expect("String");
     }
     for book in &report.rows {
-        book_row(body, book);
+        book_row(body, book, query.days);
     }
     body.push_str(
         r#"<nav class="audience-books-pagination" aria-label="Страницы отчёта по книгам">"#,
@@ -138,9 +143,10 @@ fn report_body(body: &mut String, query: &BookDiscoveryQuery, report: &BookDisco
     body.push_str("</nav></section>");
 }
 
-fn book_row(body: &mut String, book: &BookDiscoveryRow) {
+fn book_row(body: &mut String, book: &BookDiscoveryRow, days: i32) {
     write!(body, r#"<article class="book-section-card audience-book-row" data-testid="audience-book-row" data-book-id="{}">
         <h3><a href="/books/{}">{}</a></h3>"#, book.book_id, book.book_id, escape_html(&book.title)).expect("String");
+    write!(body, r#"<p><a data-testid="audience-book-returns-link" href="/admin/audience/returns?book_id={}&amp;days={days}">Возвращения к книге</a></p>"#, book.book_id).expect("String");
     for (label, values) in [("Жанры", &book.genres), ("Теги", &book.tags)] {
         write!(
             body,
@@ -155,8 +161,8 @@ fn book_row(body: &mut String, book: &BookDiscoveryRow) {
     }
     body.push_str(r#"<div class="audience-source-grid">"#);
     for (key, title, metrics) in [
-        ("current", "Текущий период", &book.current),
-        ("previous", "Предыдущий период", &book.previous),
+        ("current", super::retirement::CURRENT, &book.current),
+        ("previous", super::retirement::PREVIOUS, &book.previous),
     ] {
         let (state, label) = evidence::observation(metrics.observation());
         write!(

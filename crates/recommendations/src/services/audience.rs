@@ -40,6 +40,9 @@ pub enum DiscoverySource {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveryChannel {
     pub source: DiscoverySource,
+    /// A retained source bucket lost evidence during individual-data erasure.
+    /// This is distinct from a missing observation or a measured zero.
+    pub evidence_invalidated: bool,
     /// None means not measured, missing aggregate evidence, or incomplete
     /// historical coverage. A measured zero is always Some(0).
     pub clicks: Option<i64>,

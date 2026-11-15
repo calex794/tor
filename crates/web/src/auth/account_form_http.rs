@@ -20,6 +20,9 @@ use tor_accounts::{
 };
 use tor_observability::services::auth::LoginOutcome;
 
+mod return_target;
+use return_target::auth_return_target;
+
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
     email: String,
@@ -40,23 +43,10 @@ pub(super) struct LoginForm {
     next: Option<String>,
 }
 
-/// The only post-auth return destination is a canonical local free reader.
-/// The target chapter is still verified by the actual reader after login.
+/// A bounded local return target; the destination still verifies live access.
 #[derive(Deserialize)]
 pub(super) struct AuthReturnQuery {
     next: Option<String>,
-}
-
-fn reader_return_target(raw: Option<&str>) -> Option<String> {
-    let raw_id = raw?.strip_prefix("/read/")?;
-    if raw_id.is_empty()
-        || raw_id.starts_with('0')
-        || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return None;
-    }
-    let id = raw_id.parse::<i64>().ok().filter(|value| *value > 0)?;
-    Some(format!("/read/{id}"))
 }
 
 pub(super) async fn show_registration(
@@ -64,7 +54,7 @@ pub(super) async fn show_registration(
     Query(query): Query<AuthReturnQuery>,
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
-    let next = reader_return_target(query.next.as_deref());
+    let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::registration_form_with_next(&token, next.as_deref()),
         &[cookie],
@@ -76,7 +66,7 @@ pub(super) async fn show_login(
     Query(query): Query<AuthReturnQuery>,
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
-    let next = reader_return_target(query.next.as_deref());
+    let next = auth_return_target(query.next.as_deref());
     private_response(
         pages::login_form_with_next(&token, next.as_deref()),
         &[cookie],
@@ -95,7 +85,7 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
 
 fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
     // A failed manual code never changes the existing guest referral capture.
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     private_response(
         (
             StatusCode::BAD_REQUEST,
@@ -192,7 +182,7 @@ pub(super) async fn register(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<RegisterForm>,
 ) -> Response {
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     if !state.cookies.same_origin(&headers)
         || !state
             .cookies
@@ -366,7 +356,7 @@ pub(super) async fn login(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let next = reader_return_target(form.next.as_deref());
+    let next = auth_return_target(form.next.as_deref());
     let source = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
     let mut observed = auth_observation::RequestObservation::new(&state, &form.email, source);
     if !state.cookies.same_origin(&headers)
@@ -520,7 +510,7 @@ pub(super) async fn login(
             return login_storage_error(LoginOutcome::SessionUnavailable);
         }
     }
-    // Only a validated local /read/{id} destination is accepted; otherwise /me.
+    // Only an explicitly allowed local destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(
@@ -560,39 +550,5 @@ mod login_error_tests {
         assert!(reply.headers().get(header::RETRY_AFTER).is_none());
         let html = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
         assert!(String::from_utf8_lossy(&html).contains("Вход временно недоступен"));
-    }
-}
-
-#[cfg(test)]
-mod safe_auth_return_tests {
-    use super::reader_return_target;
-
-    #[test]
-    fn only_canonical_private_reader_paths_can_be_used_after_login() {
-        assert_eq!(reader_return_target(None), None);
-        assert_eq!(
-            reader_return_target(Some("/read/42")),
-            Some("/read/42".to_owned())
-        );
-        for candidate in [
-            "",
-            "/",
-            "/me",
-            "//evil.test",
-            "https://evil.test/read/42",
-            "javascript:alert(1)",
-            "/read/0",
-            "/read/042",
-            "/read/-1",
-            "/read/42/",
-            "/read/42?next=//evil.test",
-            "/read/42#trick",
-            "/read/%34%32",
-            "/read/42\\other",
-            "/read/42\r\nLocation: https://evil.test",
-            "/read/9223372036854775808",
-        ] {
-            assert_eq!(reader_return_target(Some(candidate)), None, "{candidate}");
-        }
     }
 }

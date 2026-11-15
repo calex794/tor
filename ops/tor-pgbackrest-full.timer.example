@@ -1,0 +1,11 @@
+[Unit]
+Description=TOR weekly PostgreSQL 18 full copy
+
+[Timer]
+OnCalendar=Sun *-*-* 02:15:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=tor-pgbackrest-full.service
+
+[Install]
+WantedBy=timers.target

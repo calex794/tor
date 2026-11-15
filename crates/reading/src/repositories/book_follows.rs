@@ -5,6 +5,7 @@ use sqlx::PgPool;
 #[derive(Clone)]
 pub struct PgBookFollows {
     pool: PgPool,
+    flow_collection: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +17,15 @@ pub enum FollowError {
 
 impl PgBookFollows {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            flow_collection: false,
+        }
+    }
+
+    pub fn with_flow_collection(mut self, enabled: bool) -> Self {
+        self.flow_collection = enabled;
+        self
     }
 
     pub async fn follow(&self, user_id: i64, book_id: i64) -> Result<(), FollowError> {
@@ -27,6 +36,14 @@ impl PgBookFollows {
         // CSRF-valid follow POST must recheck the current actor and Book tier
         // in the same statement that creates the persistent follow intent.
         // Unfollow stays independent from age rights to permit cleanup.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| FollowError::Unavailable)?;
+        super::flow_capture::prepare_action(&mut tx, self.flow_collection)
+            .await
+            .map_err(|_| FollowError::Unavailable)?;
         let found: Option<i64> = sqlx::query_scalar(
             "INSERT INTO reader_book_follows (user_id, book_id)
              SELECT $1, b.id FROM books b
@@ -46,9 +63,14 @@ impl PgBookFollows {
         )
         .bind(user_id)
         .bind(book_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|_| FollowError::Unavailable)?;
+        let failed = super::flow_capture::action_failed(&mut tx)
+            .await
+            .map_err(|_| FollowError::Unavailable)?;
+        tx.commit().await.map_err(|_| FollowError::Unavailable)?;
+        super::flow_capture::action_committed(failed);
         found.map(|_| ()).ok_or(FollowError::NotFound)
     }
 

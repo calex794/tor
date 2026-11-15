@@ -60,5 +60,5 @@ pub(super) async fn layer_reader(
     response
         .headers_mut()
         .insert("x-robots-tag", HeaderValue::from_static("noindex"));
-    response
+    crate::recommendation_http::visits::book_response(response, anchor.book_id, 1)
 }

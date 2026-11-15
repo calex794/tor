@@ -1,0 +1,26 @@
+# I-11 / DR-03: offsite S3 objects and sealed recovery keys
+
+Status: operator-only templates and architecture tests, NOT installed, scheduled, or proved on a real external provider.
+
+## Manual backup contract
+
+- ops/backup-s3-offsite.sh requires root and a root-only 0600 config /etc/tor/offsite-objects.env. It refuses GitHub Actions.
+- Configure TOR_DR_PRIMARY_REMOTE (rclone alias tor-primary-ro, READ only); TOR_DR_OFFSITE_REMOTE (alias tor-offsite-crypt, separate account/provider); TOR_DR_RCLONE_CONFIG; TOR_DR_AGE_RECIPIENT; TOR_DR_SECRET_BUNDLE (root-only file containing all active and historical KEKs and necessary recovery secrets).
+- The script verifies that both the primary read-only remote and the underlying backup remote are genuine rclone S3 backends, that tor-offsite-crypt is a crypt backend with a non-empty S3 bucket/path, and that it does not wrap tor-primary-ro. A crypt backend over local disk is refused, but config metadata still cannot prove separate IAM/account/provider or immutability. The backend must still use an independently protected S3 bucket with versioning/Object Lock and distinct credentials. This check cannot prove separate IAM, account/provider or immutability: verify them manually.
+- The operator backup refuses an empty or misdirected source S3 inventory (`count=0` or `bytes=0`), because rclone copy/check could otherwise return success without backing up any objects. This is not yet a full inventory manifest or proof against partial deletion.
+- Copy (not sync): --immutable never overwrites existing objects and does not propagate deletions. Byte-level --download --one-way check decrypts the copy and compares it to the source. This can be expensive; review traffic and quotas before running.
+- The recovery bundle is encrypted using the age PUBLIC recipient key, and only the sealed ciphertext is stored offsite; keep the PRIVATE age identity offline on a different trusted machine. Save the returned recovery-keys selector privately.
+
+## Independent restore acceptance
+
+- On another trusted machine set /etc/tor/offsite-restore-objects.env, root-only 0600. Required: TOR_DR_RCLONE_CONFIG, TOR_DR_OFFSITE_READ_REMOTE (alias tor-offsite-read, read-only), TOR_DR_AGE_IDENTITY (offline private key file), TOR_DR_KEY_ARCHIVE, TOR_DR_EXPECTED_OBJECT, TOR_DR_EXPECTED_OBJECT_SHA256, TOR_DR_EXPECTED_SECRET_SHA256.
+- The expected private ciphertext SHA-256 must be taken from a separately restored and verified PostgreSQL storage_objects registry; the key-bundle SHA-256 comes from an independently preserved operator record. Never put keys or private identities in Git, Notion, CI or HTTP logs.
+- ops/verify-s3-offsite-restore.sh requires a real rclone crypt restore alias and a tmpfs /run. It retrieves one private V1 ciphertext, checks its SHA-256, streams the age-decrypted recovery bundle through a checksum without writing plaintext keys to disk, then removes the temporary ciphertext files. It does not write to live S3/PG or start TOR. This verifies the availability and integrity of ciphertext and KEKs separately, NOT that TOR can decrypt and serve the paid chapter; that still requires the complete isolated application + PostgreSQL restoration drill.
+
+## Outstanding acceptance conditions
+
+- Physically verify offsite separation, IAM denies deletion, bucket retention and the complete asset inventory. Perform the full PostgreSQL/WAL + S3 + KEK + purchase/refund/ACL restoration on a clean independent host, record elapsed recovery and measured RPO/RTO.
+- Existing tools/tor_s334_paid_restore_smoke.sh proves private V1 recovery only against disposable CI PostgreSQL and MinIO with a runner-local KEK, not actual independent key custody.
+- No deployment, production migrations, release approval, automatic cron/timer or activation is authorized by this change. Issue #739 and TOR-HOME-01 retain operational blockers.
+
+References: docs/infra/i11-offsite-backup.md, docs/infra/i11-pgbackrest-wal-pitr.md.

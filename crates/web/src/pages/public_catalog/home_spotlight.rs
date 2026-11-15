@@ -6,7 +6,15 @@ use tor_search::domain::seo_urls::BookUrl;
 
 const MAX_SPOTLIGHT_BOOKS: usize = 5;
 
+#[cfg(test)]
 pub(super) fn render(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
+    render_observed(books, covers, None)
+}
+pub(super) fn render_observed(
+    books: &[PublicBookCard],
+    covers: &HashSet<u64>,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
+) -> String {
     let mut html = String::from(
         "<div class=\"home-special-carousel\" role=\"region\" aria-label=\"Новые книги\">\
         <div class=\"home-special-carousel__viewport\" tabindex=\"0\" \
@@ -23,8 +31,13 @@ pub(super) fn render(books: &[PublicBookCard], covers: &HashSet<u64>) -> String 
             .author_name
             .as_deref()
             .filter(|author| !author.trim().is_empty())
-            .map(escape_html)
-            .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
+            .map(|author| {
+                format!(
+                    r#"<p class="home-spotlight-card__text">{}</p>"#,
+                    escape_html(author)
+                )
+            })
+            .unwrap_or_default();
         // Only callers' verified same-origin cover IDs are rendered.
         let bg = if covers.contains(&book.id) {
             format!(
@@ -44,14 +57,22 @@ pub(super) fn render(books: &[PublicBookCard], covers: &HashSet<u64>) -> String 
                 r#"<span class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</span>"#,
             )
         };
+        let observation = crate::flow_exposure::attributes(
+            issuer,
+            tor_contracts::exposure::CardObservation {
+                book_id: book.id as i64,
+                surface: tor_contracts::exposure::ExposureSurface::Home,
+                editorial: None,
+            },
+        );
         write!(
             html,
-            r#"<a class="home-spotlight-card" href="{href}" aria-label="Открыть книгу {title}">
+            r#"<a class="home-spotlight-card"{observation} data-flow-link href="{href}" aria-label="Открыть книгу {title}">
                {bg}<div class="home-spotlight-card__inner">
                <div class="home-spotlight-card__content">
                <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
                <h2 class="home-spotlight-card__title">{title}</h2>
-               <p class="home-spotlight-card__text">{details}</p></div>
+               {details}</div>
                <div class="home-spotlight-card__cover-wrap">{cover}</div>
                </div></a>"#
         )

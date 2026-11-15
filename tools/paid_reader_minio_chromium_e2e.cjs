@@ -41,6 +41,9 @@ const orderedNewbooFiles = [
   "newboo-archive-toc.css",
   "newboo-layer-storefront.css",
   "newboo-cover-picker.css",
+  "account-ui.css",
+  "author-layers.css",
+  "newboo-library.css",
 ];
 // Extract the actual Rust handler's include_str! order, so future changes
 // cannot silently turn this Chromium smoke into a stale visual fixture.

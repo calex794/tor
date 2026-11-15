@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Пандаолейт — панда с книгой</title>
+  <rect width="64" height="64" rx="14" fill="#F4E8D4"/>
+  <circle cx="18" cy="18" r="9.5" fill="#242B2A"/>
+  <circle cx="46" cy="18" r="9.5" fill="#242B2A"/>
+  <ellipse cx="32" cy="31" rx="23.5" ry="23" fill="#242B2A"/>
+  <ellipse cx="32" cy="30" rx="21.3" ry="20.3" fill="#FFFCF3"/>
+  <ellipse cx="23.2" cy="27.8" rx="6" ry="7.9" transform="rotate(23 23.2 27.8)" fill="#242B2A"/>
+  <ellipse cx="40.8" cy="27.8" rx="6" ry="7.9" transform="rotate(-23 40.8 27.8)" fill="#242B2A"/>
+  <circle cx="25" cy="26.7" r="1.5" fill="#FFFCF3"/>
+  <circle cx="39" cy="26.7" r="1.5" fill="#FFFCF3"/>
+  <path d="M28 37 Q32 34 36 37 Q35 40 32 40 Q29 40 28 37Z" fill="#242B2A"/>
+  <path d="M32 39.6 V41.6 M32 41.6 Q28.5 45 26.5 41.5 M32 41.6 Q35.5 45 37.5 41.5" fill="none" stroke="#242B2A" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M6 48 Q14 43 23 45 L32 50 Q41 44 51 45 L58 48 L56.5 59 Q43 55 32 61 Q21 55 7.5 59 Z" fill="#294E3F" stroke="#242B2A" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M9.7 47.6 Q22.4 43.7 32 51.8 Q41.6 43.7 54.3 47.6 L53 54.5 Q41 51.1 32 57.2 Q23 51.1 11 54.5Z" fill="#FFFCF3"/>
+  <path d="M32 51.8 V57.2 M9.7 47.6 Q22.4 43.7 32 51.8 Q41.6 43.7 54.3 47.6" fill="none" stroke="#D0A458" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M14 52.2 Q22 50.8 28.2 54 M50 52.2 Q42 50.8 35.8 54" fill="none" stroke="#C6C1AE" stroke-width="1" stroke-linecap="round"/>
+</svg>

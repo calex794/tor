@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-static ROUTES: [RouteRegistration; 379] = [
+static ROUTES: [RouteRegistration; 428] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -388,7 +388,56 @@ static ROUTES: [RouteRegistration; 379] = [
     RouteRegistration::new("/admin/audience/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 375
     RouteRegistration::new("/admin/storage/g09", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 376
     RouteRegistration::new("/admin/storage/g09/{direction}/{scope}/{action}", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 377
-    RouteRegistration::new("/admin/finance/payouts/{id}/post", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 378
+    RouteRegistration::new("/admin/audience/returns", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 378
+    RouteRegistration::new("/me/notification-email/confirm", "POST", "/me/", Exact, Page, Dashboard, Write), // 379
+    RouteRegistration::new("/me/notification-email/request", "POST", "/me/", Exact, Page, Dashboard, Write), // 380
+    RouteRegistration::new("/me/notification-email/revoke", "POST", "/me/", Exact, Page, Dashboard, Write), // 381
+    RouteRegistration::new("/me/recommendations/flow-consent", "POST", "/me/", Exact, Page, Dashboard, Write), // 382
+    RouteRegistration::new("/admin/audience/visits", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 383
+    RouteRegistration::new("/admin/audience/funnel", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 384
+    RouteRegistration::new("/admin/audience/reading", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 385
+    RouteRegistration::new("/api/v1/me/surprises/plan", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 386
+    RouteRegistration::new("/api/v1/me/surprises/claim", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 387
+    RouteRegistration::new("/api/v1/me/surprises/open", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 388
+    RouteRegistration::new("/api/v1/me/surprises/disable", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 389
+    RouteRegistration::new("/assets/surprise.js", "GET", "/assets/", Exact, Static, System, Free), // 390
+    RouteRegistration::new("/assets/surprise.css", "GET", "/assets/", Exact, Static, System, Free), // 391
+    RouteRegistration::new("/admin/surprises", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 392
+    RouteRegistration::new("/admin/surprises/policy", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 393
+    RouteRegistration::new("/admin/surprises/create", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 394
+    RouteRegistration::new("/admin/surprises/{id}/state", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 395
+    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "GET", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 396
+    RouteRegistration::new("/api/v1/admin/recommendations/contextual", "POST", "/api/v1/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 397
+    RouteRegistration::new("/me/recommendations/contextual", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 398
+    RouteRegistration::new("/me/recommendations/contextual", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 399
+    RouteRegistration::new("/admin/audience/seo", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 400
+    RouteRegistration::new("/admin/audience/seo/refresh", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 401
+    RouteRegistration::new("/api/v1/flow/observations", "POST", "/api/v1/", Exact, Api, ProductArea::Recommendations, Write), // 402
+    RouteRegistration::new("/assets/flow-observations.js", "GET", "/assets/", Exact, Static, System, Free), // 403
+    RouteRegistration::new("/admin/audience/exposure", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 404
+    RouteRegistration::new("/admin/promotion/editorial", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 405
+    RouteRegistration::new("/admin/promotion/editorial", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 406
+    RouteRegistration::new("/admin/audience/signals", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 407
+    RouteRegistration::new("/admin/audience/pages", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 408
+    RouteRegistration::new("/favicon.ico", "GET", "/assets/", Exact, Static, System, Free), // 409
+    RouteRegistration::new("/favicon.svg", "GET", "/assets/", Exact, Static, System, Free), // 410
+    RouteRegistration::new("/favicon-32x32.png", "GET", "/assets/", Exact, Static, System, Free), // 411
+    RouteRegistration::new("/apple-touch-icon.png", "GET", "/assets/", Exact, Static, System, Free), // 412
+    RouteRegistration::new("/icon-192.png", "GET", "/assets/", Exact, Static, System, Free), // 413
+    RouteRegistration::new("/site.webmanifest", "GET", "/assets/", Exact, Static, System, Free), // 414
+    RouteRegistration::new("/me/recommendations/shelf-preview", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, CostClass::ExpensiveRead), // 415
+    RouteRegistration::new("/robots.txt", "GET", "/assets/", Exact, Static, System, Free), // 416
+    RouteRegistration::new("/sitemap.xml", "GET", "/catalog/", Exact, Page, Catalog, CostClass::ExpensiveRead), // 417
+    RouteRegistration::new("/sitemaps/books/{bucket}", "GET", "/catalog/", Prefix, Page, Catalog, CostClass::ExpensiveRead), // 418
+    RouteRegistration::new("/admin/recommendations", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 419
+    RouteRegistration::new("/admin/recommendations", "POST", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 420
+    RouteRegistration::new("/me/layers/{id}/cover", "POST", "/me/", Prefix, Page, Dashboard, Write), // 421
+    RouteRegistration::new("/layers/{layer_id}/cover/{variant}", "GET", "/layers/", Prefix, Page, ProductArea::Billing, Read), // 422
+    RouteRegistration::new("/me/layers/{layer_id}/cover/{mode}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 423
+    RouteRegistration::new("/moderation/layers/covers", "GET", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 424
+    RouteRegistration::new("/moderation/layers/covers/{id}/preview", "GET", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 425
+    RouteRegistration::new("/moderation/layers/covers/{id}/decision", "POST", "/moderation/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 426
+    RouteRegistration::new("/admin/finance/payouts/{id}/post", "POST", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Write), // 427
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

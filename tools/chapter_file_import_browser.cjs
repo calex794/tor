@@ -11,6 +11,64 @@ function assert(ok, why) {
   if (!ok) throw new Error(why);
 }
 
+async function inspectImportWorkspace(page, name, width, height) {
+  assert(await page.locator('.account-sidebar').count() === 1,
+    name + ': import page lost shared account navigation');
+  assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
+    name + ': importer must identify the book list as parent, not current page');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
+    name + ': importer must not activate a second account destination');
+  assert(await page.locator('#chapter-import').count() === 1,
+    name + ': importer root missing');
+  assert(await page.locator('#chapter-import-preview').isDisabled() &&
+    await page.locator('#chapter-import-confirm').isDisabled(),
+    name + ': preview or confirmation enabled before file selection');
+  assert(await page.locator('#chapter-import-cancel').isHidden(),
+    name + ': cancel button visible before creating a job');
+  const headings = ['author-import-file-heading',
+    'author-import-preview-heading', 'author-import-confirm-heading'];
+  const positions = [];
+  for (const id of headings) {
+    const heading = page.locator('#' + id);
+    assert(await heading.isVisible(), name + ': import stage missing: ' + id);
+    positions.push((await heading.boundingBox()).y);
+  }
+  assert(positions[0] < positions[1] && positions[1] < positions[2],
+    name + ': import stages are not in file-preview-confirm order');
+  for (const size of name === 'desktop' ? [1440, 768, 390] : [390]) {
+    await page.setViewportSize({ width: size, height: 844 });
+    for (const scheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: scheme });
+      const sizes = await page.evaluate(() => ({
+        doc: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        viewport: document.documentElement.clientWidth,
+      }));
+      assert(sizes.doc <= sizes.viewport + 1 && sizes.body <= sizes.viewport + 1,
+        name + '/' + size + '/' + scheme + ': import page overflows: ' + JSON.stringify(sizes));
+      if (size === 1440 || size === 390) {
+        await page.screenshot({
+          path: path.join(out, 'chapter-import-' + name + '-' + size + '-' + scheme + '.png'),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await page.setViewportSize({ width, height });
+  await page.emulateMedia({ colorScheme: 'light' });
+  const details = page.locator('.author-import-page__editor');
+  const summary = details.locator('summary');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  assert(await details.evaluate(node => node.open),
+    name + ': chapter text editor must be keyboard-expandable');
+  assert(await page.locator('#chapter-import-text').isVisible(),
+    name + ': editable imported text must remain reachable');
+  await page.keyboard.press('Enter');
+  assert(!await details.evaluate(node => node.open),
+    name + ': optional editor must be keyboard-collapsible');
+}
+
 function crc32(input) {
   let crc = 0xffffffff;
   for (const value of input) {
@@ -84,7 +142,7 @@ function makeDocxXml(xml) {
         await page.getByLabel('Пароль (12–128 символов)').fill('H09ImportBrowser2026');
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
-        await page.getByRole('link', { name: 'Мои книги' }).click();
+        await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
         await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
         await page.getByLabel('Название книги').fill('Импортированный сборник ' + name);
         await page.getByLabel('Язык', { exact: true }).fill('ru');
@@ -95,6 +153,7 @@ function makeDocxXml(xml) {
         assert(await importLink.isVisible(), name + ': import action missing from draft');
         await importLink.click();
         await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        await inspectImportWorkspace(page, name, width, height);
         assert(await page.getByRole('button', { name: 'Подтвердить и создать главы' }).isDisabled(),
           name + ': save enabled without preview');
         const source =
@@ -121,9 +180,13 @@ function makeDocxXml(xml) {
         await page.waitForURL(base + '/me/books/' + id);
         assert(await page.getByText(/Черновик/).isVisible(),
           name + ': import published the book without consent');
-        assert(await page.getByText(/^№1\s*—/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№1', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 1: Начало', exact: true }).isVisible(),
           name + ': chapter one missing after import');
-        assert(await page.getByText(/^№2\s*—/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№2', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 2: <img src=x onerror=window.importX=1>', exact: true }).isVisible(),
           name + ': chapter two missing after import');
         assert(await page.getByRole('link', { name: 'Редактировать', exact: true }).count() === 2,
           name + ': imported draft chapters cannot be edited');
@@ -213,8 +276,12 @@ function makeDocxXml(xml) {
           name + ': ZIP members not naturally sorted');
         await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
         await page.waitForURL(base + '/me/books/' + id);
-        assert(await page.getByText(/№5 — Глава 5:/).isVisible()
-          && await page.getByText(/№10 — Глава 10:/).isVisible(),
+        assert(await page.locator('.author-chapter-row').filter({
+          has: page.getByText('№5', { exact: true }),
+        }).getByRole('heading', { name: 'Глава 5: Пятая', exact: true }).isVisible()
+          && await page.locator('.author-chapter-row').filter({
+            has: page.getByText('№10', { exact: true }),
+          }).getByRole('heading', { name: 'Глава 10: Десятая', exact: true }).isVisible(),
           name + ': ZIP chapter batch not saved');
 
         await importLink.click();

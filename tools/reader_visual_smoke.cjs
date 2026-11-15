@@ -10,6 +10,28 @@ function assert(ok, why) {
   if (!ok) throw new Error(why);
 }
 
+async function inspectBookTocContrast(page, name) {
+  const failures = await page.locator('.chapter-toc__item').evaluateAll(rows => {
+    const luminance = color => {
+      const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => {
+        v /= 255;
+        return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
+      });
+      return .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2];
+    };
+    return rows.flatMap(row => {
+      const background = luminance(getComputedStyle(row).backgroundColor);
+      return [...row.querySelectorAll('a, .chapter-toc__badge')].flatMap(text => {
+        const foreground = luminance(getComputedStyle(text).color);
+        const ratio = (Math.max(foreground, background) + .05) /
+          (Math.min(foreground, background) + .05);
+        return ratio < 4.5 ? [{ text: text.textContent, ratio }] : [];
+      });
+    });
+  });
+  assert(failures.length === 0, name + ': unreadable TOC text ' + JSON.stringify(failures));
+}
+
 async function inspect(page, name, where) {
   const metrics = await page.evaluate(() => ({
     content: document.documentElement.scrollWidth,
@@ -29,9 +51,25 @@ async function inspect(page, name, where) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       const book = await page.goto(base + '/books/1', { waitUntil: 'load' });
       assert(book && book.status() === 200, name + ': public book missing');
+      const hero = await page.locator('.book-hero-card').evaluate(node => {
+        const bounds = selector => node.querySelector(selector).getBoundingClientRect().toJSON();
+        return { title: bounds('h1'), actions: bounds('.book-hero-actions'),
+          cover: bounds('.book-cover-xl'), secondary: bounds('.book-hero-secondary-actions') };
+      });
+      assert(Math.abs(hero.cover.width / hero.cover.height - 2 / 3) < .035,
+        name + ': book hero lost its 2:3 cover');
+      assert(hero.actions.y < height, name + ': reading actions are below the first viewport');
+      assert(hero.secondary.y >= hero.actions.y + hero.actions.height,
+        name + ': secondary actions precede reading');
+      if (name === 'mobile') {
+        assert(hero.title.y + hero.title.height <= hero.actions.y,
+          name + ': mobile title must precede reading and secondary controls');
+        assert(hero.cover.width <= 128, name + ': mobile cover dominates the first viewport');
+      }
       assert(await page.getByText('Глава 1. Начало истории').isVisible(), name + ': TOC invisible');
       assert(await page.getByText('Платная · нужен доступ').isVisible(), name + ': paywall label missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');
+      await inspectBookTocContrast(page, name);
       await inspect(page, name, 'toc');
       // S005: a visible paid TOC entry must lead to an explanatory page,
       // not an empty 404, an invented checkout, or private chapter text.
@@ -258,6 +296,7 @@ async function inspect(page, name, where) {
           name + ': still uses light page background');
         assert(css.logo.includes('pandaolate-header-dark.png'),
           name + ': original dark PNG not selected');
+        if (location === 'book') await inspectBookTocContrast(page, name + '-dark');
         await inspect(page, name + '-dark', location);
         if (location === 'catalog' && width === 390) {
           await page.locator('.site-mobile-menu__trigger').click();
@@ -356,7 +395,7 @@ async function inspect(page, name, where) {
         name + ': author dashboard section missing');
       assert(await page.locator('.dashboard-tile__link[href="/me/books/new"]').isVisible(),
         name + ': create book tile missing');
-      assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
+      assert(await page.locator('#main').getByRole('link', { name: 'Мои книги' }).isVisible(),
         name + ': author link missing');
       assert(!(await page.content()).includes('Анализ ваших переходов'),
         name + ': unimplemented personal analysis advertised');
@@ -365,7 +404,7 @@ async function inspect(page, name, where) {
       await inspect(page, name, 'me');
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
       // S007: a book can be saved before any progress or purchase is recorded.
       await page.goto(base + '/books/1');
@@ -375,12 +414,16 @@ async function inspect(page, name, where) {
         name + ': bookmark confirmation missing');
       await page.getByRole('button', { name: 'Сохранить книгу' }).click();
       await page.waitForURL('**/me/library');
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
       assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
         name + ': personal bookmark missing');
       await inspect(page, name, 'bookmarked');
       await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
       await page.waitForURL('**/me/library');
-      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
+      await page.getByRole('link', { name: 'Сохранено' }).click();
+      await page.waitForURL('**/me/library?view=saved');
+      assert(await page.getByText('Ваша книжная полка пока пуста').isVisible(),
         name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
@@ -584,6 +627,11 @@ async function inspect(page, name, where) {
       await page.goto(base + '/me/library');
       assert(await page.getByRole('link', { name: 'Продолжить' }).isVisible(), name + ': resume card missing');
       assert(await page.getByText('Фрагмент 1').isVisible(), name + ': saved anchor missing');
+      // The fixture has no published cover slot: the server must not render an image.
+      assert(await page.locator('.library-reading-card .library-book-art img').count() === 0,
+        name + ': missing public cover slot must not emit a broken image');
+      assert(await page.locator('.library-reading-card .library-book-art__glyph').count() === 1,
+        name + ': missing cover must preserve the illustrated fallback');
       await inspect(page, name, 'library-saved');
       await page.getByRole('link', { name: 'Продолжить' }).click();
       await page.waitForURL('**/read/101#p-1');
@@ -632,7 +680,7 @@ async function inspect(page, name, where) {
         assert(response && response.status() === 404, name + ': private denied ' + denied);
       }
       await page.goto(base + '/me');
-      await page.getByRole('button', { name: 'Выйти' }).click();
+      await page.getByLabel('Меню личного кабинета').getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль').fill('TestPassphrase2026');

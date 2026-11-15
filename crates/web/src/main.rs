@@ -196,23 +196,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
-    let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
-    for flag in ["TOR_RECOMMENDATIONS_ENABLED", "TOR_REC_ATTRIBUTION_ENABLED"] {
-        if let Ok(value) = env::var(flag) {
-            if !matches!(value.as_str(), "0" | "1") {
-                return Err(format!("invalid boolean flag {flag}").into());
-            }
+    // The product switch still controls the catalogue recommendation surface.
+    // Retired collection flags cannot enable identity capture or block AUTH=0.
+    if let Ok(value) = env::var("TOR_RECOMMENDATIONS_ENABLED") {
+        if !matches!(value.as_str(), "0" | "1") {
+            return Err("invalid boolean flag TOR_RECOMMENDATIONS_ENABLED".into());
         }
-    }
-    if env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1")
-        && env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1")
-    {
-        return Err("attribution requires recommendations".into());
     }
     let mut pending_social_notifications = None;
     let mut pending_support_cleanup = None;
@@ -268,17 +262,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None;
     let mut pending_overdue_observer: Option<PgAccounts> = None;
     let mut pending_scheduled_release_worker = None;
+    let mut html_collector = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
-            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                pending_rec_worker = Some(
-                    tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
-                );
-            }
+            pending_security_retention = Some(PgAccounts::from_pool(pool.clone()));
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_support_cleanup = Some(
                     tor_support::repositories::postgres::PgSupport::new(pool.clone()),
@@ -297,7 +288,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
-            tor_web::start_ril_pg_background(&catalog);
+            html_collector = Some(tor_web::flow_runtime::HtmlCollector::start(&catalog));
             let reader = PgReader::new(pool.clone());
             reader.probe().await?;
             if cover_worker_enabled {
@@ -337,7 +328,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         g09_bootstrap::routes(accounts.clone(), secure, origin.clone()).await?,
                     );
                 }
-                pending_security_retention = Some(accounts.clone());
                 if overdue_observer_enabled {
                     accounts
                         .probe_moderation_overdue_observations()
@@ -500,18 +490,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
-    let app = if let Some(routes) = pending_g09_routes {
-        app.merge(tor_web::instrument_additional_routes(routes))
-    } else {
-        app
-    };
-    let app = if let Some(routes) = pending_chapter_import_routes {
-        // The base router already has RIL instrumentation. Instrument this
-        // late-bound route group with the same process recorder before merge.
-        app.merge(tor_web::instrument_additional_routes(routes))
-    } else {
-        app
-    };
+    let app = [pending_g09_routes, pending_chapter_import_routes]
+        .into_iter()
+        .flatten()
+        .fold(app, |app, routes| {
+            // The base router already has RIL instrumentation. Instrument each
+            // late-bound route group with the same process recorder before merge.
+            app.merge(tor_web::instrument_additional_routes(routes))
+        });
     let listener = tokio::net::TcpListener::bind(address).await?;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
@@ -577,22 +563,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
-    let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
     let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
-    // The authenticated server starts this worker once, after binding HTTP.
+    // Every PostgreSQL server retains cleanup, including public AUTH=0 mode.
+    let contextual_builder =
+        tor_web::recommendation_worker::start_contextual(pending_security_retention.clone());
+    let seo_import = tor_web::seo_analytics_worker::start(pending_security_retention.clone());
+    let mut backgrounds = tor_web::flow_signal_worker::start(pending_security_retention.clone());
+    let (app, observations) =
+        tor_web::flow_exposure::start_managed(app, pending_security_retention.clone()).await;
     let account_retention =
-        pending_security_retention.map(tor_web::start_account_security_retention);
-    let serve_result = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await;
-    if let Some(handle) = account_retention {
-        handle.abort();
-        let _ = handle.await;
-    }
-    serve_result?;
+        tor_web::start_account_security_retention(pending_security_retention).await;
+    backgrounds.extend(
+        [account_retention, contextual_builder, seo_import]
+            .into_iter()
+            .flatten(),
+    );
+    tor_web::flow_runtime::serve(listener, app, html_collector, observations, backgrounds).await?;
     Ok(())
 }

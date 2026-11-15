@@ -1,6 +1,8 @@
 //! FLOW-05: private book report, filter round-trips and bounded failure.
 //! Daily rows are explicit report fixtures; actual collection is covered by Chromium.
 #![forbid(unsafe_code)]
+#[path = "support/legacy_analytics.rs"]
+mod legacy_analytics;
 
 use axum::{
     body::{to_bytes, Body},
@@ -23,7 +25,7 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 fn client(url: &str) -> Command {
-    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    assert!(url.ends_with("/tor_ci_legacy_analytics") && url.contains("127.0.0.1:5432"));
     let mut command = Command::new("psql");
     command
         .env(
@@ -206,9 +208,9 @@ fn row<'a>(html: &'a str, book: i64, period: &str) -> &'a str {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+#[ignore = "requires explicit legacy analytics baseline 191"]
 async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
-    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL");
+    let url = legacy_analytics::url();
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -265,6 +267,7 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
         fixtures.books[3],
     ];
     let secret_genre = format!("secret-genre-{stamp}");
+    // Explicit retained old-model aggregates; these are not current capture evidence.
     pg(&url, &format!(
         "UPDATE books SET admin_hold=true,genres=ARRAY['{genre}','{secret_genre}'],tags=ARRAY['{tag}','secret-tag-{stamp}'] WHERE id={hidden};
          INSERT INTO organic_discovery_quality_daily(bucket_date,book_id,source,issued,clicks,book_opens,starts,completions) VALUES
@@ -318,6 +321,9 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
     let response = call(&app, &path, &cookies[0]).await;
     private(&response, StatusCode::OK);
     let html = body(response).await;
+    assert!(html.contains("data-testid=\"collection-retired\""));
+    assert!(html.contains("data-current-measurement=\"unavailable\""));
+    assert!(html.contains("data-measurement=\"legacy-consented\""));
     assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; книга"));
     assert!(!html.contains("<script>alert(1)"));
     for forbidden in [
@@ -416,6 +422,30 @@ async fn books_http_public_filters_paging_unknown_history_and_live_admin() {
     drop(lock);
     pg(&url, &format!("UPDATE account_roles SET is_active=true WHERE user_id={admin} AND role='administrator'"));
     private(&call(&app, &path, &cookies[0]).await, StatusCode::OK);
+    // These daily rows are explicit historical fixtures. Report GETs must
+    // neither create a profile nor resume optional observation for these books.
+    let fixture_users = fixtures
+        .users
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let fixture_books = fixtures
+        .books
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    assert_eq!(
+        pg(&url, &format!(
+            "SELECT (SELECT count(*) FROM rec_subjects WHERE user_id IN({fixture_users}))
+                  +(SELECT count(*) FROM rec_assignments WHERE book_id IN({fixture_books}))
+                  +(SELECT count(*) FROM organic_discovery_touches WHERE book_id IN({fixture_books}))
+                  +(SELECT count(*) FROM flow_book_cohorts WHERE book_id IN({fixture_books}))"
+        )),
+        "0",
+        "historical report reads must not create optional analytics state"
+    );
     accounts
         .revoke_session(&session_token_digest(&tokens[0]))
         .await

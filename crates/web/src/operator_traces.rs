@@ -6,7 +6,10 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{fmt::Write, path::PathBuf};
 #[cfg(unix)]
-use tor_observability::services::lookup::{self, LookupResult};
+use tor_observability::services::{
+    lookup::{self, LookupResult},
+    trace::background::lookup::{self as background_lookup, BackgroundPage},
+};
 
 fn equal_secret(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() || a.len() < 32 || a.len() > 256 {
@@ -161,6 +164,40 @@ fn trace_details(result: &LookupResult) -> String {
     details
 }
 
+#[cfg(unix)]
+fn background_details(page: &BackgroundPage) -> String {
+    let mut html = format!(
+        "<section class=\"card\" aria-labelledby=\"background-traces\"><h2 id=\"background-traces\">Фоновые этапы</h2><p>Сохранено попыток по этому HTTP ID: {}. Показано: {} (предел 32). Отсутствие записей не доказывает, что задания не было: передача может быть потеряна или срок хранения истёк.</p>",
+        page.matches, page.items.len(),
+    );
+    for (at, trace) in &page.items {
+        let phase = match trace.phase {
+            1 => "Источник и проверка",
+            2 => "Разбор текста",
+            3 => "Фиксация PostgreSQL",
+            4 => "Очистка объекта",
+            _ => "До обработки источника",
+        };
+        write!(
+            html,
+            "<article><h3>Попытка {} — {}</h3><dl><dt>Сохранена (Unix UTC)</dt><dd>{}</dd><dt>Дочерняя трасса</dt><dd>{:032x}</dd><dt>Последний этап</dt><dd>{}</dd><dt>Всего</dt><dd>{:.2} мс</dd><dt>Источник</dt><dd>{:.2} мс</dd><dt>Разбор</dt><dd>{:.2} мс</dd><dt>PostgreSQL</dt><dd>{:.2} мс</dd><dt>Очистка</dt><dd>{:.2} мс</dd></dl></article>",
+            trace.attempt,
+            trace.outcome.label(),
+            at,
+            trace.trace_id,
+            phase,
+            trace.duration_us as f64 / 1000.0,
+            trace.phase_us[0] as f64 / 1000.0,
+            trace.phase_us[1] as f64 / 1000.0,
+            trace.phase_us[2] as f64 / 1000.0,
+            trace.phase_us[3] as f64 / 1000.0,
+        )
+        .expect("write bounded numeric background details");
+    }
+    html.push_str("</section>");
+    html
+}
+
 async fn respond(
     headers: HeaderMap,
     query: Option<&str>,
@@ -185,15 +222,22 @@ async fn respond(
                 document(&display, "<section class=\"card\" role=\"alert\">Служба хранения трасс не включена.</section>"),
             ));
         };
-        let found = tokio::task::spawn_blocking(move || lookup::request(&socket, trace_id)).await;
+        let found = tokio::task::spawn_blocking(move || {
+            let root = lookup::request(&socket, trace_id);
+            let children = background_lookup::request(&socket, trace_id);
+            (root, children)
+        })
+        .await;
         match found {
-            Ok(Ok(found)) => {
-                let status = if found.matches == 0 {
+            Ok((Ok(root), Ok(children))) => {
+                let status = if root.matches == 0 && children.matches == 0 {
                     StatusCode::NOT_FOUND
                 } else {
                     StatusCode::OK
                 };
-                secure((status, document(&display, &trace_details(&found))))
+                let mut details = trace_details(&root);
+                details.push_str(&background_details(&children));
+                secure((status, document(&display, &details)))
             }
             _ => secure((
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -321,7 +365,13 @@ mod tests {
             domain::{RouteGroup, StatusGroup},
             services::{
                 lookup::{self, LookupResult},
-                trace::{RequestTrace, SqlEvidence, SqlSpan},
+                trace::{
+                    background::{
+                        lookup::{self as background_lookup, BackgroundPage},
+                        BackgroundTrace, Outcome,
+                    },
+                    RequestTrace, SqlEvidence, SqlSpan,
+                },
             },
         };
 
@@ -369,6 +419,33 @@ mod tests {
             let reply = lookup::encode_reply(&result).unwrap();
             peer.write_all(&(reply.len() as u32).to_be_bytes()).unwrap();
             peer.write_all(&reply).unwrap();
+            let (mut child_peer, _) = listener.accept().unwrap();
+            child_peer.read_exact(&mut length).unwrap();
+            let child_size = u32::from_be_bytes(length) as usize;
+            assert_eq!(child_size, 20);
+            let mut query = [0_u8; 20];
+            child_peer.read_exact(&mut query).unwrap();
+            assert_eq!(background_lookup::parse_query(&query), Some(0xabcdef));
+            let page = BackgroundPage {
+                matches: 1,
+                items: vec![(
+                    1_900_000_001,
+                    BackgroundTrace {
+                        parent_trace_id: 0xabcdef,
+                        trace_id: 0xfedcba,
+                        attempt: 2,
+                        outcome: Outcome::Retried,
+                        phase: 3,
+                        duration_us: 400_000,
+                        phase_us: [10_000, 20_000, 340_000, 0],
+                    },
+                )],
+            };
+            let reply = background_lookup::encode_reply(&page).unwrap();
+            child_peer
+                .write_all(&(reply.len() as u32).to_be_bytes())
+                .unwrap();
+            child_peer.write_all(&reply).unwrap();
         });
         let secret = "a".repeat(48);
         let response = respond(
@@ -385,6 +462,9 @@ mod tests {
         assert!(html.contains("150"));
         assert!(html.contains("PostgreSQL (SQLx)"));
         assert!(html.contains("175.00 мс"));
+        assert!(html.contains("Фоновые этапы"));
+        assert!(html.contains("Попытка 2"));
+        assert!(html.contains("340.00 мс"));
         assert!(!html.contains("user_id"));
         worker.join().unwrap();
         fs::remove_dir_all(dir).unwrap();

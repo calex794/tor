@@ -56,43 +56,18 @@ impl PgRecommendations {
     /// Raw personal data expires; anonymous historical aggregates are retained
     /// separately. Opt-out, unlike TTL, also recomputes unexpired cohorts.
     pub async fn prune(&self) -> Result<u64, FeedbackError> {
+        let mut count = self.prune_preferences().await?;
         let mut tx = self.pool.begin().await?;
-        let mut count = 0;
         for statement in [
             "DELETE FROM rec_assignments WHERE id IN(SELECT id FROM rec_assignments WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM organic_discovery_touches WHERE id IN(SELECT id FROM organic_discovery_touches WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM organic_discovery_unattributed_reads WHERE source_event_id IN(SELECT source_event_id FROM organic_discovery_unattributed_reads WHERE occurred_at<now()-interval '30 days' ORDER BY occurred_at LIMIT 1000)",
             "DELETE FROM rec_reader_signals WHERE source_event_id IN(SELECT source_event_id FROM rec_reader_signals WHERE occurred_at<now()-interval '30 days' ORDER BY occurred_at LIMIT 1000)",
-            "DELETE FROM rec_preference_commands WHERE (user_id,command_key) IN(SELECT user_id,command_key FROM rec_preference_commands WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM rec_quality_daily WHERE bucket_date<(now() AT TIME ZONE 'UTC')::date-180",
             "DELETE FROM organic_discovery_quality_daily WHERE bucket_date<(now() AT TIME ZONE 'UTC')::date-180",
         ] {
             count+=sqlx::query(statement).execute(&mut *tx).await?.rows_affected();
         }
-        // Serialize retention erasure with feedback writes through the subject
-        // row. After deleting per-book history, advance an anonymous CAS epoch
-        // so even an old revision-zero request cannot recreate a hidden book.
-        sqlx::query(
-            "WITH locked_subjects AS (
-                SELECT s.subject_id FROM rec_subjects s
-                WHERE EXISTS (
-                    SELECT 1 FROM rec_feedback_state f
-                    WHERE f.subject_id=s.subject_id
-                      AND f.expires_at<now()-interval '1 hour'
-                )
-                ORDER BY s.subject_id LIMIT 32 FOR UPDATE OF s SKIP LOCKED
-             ), erased AS (
-                DELETE FROM rec_feedback_state f USING locked_subjects s
-                WHERE f.subject_id=s.subject_id
-                  AND f.expires_at<now()-interval '1 hour'
-                RETURNING f.subject_id
-             )
-             UPDATE rec_subjects s
-             SET feedback_epoch=feedback_epoch+1
-             WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM erased)",
-        )
-        .execute(&mut *tx)
-        .await?;
         tx.commit().await?;
         Ok(count)
     }

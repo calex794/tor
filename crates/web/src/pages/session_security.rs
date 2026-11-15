@@ -1,5 +1,5 @@
 //! Authenticated device/session list. Never render passwords, tokens or raw IP.
-use super::{escape_html, layout};
+use super::{escape_html, private_account_layout as layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_accounts::repositories::sessions::ActiveSession;

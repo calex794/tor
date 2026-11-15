@@ -1,0 +1,39 @@
+<section class="me-page author-workspace author-layers-page">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <nav class="author-layers-page__breadcrumb" aria-label="Путь к созданию пакета">
+        <a href="/me">Мой кабинет</a>
+        <span aria-hidden="true">/</span>
+        <a href="/me/layers">Мои пакеты</a>
+        <span aria-hidden="true">/</span>
+        <span>Новый пакет</span>
+      </nav>
+      <header class="ui-page-header author-layers-page__header">
+        <div class="ui-page-header__content">
+          <p class="ui-page-header__kicker">Кабинет автора · продажа книг</p>
+          <h1 class="ui-page-header__title">Новый пакет книг</h1>
+          <p class="ui-page-header__text">Соберите свои книги в один пакет. Сначала создайте пакет, затем добавьте книги и отдельно опубликуйте цену и условия доступа.</p>
+        </div>
+      </header>
+      <section class="author-layers-page__empty" aria-labelledby="new-package-heading">
+        <h2 id="new-package-heading">Название пакета</h2>
+        <p>Создание бесплатное и не запускает продажи. Книги добавляются только из вашей библиотеки; книги с другими активными участниками команды пока не подходят.</p>
+        <form method="post" action="/me/layers/new" class="author-layer-card__form">
+          <div class="author-layer-card__fields">
+            <div class="author-layer-card__field author-layer-card__field--full">
+              <label for="layer-title">Название</label>
+              <input id="layer-title" name="title" type="text" maxlength="120" required placeholder="Например, Моя фантастическая серия">
+            </div>
+          </div>
+          <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+          <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
+          <div class="author-layer-card__actions">
+            <button class="ui-button ui-button--primary" type="submit">Создать пакет</button>
+            <a class="ui-button ui-button--ghost" href="/me/layers">Назад к пакетам</a>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+</section>

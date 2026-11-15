@@ -78,6 +78,7 @@ fn period(rows: &[PgRow]) -> Result<DiscoveryPeriod, DiscoveryError> {
             };
             Ok(DiscoveryChannel {
                 source,
+                evidence_invalidated: row.try_get("evidence_invalidated").map_err(unavailable)?,
                 clicks: row.try_get("clicks").map_err(unavailable)?,
                 book_opens: row.try_get("book_opens").map_err(unavailable)?,
                 starts: row.try_get("starts").map_err(unavailable)?,
@@ -107,6 +108,12 @@ WITH anchor AS (
     SELECT 1, until_day-$1::int*2, until_day-$1::int, at FROM anchor
 ), channels(channel_order,source) AS (
     VALUES (0,'catalog'),(1,'search'),(2,'recommendations'),(3,'unattributed')
+), invalidated AS MATERIALIZED (
+    SELECT p.ordinal,c.source,EXISTS(
+        SELECT 1 FROM rec_analytics_invalidations i
+        WHERE i.source=c.source AND i.bucket_date>=p.from_day AND i.bucket_date<p.until_day
+    ) AS evidence_invalidated
+    FROM periods p CROSS JOIN channels c
 ), totals AS (
     SELECT CASE WHEN q.bucket_date>=a.until_day-$1::int THEN 0 ELSE 1 END AS ordinal,
            'recommendations' AS source,
@@ -137,11 +144,16 @@ SELECT p.ordinal,c.source,
        to_char(p.from_day,'YYYY-MM-DD') AS from_day,
        to_char(p.until_day,'YYYY-MM-DD') AS until_day,
        p.ordinal=0 AS partial_today,
-       t.clicks,t.book_opens,t.starts,t.completions,
+       i.evidence_invalidated,
+       CASE WHEN NOT i.evidence_invalidated THEN t.clicks END AS clicks,
+       CASE WHEN NOT i.evidence_invalidated THEN t.book_opens END AS book_opens,
+       CASE WHEN NOT i.evidence_invalidated THEN t.starts END AS starts,
+       CASE WHEN NOT i.evidence_invalidated THEN t.completions END AS completions,
        to_char(h.last_success AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS last_success,
        COALESCE(h.last_success>p.at-interval '30 seconds' AND h.last_success<=p.at,false) AS fresh,
        h.rec_dirty,h.organic_dirty
 FROM periods p CROSS JOIN channels c CROSS JOIN health h
+JOIN invalidated i ON i.ordinal=p.ordinal AND i.source=c.source
 LEFT JOIN totals t ON t.ordinal=p.ordinal AND t.source=c.source
 ORDER BY p.ordinal,c.channel_order
 "#;

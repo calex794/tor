@@ -1,0 +1,9 @@
+# TOR DR-02: example Postgres 18 configuration (review and install MANUALLY).
+# PostgreSQL must NOT restart until off-site repo and credentials are verified.
+# pgBackRest must be installed and the stanza created BEFORE archive_mode=on.
+wal_level=replica
+archive_mode=on
+archive_command='pgbackrest --stanza=tor archive-push %p'
+archive_timeout=900s
+# 15 min archive_timeout is not an RPO guarantee; monitor last archived WAL.
+# PostgreSQL archive_command must fail when storage fails (never return success).

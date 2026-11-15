@@ -1,29 +1,58 @@
 //! Only numerical evidence is rendered; no reader or book identifiers.
+pub(super) mod book_returns;
 pub(super) mod books;
+pub(super) mod canonical;
 mod evidence;
+pub(super) mod funnel;
+pub(super) mod group_returns;
 pub(super) mod groups;
 mod hours;
+mod intent;
+mod observed;
+mod quality;
+pub(super) mod reading_hours;
+mod retirement;
+pub(super) mod returns;
+pub(super) mod seo;
 mod sources;
+pub(super) mod visits;
 
 use crate::pages::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_reading::services::audience::{AudienceCounts, AudiencePeriod, AudienceReport};
 use tor_recommendations::services::audience::DiscoveryReport;
-use tor_traffic_behavior::services::audience::FlowHourlyReport;
+use tor_traffic_behavior::services::{audience::FlowHourlyReport, PgPumpSnapshot};
 
-fn start(days: i32) -> String {
+fn start(days: i32, zone: &str) -> String {
+    let navigation = crate::flow_navigation::links(days);
     let mut body = format!(
         "<section class=\"section\"><div class=\"container author-width\">\
-         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>\
+         <p class=\"eyebrow\">Администратору сайта</p><h1>Аудитория</h1>{navigation}\
          <p>Просмотры страниц, источники переходов к книгам и подтверждённое чтение. \
          Только общие числа, без истории отдельных читателей.</p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-seo-link\" href=\"/admin/audience/seo?days={days}\">SEO</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-visits-link\" href=\"/admin/audience/visits?days={days}\">История наблюдавшихся визитов</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-funnel-link\" href=\"/admin/audience/funnel?days={days}\">История наблюдавшегося пути к чтению</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-books-link\" href=\"/admin/audience/books?days={days}\">Какие книги замечают и читают</a></p>\
          <p><a class=\"button button--quiet\" data-testid=\"audience-groups-link\" href=\"/admin/audience/groups?days={days}&amp;kind=genres\">Жанры и теги</a></p>\
-         <form class=\"author-form\" method=\"get\" action=\"/admin/audience\">\
-         <label for=\"audience-days\">Длительность периода</label>\
-         <select id=\"audience-days\" name=\"days\">",
+         <p><a class=\"button button--quiet\" data-testid=\"audience-returns-link\" href=\"/admin/audience/returns?days={days}\">История наблюдавшихся возвращений</a></p>\
+         <p><a class=\"button button--quiet\" data-testid=\"audience-canonical-link\" href=\"/admin/audience/reading?days={days}\">Подтверждённое чтение по книгам</a></p>",
     );
+    period_form(&mut body, days, zone, false);
+    body
+}
+
+pub(super) fn period_form(body: &mut String, days: i32, zone: &str, reading: bool) {
+    body.push_str("<form class=\"author-form\" method=\"get\" action=\"/admin/audience\"><label for=\"audience-view\">Представление</label><select id=\"audience-view\" name=\"view\">");
+    for (value, label, selected) in [
+        ("overview", "Общая сводка и HTML по времени", !reading),
+        ("reading_hours", "Чтение по времени", reading),
+    ] {
+        let selected = if selected { " selected" } else { "" };
+        write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
+    }
+    body.push_str("</select><label for=\"audience-days\">Длительность периода</label><select id=\"audience-days\" name=\"days\">");
     for (value, label) in [
         (1, "1 день"),
         (7, "7 дней"),
@@ -33,10 +62,18 @@ fn start(days: i32) -> String {
         let selected = if days == value { " selected" } else { "" };
         write!(body, "<option value=\"{value}\"{selected}>{label}</option>").expect("String");
     }
+    body.push_str("</select><label for=\"audience-zone\">Часовой пояс</label><select id=\"audience-zone\" name=\"time_zone\">");
+    for choice in tor_traffic_behavior::services::observed_audience::OBSERVED_ZONES {
+        let selected = if choice == zone { " selected" } else { "" };
+        write!(
+            body,
+            "<option value=\"{choice}\"{selected}>{choice}</option>"
+        )
+        .expect("String");
+    }
     body.push_str(
         "</select><p><button class=\"button\" type=\"submit\">Показать</button></p></form>",
     );
-    body
 }
 
 fn finish(mut body: String) -> Html<String> {
@@ -62,12 +99,30 @@ fn finish(mut body: String) -> Html<String> {
 
 pub(super) fn page(
     days: i32,
-    reading: Option<&AudienceReport>,
+    reading: (
+        Option<&AudienceReport>,
+        Option<&tor_reading::services::audience::intent::IntentReport>,
+    ),
     discovery: Option<&DiscoveryReport>,
     traffic: Option<&FlowHourlyReport>,
+    capture: Option<(u64, u64)>,
+    pump: Option<PgPumpSnapshot>,
+    observed: (
+        &str,
+        Option<&tor_traffic_behavior::services::observed_audience::ObservedAudienceReport>,
+        Option<&tor_traffic_behavior::domain::html_health::HtmlHealthReport>,
+    ),
 ) -> Html<String> {
-    let mut body = start(days);
+    let (reading, intents) = reading;
+    let mut body = start(days, observed.0);
+    observed::section(&mut body, observed.1, observed.2);
     hours::section(&mut body, days, traffic);
+    quality::section(&mut body, days, traffic, capture, pump);
+    intent::section(&mut body, intents);
+    retirement::notice(
+        &mut body,
+        "источник перехода, связанный с первым чтением книги",
+    );
     match discovery {
         Some(report) => sources::section(&mut body, report),
         None => body.push_str("<section data-testid=\"audience-sources-unavailable\"><h2>Источники первого чтения книги</h2><p role=\"alert\">Сводка источников временно недоступна. Нулевые значения не подставляются.</p></section>"),
@@ -203,7 +258,16 @@ mod tests {
 
     #[test]
     fn periods_use_report_distinct_counts_without_inventing_retention_or_conversion() {
-        let html = page(7, Some(&sample()), None, None).0;
+        let html = page(
+            7,
+            (Some(&sample()), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None),
+        )
+        .0;
         assert!(html.contains("data-metric=\"readers\">5</dd>"));
         assert!(html.contains("<dd>+1</dd>"));
         assert!(html.contains("datetime=\"2026-11-03T12:00:00Z\""));
@@ -219,22 +283,58 @@ mod tests {
     fn absent_events_do_not_turn_into_zero_readers_or_comparison() {
         let mut report = sample();
         report.previous.counts = None;
-        let html = page(7, Some(&report), None, None).0;
+        let html = page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None),
+        )
+        .0;
         assert!(html.contains("Это не доказывает отсутствие читателей"));
         assert!(html.contains("audience-comparison-unavailable"));
         assert!(!html.contains("data-metric=\"readers\">0"));
         report.current.available = false;
-        assert!(!page(7, Some(&report), None, None)
-            .0
-            .contains("data-metric=\"readers\""));
-        assert!(page(30, None, None, None).0.contains("role=\"alert\""));
+        assert!(!page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None)
+        )
+        .0
+        .contains("data-metric=\"readers\""));
+        assert!(page(
+            30,
+            (None, None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None)
+        )
+        .0
+        .contains("role=\"alert\""));
     }
 
     #[test]
     fn timestamp_text_and_attribute_are_escaped() {
         let mut report = sample();
         report.current.from_utc = "\"><script>bad()</script>".into();
-        let html = page(7, Some(&report), None, None).0;
+        let html = page(
+            7,
+            (Some(&report), None),
+            None,
+            None,
+            None,
+            None,
+            ("UTC", None, None),
+        )
+        .0;
         assert!(!html.contains("<script>bad()"));
         assert!(html.contains("&quot;&gt;&lt;script&gt;"));
     }

@@ -104,16 +104,9 @@ pub(super) async fn homepage_with_cdn(
     updates: &[pages::PublicBookCard],
     rising: &[pages::PublicBookCard],
     covers: &std::collections::HashSet<u64>,
+    issuer: Option<&dyn tor_contracts::exposure::ObservationIssuer>,
 ) -> Result<axum::response::Html<String>, StatusCode> {
-    let html = if rising.is_empty() {
-        if updates.is_empty() {
-            pages::home_recent_with_covers(cards, covers)
-        } else {
-            pages::home_recent_with_updates(cards, covers, updates)
-        }
-    } else {
-        pages::home_recent_with_growth(cards, covers, updates, rising)
-    };
+    let html = pages::home_observed(cards, covers, updates, rising, issuer);
     let mut ids = std::collections::HashSet::new();
     for book in cards.iter().chain(updates).chain(rising) {
         ids.insert(book.id);
@@ -135,8 +128,28 @@ pub(super) async fn book_html(
         Ok(value) => value,
         Err(status) => return book_error(state, status).await,
     };
-    let response = book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
-    cdn_image_csp(response, origin.as_deref())
+    let mut response =
+        book_follow_page::attach(&state.follow_control, headers, book_id, html).await;
+    if crate::auth::surprise_http::enabled() {
+        if let Some(value) = response.headers().get("content-security-policy") {
+            if let Ok(policy) = value.to_str() {
+                let updated = policy.replace(
+                    "script-src 'none';",
+                    "script-src 'self'; connect-src 'self';",
+                );
+                if let Ok(value) = axum::http::HeaderValue::from_str(&updated) {
+                    response
+                        .headers_mut()
+                        .insert("content-security-policy", value);
+                }
+            }
+        }
+    }
+    crate::recommendation_http::visits::book_response(
+        cdn_image_csp(response, origin.as_deref()),
+        book_id,
+        0,
+    )
 }
 
 /// The registry must be attached deliberately; merely having an S3 adapter

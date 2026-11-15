@@ -134,7 +134,9 @@ def evaluate_ci(
                 blockers.append(f"{title}: exactly one successful selector is required")
                 checks[title] = dict(details, state="invalid_selector")
                 continue
-            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB}
+            # Preflight is an obligatory job, not an extra suite or an ignorable
+            # wrapper. Require its success alongside selector, suites and gate.
+            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB, "preflight"}
             for suite, job_id in SUITE_JOB_IDS.items():
                 job = by_name.get(job_id)
                 if job is not None:
@@ -174,10 +176,10 @@ def evaluate_ci(
         "suite_checks": suite_checks,
         "blockers": blockers,
         "external_gates": [
-            "I-06: enforce branch protection administratively",
+            "I-06: verify effective branch protection for the exact candidate",
             "I-10: isolated staging HTTPS and PostgreSQL evidence",
             "I-11: backup restore and operator rollback on a real test host",
-            "I-12: REL-01..10, 61 accepted scenarios and external money/ACL gates",
+            "I-12: REL-01..10, 60 accepted scenarios and external money/ACL gates",
             "I-13: Notion per-scenario evidence matched to released SHA",
         ],
     }

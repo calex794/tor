@@ -90,6 +90,20 @@ async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
         Err(LayerError::Invalid)
     );
 
+    // A signed-in reader without a Book cannot create a saleable package.
+    assert_eq!(
+        repo.create_layer_once(id(other), "My Layer", &key).await,
+        Err(LayerError::Inaccessible)
+    );
+    sqlx::query(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','Other owner Book','public',$2)",
+    )
+    .bind(format!("ci:d05:other-author:{other}"))
+    .bind(other)
+    .execute(&pool)
+    .await
+    .unwrap();
     // Idempotency keys are scoped to the authenticated owner, not global.
     let another = repo
         .create_layer_once(id(other), "My Layer", &key)

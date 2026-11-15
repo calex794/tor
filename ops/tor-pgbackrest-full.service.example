@@ -1,0 +1,13 @@
+[Unit]
+Description=TOR PostgreSQL 18 pgBackRest weekly full copy
+Requires=postgresql@18-main.service
+After=postgresql@18-main.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0077
+ExecStart=/usr/bin/pgbackrest --stanza=tor --type=full backup
+TimeoutStartSec=6h

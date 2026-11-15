@@ -160,6 +160,51 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
     assert_eq!(repo.deliver_pending(8).await.unwrap(), 3);
     assert_eq!(repo.deliver_pending(8).await.unwrap(), 0);
 
+    // S013/S018: future external delivery preflight is reference-only.
+    // Choosing cadence does not provide channel consent or dispatch anything.
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(repo.external_release_previews(0, 50).await.is_err());
+    assert!(repo.external_release_previews(follower, 51).await.is_err());
+    sqlx::query(
+        "INSERT INTO reader_notification_delivery_preferences(user_id,delivery_mode)
+         VALUES($1,'immediate')",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let previews = repo.external_release_previews(follower, 50).await.unwrap();
+    assert_eq!(previews.len(), 1);
+    assert_eq!(
+        previews[0].message,
+        "В вашей библиотеке появились обновления."
+    );
+    assert_eq!(previews[0].url, "/notifications?tab=releases");
+    assert!(!format!("{previews:?}").contains(body));
+    assert!(!format!("{previews:?}").contains(&format!("Chapter fanout {nonce}")));
+    assert!(repo
+        .external_release_previews(late_follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query(
+        "UPDATE reader_notification_delivery_preferences
+         SET delivery_mode='disabled' WHERE user_id=$1",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
+
     let received: Vec<(i64, String, String)> = sqlx::query_as(
         "SELECT recipient_user_id,kind,url FROM user_notifications
          WHERE kind='chapter_created' AND recipient_user_id = ANY($1)
@@ -246,6 +291,23 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
             .unwrap()
             .is_empty());
     }
+    // Re-enable a cadence to prove the PREVIEW re-evaluates live rights;
+    // the earlier idempotent notification itself remains in PostgreSQL.
+    sqlx::query(
+        "UPDATE reader_notification_delivery_preferences
+         SET delivery_mode='smart_time' WHERE user_id=$1",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.external_release_previews(follower, 50)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -256,6 +318,11 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .await
         .unwrap()
         .is_empty());
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
     sqlx::query("UPDATE books SET visibility_status='active',access_level='adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -263,6 +330,11 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .unwrap();
     assert!(repo
         .previous_day_chapter_digest(follower, 51)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(repo
+        .external_release_previews(follower, 50)
         .await
         .unwrap()
         .is_empty());
@@ -278,6 +350,13 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
             .len(),
         1
     );
+    assert_eq!(
+        repo.external_release_previews(follower, 50)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     sqlx::query("UPDATE users SET adult_enabled=false WHERE id=$1")
         .bind(follower)
         .execute(&pool)
@@ -288,6 +367,19 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .await
         .unwrap()
         .is_empty());
+    assert!(repo
+        .external_release_previews(follower, 50)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query(
+        "UPDATE reader_notification_delivery_preferences
+                SET delivery_mode='disabled' WHERE user_id=$1",
+    )
+    .bind(follower)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
         .bind(book)
         .execute(&pool)

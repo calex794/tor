@@ -1,6 +1,6 @@
 //! S023 owner-only queue endpoints. No S3 key or object URL leaves this module.
 use axum::{
-    extract::{DefaultBodyLimit, Json, Path, State},
+    extract::{DefaultBodyLimit, Extension, Json, Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Router,
@@ -13,7 +13,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::{
         authoring::{valid_command_key, AuthorError},
-        chapter_file_import::{fingerprint, parse_text, ImportedChapter},
+        chapter_file_import::{fingerprint, parse_text},
     },
 };
 use tor_imports::{
@@ -150,6 +150,7 @@ fn status_response(job_id: i64, status: ChapterImportStatus, book_id: i64) -> St
 async fn enqueue(
     State(state): State<QueueState>,
     Path(book_id): Path<i64>,
+    trace: Option<Extension<crate::observability::TraceId>>,
     headers: HeaderMap,
     Json(input): Json<QueueInput>,
 ) -> axum::response::Response {
@@ -189,16 +190,42 @@ async fn enqueue(
 
     // The browser has already shown this exact canonical UTF-8 text to the
     // author. Archives are converted to the same editable text before enqueue.
-    let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
-        Ok(chapters) => chapters,
-        Err(_) => {
+    // Parsing, fingerprinting and SHA-256 of up to 700 KiB are CPU-bound.
+    // Move the owned command into the same bounded executor as preview, after
+    // actor, owner and publication checks; do not copy its full text.
+    let parsed = crate::cpu_work::run(move || {
+        let chapters = parse_text(&input.filename, &input.text)?;
+        let approved = fingerprint(book_id, &chapters);
+        let source_hash: [u8; 32] = Sha256::digest(input.text.as_bytes()).into();
+        Ok::<_, tor_books::services::chapter_file_import::ImportError>((
+            input,
+            chapters,
+            approved,
+            source_hash,
+        ))
+    })
+    .await;
+    let (input, chapters, approved, source_hash) = match parsed {
+        Ok(Ok(parsed)) => parsed,
+        Ok(Err(_)) => {
             return fail(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "Проверьте формат и структуру глав.",
             )
         }
+        Err(crate::cpu_work::CpuWorkError::Busy) => {
+            return fail(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Обработка импорта занята. Повторите запрос с тем же ключом.",
+            )
+        }
+        Err(crate::cpu_work::CpuWorkError::Unavailable) => {
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Обработка импорта недоступна. Повторите запрос с тем же ключом.",
+            )
+        }
     };
-    let approved = fingerprint(book_id, &chapters);
     let Some(expected) = parse_hex_hash(&input.fingerprint) else {
         return fail(
             StatusCode::BAD_REQUEST,
@@ -218,7 +245,6 @@ async fn enqueue(
             "Текст превышает допустимый размер.",
         );
     }
-    let source_hash: [u8; 32] = Sha256::digest(bytes).into();
 
     // Replay lookup comes before S3 so a completed retry does not recreate an
     // already-cleaned source object. A reused key with changed content is 409.
@@ -304,9 +330,9 @@ async fn enqueue(
         return fail(code, message);
     }
 
-    let job_id = match state
+    let (job_id, newly_created) = match state
         .jobs
-        .enqueue_verified(
+        .enqueue_verified_traced(
             actor_id,
             book_id,
             &input.command_key,
@@ -316,10 +342,11 @@ async fn enqueue(
             bytes.len() as i64,
             &approved,
             chapters.len() as i32,
+            trace.as_ref().map(|Extension(id)| id.0),
         )
         .await
     {
-        Ok(job_id) => job_id,
+        Ok(outcome) => outcome,
         // Do not delete this deterministic S3 key on an uncertain database
         // outcome: another identical concurrent request may already have
         // committed the job and its worker may be reading the same object.
@@ -343,14 +370,20 @@ async fn enqueue(
             );
         }
     };
-    private_response(
+    let mut response = private_response(
         Json(QueueResponse {
             job_id,
             status: "queued".to_owned(),
             status_url: format!("/me/books/{book_id}/chapters/import-jobs/{job_id}"),
         }),
         &[],
-    )
+    );
+    if newly_created && trace.is_some() {
+        response
+            .extensions_mut()
+            .insert(crate::observability::CorrelatedJobEnqueued);
+    }
+    response
 }
 
 async fn latest(

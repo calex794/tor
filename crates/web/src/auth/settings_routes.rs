@@ -35,4 +35,16 @@ pub(super) fn router() -> Router<AuthState> {
             "/me/notification-settings",
             get(notification_settings::page).post(notification_settings::save),
         )
+        .route(
+            "/me/notification-email/request",
+            post(notification_settings::request_email_proof),
+        )
+        .route(
+            "/me/notification-email/confirm",
+            post(notification_settings::confirm_email_proof),
+        )
+        .route(
+            "/me/notification-email/revoke",
+            post(notification_settings::revoke_email_consent),
+        )
 }

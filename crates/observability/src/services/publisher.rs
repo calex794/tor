@@ -100,6 +100,28 @@ impl TracePublisher {
         }
     }
 
+    /// Try to submit a numeric child attempt through the existing bounded queue.
+    /// Business processing never waits for IPC, SQLite, or a disconnected writer.
+    pub fn try_publish_background(
+        &self,
+        trace: &super::trace::background::BackgroundTrace,
+    ) -> bool {
+        let Some(tx) = &self.queue else {
+            return false;
+        };
+        let Some(frame) = trace.encode() else {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        };
+        match tx.try_send(frame.to_vec()) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
     pub fn counts(&self) -> PublisherCounts {
         PublisherCounts {
             sent: self.counts.sent.load(Ordering::Relaxed),
@@ -128,6 +150,52 @@ mod tests {
             duration_us: 100,
             sqlx: None,
         }
+    }
+
+    #[test]
+    fn background_child_frame_is_acked_through_the_existing_private_ipc_queue() {
+        use crate::services::trace::background::{BackgroundTrace, Outcome};
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket = std::env::temp_dir().join(format!(
+            "tor-background-publisher-{}-{stamp}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut length = [0_u8; 4];
+            peer.read_exact(&mut length).unwrap();
+            assert_eq!(u32::from_be_bytes(length), 80);
+            let mut data = [0_u8; 80];
+            peer.read_exact(&mut data).unwrap();
+            let trace = BackgroundTrace::decode(&data).unwrap();
+            assert_eq!(trace.parent_trace_id, 16);
+            assert_eq!(trace.phase_us, [10, 20, 30, 0]);
+            assert_eq!(trace.outcome, Outcome::Retried);
+            peer.write_all(&[1_u8]).unwrap();
+        });
+        let publisher = TracePublisher::new(Some(socket.clone()));
+        assert!(publisher.try_publish_background(&BackgroundTrace {
+            parent_trace_id: 16,
+            trace_id: 99,
+            attempt: 2,
+            outcome: Outcome::Retried,
+            phase: 3,
+            duration_us: 100,
+            phase_us: [10, 20, 30, 0],
+        }));
+        server.join().unwrap();
+        for _ in 0..20 {
+            if publisher.counts().sent == 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(publisher.counts().sent, 1);
+        fs::remove_file(socket).unwrap();
     }
 
     #[test]

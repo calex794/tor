@@ -33,7 +33,7 @@ impl PgDirectEntitlements {
         purchase_id: PositiveId,
     ) -> Result<Option<ReadablePurchase>, DeliveryError> {
         let row = sqlx::query(
-            "SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            "SELECT c.book_id, p.id AS purchase_id, p.chapter_id, p.version_id,
                     v.version_no, c.chapter_no,
                     b.title AS book_title, c.title AS chapter_title
              FROM library_purchased_chapters l
@@ -54,6 +54,9 @@ impl PgDirectEntitlements {
         .map_err(|_| DeliveryError::Unavailable)?;
         row.map(|row| {
             Ok(ReadablePurchase {
+                book_id: row
+                    .try_get("book_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
                 purchase_id: row
                     .try_get("purchase_id")
                     .map_err(|_| DeliveryError::Unavailable)?,
@@ -100,7 +103,7 @@ impl PgDirectEntitlements {
                 WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
                   AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
             )
-            SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            SELECT c.book_id, p.id AS purchase_id, p.chapter_id, p.version_id,
                    v.version_no, c.chapter_no,
                    b.title AS book_title, c.title AS chapter_title
             FROM anchor a
@@ -128,6 +131,9 @@ impl PgDirectEntitlements {
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             items.push(ReadablePurchase {
+                book_id: row
+                    .try_get("book_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
                 purchase_id: row
                     .try_get("purchase_id")
                     .map_err(|_| DeliveryError::Unavailable)?,
@@ -316,7 +322,7 @@ impl PgDirectEntitlements {
         before: Option<PositiveId>,
     ) -> Result<ReadablePurchasesPage, DeliveryError> {
         let mut rows = sqlx::query(
-            "SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            "SELECT c.book_id, p.id AS purchase_id, p.chapter_id, p.version_id,
                     v.version_no, c.chapter_no,
                     b.title AS book_title, c.title AS chapter_title
              FROM library_purchased_chapters l
@@ -342,6 +348,9 @@ impl PgDirectEntitlements {
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             items.push(ReadablePurchase {
+                book_id: row
+                    .try_get("book_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
                 purchase_id: row
                     .try_get("purchase_id")
                     .map_err(|_| DeliveryError::Unavailable)?,

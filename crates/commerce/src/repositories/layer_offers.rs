@@ -57,7 +57,7 @@ impl PgLayers {
                  FROM commerce_layers l
                  LEFT JOIN commerce_layer_offers o
                    ON o.id=l.current_offer_id AND o.layer_id=l.id
-                 WHERE l.id=$1 AND l.owner_user_id=$2 AND l.status='active'",
+                 WHERE l.id=$1 AND l.owner_user_id=$2 AND l.status IN ('active','hidden')",
         )
         .bind(layer.get())
         .bind(actor.get())

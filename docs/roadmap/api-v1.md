@@ -96,6 +96,12 @@
 
 ## F — каталог, рекомендации, SEO, реклама (tor-search,tor-recommendations,tor-referrals)
 
+Первый период собственных книг использует
+[редакционное продвижение FLOW-08](../contracts/editorial-promotion-v1.md):
+`GET/POST /admin/promotion/editorial`, только живой администратор, native form,
+CSRF/Origin, command key и CAS revision. Ниже платные advertising API остаются
+будущим контрактом и не включаются этим режимом.
+
 | Метод+путь | Данные | Правило |
 | --- | --- | --- |
 | GET `/api/v1/books` | **сохранить массив из bokarust**, `limit=1..100` | id числовой только для старой совместимости, default20; поле body отсутствует |

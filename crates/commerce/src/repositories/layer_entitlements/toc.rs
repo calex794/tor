@@ -27,7 +27,7 @@ impl PgLayerChapterEntitlements {
             EntitlementDecision::Denied { .. } => return Err(DeliveryError::Denied),
         }
         let row = sqlx::query(
-            "SELECT c.chapter_no, c.title AS chapter_title, b.title AS book_title
+            "SELECT c.book_id, c.chapter_no, c.title AS chapter_title, b.title AS book_title
              FROM chapters c JOIN books b ON b.id=c.book_id WHERE c.id=$1",
         )
         .bind(chapter_id.get())
@@ -36,6 +36,9 @@ impl PgLayerChapterEntitlements {
         .map_err(|_| DeliveryError::Unavailable)?
         .ok_or(DeliveryError::Unavailable)?;
         Ok(LayerTocAnchor {
+            book_id: row
+                .try_get("book_id")
+                .map_err(|_| DeliveryError::Unavailable)?,
             chapter_id: chapter_id.get(),
             chapter_no: row
                 .try_get("chapter_no")

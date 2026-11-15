@@ -10,7 +10,7 @@ pub(super) fn section(body: &mut String, report: &DiscoveryReport) {
     body.push_str(
         "<section><h2>Источники первого чтения книги</h2>\
          <p>Каталог, поиск по сайту и рекомендации: учтённые переходы, открытия книги \
-         и первые подтверждённые события чтения при согласии читателя.</p>\
+         и первые подтверждённые события чтения прежней выборки с согласием.</p>\
          <p>Здесь сравниваются календарные дни UTC. Начало включено, конец не включён. \
          Сегодняшний день ещё не завершён.</p>",
     );
@@ -21,20 +21,25 @@ pub(super) fn section(body: &mut String, report: &DiscoveryReport) {
     )
     .expect("String");
     health(body, report);
-    period(body, "current", "Текущий период", &report.current);
-    period(body, "previous", "Предыдущий период", &report.previous);
+    period(body, "current", super::retirement::CURRENT, &report.current);
+    period(
+        body,
+        "previous",
+        super::retirement::PREVIOUS,
+        &report.previous,
+    );
     body.push_str(
         "<details class=\"book-section-card\"><summary>Как читать показатели источников</summary>\
-         <p>Для каталога, поиска и рекомендаций день относится к выдаче учтённой карточки. \
-         Переход, открытие и чтение могут произойти позднее. \
+         <p>В прежней модели для каталога, поиска и рекомендаций день относился к выдаче учтённой карточки. \
+         Переход, открытие и чтение могли произойти позднее. \
          Для неизвестного источника используется день самого события чтения.</p>\
          <p>Первое чтение учитывается один раз для учётной записи и книги. \
          Чтение следующих глав не увеличивает это число. Первое завершение главы в книге \
          не означает, что книга прочитана целиком.</p>\
-         <p>Для каждого события выбирается один последний подходящий переход: \
+         <p>Для каждого сохранённого события выбирался один последний подходящий переход: \
          в пределах 7 дней до начала или 14 дней до завершения. \
          У начала и завершения одной книги источники могут различаться. \
-         Рекомендации могут получить подтверждённое чтение после перехода \
+         Рекомендации могли получить подтверждённое чтение после перехода \
          без отдельного подтверждения открытия.</p>\
          <p>Поэтому эти числа не образуют строгую последовательность. \
          Их отношения не показывают долю посетителей, начавших или закончивших чтение. \
@@ -43,36 +48,30 @@ pub(super) fn section(body: &mut String, report: &DiscoveryReport) {
          Старые открытия из рекомендаций могли не измеряться. \
          Ноль показывается только при наличии измеренных данных. \
          Неизвестный источник не является отдельным каналом перехода.</p>\
-         <p>Отзыв согласия останавливает новый сбор. Недавние сведения убираются \
-         после обновления итогов; обезличенные исторические итоги сохраняются \
-         в пределах действующего срока хранения.</p></details></section>",
+         <p>Новый сбор для этой сводки прекращён. Прежние индивидуальные записи удаляются; \
+         связанные исторические показатели становятся неизвестными. Незатронутые итоги \
+         сохраняются в пределах действующего срока хранения.</p></details></section>",
     );
 }
 
 fn health(body: &mut String, report: &DiscoveryReport) {
     let health = &report.health;
-    body.push_str("<section class=\"book-section-card\" data-testid=\"audience-sources-health\"><h3>Обновление данных</h3>");
+    body.push_str("<section class=\"book-section-card\" data-testid=\"audience-sources-health\"><h3>Обработка исторических данных</h3>");
     if let Some(last_success) = &health.last_success_utc {
         write!(
             body,
-            "<p>Последнее подтверждение обработки: {}.</p>",
+            "<p>Последнее подтверждение прежнего обработчика: {}.</p>",
             time(last_success)
         )
         .expect("String");
     } else {
-        body.push_str("<p>Обработка ещё не подтверждена. Полнота свежих данных неизвестна.</p>");
-    }
-    if !health.fresh {
         body.push_str(
-            "<p>Нет подтверждения за последние 30 секунд. Показанные итоги могут отставать.</p>",
+            "<p>Подтверждение прежнего обработчика не сохранено. Полнота истории неизвестна.</p>",
         );
-    } else {
-        body.push_str("<p>Обработка подтверждена за последние 30 секунд.</p>");
     }
+    body.push_str("<p>Эта отметка относится к прежней модели и не подтверждает текущий сбор.</p>");
     if health.rec_dirty || health.organic_dirty {
-        body.push_str(
-            "<p>Есть изменения, ожидающие пересчёта. Итоги могут измениться после обработки.</p>",
-        );
+        body.push_str("<p>Оставшиеся индивидуальные записи ожидают удаления. Связанные итоги могут стать неизвестными.</p>");
     }
     body.push_str("</section>");
 }
@@ -80,7 +79,7 @@ fn health(body: &mut String, report: &DiscoveryReport) {
 fn period(body: &mut String, key: &str, label: &str, period: &DiscoveryPeriod) {
     write!(
         body,
-        "<section data-testid=\"audience-sources-{key}\"><h3>{label}</h3><p>С {} до {}.</p>",
+        "<section data-testid=\"audience-sources-{key}\" data-measurement=\"legacy-consented\"><h3>{label}</h3><p>С {} до {}.</p>",
         day(&period.from_day),
         day(&period.until_day_exclusive)
     )
@@ -131,7 +130,11 @@ fn channel_card(body: &mut String, channel: &DiscoveryChannel) {
         )
         .expect("String");
     }
-    body.push_str("</dl></article>");
+    body.push_str("</dl>");
+    if channel.evidence_invalidated {
+        super::evidence::invalidated(body);
+    }
+    body.push_str("</article>");
 }
 
 #[cfg(test)]
@@ -149,6 +152,7 @@ mod tests {
                 book_opens: None,
                 starts: Some(2),
                 completions: Some(1),
+                evidence_invalidated: false,
             },
         );
         assert!(html.contains("data-metric=\"clicks\">0</dd>"));
@@ -169,11 +173,31 @@ mod tests {
                 book_opens: None,
                 starts: Some(3),
                 completions: None,
+                evidence_invalidated: false,
             },
         );
         assert_eq!(html.matches("Не измеряется").count(), 2);
         assert!(html.contains("data-metric=\"starts\">3</dd>"));
         assert!(html.contains("data-metric=\"completions\">Нет данных</dd>"));
+    }
+
+    #[test]
+    fn deleted_evidence_is_unknown_with_reason_and_never_zero() {
+        let mut html = String::new();
+        channel_card(
+            &mut html,
+            &DiscoveryChannel {
+                source: DiscoverySource::Recommendations,
+                clicks: None,
+                book_opens: None,
+                starts: None,
+                completions: None,
+                evidence_invalidated: true,
+            },
+        );
+        assert_eq!(html.matches(">Нет данных</dd>").count(), 4);
+        assert!(html.contains("data-evidence=\"invalidated\""));
+        assert!(!html.contains(">0</dd>"));
     }
 
     #[test]

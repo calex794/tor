@@ -50,6 +50,9 @@ function assert(ok, why) {
       assert(metrics.cover, name + ': foreground book cover placeholder missing');
       assert(metrics.doc <= metrics.viewport + 1 && metrics.body <= metrics.viewport + 1,
         name + ': horizontal page overflow ' + JSON.stringify(metrics));
+      const firstShelf = await page.locator('.home-hero + .section').boundingBox();
+      assert(firstShelf && firstShelf.y < height - 100,
+        name + ': home intro pushes the first book shelf below the viewport');
       await page.screenshot({
         path: path.join(shots, 'home-real-carousel-' + name + '-first.png'),
         fullPage: true,
@@ -66,6 +69,19 @@ function assert(ok, why) {
         path: path.join(shots, 'home-real-carousel-' + name + '-second.png'),
         fullPage: true,
       });
+      // The home entry must search real PostgreSQL books through the existing
+      // catalog GET route, preserving the reader's query and visibility rules.
+      const title = await cards.first().locator('h2').innerText();
+      const bookHref = await cards.first().getAttribute('href');
+      await page.getByRole('search', { name: 'Поиск книг' })
+        .getByLabel('Название книги или автор').fill(title);
+      await page.getByRole('search', { name: 'Поиск книг' })
+        .getByRole('button', { name: 'Найти', exact: true }).click();
+      await page.waitForURL(url => url.pathname === '/catalog' && url.searchParams.get('q') === title);
+      assert(await page.locator('.book-mini-card a[href="' + bookHref + '"]').count() === 1,
+        name + ': home search did not find the public PostgreSQL book');
+      assert(await page.locator('.book-mini-card a[href="/books/2"]').count() === 0,
+        name + ': draft leaked through home search');
       await page.close();
     }
     console.log('H-10 PostgreSQL home spotlight PASS: 390/1440, public-only, keyboard and scroll');

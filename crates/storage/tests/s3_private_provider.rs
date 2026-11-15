@@ -388,3 +388,136 @@ async fn g_09_reverse_s3_head_distinguishes_missing_mismatch_and_outage() {
         Err(StorageError::Unavailable)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable loopback MinIO only"]
+async fn g09_bounded_body_get_hash_proves_actual_ciphertext_without_leaking_bytes() {
+    use tor_storage::services::reconciliation::{
+        PrivateRegisteredBodyProbe, RegisteredBodyResult, G09_BODY_GET_MAX_BYTES,
+    };
+
+    let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("loopback MinIO URL");
+    assert!(
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
+        "never issue test GET requests to production"
+    );
+    let access = std::env::var("TOR_TEST_S3_ACCESS_KEY").unwrap();
+    let secret = std::env::var("TOR_TEST_S3_SECRET_KEY").unwrap();
+    let configure = |user: String, password: String| {
+        aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::new(
+                user,
+                password,
+                None,
+                None,
+                "loopback-test",
+            ))
+            .endpoint_url(&endpoint)
+            .force_path_style(true)
+            .retry_config(RetryConfig::standard().with_max_attempts(1))
+            .build()
+    };
+    let client = Client::from_conf(configure(access, secret));
+    let bucket = "tor-private-g09-body-ci";
+    client.create_bucket().bucket(bucket).send().await.unwrap();
+    let store = S3PrivateStore::new(client.clone(), bucket.to_owned()).unwrap();
+
+    let id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa1234").unwrap();
+    let ciphertext = b"minio-isolated-ciphertext-body-sample";
+    let valid = object(ciphertext, id.clone());
+    assert_eq!(store.put_immutable(&valid, ciphertext).await, Ok(()));
+    assert_eq!(
+        store.probe_registered_body(&valid).await,
+        Ok(RegisteredBodyResult::Verified)
+    );
+    // Identical, trusted body but wrong recorded digest: cannot be healthy.
+    let wrong = ObjectRef::new(
+        id,
+        EncryptedObjectKind::Chapter,
+        sha256_bytes(b"wrong-expected-ciphertext"),
+        ciphertext.len() as u64,
+    )
+    .unwrap();
+    assert_eq!(
+        store.probe_registered_body(&wrong).await,
+        Ok(RegisteredBodyResult::BodyMismatch)
+    );
+
+    // A corrupted S3 writer can forge *correct* SHA metadata while storing
+    // different bytes. HEAD would pass, but a complete bounded GET must fail.
+    let forged_id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa9876").unwrap();
+    let expected_body = b"correct-but-never-uploaded-ciphertext";
+    let stored_body = b"damaged-but-same-length-ciphertext-xx";
+    assert_eq!(expected_body.len(), stored_body.len());
+    let forged_ref = object(expected_body, forged_id.clone());
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            forged_id.as_str()
+        ))
+        .content_type("application/octet-stream")
+        .metadata("sha256", hex::encode(forged_ref.sha256_ciphertext))
+        .body(ByteStream::from_static(stored_body))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        store.probe_registered_body(&forged_ref).await,
+        Ok(RegisteredBodyResult::BodyMismatch)
+    );
+
+    // Actual bytes match but GET metadata is tampered with.
+    let metadata_id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa5678").unwrap();
+    let metadata_ref = object(ciphertext, metadata_id.clone());
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(format!(
+            "private/chapter-versions/{}.enc",
+            metadata_id.as_str()
+        ))
+        .content_type("application/octet-stream")
+        .metadata("sha256", "incorrect-metadata")
+        .body(ByteStream::from_static(ciphertext))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        store.probe_registered_body(&metadata_ref).await,
+        Ok(RegisteredBodyResult::MetadataMismatch)
+    );
+
+    // 404 is evidence of missing, but bad credentials are not.
+    let missing_id = ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa9999").unwrap();
+    let missing = object(ciphertext, missing_id);
+    assert_eq!(
+        store.probe_registered_body(&missing).await,
+        Ok(RegisteredBodyResult::Missing)
+    );
+    let invalid_client = Client::from_conf(configure(
+        "incorrect-username".to_owned(),
+        "incorrect-password".to_owned(),
+    ));
+    let unauthorized = S3PrivateStore::new(invalid_client, bucket.to_owned()).unwrap();
+    assert_eq!(
+        unauthorized.probe_registered_body(&valid).await,
+        Err(StorageError::Unavailable)
+    );
+
+    // Oversize must be refused before any GET; 16 MiB publication max remains unchanged.
+    let large = ObjectRef::new(
+        ObjectId::parse("a23052ff-725e-4c15-b846-52da55aa3210").unwrap(),
+        EncryptedObjectKind::Chapter,
+        valid.sha256_ciphertext,
+        G09_BODY_GET_MAX_BYTES + 1,
+    )
+    .unwrap();
+    assert_eq!(
+        store.probe_registered_body(&large).await,
+        Err(StorageError::Invalid)
+    );
+}

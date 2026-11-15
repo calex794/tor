@@ -24,6 +24,10 @@ pub(crate) fn page(
         query.days
     )
     .expect("String");
+    super::retirement::notice(
+        &mut body,
+        "показы, переходы и связанное с источником первое чтение",
+    );
     filters(&mut body, query);
     match report {
         Some(report) => report_body(&mut body, query, report),
@@ -45,13 +49,15 @@ pub(crate) fn page(
         <p>Переходы и открытия относятся к каталогу, поиску и рекомендациям.
         Первые чтения включают также неизвестный источник. Первое начало учитывается один раз
         для учётной записи и книги; повторные запросы и следующие главы не добавляют начало.</p>
-        <p>Для внутренних источников день относится к выдаче карточки: последующие действия могут
-        дополнить прежний период. Начала с неизвестным источником относятся ко дню самого события.</p>
+        <p>В прежней модели для внутренних источников день относился к выдаче карточки:
+        последующие действия могли дополнить тот период. Начала с неизвестным источником относятся ко дню самого события.</p>
         <p>«Нет данных» означает отсутствующее или неполное измерение. Измеренный ноль показан как 0.
         «Нет сохранённых наблюдений» не означает, что книги нигде не показывали или что они неинтересны.</p>
-        <p>Сбор учитывает действующее согласие. Отзыв останавливает новые события;
-        недавние сведения убираются при пересчёте. Обезличенные прежние итоги сохраняются
-        в пределах действующего срока хранения. Возвращаемость здесь не измеряется.</p></details>
+        <p>Сбор для этой сводки прекращён. Показана прежняя выборка с согласием.
+        После удаления индивидуальных записей связанные показатели становятся неизвестными.
+        Незатронутые итоги сохраняются в пределах действующего срока хранения.
+        Для каждой группы доступен отдельный отчёт
+        о возвращениях к её книгам на 7-й и 30-й день.</p></details>
         <p><a href="/me">Вернуться в личный кабинет</a></p></div></section>"#);
     layout(
         "Жанры и теги — Аудитория",
@@ -131,14 +137,14 @@ fn report_body(body: &mut String, query: &GroupDiscoveryQuery, report: &GroupDis
         body,
         "audience-groups",
         "current",
-        "Текущий период",
+        super::retirement::CURRENT,
         &report.current,
     );
     evidence::period(
         body,
         "audience-groups",
         "previous",
-        "Предыдущий период",
+        super::retirement::PREVIOUS,
         &report.previous,
     );
     body.push_str("</div>");
@@ -192,20 +198,22 @@ fn group_row(body: &mut String, query: &GroupDiscoveryQuery, group: &GroupDiscov
         data-label="{}" data-missing="{}" data-kind="{}">
         <h3>{}</h3><p>Книг: <strong data-testid="audience-group-book-count">{}</strong>.</p>
         <p><a class="button button--quiet" data-testid="audience-group-books" href="{}">Открыть книги этой группы</a></p>
+        <p><a class="button button--quiet" data-testid="audience-group-returns-link" href="{}">Возвращения к книгам группы</a></p>
         <div class="audience-source-grid">"#,
         escape_html(group.label.as_deref().unwrap_or("")), group.label.is_none(), kind_key(query.kind),
         escape_html(group.label.as_deref().unwrap_or(missing)), group.matched_books,
-        escape_html(&books_url(query, group.label.as_deref()))).expect("String");
+        escape_html(&books_url(query, group.label.as_deref())),
+        escape_html(&returns_url(query, group.label.as_deref()))).expect("String");
     for (key, title, metrics, counts) in [
         (
             "current",
-            "Текущий период",
+            super::retirement::CURRENT,
             &group.current,
             &group.current_counts,
         ),
         (
             "previous",
-            "Предыдущий период",
+            super::retirement::PREVIOUS,
             &group.previous,
             &group.previous_counts,
         ),
@@ -252,4 +260,17 @@ fn books_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
             query.days
         ),
     }
+}
+
+fn returns_url(query: &GroupDiscoveryQuery, label: Option<&str>) -> String {
+    let mut url = format!(
+        "/admin/audience/returns?days={}&kind={}",
+        query.days,
+        kind_key(query.kind)
+    );
+    match label {
+        Some(label) => write!(url, "&label={}", evidence::encode(label)).expect("String"),
+        None => url.push_str("&without_label=true"),
+    }
+    url
 }

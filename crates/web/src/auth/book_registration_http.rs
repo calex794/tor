@@ -11,7 +11,7 @@ use tor_books::services::{
 pub(super) async fn new_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     match session_user(&state, &headers).await {
         Ok(Some(_)) => (),
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Ok(None) => return private_response(Redirect::to("/login?next=/me/books/new"), &[]),
         Err(status) => return deny(status),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);

@@ -4,6 +4,9 @@ use super::{encode_search_term, CatalogPageQuery};
 use std::fmt::Write;
 
 pub(super) fn render(request: &CatalogPageQuery<'_>) -> String {
+    if request.page_number == 1 && request.cursor.is_none() && request.previous_cursor.is_none() {
+        return String::new();
+    }
     let mut params = Vec::new();
     for (name, value) in [
         ("q", request.query),
@@ -80,6 +83,17 @@ mod tests {
             total: None,
             options: None,
         }
+    }
+
+    #[test]
+    fn single_page_has_no_lonely_page_label_but_later_empty_pages_keep_a_way_back() {
+        let mut first = query(None, None, 1);
+        first.total = Some(0);
+        assert!(render(&first).is_empty());
+        first.total = Some(1);
+        assert!(render(&first).is_empty());
+        let later = render(&query(None, None, 2));
+        assert!(later.contains(">В начало</a>"));
     }
 
     #[test]

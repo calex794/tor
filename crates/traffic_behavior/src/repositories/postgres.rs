@@ -3,6 +3,8 @@
 use crate::domain::{FlowHourlyCount, RollupDelta};
 use sqlx::{PgPool, Row};
 
+mod observed_flow;
+
 #[derive(Clone)]
 pub struct PgRilRollups {
     pool: PgPool,
@@ -30,6 +32,10 @@ pub struct RilQueueCounts {
 impl PgRilRollups {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    pub(crate) fn html_health(&self) -> super::PgHtmlHealth {
+        super::PgHtmlHealth::new(self.pool.clone())
     }
 
     /// Only active and dead RIL flush batches; completed history is excluded.
@@ -193,11 +199,12 @@ impl PgRilRollups {
         }
         let mut tx = self.pool.begin().await?;
         let inserted = sqlx::query_scalar::<_, String>(
-            "INSERT INTO ril_flush_batches(batch_id,bucket)
-             VALUES($1,date_trunc('hour',now()))
+            "INSERT INTO ril_flush_batches(batch_id,bucket,flow_observed_discarded)
+             VALUES($1,date_trunc('hour',now()),$2)
              ON CONFLICT(batch_id) DO NOTHING RETURNING batch_id",
         )
         .bind(id)
+        .bind(delta.observed_flow_discarded().min(i64::MAX as u64) as i64)
         .fetch_optional(&mut *tx)
         .await?;
         if inserted.is_none() {
@@ -295,6 +302,7 @@ impl PgRilRollups {
         .bind(visits)
         .execute(&mut *tx)
         .await?;
+        observed_flow::stage(&mut tx, id, delta).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -431,6 +439,7 @@ impl PgRilRollups {
         .bind(&claim.id)
         .execute(&mut *tx)
         .await?;
+        observed_flow::materialize(&mut tx, &claim.id).await?;
         let updated = sqlx::query(
             "UPDATE ril_flush_batches
              SET status='done',finished_at=now(),leased_until=NULL
@@ -466,6 +475,7 @@ impl PgRilRollups {
     /// All expiration is outside the request path. Batch tombstones are kept
     /// longer than hourly aggregates to avoid reapplication within retention.
     pub async fn prune_expired(&self) -> Result<(), sqlx::Error> {
+        observed_flow::prune(&self.pool).await?;
         sqlx::query(
             "DELETE FROM ril_flush_batches
               WHERE status='done' AND finished_at < now()-INTERVAL '90 days'",

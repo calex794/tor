@@ -51,7 +51,7 @@ impl CookiePolicy {
         self.cookie(self.guest_name(), "", 0, "Lax")
     }
 
-    fn csrf_name(&self) -> &'static str {
+    pub(crate) fn csrf_name(&self) -> &'static str {
         if self.secure {
             "__Host-tor-csrf"
         } else {

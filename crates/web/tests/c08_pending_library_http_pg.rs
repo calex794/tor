@@ -127,7 +127,7 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
     let cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
     let other_cookie = format!("tor-dev-session={stranger_token}; tor-dev-csrf={csrf}");
 
-    let first = call(&app, "GET", "/me/library", &cookie, "").await;
+    let first = call(&app, "GET", "/me/library?view=saved", &cookie, "").await;
     assert_eq!(first.status(), StatusCode::OK);
     assert_eq!(first.headers()[header::CACHE_CONTROL], "no-store");
     let html = body(first).await;
@@ -137,7 +137,7 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
         &url,
         &format!("UPDATE books SET lifecycle_status='pending_deletion' WHERE id={book}"),
     );
-    let after = call(&app, "GET", "/me/library", &cookie, "").await;
+    let after = call(&app, "GET", "/me/library?view=saved", &cookie, "").await;
     assert_eq!(after.status(), StatusCode::OK);
     let page = body(after).await;
     assert!(page.contains("Ожидает удаления"));
@@ -150,11 +150,13 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
     let json = body(json_response).await;
     assert!(json.contains(&format!("\"book_id\":\"{book}\"")));
     assert!(json.contains("\"pending_deletion\":true"));
-    let stranger = body(call(&app, "GET", "/me/library", &other_cookie, "").await).await;
+    let stranger = body(call(&app, "GET", "/me/library?view=saved", &other_cookie, "").await).await;
     assert!(!stranger.contains("Архив &lt;script&gt;"));
-    assert!(!body(call(&app, "GET", "/me/library", "", "").await)
-        .await
-        .contains("Архив &lt;script&gt;"));
+    assert!(
+        !body(call(&app, "GET", "/me/library?view=saved", "", "").await)
+            .await
+            .contains("Архив &lt;script&gt;")
+    );
     assert!(other > 0);
 
     let payload = format!("csrf_token={csrf}");
@@ -188,7 +190,7 @@ async fn c_08_pending_deletion_bookmark_survives_in_private_http_and_json() {
         &url,
         &format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
     );
-    let held = body(call(&app, "GET", "/me/library", &cookie, "").await).await;
+    let held = body(call(&app, "GET", "/me/library?view=saved", &cookie, "").await).await;
     assert!(!held.contains("Архив &lt;script&gt;"));
     pg(
         &url,

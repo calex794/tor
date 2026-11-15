@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, SUITES,
+    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, READING_ANALYTICS_TEST_FILES, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -84,6 +84,81 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotEqual(manual, expected)
                 self.assertEqual(sections[job_id], expected)
 
+    def test_100k_contextual_scale_owns_only_one_isolated_pg_lane(self):
+        # Every test still runs, but the heavy scale case is removed only
+        # from the sequential runtime lane, not from required CI coverage.
+        test_name = "contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests"
+        pkg = "cargo test -p tor-recommendations --test catalog_feed_pg"
+        runtime = pkg + " -- --ignored --test-threads=1 --skip " + test_name
+        isolated = pkg + " " + test_name + " -- --ignored --exact --test-threads=1"
+        for name in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(runtime=name):
+                pg = job_sections((WORKFLOWS / name).read_text())["postgres-runtime"]
+                self.assertIn(runtime, pg)
+                self.assertEqual(pg.count(pkg), 1)
+        for name in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
+            with self.subTest(isolated=name):
+                pg = job_sections((WORKFLOWS / name).read_text())["pg-rec-browser"]
+                self.assertIn(isolated, pg)
+                self.assertEqual(pg.count(pkg), 1)
+        self.assertEqual(
+            TEST_SUITES["crates/recommendations/tests/catalog_feed_pg.rs"],
+            {"rust", "postgres", "rec_browser"},
+        )
+        self.assertEqual(
+            TEST_SUITES["crates/recommendations/tests/catalog_feed_pg/contextual_scale.rs"],
+            {"rust", "rec_browser"},
+        )
+
+
+    def test_package_cover_pg_regression_runs_on_both_postgres_workflows(self):
+        command = (
+            "cargo test -p tor-commerce --test layers_pg h_ui_18_ "
+            "-- --ignored --test-threads=1"
+        )
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                job = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                self.assertEqual(job.count(command), 1)
+
+    def test_reading_analytics_isolated_exact_36_test_targets(self):
+        self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 36)
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        manual = job_sections((WORKFLOWS / "tor-pg-reading-analytics.yml").read_text())
+        for body in (required["pg-reading-analytics"], manual["pg-reading-analytics"]):
+            self.assertIn("image: postgres:18", body)
+            self.assertIn("LEGACY_ANALYTICS_DATABASE_URL:", body)
+            self.assertIn("LEGACY_ANALYTICS_MIGRATOR_URL:", body)
+            self.assertIn("COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL:", body)
+            self.assertIn("COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL:", body)
+            self.assertIn("legacy_analytics_baseline_pg", body)
+            self.assertIn("collection_retirement_startup_baseline_pg", body)
+            self.assertIn("collection_retirement_installed_upgrade_pg", body)
+            self.assertIn("run: git diff --exit-code", body)
+            for path in READING_ANALYTICS_TEST_FILES:
+                package = "tor-" + Path(path).parts[1]
+                target = Path(path).stem
+                invocation = (f"cargo test -p {package} --test {target} "
+                              "-- --ignored --test-threads=1")
+                with self.subTest(path=path):
+                    self.assertEqual(body.count(invocation), 1)
+                    self.assertEqual(TEST_SUITES[path], {"rust", "reading_analytics"})
+        self.assertEqual(
+            TEST_SUITES["crates/search/tests/seo_pg/analytics.rs"],
+            {"rust", "reading_analytics"},
+        )
+        seo_scale = (ROOT / "crates/search/tests/seo_pg/analytics.rs").read_text()
+        self.assertIn("flow_seo_pg_fifty_thousand_pages_keyset_and_select_only_report", seo_scale)
+        self.assertIn("generate_series(0,49999)", seo_scale)
+        for name in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            runtime = job_sections((WORKFLOWS / name).read_text())["postgres-runtime"]
+            self.assertIn("cargo test -p tor-reading --test library_postgres", runtime)
+            for path in READING_ANALYTICS_TEST_FILES:
+                package = "tor-" + Path(path).parts[1]
+                target = Path(path).stem
+                self.assertNotIn(f"cargo test -p {package} --test {target} ", runtime)
+
+
     def test_exact_postgres_test_file_selection_matches_real_job_invocations(self):
         # A new job invoking a mapped test must update the authority map and
         # trigger full CI rather than silently skipping the new consumer.
@@ -93,7 +168,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
@@ -132,7 +207,7 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn("          test -x ./target/debug/tor-web\n          " + drill, pg)
 
     def test_reader_and_visual_use_headless_chromium_shell(self):
-        # Both manual jobs must remain identical to the required integration jobs.
+        # Manual and required jobs retain full dependencies with a verified mirror fallback.
         integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
         for job, manual_file in (
             ("reader-browser", "tor-reader-visual.yml"),
@@ -167,6 +242,24 @@ class WorkflowWiringTests(unittest.TestCase):
                         self.assertNotIn("npx playwright install --with-deps chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
+    def test_browser_mirror_preparation_precedes_any_package_install(self):
+        integration = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        for job, manual_file in (
+            ("reader-browser", "tor-reader-visual.yml"),
+            ("visual", "visual-smoke.yml"),
+            ("author-cover", "tor-cover-browser.yml"),
+        ):
+            with self.subTest(job=job):
+                for body in (
+                    integration[job],
+                    job_sections((WORKFLOWS / manual_file).read_text())[job],
+                ):
+                    prepare = body.index("bash tools/ci_prepare_ubuntu_mirror.sh")
+                    self.assertLess(body.index("uses: actions/checkout@v4"), prepare)
+                    self.assertLess(prepare, body.index("npx playwright install"))
+                    if "sudo apt-get update" in body:
+                        self.assertLess(prepare, body.index("sudo apt-get update"))
+
     def test_mail_viewports_run_parallel_without_dropping_reader_coverage(self):
         mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
         self.assertIn("Promise.all([['desktop', 1440], ['mobile', 390]].map(async", mail)
@@ -177,7 +270,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("ci_timed_browser tools/reader_visual_smoke.cjs", reader)
             self.assertIn('if node "$scenario" "$@"; then', reader)
 
-    def test_rec13_reuses_browser_only_in_pg_jobs(self):
+    def test_rec13_runs_in_its_own_isolated_pg18_job(self):
         script = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
         self.assertIn("TOR_REC_REUSE_PLAYWRIGHT:-0", script)
         self.assertIn("npm install --prefix", script)
@@ -188,12 +281,25 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("p.chromium.executablePath()", script)
         self.assertIn('NODE_PATH="$node_path"', script)
         for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
-            pg = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-            self.assertIn("npx playwright install --only-shell chromium", pg)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", pg)
-        standalone = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
-        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", standalone)
-        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", standalone)
+            core = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+            self.assertIn("npx playwright install --only-shell chromium", core)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", core)
+        for filename in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
+            browser = job_sections((WORKFLOWS / filename).read_text())["pg-rec-browser"]
+            self.assertIn("image: postgres:18", browser)
+            self.assertIn("TEST_DATABASE_URL: postgresql://tor_app:", browser)
+            self.assertIn("LEGACY_ANALYTICS_DATABASE_URL:", browser)
+            self.assertIn("COLLECTION_RETIREMENT_APP_DATABASE_URL:", browser)
+            self.assertIn("legacy_analytics_baseline_pg", browser)
+            self.assertIn("collection_retirement_startup_baseline_pg", browser)
+            self.assertIn("collection_retirement_installed_upgrade_pg", browser)
+            self.assertIn("run: bash tools/rec13_browser_acceptance.sh", browser)
+            self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", browser)
+            self.assertIn("actions/upload-artifact@v4", browser)
+        specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
+        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", specialist)
+
 
     def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
@@ -253,7 +359,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("CI_PG_PHASE_SECONDS phase=$phase", body)
             self.assertIn("ci_pg_started=$SECONDS", body)
             self.assertIn("cargo test -p tor-web --test paid_grants_http_pg", body)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", body)
             self.assertIn("cargo test -p tor-web --test ril_behavior_consent_pg", body)
 
     def test_postgres_cargo_command_timing_keeps_fail_fast_and_targets(self):
@@ -276,7 +382,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn('local start_us=${EPOCHREALTIME/./}', body)
             self.assertIn('local end_us=${EPOCHREALTIME/./}', body)
             self.assertIn('env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test', body)
-            self.assertIn("TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh", body)
+            self.assertNotIn("bash tools/rec13_browser_acceptance.sh", body)
             self.assertGreaterEqual(len(re.findall(r'(?m)^\s+cargo test -p ', body)), 100)
             self.assertNotIn("set +e", body)
 
@@ -468,6 +574,26 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("secrets.", text)
         self.assertNotIn("pull_request_target", text)
         self.assertIn("python3 tools/select_feature_tests.py", text)
+
+    def test_flow_visits_reaches_real_pg_and_browser_in_required_ci(self):
+        # Required CI and the manual analytics lane both exercise the exact
+        # FLOW visits targets. The old sequential PG lane must not duplicate them.
+        commands = (
+            "cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1",
+            "cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1",
+        )
+        for workflow in ("tor-integration.yml", "tor-pg-reading-analytics.yml",
+                         "rec-feedback-acceptance.yml"):
+            text = (WORKFLOWS / workflow).read_text()
+            for command in commands:
+                with self.subTest(workflow=workflow, command=command):
+                    self.assertIn(command, text)
+        runtime = (WORKFLOWS / "tor-pg-runtime.yml").read_text()
+        for command in commands:
+            self.assertNotIn(command, runtime)
+        browser = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
+        self.assertIn("TOR_FLOW_VISITS_ENABLED=1", browser)
+        self.assertIn("node tools/flow_visits_pg_browser.cjs", browser)
 
     def test_rec13_acceptance_tests_committed_source_without_rewriting(self):
         self.assertEqual(ACCEPTANCE_WORKFLOWS, {"rec-feedback-acceptance.yml"})

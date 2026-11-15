@@ -32,6 +32,32 @@ async function login(browser,mail,secret) {
   return {context,page};
 }
 
+async function inspectAccountNavigation(page,width) {
+  const reading=await page.locator('#me-reading-title').boundingBox();
+  const achievements=await page.locator('#me-achievements-title').boundingBox();
+  assert(reading.y<achievements.y,'reading shortcuts must precede the achievement collection');
+  if(width>800)return;
+  const sidebar=page.locator('.account-sidebar');
+  assert((await sidebar.boundingBox()).height<=230,'mobile navigation obscures the account');
+  const resume=await page.locator('.me-now-item--reading').boundingBox();
+  assert(resume.y+resume.height<=844,'continue reading is below the first mobile viewport');
+  const primary=page.locator('.account-nav-primary');
+  const last=primary.locator('a').last();
+  await last.focus();
+  const row=await primary.boundingBox(), link=await last.boundingBox();
+  assert(link.x>=row.x-1&&link.x+link.width<=row.x+row.width+1,
+    'keyboard focus must reveal every primary navigation link');
+  const author=sidebar.locator('.account-nav-group').first();
+  await author.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  assert(await author.getByRole('link',{name:'Финансы автора',exact:true}).isVisible(),
+    'author actions must remain accessible through the native menu');
+  await page.keyboard.press('Enter');
+  assert.equal(await author.getAttribute('open'),null);
+  await primary.evaluate(node=>{node.scrollLeft=0;});
+  await page.evaluate(()=>window.scrollTo(0,0));
+}
+
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try {
@@ -40,6 +66,69 @@ async function login(browser,mail,secret) {
     await honeypotBrowser.rejectedLogin(browser,base,email,password);
     const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
     const second=await login(browser,email,password);
+    for (const url of ['/me/library','/me/settings','/me/settings/password',
+      '/me/security/sessions','/me/books','/me/books/new']) {
+      await alice.page.goto(base+url);
+      const header=alice.page.locator('.site-header__auth');
+      assert.equal(await header.locator('a[href="/login"], a[href="/register"]').count(),0,
+        url+': private page must not show guest authentication');
+      assert.equal(await header.locator('a[href="/me"]').count(),1);
+      assert.equal(await alice.page.locator('.site-mobile-nav a[href="/register"]').count(),0);
+    }
+    const returning=await browser.newContext({viewport:{width:390,height:844}});
+    try {
+      const page=await returning.newPage();
+      await page.goto(base+'/me/library');
+      assert.equal(new URL(page.url()).pathname,'/login');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');
+      await page.locator('.auth-card__footer a[href^="/register"]').click();
+      await page.waitForURL('**/register?next=/me/library');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/library');
+      await page.locator('.auth-card__footer a[href^="/login"]').click();
+      await page.locator('[name=email]').fill(`b-browser-${nonce}@example.invalid`);
+      await page.locator('[name=password]').fill(password);
+      await Promise.all([page.waitForURL(base+'/me/library'),
+        page.locator('form[action="/login"] button').click()]);
+      assert.equal(await page.locator('.site-header__auth a[href="/login"]').count(),0);
+      await fs.mkdir(shots,{recursive:true});
+      await page.screenshot({path:path.join(shots,'library-login-return-390.png'),fullPage:true});
+      await returning.clearCookies();
+      await page.goto(base+'/me/books/new');
+      assert.equal(new URL(page.url()).pathname,'/login');
+      assert.equal(await page.locator('[name=next]').inputValue(),'/me/books/new');
+      await page.locator('[name=email]').fill(`b-browser-${nonce}@example.invalid`);
+      await page.locator('[name=password]').fill(password);
+      await Promise.all([page.waitForURL(base+'/me/books/new'),
+        page.locator('form[action="/login"] button').click()]);
+      assert.equal(await page.locator('.site-header__auth a[href="/login"]').count(),0);
+      assert.equal(await page.locator('form[action="/me/books"]').count(),1);
+      await page.screenshot({path:path.join(shots,'new-book-login-return-390.png'),fullPage:true});
+    } finally {await returning.close();}
+    // Account and notification layout must remain readable at desktop/mobile widths.
+    await fs.mkdir(shots,{recursive:true});
+    for (const width of [1440,390]) {
+      await alice.page.setViewportSize({width,height:width===390?844:1000});
+      await alice.page.goto(base+'/me');
+      assert.equal(await alice.page.locator('.account-sidebar').count(),1);
+      assert.equal(await alice.page.locator('.account-main').count(),1);
+      assert.equal(await alice.page.locator('nav.dashboard-nav a[aria-current="page"]').count(),1);
+      assert.equal(await alice.page.locator('.account-sidebar form[action="/logout"]').count(),1);
+      const achievementCards=alice.page.locator('.achievement-card');
+      assert(await achievementCards.count()>=1,'achievement cards are visible');
+      assert.equal(await achievementCards.locator('progress').count(),await achievementCards.count());
+      assert(await alice.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'account overflows at '+width);
+      await inspectAccountNavigation(alice.page,width);
+      await alice.page.screenshot({path:path.join(shots,'account-overview-'+width+'.png'),fullPage:true});
+      await alice.page.goto(base+'/notifications');
+      assert.equal(await alice.page.locator('.account-sidebar').count(),1);
+      assert.equal(await alice.page.locator('nav.dashboard-nav a[aria-current="page"]').getAttribute('href'),'/notifications');
+      const preferences=alice.page.locator('.notifications-settings-card');
+      await preferences.locator('summary').click();
+      assert(await preferences.locator('.notifications-switch').count()>=1,'preferences rendered');
+      assert.equal(await preferences.locator('.notifications-switch').first().evaluate(el=>getComputedStyle(el).display),'flex');
+      assert(await alice.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'notifications overflow at '+width);
+      await alice.page.screenshot({path:path.join(shots,'notifications-preferences-'+width+'.png'),fullPage:true});
+    }
     const guest=await browser.newContext();
     assert.equal((await guest.request.get(`${base}/api/v1/me`)).status(),401);
     await alice.page.goto(`${base}/me/settings`);
@@ -79,7 +168,7 @@ async function login(browser,mail,secret) {
     assert.equal((await alice.context.request.get(`${base}/api/v1/me`)).status(),200);
     await alice.page.screenshot({path:path.join(shots,'account-active-sessions.png'),fullPage:true});
     await alice.page.goto(`${base}/forgot-password`);
-    const csrf=await alice.page.locator('[name=csrf_token]').inputValue();
+    const csrf=await alice.page.locator('#main [name=csrf_token]').inputValue();
     const known=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email,csrf_token:csrf}});
     const unknown=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email:`missing-${nonce}@example.invalid`,csrf_token:csrf}});
     assert.equal(known.status(),200);assert.equal(unknown.status(),200);assert.equal(await known.text(),await unknown.text());

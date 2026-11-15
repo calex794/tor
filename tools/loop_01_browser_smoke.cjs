@@ -134,8 +134,8 @@ async function screenshot(page, screen, step) {
         await owner.waitForURL(base + '/me/books/' + bookId);
 
         // Verify the profile-only subscription receives this fresh release.
-        await profileFollower.goto(base + '/me/library');
-        const profileUpdate = profileFollower.locator('#new-chapters .library-card')
+        await profileFollower.goto(base + '/me/library?view=updates');
+        const profileUpdate = profileFollower.locator('#new-chapters .library-update-card')
           .filter({ hasText: 'Второй выпуск петли' });
         assert(await profileUpdate.count() === 1,
           screen + ': profile-only author release missing or duplicated');
@@ -154,8 +154,8 @@ async function screenshot(page, screen, step) {
           name: 'Подписаться', exact: true,
         }).isVisible(), screen + ': profile unsubscribe did not persist');
 
-        await reader.goto(base + '/me/library');
-        let update = reader.locator('#new-chapters .library-card')
+        await reader.goto(base + '/me/library?view=updates');
+        let update = reader.locator('#new-chapters .library-update-card')
           .filter({ hasText: 'Второй выпуск петли' });
         assert(await update.count() === 1, screen + ': release missing or duplicated in feed');
         const target = await update.getByRole('link', { name: 'Читать' }).getAttribute('href');
@@ -166,8 +166,8 @@ async function screenshot(page, screen, step) {
         await screenshot(reader, screen, 'new-chapter');
 
         await update.getByRole('button', { name: 'Отметить прочитанной' }).click();
-        await reader.waitForURL(base + '/me/library#new-chapters');
-        update = reader.locator('#new-chapters .library-card')
+        await reader.waitForURL(base + '/me/library?view=updates#new-chapters');
+        update = reader.locator('#new-chapters .library-update-card')
           .filter({ hasText: 'Второй выпуск петли' });
         assert(await update.getByRole('button', { name: 'Отметить непрочитанной' }).isVisible(),
           screen + ': notification receipt not persisted');

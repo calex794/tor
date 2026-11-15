@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09"}
+POLICIES = {"admin_editorial", "observation", "recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_requester", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09"}
+PROTECTED = {"admin_editorial", "session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "admin_refund_prepare", "admin_refund_approve", "admin_payout", "admin_share_reports", "admin_book_reports", "admin_comment_appeals", "admin_paid_comment_reports", "admin_paid_comment_appeals", "admin_free_comment_reports", "admin_free_comment_appeals", "support_admin", "admin_outbox_retry", "admin_g09", "admin_surprises"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -26,6 +26,12 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
+SURPRISE_ADMIN_HANDLERS = {
+    ("GET", "/admin/surprises", "page"),
+    ("POST", "/admin/surprises/policy", "policy"),
+    ("POST", "/admin/surprises/create", "create"),
+    ("POST", "/admin/surprises/{id}/state", "set_state"),
 }
 SUPPORT_ADMIN_HANDLERS = {
     ("GET", "/admin/support", "index"),
@@ -44,8 +50,23 @@ SUPPORT_REQUESTER_HANDLERS = {
     ("GET", "/api/v1/support/tickets", "widget"),
     ("POST", "/api/v1/support/tickets", "json_submit"),
 }
+
+# These exact compatibility bindings cannot mutate an analytics scope any more.
+# They keep their existing policies; 410 is not an alternative authorization path.
+RETIRED_COLLECTION_ROUTES = {
+    ("POST", "/me/behavior", "crates/web/src/auth.rs", "behavior_consent::set_behavior_consent"): "session",
+    ("POST", "/me/recommendations/consent", "crates/web/src/recommendation_http/mod.rs", "pages::consent"): "scoped",
+    ("POST", "/me/recommendations/flow-consent", "crates/web/src/recommendation_http/mod.rs", "pages::consent"): "scoped",
+    ("POST", "/api/v1/recommendations/impressions", "crates/web/src/recommendation_http/mod.rs", "api::impressions"): "scoped",
+    ("POST", "/api/v1/recommendations/activate", "crates/web/src/recommendation_http/mod.rs", "api::activate"): "scoped",
+    ("POST", "/api/v1/discovery/activate", "crates/web/src/recommendation_http/mod.rs", "organic::activate"): "scoped",
+    ("GET", "/api/v1/admin/recommendations/quality", "crates/web/src/recommendation_http/mod.rs", "admin::quality"): "administrator",
+    ("POST", "/api/v1/admin/recommendations/control", "crates/web/src/recommendation_http/mod.rs", "admin::control"): "administrator",
+    ("POST", "/me/recommendations/manage", "crates/web/src/recommendation_http/mod.rs", "admin::form_control"): "administrator",
+}
+
 SCOPE_CALLS = {
-    "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
+    "consent", "set_consent", "set_flow_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
     "archived_free_state", "save_archived_free",
@@ -60,6 +81,7 @@ SCOPE_CALLS = {
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "save_rating", "add_comment", "delete_comment",
     "delivery_preference", "set_delivery_preference",
+    "issue_proof", "confirm_opt_in", "revoke",
     "active_role", "create_free", "create_paid",
     "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "manageable_project_status", "update_project_status",
@@ -97,6 +119,7 @@ OWNER_CALLS = {
 
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
+    "owner_view", "owner_can_upload",
     "add_book", "remove_book_if_current", "create_once",
     "update_metadata_if_current", "offer_if_current", "delete_owned_collection",
 }
@@ -188,6 +211,14 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
                 "super::sync_actions::put_archived_free",
             }):
         return source.parent / "sync_actions.rs"
+    # Only these reviewed nested handlers may share the existing live-admin gate.
+    if (source == root / "crates/web/src/recommendation_http/mod.rs"
+            and handler in {"admin::contextual::page", "admin::contextual::status",
+                            "admin::contextual::control", "admin::contextual::form"}):
+        return source.parent / "admin/contextual.rs"
+    if (source == root / "crates/web/src/recommendation_http/mod.rs"
+            and handler == "admin::shelf::page"):
+        return source.parent / "admin/shelf.rs"
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
@@ -253,6 +284,112 @@ def _contains_scoped_call(body: str, names: set[str]) -> bool:
     return False
 
 
+
+def _retired_policy(entry: dict[str, str]) -> str | None:
+    key = tuple(entry.get(field, "") for field in ("method", "template", "source", "handler"))
+    return RETIRED_COLLECTION_ROUTES.get(key)
+
+
+def _retired_no_write(body: str, evidence: str, functions: dict[str, str]) -> bool:
+    # The only successful branch is the common zero-argument private 410 helper.
+    # Ordinary A/CSRF/role checks still run below in _verify, including failures.
+    if "crate::recommendation_http::retired()" in body:
+        terminal = re.search(
+            r"match\s+session_user\(&state,\s*&headers\)\.await\s*\{\s*"
+            r"Ok\(Some\(_\)\)\s*=>\s*crate::recommendation_http::retired\(\),\s*"
+            r"Ok\(None\)\s*=>\s*deny\(StatusCode::UNAUTHORIZED\),\s*"
+            r"Err\(status\)\s*=>\s*deny\(status\),?\s*\}\s*\}\s*$",
+            body,
+        )
+        max_awaits = 1
+    else:
+        terminal = re.search(r"(?<!\w)(?:api::)?retired\(\)\s*\}\s*$", body)
+        rejection = re.search(
+            r"if\s+let\s+Err\(status\)\s*=\s*(?:api::)?actor"
+            r"\(&state,\s*&headers\)\.await\s*\{\s*return\s+deny\(status\);\s*\}",
+            body,
+        )
+        if rejection is None:
+            return False
+        max_awaits = 2
+    helper = functions.get("__retired_response", "")
+    if not (
+        terminal
+        and re.search(r"fn\s+retired\(\)\s*->\s*Response", helper)
+        and "StatusCode::GONE" in helper
+        and 'code: "COLLECTION_RETIRED"' in helper
+        and "private_response(" in helper
+        and '"x-robots-tag"' in helper
+        and '"noindex, nofollow"' in helper
+    ):
+        return False
+    # Input validation is allowed; analytics reads/writes, task spawn, and extra
+    # asynchronous work are not. This is a narrow source alarm, paired with PG.
+    forbidden = (
+        r"\b(?:sqlx|Pg\w+|tokio)::|"
+        r"\.\s*(?:store|publishing|recommendations|visits|funnel|pool)\b|"
+        r"\.\s*(?:set_\w+|issue_\w+|record\w*|capture\w*|accept\w*|"
+        r"tick\w*|execute|query\w*|begin|commit|rollback|spawn)\s*\("
+    )
+    if re.search(forbidden, evidence):
+        return False
+    return len(re.findall(r"\.\s*await\b", evidence)) <= max_awaits
+
+
+def _audience_returns_are_bounded(body: str) -> bool:
+    # All three branches share one unconditional live guard and request budget.
+    # A guarded global/book read must not hide a bypass in the group branch.
+    guard = re.search(
+        r"\)\s*->\s*Response\s*\{\s*"
+        r"let\s+deadline\s*=\s*Instant::now\(\)\s*\+\s*Duration::from_millis\(950\);\s*"
+        r"match\s+timeout_at\(deadline,\s*administrator\(&state,\s*&headers\)\)\.await\s*\{\s*"
+        r"Ok\(Ok\(\(\)\)\)\s*=>\s*\{\s*\}\s*"
+        r"Ok\(Err\(status\)\)\s*=>\s*return\s+secure\(status\),\s*"
+        r"Err\(_\)\s*=>\s*return\s+secure\(StatusCode::SERVICE_UNAVAILABLE\),?\s*\}",
+        body,
+    )
+    if guard is None or len(re.findall(r"\blet\s+(?:mut\s+)?deadline\b", body)) != 1:
+        return False
+    for method, arguments in (
+        ("returns_report", r"days"),
+        ("book_returns_report", r"book,\s*days"),
+        ("group_book_returns_report", r"&group_query"),
+    ):
+        calls = list(re.finditer(rf"\.{method}\s*\(", body))
+        bounded = re.search(
+            rf"timeout_at\(\s*deadline,\s*state\.returns\.{method}"
+            rf"\(\s*{arguments}\s*\)\s*,?\s*\)\s*\.await",
+            body,
+        )
+        if len(calls) != 1 or bounded is None or bounded.start() < guard.end():
+            return False
+    return True
+
+
+def _audience_funnel_is_bounded(body: str) -> bool:
+    guard = re.search(
+        r"\)\s*->\s*Response\s*\{\s*"
+        r"let\s+deadline\s*=\s*Instant::now\(\)\s*\+\s*Duration::from_millis\(950\);\s*"
+        r"match\s+timeout_at\(deadline,\s*administrator\(&state,\s*&headers\)\)\.await\s*\{\s*"
+        r"Ok\(Ok\(\(\)\)\)\s*=>\s*\{\s*\}\s*"
+        r"Ok\(Err\(status\)\)\s*=>\s*return\s+secure\(status\),\s*"
+        r"Err\(_\)\s*=>\s*return\s+secure\(StatusCode::SERVICE_UNAVAILABLE\),?\s*\}",
+        body,
+    )
+    bounded = re.search(
+        r"timeout_at\(\s*deadline,\s*state\.funnel\.report\(\s*days\s*\)\s*,?\s*\)\s*\.await",
+        body,
+    )
+    return bool(
+        guard and bounded and bounded.start() > guard.end()
+        and len(re.findall(r"\blet\s+(?:mut\s+)?deadline\b", body)) == 1
+        and len(re.findall(r"\.report\s*\(", body)) == 1
+        and all(re.match(r"\s*secure\s*\(", body[returned.end():])
+                for returned in re.finditer(r"\breturn\b", body))
+        and re.search(r"\bsecure\(\(.*\)\)\s*\}\s*$", body, re.DOTALL)
+    )
+
+
 def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> list[str]:
     label = f'{entry["method"]} {entry["template"]} [{entry["handler"]}]'
     errors = []
@@ -261,6 +398,44 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if body is None:
         return [f"{label}: handler function missing or renamed"]
     evidence = _with_known_helpers(body, functions)
+    contextual = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+                  and entry["handler"] in {"admin::contextual::page", "admin::contextual::status",
+                                           "admin::contextual::control", "admin::contextual::form"})
+    if contextual:
+        # Follow only actual delegates. A removed actor/CSRF call loses its evidence.
+        evidence = body
+        added = set()
+        for _ in range(4):
+            for helper in ("load", "execute", "actor", "csrf"):
+                if helper not in added and re.search(rf"(?<!\w){helper}\s*\(", evidence):
+                    evidence += "\n" + functions.get(helper, "")
+                    added.add(helper)
+        if not ("Duration::from_millis(950)" in evidence
+                and (".contextual_status()" in evidence if entry["method"] == "GET"
+                     else ".control_contextual(&body)" in evidence)):
+            errors.append(f"{label}: missing bounded versioned contextual operation")
+    shelf_preview = (entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+                     and entry["handler"] == "admin::shelf::page")
+    if shelf_preview and not all(token in evidence for token in (
+            "actor(&state, &headers).await", "Duration::from_millis(950)",
+            "state.store.reader_end_shelf(None, book, chapter)",
+            "pages::shelf_panel_observed(&feed, None)",
+            "pages::secure_page(")):
+        errors.append(f"{label}: unbounded or unauthorized shelf preview")
+    retired_policy = _retired_policy(entry)
+    retired_ok = False
+    if retired_policy:
+        if re.search(r"\bapi::actor\s*\(", body):
+            evidence += "\n" + functions.get("__retired_actor", "")
+        if re.search(r"\bapi::csrf\s*\(", body):
+            evidence += "\n" + functions.get("__retired_csrf", "")
+        if re.search(r"\bvalidate_control\s*\(", body):
+            evidence += "\n" + functions.get("validate_control", "")
+        retired_ok = _retired_no_write(body, evidence, functions)
+        if entry.get("policy") != retired_policy:
+            errors.append(f"{label}: retired collection route changed its reviewed policy")
+        if not retired_ok:
+            errors.append(f"{label}: retired collection route must terminate in private 410 without analytics work")
     audience_books = (
         entry["source"] == "crates/web/src/auth/audience_http.rs"
         and (entry["method"], entry["template"], entry["handler"])
@@ -271,7 +446,48 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and (entry["method"], entry["template"], entry["handler"])
             == ("GET", "/admin/audience/groups", "groups::page")
     )
-    audience_child = "books" if audience_books else "groups" if audience_groups else None
+    audience_returns = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/returns", "returns::page")
+    )
+    audience_visits = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/visits", "visits::page")
+    )
+    audience_funnel = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/funnel", "funnel::page")
+    )
+    audience_canonical = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/reading", "canonical::page")
+    )
+    audience_seo = (entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"]) in {
+            ("GET", "/admin/audience/seo", "seo::page"),
+            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
+        })
+    audience_signals = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/signals", "signals::page")
+    )
+    audience_pages = (
+        entry["source"] == "crates/web/src/auth/audience_http.rs"
+        and (entry["method"], entry["template"], entry["handler"])
+            == ("GET", "/admin/audience/pages", "public_pages::page")
+    )
+    audience_child = (
+        "books" if audience_books else "groups" if audience_groups
+        else "returns" if audience_returns else "visits" if audience_visits
+        else "funnel" if audience_funnel else "canonical" if audience_canonical
+        else "seo" if audience_seo else "signals" if audience_signals
+        else "public_pages" if audience_pages else None
+    )
     if audience_child and re.search(r"\badministrator\(&state, &headers\)", body):
         # Only these reviewed child handlers import the parent's live A guard.
         # Missing delegation cannot be masked by an unrelated helper definition.
@@ -372,6 +588,82 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
     admin_key = (entry["method"], entry["template"], entry["handler"])
+    flow_source = entry["source"] == "crates/web/src/flow_exposure/mod.rs"
+    observation_route = flow_source and admin_key == (
+        "POST", "/api/v1/flow/observations", "ingest::event")
+    exposure_admin_route = flow_source and admin_key == (
+        "GET", "/admin/audience/exposure", "report::page")
+    audited_exposure = exposure_admin_route and policy == "administrator"
+    if observation_route and policy != "observation":
+        errors.append(f"{label}: anonymous observation policy downgraded")
+    if policy == "observation":
+        required = ("state.cookies.same_origin(&headers)", '"x-tor-observation"',
+                    'Some("1")', "event.validate()?", "state.store.describe(&event.proof)",
+                    "if !guard", ".allowed(&context.card)", "ExposureError::Forbidden",
+                    ".active_session_user(&session_token_digest(&token))",
+                    "state.gate.epoch().ok_or(ExposureError::Unavailable)?",
+                    ".record_in_epoch(&event, &context, actor, epoch)", "Duration::from_millis(950)",
+                    "state.gate.disable()", "state.counters.failed.fetch_add(1, Ordering::Release)",
+                    "private_response(status, &[])")
+        if not observation_route or not all(marker in body for marker in required):
+            errors.append(f"{label}: missing bounded same-origin server-proof observation guard")
+        repo = {name: functions.get("__flow_" + name, "") for name in (
+            "register_in_epoch", "record_in_epoch", "register_inner", "record_inner", "epoch_fence",
+        )}
+        fence = repo.get("epoch_fence", "")
+        protected = (
+            "self.register_inner(proofs, Some(epoch)).await" in repo.get("register_in_epoch", "")
+            and "self.record_inner(event, context, actor, Some(epoch)).await" in repo.get("record_in_epoch", "")
+            and all(all(token in repo.get(operation, "") for token in (
+                "epoch_fence(&mut tx, epoch, true).await?",
+                "epoch_fence(&mut tx, epoch, false).await?",
+            )) for operation in ("register_inner", "record_inner"))
+            and all(token in fence for token in (
+                "NOT retired", "lease_until_ms>floor(", "confirmed_ms>=",
+                "FOR SHARE", "fetch_optional", "ExposureError::Unavailable",
+            ))
+        )
+        worker = functions.get("__flow_store_batch", "")
+        protected = protected and all(token in worker for token in (
+            "self.gate.epoch()", "self.store.register_in_epoch(batch, epoch)",
+            "Duration::from_millis(950)", ".settled", ".fetch_add(batch.len() as u64, Ordering::Release)",
+        ))
+        if not protected:
+            errors.append(f"{label}: observation writes must retain the live database epoch fence")
+    if exposure_admin_route:
+        required = ("Duration::from_millis(950)", "session_token_digest(&token)",
+                    "session_actor(", "!actor.administrator", "StatusCode::FORBIDDEN",
+                    "match timeout_at(deadline, auth).await", "Ok(Err(status)) => return secure(status)",
+                    "Err(_) => return secure(StatusCode::SERVICE_UNAVAILABLE)",
+                    "timeout_at(deadline, guard.campaign_book(campaign))",
+                    "timeout_at(deadline, query)")
+        owner_reads = (
+            r"\bstate\s*\.\s*store\s*\.\s*report_campaign_book\(&filter,\s*book\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report\(&filter\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report_campaign_book_closed_with_health\(&filter,\s*book\)",
+            r"\bstate\s*\.\s*store\s*\.\s*report_closed_with_health\(&filter\)",
+        )
+        bounded_owner_reads = (
+            all(re.search(pattern, body) for pattern in owner_reads)
+            and "match (window, campaign_book)" in body
+            and "(ReportWindow::Closed, Some(book))" in body
+            and "(ReportWindow::Closed, None)" in body
+            and body.index("match timeout_at(deadline, auth)") < body.index("let query = async")
+        )
+        if not audited_exposure or not all(marker in body for marker in required) or not bounded_owner_reads:
+            errors.append(f"{label}: exposure report must remain a bounded live administrator read")
+    editorial_route = (entry["source"] == "crates/web/src/editorial_http/mod.rs"
+                       and admin_key in {("GET", "/admin/promotion/editorial", "admin::page"),
+                                         ("POST", "/admin/promotion/editorial", "admin::submit")})
+    audited_editorial = editorial_route and policy == "admin_editorial"
+    if editorial_route or policy == "admin_editorial":
+        required = ("administrator(&state, &headers)", "Duration::from_millis(950)",
+                    "tokio::time::timeout(", "secure(StatusCode::SERVICE_UNAVAILABLE, &[])")
+        operation = ".campaigns(after)" if entry["method"] == "GET" else ".execute(&actor, &form.command_key, &command)"
+        if not (audited_editorial and all(marker in body for marker in required)
+                and operation in body and "session_actor(&digest)" in evidence
+                and "!actor.administrator" in evidence and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: editorial promotion requires live administrator and bounded actor operation")
     audited_admin = (policy == "admin_mail"
                      and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
@@ -553,14 +845,56 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
+            ("GET", "/admin/audience/returns", "returns::page"),
+            ("GET", "/admin/audience/visits", "visits::page"),
+            ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
+            ("GET", "/admin/audience/seo", "seo::page"),
+            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
+    )
+    audited_surprises = (
+        policy == "admin_surprises"
+        and entry["source"] == "crates/web/src/auth/surprise_admin.rs"
+        and admin_key in SURPRISE_ADMIN_HANDLERS
+    )
+    if audited_surprises:
+        evidence += "\\n" + functions.get("administrator", "")
+    if policy == "admin_surprises":
+        if not audited_surprises:
+            errors.append(f"{label}: surprise admin route is not reviewed")
+        if not ("session_actor(" in evidence
+                and "if !actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "administrator(&state, &headers)" in body):
+            errors.append(f"{label}: missing live surprise administrator guard")
+        if entry["method"] in WRITES and not (
+            "state.cookies.same_origin(&headers)" in body
+            and "state.cookies.valid_csrf(&headers" in body
+            and "PgSurprises::new" in body
+        ):
+            errors.append(f"{label}: missing origin/CSRF and actor-bound surprise mutation")
+    audited_ratio_admin = (
+        policy == "administrator"
+        and entry["source"] == "crates/web/src/recommendation_http/mod.rs"
+        and admin_key in {
+            ("GET", "/admin/recommendations", "admin::shares_page"),
+            ("POST", "/admin/recommendations", "admin::shares_submit"),
+        }
+        and "actor(&state, &headers).await" in body
+        and "session_actor(" in evidence
+        and "!verified.administrator" in evidence
+        and "StatusCode::FORBIDDEN" in evidence
     )
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (
             audited_admin or audited_support or audited_refund or prepared_refund or approved_refund or audited_payout
             or audited_s049 or audited_s049_book_admin or audited_s049_appeal_admin
             or audited_s049_paid_review or audited_s049_paid_appeal_admin
-            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09):
+            or audited_s049_free_review or audited_s049_free_appeal_admin or audited_audience or audited_g09 or audited_surprises or audited_exposure or audited_editorial
+            or audited_ratio_admin):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_free_comment_appeals":
         repo = _production((ROOT / "crates/social/src/repositories/free_comment_appeals.rs")
@@ -772,14 +1106,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                            .read_text(encoding="utf-8"))
         operation = s049_book_admin.get(admin_key) if audited_s049_book_admin else None
         required_repo = (
-            "r.role IN ('moderator','administrator') AND r.is_active",
+            "r.role='administrator' AND r.is_active",
             "s.revoked_at IS NULL",
             "s.expires_at>now()",
             "u.account_state='active'",
             "FOR SHARE OF s,u,r",
-            "site_reviewer(&mut tx, session_digest).await?",
-            "AND ($2::boolean OR comment_id IS NOT NULL)",
-            "if !is_admin && comment_id.is_none()",
+            "administrator(&mut tx, session_digest).await?",
         )
         guarded = bool(
             operation
@@ -798,7 +1130,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "UPDATE social_book_content_reports SET state=$2",
             ))
         if not guarded:
-            errors.append(f"{label}: S049 site moderator Book-comment review lacks scope, live role, audit or CSRF")
+            errors.append(f"{label}: S049 administrator-only complaint review lacks live role, audit or CSRF")
     if policy == "admin_share_reports":
         repo = _production((ROOT / "crates/social/src/repositories/book_share_reports.rs")
                            .read_text(encoding="utf-8"))
@@ -998,6 +1330,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
             ("GET", "/moderation/books/deletions", "deletion_queue"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/deletion", "review_deletion"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/layers/covers", "queue"): "crates/web/src/auth/package_covers.rs",
+            ("GET", "/moderation/layers/covers/{id}/preview", "moderator_preview"): "crates/web/src/auth/package_covers.rs",
+            ("POST", "/moderation/layers/covers/{id}/decision", "decide"): "crates/web/src/auth/package_covers.rs",
             ("GET", "/moderation/covers", "page"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/covers/{id}/preview", "preview"): "crates/web/src/auth/moderation_covers.rs",
             ("POST", "/moderation/covers/{id}/decision", "decide"): "crates/web/src/auth/moderation_covers.rs",
@@ -1054,7 +1389,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 or (audited_s049 and "session_digest(&s, &headers)" in evidence
                     and "session_token_digest(&token)" in evidence)):
             errors.append(f"{label}: missing verified PG session guard")
-        # Only the typed private reader may redirect to a specific local chapter.
+        # Only reviewed reader/library routes may carry their own fixed return.
         # Never allow an arbitrary dynamic redirect to satisfy a session guard.
         fixed_reader_return = (
             entry["template"] == "/read/{id}"
@@ -1064,14 +1399,37 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and 'format!("/login?next=/read/{id}")' in evidence
             and "return private_response(Redirect::to(&destination), &[])" in evidence
         )
+        # The new-book form may only return to its exact local path.
+        fixed_book_create_return = (
+            entry["template"] == "/me/books/new"
+            and entry["handler"] == "book_registration_http::new_page"
+            and "Ok(None) =>" in evidence
+            and 'Redirect::to("/login?next=/me/books/new")' in evidence
+        )
+        library_return_route = (
+            entry["source"] == "crates/web/src/auth.rs"
+            and (entry["method"], entry["template"], entry["handler"])
+                == ("GET", "/me/library", "library_page::my_library")
+        )
+        fixed_library_return = (
+            library_return_route
+            and "let Some(token) = state.cookies.session_token(&headers) else {" in evidence
+            and evidence.count('Redirect::to("/login?next=/me/library")') == 2
+            and 'Ok(None) => return private_response(Redirect::to("/login?next=/me/library"), &[])'
+                in evidence
+        )
         # The private reader needs its fixed chapter-local login redirect.
         # An unrelated unauthorized branch must not mask removal of that guard.
         if entry["template"] == "/read/{id}" and entry["handler"] == "private_reader::page":
             if not fixed_reader_return:
                 errors.append(f"{label}: session failure does not explicitly deny/redirect")
+        elif library_return_route:
+            if not fixed_library_return:
+                errors.append(f"{label}: session failure does not explicitly deny/redirect")
         elif not (
             "StatusCode::UNAUTHORIZED" in evidence
             or 'Redirect::to("/login")' in evidence
+            or fixed_book_create_return
             or collection_detail_guarded
         ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
@@ -1351,12 +1709,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             operation = "list" if entry["method"] == "GET" else "create"
             scoped = bool(re.search(rf"\.{operation}\s*\(\s*actor\s*,", body)
                 and re.search(r"\bauthorized\s*\(\s*&state,", body))
+        elif (entry["source"] == "crates/web/src/auth/package_covers.rs"
+              and entry["template"].startswith("/moderation/layers/covers")):
+            # Reviewed H/UI-18: an independently verified A moderator/admin
+            # session gates every queue, image and decision request, and the
+            # repository performs a second role check inside the decision TX.
+            operation = {
+                ("GET", "/moderation/layers/covers", "queue"): ".pending_queue(40)",
+                ("GET", "/moderation/layers/covers/{id}/preview", "moderator_preview"): ".pending_by_id(candidate)",
+                ("POST", "/moderation/layers/covers/{id}/decision", "decide"): ".review(reviewer, candidate, approve, reason)",
+            }.get(admin_key)
+            scoped = bool(
+                operation and operation in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "StatusCode::UNAUTHORIZED" in evidence
+            )
+        elif retired_policy:
+            # No actor-bound mutation is permitted after retirement. The exact
+            # route must instead prove guarded terminal 410 and no analytics IO.
+            scoped = retired_ok
         else:
             scoped = _contains_scoped_call(evidence, proof)
         if not scoped:
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
-        if policy in {"deny", "public"}:
+        if policy in {"deny", "public", "observation"}:
             pass
         elif not (
             re.search(r"\bsame_origin\s*\(", evidence)
@@ -1366,8 +1745,15 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing Origin+CSRF rejection")
     rec_admin = {
         ("GET", "/api/v1/admin/recommendations/quality", "admin::quality"),
+        ("GET", "/api/v1/admin/recommendations/contextual", "admin::contextual::status"),
+        ("POST", "/api/v1/admin/recommendations/contextual", "admin::contextual::control"),
+        ("GET", "/me/recommendations/contextual", "admin::contextual::page"),
+        ("POST", "/me/recommendations/contextual", "admin::contextual::form"),
         ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
         ("GET", "/me/recommendations/manage", "admin::page"),
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
+        ("GET", "/me/recommendations/shelf-preview", "admin::shelf::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     if (entry["template"] == "/me/refunds"
@@ -1390,6 +1776,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/admin/audience", "page"),
             ("GET", "/admin/audience/books", "books::page"),
             ("GET", "/admin/audience/groups", "groups::page"),
+            ("GET", "/admin/audience/returns", "returns::page"),
+            ("GET", "/admin/audience/visits", "visits::page"),
+            ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
+            ("GET", "/admin/audience/seo", "seo::page"),
+            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
         }
         and entry["source"] == "crates/web/src/auth/audience_http.rs"
     )
@@ -1408,6 +1802,36 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
+    if entry["source"] == "crates/web/src/recommendation_http/mod.rs" and route_key in {
+        ("GET", "/admin/recommendations", "admin::shares_page"),
+        ("POST", "/admin/recommendations", "admin::shares_submit"),
+    }:
+        expected = (
+            "actor(&state, &headers).await",
+            "tokio::time::timeout(",
+            "Duration::from_millis(950)",
+            "pages::secure_page(",
+        )
+        if not all(marker in body for marker in expected):
+            errors.append(f"{label}: shares dashboard lost bounded admin authentication")
+        if entry["method"] == "GET":
+            if not all(marker in body for marker in (
+                ".shelf_share_policy()", "actor(&state, &headers).await",
+                "csrf_for_page(&headers)",
+            )):
+                errors.append(f"{label}: share policy read must be authenticated and CSRF-bound")
+        else:
+            required = (
+                "csrf(&state, &headers, &form.csrf_token)",
+                "form.shares()",
+                "session_token_digest(&token)",
+                ".set_shelf_share_policy(",
+                "form.expected_revision",
+                "share_status",
+            )
+            if not all(marker in body for marker in required):
+                errors.append(f"{label}: share policy mutation lost CSRF, CAS or session-bound write")
+
     if policy == "admin_reader":
         # Only the exact read-only shell and one session-bound CSRF POST for
         # current unsealed bodies. Never permit a generic paid grant, wallet
@@ -1488,13 +1912,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "administrator":
         rec_binding = (route_key in rec_admin
                        and entry["source"] == "crates/web/src/recommendation_http/mod.rs")
-        if not (rec_binding or audience_admin):
+        if not (rec_binding or audience_admin or audited_exposure):
             errors.append(f"{label}: administrator exception is not allowed here")
-        role_guard = "!actor.administrator" if audience_admin else "!verified.administrator"
+        role_guard = "!actor.administrator" if audience_admin or audited_exposure else "!verified.administrator"
         if not ("session_actor(" in evidence and role_guard in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing independent administrator role guard")
-        audience_read = f".{audience_child}_report(&query)" if audience_child else ".report(days)"
+        audience_read = (
+            ".report(days, provider, q.after.as_deref())" if audience_seo and entry["method"] == "GET"
+            else ".request_refresh(provider)" if audience_seo and entry["method"] == "POST"
+            else ".report(days, q.before)" if audience_signals
+            else ".report(origin.origin())" if audience_pages
+            else ".report(days)" if audience_visits or audience_funnel
+            else ".returns_report(days)" if audience_returns
+            else f".{audience_child}_report(&query)" if audience_child else ".report(days)"
+        )
         if audience_admin and not (
             "administrator(&state, &headers)" in body
             and audience_read in body
@@ -1510,6 +1942,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and body.index("administrator(&state, &headers)") < body.index(audience_read)
         ):
             errors.append(f"{label}: FLOW {audience_child} must reject failed authorization before reading")
+        if (audience_signals or audience_pages) and not (
+            "Duration::from_millis(950)" in body
+            and "timeout_at(deadline, store.report(" in body
+            and "secure((status, render::page(" in body
+        ):
+            errors.append(f"{label}: FLOW signals/pages must keep one bounded secure administrator read")
+        if audience_returns and not _audience_returns_are_bounded(body):
+            errors.append(
+                f"{label}: FLOW returns must keep all three report reads behind live authorization and its deadline"
+            )
+        if audience_funnel and not _audience_funnel_is_bounded(body):
+            errors.append(
+                f"{label}: FLOW funnel must keep its secure report behind live authorization and one deadline"
+            )
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}
@@ -1640,17 +2086,53 @@ def check(root: Path = ROOT) -> list[str]:
                 ).get("charge", "")
             except OSError:
                 source_cache[path]["__layer_charge"] = ""
+        if entry.get("policy") == "observation":
+            # Read reviewed owner evidence from this invocation's root, including
+            # mutation fixtures. Never substitute the module-global checkout.
+            helpers = (
+                ("crates/recommendations/src/repositories/exposure/write.rs",
+                 ("register_in_epoch", "record_in_epoch", "register_inner", "record_inner", "epoch_fence")),
+                ("crates/web/src/flow_exposure/worker.rs", ("store_batch",)),
+            )
+            for helper_file, names in helpers:
+                try:
+                    helper_source = (root / helper_file).read_text(encoding="utf-8")
+                    # _functions intentionally recognizes free handlers at column
+                    # zero. Normalize only these reviewed impl-method declarations.
+                    helper_source = re.sub(
+                        r"(?m)^    (?=(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+)",
+                        "", helper_source,
+                    )
+                    helper_functions = _functions(helper_source)
+                except OSError:
+                    helper_functions = {}
+                for name in names:
+                    source_cache[path]["__flow_" + name] = helper_functions.get(name, "")
         if entry.get("policy") == "support_requester":
             identity_file = root / "crates/web/src/auth/support_identity.rs"
             source_cache[path]["__support_identity"] = (
                 _strip_comments(identity_file.read_text(encoding="utf-8"))
                 if identity_file.exists() else ""
             )
+        if (entry.get("source") == "crates/web/src/editorial_http/mod.rs"
+                and entry.get("handler") in {"admin::page", "admin::submit"}):
+            child = _strip_comments(_production(path.read_text(encoding="utf-8")))
+            imported = re.search(r"use\s+super::\{[^}]*\badministrator\b", child)
+            parent = _functions((root / entry["source"]).read_text(encoding="utf-8"))
+            source_cache[path]["administrator"] = parent.get("administrator", "") if imported else ""
         if (entry.get("source") == "crates/web/src/auth/audience_http.rs"
                 and (entry.get("method"), entry.get("template"), entry.get("handler"))
                     in {
                         ("GET", "/admin/audience/books", "books::page"),
                         ("GET", "/admin/audience/groups", "groups::page"),
+                        ("GET", "/admin/audience/returns", "returns::page"),
+                        ("GET", "/admin/audience/visits", "visits::page"),
+                        ("GET", "/admin/audience/funnel", "funnel::page"),
+            ("GET", "/admin/audience/reading", "canonical::page"),
+            ("GET", "/admin/audience/signals", "signals::page"),
+            ("GET", "/admin/audience/pages", "public_pages::page"),
+            ("GET", "/admin/audience/seo", "seo::page"),
+            ("POST", "/admin/audience/seo/refresh", "seo::refresh"),
                     }):
             try:
                 child = _strip_comments(_production(path.read_text(encoding="utf-8")))
@@ -1662,6 +2144,36 @@ def check(root: Path = ROOT) -> list[str]:
                 )
             except OSError:
                 source_cache[path]["__audience_administrator"] = ""
+        if (entry.get("source") == "crates/web/src/recommendation_http/mod.rs"
+                and entry.get("handler") in {"admin::contextual::page", "admin::contextual::status",
+                                              "admin::contextual::control", "admin::contextual::form"}):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / "crates/web/src/recommendation_http/admin.rs").read_text(encoding="utf-8"))
+                imported = re.search(r"use\s+super::\{\s*actor,\s*csrf\s*\}", child)
+                for helper in ("actor", "csrf"):
+                    source_cache[path][helper] = parent.get(helper, "") if imported else ""
+            except OSError:
+                source_cache[path]["actor"] = ""
+                source_cache[path]["csrf"] = ""
+        if (entry.get("source") == "crates/web/src/recommendation_http/mod.rs"
+                and entry.get("handler") == "admin::shelf::page"):
+            try:
+                child = _production(path.read_text(encoding="utf-8"))
+                parent = _functions((root / "crates/web/src/recommendation_http/admin.rs").read_text(encoding="utf-8"))
+                imported = re.search(r"use\s+super::\{\s*actor\s*,", child)
+                source_cache[path]["actor"] = parent.get("actor", "") if imported else ""
+            except OSError:
+                source_cache[path]["actor"] = ""
+        if _retired_policy(entry):
+            try:
+                api = _functions((root / "crates/web/src/recommendation_http/api.rs")
+                                 .read_text(encoding="utf-8"))
+                source_cache[path]["__retired_response"] = api.get("retired", "")
+                source_cache[path]["__retired_actor"] = api.get("actor", "")
+                source_cache[path]["__retired_csrf"] = api.get("csrf", "")
+            except OSError:
+                source_cache[path]["__retired_response"] = ""
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

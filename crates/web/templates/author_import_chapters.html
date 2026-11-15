@@ -1,30 +1,90 @@
-<section class="section auth-section">
-  <div class="container">
-    <div class="auth-card author-chapter-card" id="chapter-import" data-book-id="<!--BOOK_ID-->">
-      <p class="eyebrow">Кабинет автора · книга №<!--BOOK_ID--></p>
-      <h1>Импорт глав из файла</h1>
-      <p>TXT/MD: UTF-8 и Windows-1251. DOCX или ZIP: исходный файл до 1,25 МБ. ZIP содержит до 100 файлов TXT, MD или DOCX. После извлечения — максимум 700 КБ UTF-8 и 500 глав. В каждом файле нужны явные заголовки «Глава 1: Название».</p>
-      <p>Сначала посмотрите список и число глав. Только после подтверждения они будут <strong>атомарно записаны в черновик книги</strong>. Ничего не публикуется автоматически. Уже существующие главы не заменяются.</p>
-      <input id="chapter-import-csrf" type="hidden" value="<!--CSRF_TOKEN-->">
-      <input id="chapter-import-command" type="hidden" value="<!--COMMAND_KEY-->">
-      <label for="chapter-import-file">Выберите TXT, MD, DOCX или ZIP</label>
-      <input id="chapter-import-file" type="file" accept=".txt,.md,.docx,.zip,text/plain,text/markdown,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-      <label for="chapter-import-encoding">Кодировка файла (TXT/MD, в том числе внутри ZIP; для DOCX не нужна)</label>
-      <select id="chapter-import-encoding">
-        <option value="utf-8">UTF-8</option>
-        <option value="windows-1251">Windows-1251 (старые файлы)</option>
-      </select>
-      <details>
-        <summary>Исправить текст и ошибочные границы глав перед импортом</summary>
-        <label for="chapter-import-text">Текст выбранного файла</label>
-        <textarea id="chapter-import-text" rows="12" maxlength="700000" spellcheck="false"></textarea>
-      </details>
-      <p><button id="chapter-import-preview" class="button button--quiet" type="button" disabled>Проверить главы</button></p>
-      <p id="chapter-import-status" role="status" aria-live="polite">Выберите файл для предварительного просмотра.</p>
-      <ol id="chapter-import-results"></ol>
-      <p><button id="chapter-import-confirm" class="button" type="button" disabled>Подтвердить и создать главы</button></p>
-      <p><button id="chapter-import-cancel" class="button button--quiet" type="button" hidden>Отменить импорт</button></p>
-      <p><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+<section class="me-page author-workspace author-import-page">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <nav class="author-import-page__breadcrumbs" aria-label="Путь к импорту глав">
+        <a href="/me/books">Мои книги</a>
+        <span aria-hidden="true">/</span>
+        <a href="/me/books/<!--BOOK_ID-->">Книга №<!--BOOK_ID--></a>
+        <span aria-hidden="true">/</span>
+        <span>Импорт глав</span>
+      </nav>
+
+      <header class="ui-page-header author-import-page__header">
+        <div class="ui-page-header__content">
+          <p class="ui-page-header__kicker">Кабинет автора · книга №<!--BOOK_ID--></p>
+          <h1 class="ui-page-header__title">Импорт глав из файла</h1>
+          <p class="ui-page-header__text">Сначала проверьте главы и их порядок. Импорт начнётся только после отдельного подтверждения; книга не публикуется автоматически.</p>
+        </div>
+        <a class="ui-button ui-button--ghost" href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a>
+      </header>
+
+      <ol class="author-import-page__steps" aria-label="Этапы импорта">
+        <li><span aria-hidden="true">1</span><strong>Выберите файл</strong></li>
+        <li><span aria-hidden="true">2</span><strong>Проверьте главы</strong></li>
+        <li><span aria-hidden="true">3</span><strong>Подтвердите запись</strong></li>
+      </ol>
+
+      <div id="chapter-import" class="author-import-page__workspace" data-book-id="<!--BOOK_ID-->">
+        <input id="chapter-import-csrf" type="hidden" value="<!--CSRF_TOKEN-->">
+        <input id="chapter-import-command" type="hidden" value="<!--COMMAND_KEY-->">
+
+        <section class="author-import-page__panel" aria-labelledby="author-import-file-heading">
+          <div class="author-import-page__panel-heading">
+            <div>
+              <p class="author-import-page__kicker">Шаг 1</p>
+              <h2 id="author-import-file-heading">Файл для импорта</h2>
+            </div>
+          </div>
+          <p class="author-import-page__help" id="author-import-file-help">TXT или MD: UTF-8 и Windows-1251. DOCX или ZIP: исходный файл до 1,25 МБ. ZIP содержит до 100 файлов TXT, MD или DOCX. После извлечения — максимум 700 КБ UTF-8 и 500 глав. В каждом файле нужны явные заголовки «Глава 1: Название».</p>
+          <div class="author-import-page__fields">
+            <div class="author-import-page__field">
+              <label for="chapter-import-file">Выберите TXT, MD, DOCX или ZIP</label>
+              <input id="chapter-import-file" type="file" aria-describedby="author-import-file-help" accept=".txt,.md,.docx,.zip,text/plain,text/markdown,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+            </div>
+            <div class="author-import-page__field">
+              <label for="chapter-import-encoding">Кодировка файла (TXT/MD, в том числе внутри ZIP; для DOCX не нужна)</label>
+              <select id="chapter-import-encoding">
+                <option value="utf-8">UTF-8</option>
+                <option value="windows-1251">Windows-1251 (старые файлы)</option>
+              </select>
+            </div>
+          </div>
+          <details class="author-import-page__editor">
+            <summary>Исправить текст и ошибочные границы глав перед импортом</summary>
+            <div class="author-import-page__editor-content">
+              <label for="chapter-import-text">Текст выбранного файла</label>
+              <textarea id="chapter-import-text" rows="12" maxlength="700000" spellcheck="false"></textarea>
+              <p>После изменения текста проверьте главы заново. Старое подтверждение станет недействительным.</p>
+            </div>
+          </details>
+          <div class="author-import-page__panel-actions">
+            <button id="chapter-import-preview" class="ui-button ui-button--ghost" type="button" disabled>Проверить главы</button>
+          </div>
+        </section>
+
+        <section class="author-import-page__panel" aria-labelledby="author-import-preview-heading">
+          <div class="author-import-page__panel-heading">
+            <div>
+              <p class="author-import-page__kicker">Шаг 2</p>
+              <h2 id="author-import-preview-heading">Предварительный просмотр</h2>
+            </div>
+          </div>
+          <p class="author-import-page__help">Посмотрите список и число глав. Уже существующие главы не заменяются. Новые главы будут записаны в черновик книги только после подтверждения.</p>
+          <p id="chapter-import-status" class="author-import-page__status" role="status" aria-live="polite">Выберите файл для предварительного просмотра.</p>
+          <ol id="chapter-import-results" class="author-import-page__results" aria-label="Найденные главы"></ol>
+        </section>
+
+        <section class="author-import-page__confirm" aria-labelledby="author-import-confirm-heading">
+          <p class="author-import-page__kicker">Шаг 3</p>
+          <h2 id="author-import-confirm-heading">Подтверждение импорта</h2>
+          <p>После проверки весь пакет будет <strong>атомарно записан в черновик книги</strong>. Публикация книги и её глав выполняется отдельно.</p>
+          <div class="author-import-page__confirm-actions">
+            <button id="chapter-import-confirm" class="ui-button" type="button" disabled>Подтвердить и создать главы</button>
+            <button id="chapter-import-cancel" class="ui-button ui-button--ghost" type="button" hidden>Отменить импорт</button>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </section>

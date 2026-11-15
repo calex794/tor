@@ -21,22 +21,11 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 379);
+    assert_eq!(unique.len(), 428);
 }
 
-#[test]
-fn per_chapter_moderation_has_no_registered_routes() {
-    assert!(classify(Some("/moderation/books"), "GET").route_known);
-    for (route, method) in [
-        ("/moderation/chapters", "GET"),
-        ("/moderation/chapters/{id}/hold", "POST"),
-    ] {
-        assert!(
-            !classify(Some(route), method).route_known,
-            "chapter-level moderation is not a product capability"
-        );
-    }
-}
+#[path = "tests/route_guardrails.rs"]
+mod route_guardrails;
 
 #[test]
 fn public_private_and_write_routes_are_distinct() {
@@ -515,6 +504,23 @@ fn audience_groups_is_an_exact_read_only_administrator_route() {
 }
 
 #[test]
+fn audience_returns_is_an_exact_read_only_administrator_route() {
+    let route = classify(Some("/admin/audience/returns"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.product_area, ProductArea::Admin);
+    assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (template, method) in [
+        ("/admin/audience/returns", "POST"),
+        ("/admin/audience/returns/export", "GET"),
+        ("/admin/audience/returns/{user_id}", "GET"),
+    ] {
+        assert!(!classify(Some(template), method).route_known);
+    }
+}
+
+#[test]
 fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
     let read = classify(Some("/admin/storage/g09"), "GET");
     let action = classify(
@@ -536,4 +542,58 @@ fn g09_storage_reconciliation_is_admin_only_and_mutations_are_classified() {
         )
         .route_known
     );
+}
+
+#[test]
+fn canonical_reading_admin_route_has_no_public_or_write_alias() {
+    let route = classify(Some("/admin/audience/reading"), "GET");
+    assert!(route.route_known);
+    assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(route.cost_class, CostClass::ExpensiveRead);
+    for (path, method) in [
+        ("/admin/audience/reading", "POST"),
+        ("/admin/audience/reading/export", "GET"),
+        ("/admin/audience/reading/{user_id}", "GET"),
+    ] {
+        assert!(!classify(Some(path), method).route_known);
+    }
+}
+
+#[test]
+fn contextual_model_controls_are_exact_admin_routes_not_reader_events() {
+    for path in [
+        "/api/v1/admin/recommendations/contextual",
+        "/me/recommendations/contextual",
+    ] {
+        for (method, cost) in [("GET", CostClass::CheapRead), ("POST", CostClass::Write)] {
+            let route = classify(Some(path), method);
+            assert!(route.route_known);
+            assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+            assert_eq!(route.cost_class, cost);
+            assert_eq!(route.route_match_kind, RouteMatchKind::Exact);
+        }
+        assert!(!classify(Some(path), "DELETE").route_known);
+    }
+    assert!(!classify(Some("/api/v1/recommendations/contextual"), "POST").route_known);
+}
+
+#[test]
+fn search_analytics_has_only_two_exact_private_routes() {
+    for (path, method, cost) in [
+        ("/admin/audience/seo", "GET", CostClass::ExpensiveRead),
+        ("/admin/audience/seo/refresh", "POST", CostClass::Write),
+    ] {
+        let p = classify(Some(path), method);
+        assert!(p.route_known);
+        assert_eq!(p.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(p.route_match_kind, RouteMatchKind::Exact);
+        assert_eq!(p.cost_class, cost);
+    }
+    for (path, method) in [
+        ("/admin/audience/seo", "POST"),
+        ("/admin/audience/seo/refresh", "GET"),
+        ("/admin/audience/seo/export", "GET"),
+    ] {
+        assert!(!classify(Some(path), method).route_known);
+    }
 }

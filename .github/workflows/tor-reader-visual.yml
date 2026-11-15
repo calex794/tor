@@ -40,6 +40,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare authenticated Ubuntu mirror fallback
+        run: bash tools/ci_prepare_ubuntu_mirror.sh
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4

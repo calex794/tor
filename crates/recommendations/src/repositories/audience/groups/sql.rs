@@ -12,14 +12,17 @@ membership AS MATERIALIZED (
     ) x ON true
 ), grouped AS MATERIALIZED (
     SELECT m.label,b.ordinal,count(*) AS matched_books,
-           sum(b.issued)::bigint AS issued,sum(b.impressions)::bigint AS impressions,
-           sum(b.clicks)::bigint AS clicks,
+           CASE WHEN bool_or(b.issued_incomplete) THEN NULL ELSE sum(b.issued)::bigint END AS issued,
+           CASE WHEN bool_or(b.impressions_incomplete) THEN NULL ELSE sum(b.impressions)::bigint END AS impressions,
+           CASE WHEN bool_or(b.navigation_incomplete) THEN NULL ELSE sum(b.clicks)::bigint END AS clicks,
            CASE WHEN bool_or(b.opens_incomplete) THEN NULL
                 ELSE sum(b.book_opens)::bigint END AS book_opens,
-           sum(b.starts)::bigint AS starts,
-           count(*) FILTER (WHERE NOT b.observed AND COALESCE(b.starts,0)=0) AS no_observations,
-           count(*) FILTER (WHERE b.observed AND COALESCE(b.starts,0)=0) AS observed_without_starts,
-           count(*) FILTER (WHERE b.starts>0) AS with_starts
+           CASE WHEN bool_or(b.evidence_invalidated) THEN NULL ELSE sum(b.starts)::bigint END AS starts,
+           bool_or(b.evidence_invalidated) AS evidence_invalidated,
+           count(*) FILTER (WHERE b.evidence_invalidated) AS unknown_evidence,
+           count(*) FILTER (WHERE NOT b.evidence_invalidated AND NOT b.observed AND COALESCE(b.starts,0)=0) AS no_observations,
+           count(*) FILTER (WHERE NOT b.evidence_invalidated AND b.observed AND COALESCE(b.starts,0)=0) AS observed_without_starts,
+           count(*) FILTER (WHERE NOT b.evidence_invalidated AND b.starts>0) AS with_starts
     FROM per_book b JOIN membership m ON m.book_id=b.book_id
     GROUP BY m.label,b.ordinal
 ), selected_groups AS (
@@ -28,12 +31,12 @@ membership AS MATERIALIZED (
     ORDER BY label COLLATE "C" NULLS FIRST LIMIT $8
 ), result AS (
     SELECT t.ordinal,true AS is_total,NULL::text AS label,
-           t.issued,t.impressions,t.clicks,t.book_opens,t.starts,t.matched_books,
-           t.no_observations,t.observed_without_starts,t.with_starts
+           t.evidence_invalidated,t.issued,t.impressions,t.clicks,t.book_opens,t.starts,t.matched_books,
+           t.unknown_evidence,t.no_observations,t.observed_without_starts,t.with_starts
     FROM totals t
     UNION ALL
-    SELECT g.ordinal,false,g.label,g.issued,g.impressions,g.clicks,g.book_opens,g.starts,
-           g.matched_books,g.no_observations,g.observed_without_starts,g.with_starts
+    SELECT g.ordinal,false,g.label,g.evidence_invalidated,g.issued,g.impressions,g.clicks,g.book_opens,g.starts,
+           g.matched_books,g.unknown_evidence,g.no_observations,g.observed_without_starts,g.with_starts
     FROM grouped g JOIN selected_groups s ON s.label IS NOT DISTINCT FROM g.label
 ), health AS (
     SELECT (SELECT last_success FROM rec_worker_health WHERE singleton) AS last_success,

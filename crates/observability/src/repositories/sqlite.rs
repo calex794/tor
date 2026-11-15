@@ -9,6 +9,9 @@ use crate::{
 use rusqlite::{params, Connection};
 use std::{fmt, fs, path::Path};
 
+#[cfg(unix)]
+mod background;
+
 #[derive(Debug)]
 pub enum StoreError {
     Sqlite(rusqlite::Error),
@@ -143,6 +146,8 @@ impl TraceStore {
              PRAGMA busy_timeout=2000;",
         )?;
         conn.execute_batch(CREATE_SCHEMA)?;
+        #[cfg(unix)]
+        conn.execute_batch(background::SCHEMA)?;
         let page_size: u64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
         let pages = policy.max_file_bytes / page_size;
         let current_pages: u64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
@@ -233,7 +238,14 @@ impl TraceStore {
               trace_id DESC LIMIT -1 OFFSET ?1)",
             params![i64::from(self.policy.max_rows)],
         )?;
-        Ok(Maintenance { expired, evicted })
+        #[cfg(unix)]
+        let (child_expired, child_evicted) = self.maintain_background(now_unix)?;
+        #[cfg(not(unix))]
+        let (child_expired, child_evicted) = (0, 0);
+        Ok(Maintenance {
+            expired: expired + child_expired,
+            evicted: evicted + child_evicted,
+        })
     }
 
     pub fn search(&self, filter: SearchFilter) -> StoreResult<SearchPage> {

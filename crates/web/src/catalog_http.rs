@@ -43,6 +43,7 @@ pub(super) async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
     headers: HeaderMap,
+    issuer: Option<axum::Extension<std::sync::Arc<dyn tor_contracts::exposure::ObservationIssuer>>>,
 ) -> Result<Response, StatusCode> {
     if let Some(search) = state.search.as_ref() {
         // Tokens are obtained from the signed session cookie, never from
@@ -118,7 +119,7 @@ pub(super) async fn catalog(
             })
             .collect();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        let html = pages::catalog_search_with_covers(
+        let html = pages::catalog_search_observed(
             &cards,
             pages::CatalogPageQuery {
                 query: query.q.as_deref().unwrap_or(""),
@@ -134,6 +135,7 @@ pub(super) async fn catalog(
                 options: options.as_ref(),
             },
             &covers,
+            issuer.as_ref().map(|e| e.0.as_ref()),
         );
         let ids = cards.iter().map(|card| card.id).collect::<Vec<_>>();
         let (html, origin) = cover_http::opt_in_cdn_html(state.covers.as_ref(), html, &ids).await?;

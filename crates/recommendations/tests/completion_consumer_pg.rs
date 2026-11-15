@@ -130,11 +130,22 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
 
     let ranking = PgRanking::new(pool.clone());
     assert_eq!(ranking.snapshot(99501).await.unwrap().revision, 0);
-    assert!(ranking
-        .pending_completion_event_ids()
-        .await
-        .unwrap()
-        .is_empty());
+    // Earlier tor_ci suites may leave other readers' C events pending.
+    // Only this fixture's chapter range must start without outbox events.
+    // Never assume a globally empty queue in a shared integration database.
+    let fixture_events_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterCompletedV1'
+           AND aggregate_kind='chapter'
+           AND aggregate_id BETWEEN 99520 AND 99522",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        fixture_events_before, 0,
+        "F-05 fixture queue must start empty"
+    );
     let first = completed_fixture(&pool, 99520).await;
     assert!(ranking
         .pending_completion_event_ids()

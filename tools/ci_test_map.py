@@ -4,6 +4,8 @@
 SUITES = {
     "rust": ("rust-demo.yml", ("*",)),
     "postgres": ("tor-pg-runtime.yml", ("*",)),
+    "rec_browser": ("tor-pg-rec-browser.yml", ("tor-web", "tor-migrations", "tor-recommendations", "tor-reading", "tor-traffic_behavior", "tor-search", "tor-ads")),
+    "reading_analytics": ("tor-pg-reading-analytics.yml", ("tor-reading", "tor-web", "tor-recommendations", "tor-traffic_behavior", "tor-search", "tor-ads", "tor-migrations")),
     "migrations": ("postgres-migrations.yml", ("tor-migrations",)),
     "reader_browser": ("tor-reader-visual.yml", ("tor-web", "tor-migrations", "tor-observability")),
     "visual": ("visual-smoke.yml", ("tor-web", "tor-observability")),
@@ -24,6 +26,8 @@ CI_REQUIRED_JOB = "ci-required"
 SUITE_JOB_IDS = {
     "rust": "demo",
     "postgres": "postgres-runtime",
+    "rec_browser": "pg-rec-browser",
+    "reading_analytics": "pg-reading-analytics",
     "migrations": "migrations",
     "reader_browser": "reader-browser",
     "visual": "visual",
@@ -48,14 +52,15 @@ ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 # Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
 ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
 POSTGRES_SUITES = {
-    "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
+    "postgres", "rec_browser", "reading_analytics", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
 }
-BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
+BROWSER_SUITES = {"rec_browser", "reader_browser", "visual", "cover_browser", "paid_e2e"}
 
 # These production areas can change access, money, publication, or delivery.
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
 CRITICAL_PACKAGES = {
+    "tor-ads",  # Editorial availability and fresh administrator authority.
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
     "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",
@@ -68,8 +73,12 @@ KNOWN_PACKAGES = CRITICAL_PACKAGES | {
 # Standalone test/harness edits do not change the library consumed by other suites.
 # New/unclassified tests deliberately fall back to full, never to an empty pack.
 TEST_SUITES = {
-    "tools/rec13_browser_acceptance.sh": {"postgres"},
-    "tools/rec13_browser.cjs": {"postgres"},
+    "tools/rec13_browser_acceptance.sh": {"rec_browser"},
+    "tools/rec13_browser.cjs": {"rec_browser"},
+    "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
+    "crates/recommendations/tests/catalog_feed_pg.rs": {"rust", "postgres", "rec_browser"},
+    "crates/recommendations/tests/catalog_feed_pg/contextual_scale.rs": {"rust", "rec_browser"},
+    "crates/search/tests/seo_pg/analytics.rs": {"rust", "reading_analytics"},
     "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
     "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
@@ -133,7 +142,7 @@ TEST_SUITES = {
 
 # Explicit PG integration test targets currently executed by the mandatory
 # postgres-runtime job (and the full Rust workspace baseline). A test-only PR
-# must run both suites, not all fourteen infrastructure/browser suites.
+# must run both suites, not all other infrastructure/browser suites.
 # NEVER add production src or unknown tests here; test_ci_workflow_wiring.py
 # verifies every target is directly invoked in both PG workflows and no other
 # specialized job. Changes to this authority map itself always use full CI.
@@ -155,7 +164,6 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
     "crates/books/tests/postgres_catalog.rs",
     "crates/books/tests/shadow_age_visibility_pg.rs",
     "crates/search/tests/actor_catalog_age_pg.rs",
-    "crates/search/tests/seo_pg.rs",
     "crates/books/tests/authoring_pg.rs",
     "crates/books/tests/book_lifecycle_pg.rs",
     "crates/books/tests/chapter_file_import_pg.rs",
@@ -242,6 +250,47 @@ POSTGRES_RUNTIME_ONLY_TEST_FILES = frozenset({
 })
 TEST_SUITES.update({path: {"rust", "postgres"} for path in POSTGRES_RUNTIME_ONLY_TEST_FILES})
 
+# Exact 36 analytics targets assigned to the isolated lane, never skipped.
+READING_ANALYTICS_TEST_FILES = frozenset({
+    "crates/ads/tests/editorial_pg.rs",
+    "crates/reading/tests/audience_book_returns_pg.rs",
+    "crates/reading/tests/audience_closed_pg.rs",
+    "crates/reading/tests/audience_group_returns_pg.rs",
+    "crates/reading/tests/audience_pg.rs",
+    "crates/reading/tests/audience_returns_pg.rs",
+    "crates/reading/tests/collection_retirement_pg.rs",
+    "crates/reading/tests/flow_capture_pg.rs",
+    "crates/recommendations/tests/audience_books_pg.rs",
+    "crates/recommendations/tests/audience_groups_pg.rs",
+    "crates/recommendations/tests/audience_sources_pg.rs",
+    "crates/recommendations/tests/exposure_health_pg.rs",
+    "crates/recommendations/tests/exposure_pg.rs",
+    "crates/recommendations/tests/flow_funnel_pg.rs",
+    "crates/recommendations/tests/flow_genres_pg.rs",
+    "crates/recommendations/tests/flow_signals_pg.rs",
+    "crates/recommendations/tests/flow_visits_pg.rs",
+    "crates/search/tests/public_pages_pg.rs",
+    "crates/search/tests/seo_pg.rs",
+    "crates/traffic_behavior/tests/flow_audience_pg.rs",
+    "crates/web/tests/audience_book_returns_http_pg.rs",
+    "crates/web/tests/audience_books_http_pg.rs",
+    "crates/web/tests/audience_group_returns_http_pg.rs",
+    "crates/web/tests/audience_groups_http_pg.rs",
+    "crates/web/tests/audience_hours_http_pg.rs",
+    "crates/web/tests/audience_http_pg.rs",
+    "crates/web/tests/audience_returns_http_pg.rs",
+    "crates/web/tests/audience_sources_http_pg.rs",
+    "crates/web/tests/editorial_http_pg.rs",
+    "crates/web/tests/exposure_http_pg.rs",
+    "crates/web/tests/exposure_report_http_pg.rs",
+    "crates/web/tests/flow_funnel_http_pg.rs",
+    "crates/web/tests/flow_signals_http_pg.rs",
+    "crates/web/tests/flow_visits_http_pg.rs",
+    "crates/web/tests/recommendation_share_admin_pg.rs",
+    "crates/web/tests/recommendations_admin_policy_http_pg.rs",
+})
+TEST_SUITES.update({path: {"rust", "reading_analytics"} for path in READING_ANALYTICS_TEST_FILES})
+
 # Only prose in these locations is cheap. Contracts/fixtures/configuration are not.
 PROSE_FILES = {"README.md", "AGENTS.md", "docs/development.md"}
 PROSE_PREFIXES = ("docs/research/", "docs/ci/")
@@ -251,7 +300,7 @@ PROSE_PREFIXES = ("docs/research/", "docs/ci/")
 # Verified against all 18 CI workflows on 2026-10-29: CI metrics is a
 # read-only Actions reporting script; its tests run in rules.yml architecture.
 # Do not broaden to other tools/architecture tests. Every push to main still
-# runs the complete 14-suite integration pack.
+# runs the complete configured integration pack.
 RULES_ONLY_FILES = frozenset({
     "tools/ci_metrics.py",
     "tests/architecture/test_ci_metrics.py",

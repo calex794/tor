@@ -368,6 +368,7 @@ mod tests {
         use tor_commerce::services::reader_views::ReadablePurchase;
         let page = ReadablePurchasesPage {
             items: vec![ReadablePurchase {
+                book_id: 7,
                 purchase_id: 31,
                 chapter_id: 23,
                 version_id: 40,
@@ -392,6 +393,7 @@ mod tests {
     fn mixed_book_toc_displays_nevboo_states_without_granting_closed_pages() {
         use tor_commerce::services::reader_views::MixedTocChapter;
         let edition = ReadablePurchase {
+            book_id: 7,
             purchase_id: 31,
             chapter_id: 23,
             version_id: 40,
@@ -467,6 +469,7 @@ mod tests {
         assert!(!nav.contains("href=\"/reader/25\""));
         // Chapter 3 is followed by unpurchased 4: show lock, no link.
         let next_edition = ReadablePurchase {
+            book_id: 7,
             purchase_id: 32,
             chapter_id: 24,
             version_id: 42,
@@ -493,6 +496,7 @@ mod tests {
     #[test]
     fn h_paid_shell_contains_no_grant_or_plaintext_but_a_real_reader() {
         let edition = ReadablePurchase {
+            book_id: 7,
             purchase_id: 31,
             chapter_id: 23,
             version_id: 40,

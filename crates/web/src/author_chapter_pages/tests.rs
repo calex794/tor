@@ -33,6 +33,69 @@ fn s020_age_settings_link_is_hidden_until_owner_editor_is_enabled() {
 use super::*;
 
 #[test]
+fn book_workspace_keeps_release_and_paid_edit_gates_and_parent_navigation() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<bad>".into(),
+    };
+    let chapters = [
+        OwnedChapterSummary {
+            id: 11,
+            number: 1,
+            title: "<free>".into(),
+            access: ChapterAccess::Free,
+            published: false,
+        },
+        OwnedChapterSummary {
+            id: 12,
+            number: 2,
+            title: "Paid V1".into(),
+            access: ChapterAccess::Paid,
+            published: true,
+        },
+        OwnedChapterSummary {
+            id: 13,
+            number: 3,
+            title: "Paid draft".into(),
+            access: ChapterAccess::Paid,
+            published: false,
+        },
+    ];
+    let page = |paid_editor_enabled| {
+        detail_with_covers_with_demand_page(
+            &book,
+            true,
+            &chapters,
+            "<csrf>",
+            OwnerChapterPageOptions {
+                uploads_enabled: false,
+                latest_job: None,
+                demand_count: 0,
+                paid_editor_enabled,
+                age_editor_enabled: false,
+                next: None,
+                has_previous_page: false,
+            },
+        )
+        .0
+    };
+    let disabled = page(false);
+    assert!(disabled.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!disabled.contains("aria-current=\"page\""));
+    assert!(disabled.contains("/chapters/11/edit"));
+    assert!(disabled.contains("/chapters/11/release"));
+    assert!(!disabled.contains("/chapters/12/edit"));
+    assert!(!disabled.contains("/chapters/13/edit"));
+    assert!(!disabled.contains("/chapters/13/release"));
+    assert!(disabled.contains("&lt;free&gt;"));
+    assert!(disabled.contains("Публикация включена"));
+    assert!(disabled.contains("проверки регистрации"));
+    let enabled = page(true);
+    assert!(enabled.contains("/chapters/12/edit"));
+    assert!(!enabled.contains("/chapters/13/edit"));
+}
+
+#[test]
 fn b12_owner_pages_keep_navigation_for_long_books() {
     let book = OwnedBook {
         id: 42,
@@ -144,6 +207,39 @@ fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
 }
 
 #[test]
+fn cover_settings_uses_owner_navigation_without_weakening_upload_guards() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<script>cover</script>".into(),
+    };
+    let page = cover_settings(&book, "<csrf>", Some("pending"), false).0;
+    assert!(page.contains("class=\"account-sidebar\""));
+    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
+    assert!(page.contains("class=\"account-main\""));
+    assert!(page.contains("author-covers-page__breadcrumbs"));
+    assert!(page.contains("class=\"book-settings-tabs\""));
+    assert!(page.contains("aria-current=\"page\">Обложки</a>"));
+    assert!(page.contains("action=\"/me/books/42/cover\""));
+    assert!(page.contains("method=\"post\""));
+    assert!(page.contains("enctype=\"multipart/form-data\""));
+    assert!(page.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(page.contains("type=\"file\""));
+    assert!(page.contains("name=\"cover\""));
+    assert!(page.contains("data-cover-slots-form"));
+    assert!(page.contains("data-cover-picker-input"));
+    assert!(page.contains("data-cover-picker-image"));
+    assert!(page.contains("src=\"/assets/newboo-cover-picker.js\""));
+    assert_eq!(page.matches("data-cover-picker-input").count(), 1);
+    assert_eq!(page.matches("data-cover-picker-image").count(), 1);
+    assert!(page.contains("Обложка ожидает обработки."));
+    assert!(page.contains("После загрузки файл проходит обработку и модерацию."));
+    assert!(page.contains("&lt;script&gt;cover&lt;/script&gt;"));
+    assert!(!page.contains("<script>cover</script>"));
+    assert!(!page.contains("/covers/42/main.webp"));
+}
+
+#[test]
 fn release_form_escapes_chapter_body_and_pins_version() {
     let chapter = PendingChapter {
         number: 4,
@@ -157,7 +253,63 @@ fn release_form_escapes_chapter_body_and_pins_version() {
     assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
     assert!(page.0.contains("&lt;/pre&gt;"));
     assert!(!page.0.contains("<script>bad()"));
+    assert!(page.0.contains("&lt;svg onload=1&gt;"));
+    assert!(page.0.contains("account-sidebar"));
+    assert!(page
+        .0
+        .contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(page
+        .0
+        .contains("tabindex=\"0\" aria-label=\"Текст выбранной редакции\""));
+    assert_eq!(
+        page.0
+            .matches("name=\"expected_revision\" value=\"3\"")
+            .count(),
+        2
+    );
+    assert_eq!(
+        page.0.matches("name=\"version_id\" value=\"86\"").count(),
+        2
+    );
+    assert_eq!(
+        page.0
+            .matches("name=\"csrf_token\" value=\"token\"")
+            .count(),
+        3
+    );
+    assert!(!page.0.contains("cancel-schedule"));
+    assert!(!page.0.contains("смогут читать все"));
+    for (status, label, cancellable) in [
+        ("pending", "Ожидает выпуска", true),
+        ("claimed", "Выпуск выполняется", false),
+        ("published", "Опубликовано", false),
+        ("cancelled", "Отменено", false),
+        ("stale", "Нужно проверить редакцию", true),
+        ("<script>bad()</script>", "Состояние недоступно", false),
+    ] {
+        let page = release_chapter(
+            2,
+            5,
+            &chapter,
+            "token",
+            Some(&ScheduledChapter {
+                scheduled_utc: "2030-11-15T12:00<unsafe>".into(),
+                status: status.into(),
+            }),
+        )
+        .0;
+        assert!(page.contains(label));
+        assert!(page.contains("2030-11-15T12:00&lt;unsafe&gt; UTC"));
+        assert!(!page.contains("<unsafe>"));
+        assert!(!page.contains("<script>bad()"));
+        assert_eq!(page.contains("/cancel-schedule"), cancellable);
+        assert_eq!(
+            page.matches("name=\"csrf_token\" value=\"token\"").count(),
+            if cancellable { 4 } else { 3 }
+        );
+    }
 }
+
 #[test]
 fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
     let published_book = OwnedBook {
@@ -207,4 +359,189 @@ fn edit_form_escapes_title_and_textarea_breakout() {
     assert!(!page.0.contains("href=\"/reader/3\""));
     assert!(page.0.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     assert!(!page.0.contains("<!--TITLE_HEADING-->"));
+    assert!(page
+        .0
+        .contains("href=\"/me/books\" aria-current=\"location\""));
+    assert_eq!(
+        page.0
+            .matches("name=\"csrf_token\" value=\"token\"")
+            .count(),
+        2
+    );
+    let paid = edit_published_paid_chapter(
+        1,
+        3,
+        &OwnedChapter {
+            access: ChapterAccess::Paid,
+            price_amount: 250,
+            ..chapter
+        },
+        "token",
+        "key",
+    )
+    .0;
+    assert!(paid
+        .split("name=\"title\"")
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .next()
+        .unwrap()
+        .contains("readonly"));
+    assert!(paid.contains("Цена неизменна: 250 копеек."));
+    assert!(paid.contains("name=\"expected_revision\" value=\"7\""));
+    assert!(!paid.contains("<script>evil()"));
+}
+
+#[test]
+fn author_book_draft_guidance_does_not_invent_metadata_readiness() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<safe title>".to_owned(),
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        false,
+        &[],
+        "csrf",
+        OwnerChapterPageOptions {
+            uploads_enabled: false,
+            latest_job: Some("moderation_pending"),
+            demand_count: 0,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("Подготовка к публикации"));
+    assert!(html.contains("Добавьте хотя бы одну бесплатную главу"));
+    assert!(html.contains("Проверьте перед публикацией"));
+    assert_eq!(html.matches(">Редактировать аннотацию</a>").count(), 1);
+    assert!(html.contains(">Проверить описание</a>"));
+    assert!(html.contains(">Создать главу</a>"));
+    assert!(!html.contains("action=\"/me/books/42/publish\""));
+    assert!(!html.contains("src=\"/covers/42/main.webp\""));
+    assert!(html.contains("author-book-workspace__cover-placeholder"));
+    assert!(html.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(html.contains("&lt;safe title&gt;"));
+    assert!(!html.contains("<safe title>"));
+}
+
+#[test]
+fn author_book_publishing_keeps_csrf_and_grouped_settings() {
+    let book = OwnedBook {
+        id: 42,
+        title: "Роман".to_owned(),
+    };
+    let chapter = OwnedChapterSummary {
+        id: 7,
+        number: 1,
+        title: "Первая".to_owned(),
+        access: ChapterAccess::Free,
+        published: false,
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        false,
+        &[chapter],
+        "<csrf>",
+        OwnerChapterPageOptions {
+            uploads_enabled: true,
+            latest_job: Some("moderation_approved"),
+            demand_count: 0,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("method=\"post\" action=\"/me/books/42/publish\""));
+    assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(html.contains("src=\"/covers/42/main.webp\""));
+    assert!(html.contains("Бесплатная глава есть на этой странице"));
+    assert!(html.contains("Описание и оформление"));
+    assert!(html.contains("Публикация и доступ"));
+    assert!(html.contains("Статистика и обратная связь"));
+    assert!(html.contains("id=\"author-book-chapters\""));
+    assert!(html.contains("id=\"author-book-settings\""));
+}
+
+#[test]
+fn author_book_published_state_does_not_show_draft_checklist() {
+    let book = OwnedBook {
+        id: 42,
+        title: "Книга".to_owned(),
+    };
+    let html = detail_with_covers_with_demand_page(
+        &book,
+        true,
+        &[],
+        "csrf",
+        OwnerChapterPageOptions {
+            uploads_enabled: false,
+            latest_job: None,
+            demand_count: 5,
+            paid_editor_enabled: false,
+            age_editor_enabled: false,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+    .0;
+    assert!(html.contains("Публикация включена"));
+    assert!(!html.contains("Подготовка к публикации"));
+    assert!(!html.contains("href=\"/me/books/42/chapters/import\""));
+    assert!(html.contains("Читатели ждут продолжения"));
+    assert!(html.contains("href=\"/books/42\""));
+}
+
+#[test]
+fn chapter_import_preserves_owner_shell_preview_and_explicit_confirmation() {
+    let page = import_chapters(42, "<csrf>", "<command>").0;
+    assert!(page.contains("class=\"account-sidebar\""));
+    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!page.contains("aria-current=\"page\""));
+    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
+    assert!(page.contains("id=\"chapter-import\""));
+    assert!(page.contains("data-book-id=\"42\""));
+    assert!(page.contains("id=\"chapter-import-csrf\" type=\"hidden\" value=\"&lt;csrf&gt;\""));
+    assert!(
+        page.contains("id=\"chapter-import-command\" type=\"hidden\" value=\"&lt;command&gt;\"")
+    );
+    for id in [
+        "chapter-import-file",
+        "chapter-import-encoding",
+        "chapter-import-text",
+        "chapter-import-preview",
+        "chapter-import-status",
+        "chapter-import-results",
+        "chapter-import-confirm",
+        "chapter-import-cancel",
+    ] {
+        assert!(
+            page.contains(&format!("id=\"{id}\"")),
+            "missing importer ID: {id}"
+        );
+    }
+    assert_eq!(page.matches("id=\"chapter-import-file\"").count(), 1);
+    assert_eq!(page.matches("id=\"chapter-import-confirm\"").count(), 1);
+    assert!(page.contains("id=\"chapter-import-preview\" class=\"ui-button ui-button--ghost\" type=\"button\" disabled"));
+    assert!(
+        page.contains("id=\"chapter-import-confirm\" class=\"ui-button\" type=\"button\" disabled")
+    );
+    assert!(page.contains(
+        "id=\"chapter-import-cancel\" class=\"ui-button ui-button--ghost\" type=\"button\" hidden"
+    ));
+    assert!(page.contains("role=\"status\" aria-live=\"polite\""));
+    assert!(page.contains("src=\"/assets/newboo-chapter-import.js\""));
+    let file_step = page.find("id=\"author-import-file-heading\"").unwrap();
+    let preview_step = page.find("id=\"author-import-preview-heading\"").unwrap();
+    let confirm_step = page.find("id=\"author-import-confirm-heading\"").unwrap();
+    assert!(file_step < preview_step && preview_step < confirm_step);
+    assert!(page.contains("Исправить текст и ошибочные границы глав перед импортом"));
+    assert!(page.contains("Новые главы будут записаны в черновик книги"));
+    assert!(!page.contains("action=\"/me/books/42/publish\""));
 }

@@ -196,6 +196,8 @@ pub fn private_reader_with_options(
                 <article class="chapter-content reader-private__content" aria-label="Текст главы">
                     {sections}
                 </article>
+                <!--EDITORIAL_PROMOTION-->
+                <!--READER_END_SHELF-->
                 <section class="reader-issues" id="text-issues">
                   <h2>Предложить исправление</h2>
                   {issue_feedback}

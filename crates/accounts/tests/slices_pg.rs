@@ -32,6 +32,28 @@ async fn fixture(label: &str) -> (PgAccounts, i64, [u8; 32]) {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_05_authority_pool_acquisition_is_bounded_and_recovers() {
+    use std::time::{Duration, Instant};
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&url)
+        .await
+        .unwrap();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let held = pool.acquire().await.unwrap();
+    let started = Instant::now();
+    let result = accounts.session_actor(&[0; 32]).await;
+    assert!(matches!(result, Err(sqlx::Error::PoolTimedOut)));
+    assert!(started.elapsed() < Duration::from_millis(600));
+    drop(held);
+    assert!(accounts.session_actor(&[0; 32]).await.unwrap().is_none());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     let (accounts, alice, _) = fixture("profile-alice").await;
     let (_, bob, _) = fixture("profile-bob").await;

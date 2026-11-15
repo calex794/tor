@@ -18,9 +18,12 @@ pub(super) async fn session_user(
 
 #[derive(Clone)]
 pub(super) struct AuthState {
+    pub(super) editorial: crate::editorial_http::display::DisplayRuntime,
     pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,
+    pub(super) notification_proof_delivery:
+        Option<super::notification_proof_delivery::ProofDelivery>,
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
     pub(super) paid_checkout_enabled: bool,
@@ -42,7 +45,6 @@ pub(super) struct AuthState {
     pub(super) achievements: tor_recommendations::repositories::PgAchievements,
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
-    pub(super) ril_signer: Option<RilSubjectSigner>,
     pub(super) cover_preview_storage: Option<Arc<dyn CoverObjectStore>>,
     pub(super) cover_upload_enabled: bool,
     /// Off by default until S020/#486 full cross-surface acceptance.
@@ -67,6 +69,7 @@ pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
     pub(super) purchased_after: Option<i64>,
     pub(super) updates_after: Option<String>,
+    pub(super) view: Option<String>,
     pub(super) limit: Option<u16>,
 }
 

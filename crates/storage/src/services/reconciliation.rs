@@ -74,3 +74,26 @@ pub trait PrivateRegisteredHead: Send + Sync {
         object: &tor_contracts::paid_delivery::ObjectRef,
     ) -> Result<RegisteredHeadResult, StorageError>;
 }
+
+/// A bounded GET checks ciphertext bytes, unlike HEAD metadata alone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RegisteredBodyResult {
+    Verified,
+    Missing,
+    BodyMismatch,
+    MetadataMismatch,
+}
+
+/// Fixed per-object cap, independent of caller-controlled inputs.
+pub const G09_BODY_GET_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// No returned ciphertext, raw key, signed URL or user-supplied bucket.
+#[async_trait]
+pub trait PrivateRegisteredBodyProbe: Send + Sync {
+    fn private_bucket(&self) -> &str;
+
+    async fn probe_registered_body(
+        &self,
+        object: &tor_contracts::paid_delivery::ObjectRef,
+    ) -> Result<RegisteredBodyResult, StorageError>;
+}

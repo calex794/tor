@@ -24,6 +24,16 @@ impl From<sqlx::Error> for CreatorFollowError {
     }
 }
 
+/// One HTTP book-detail read projection. B still authorizes the book itself
+/// before this query; mutation handlers re-check their own rights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BookPageFollowState {
+    pub following_book: bool,
+    pub is_owner: bool,
+    pub creator_user_id: Option<i64>,
+    pub following_creator: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FollowedCreator {
     pub period_id: i64,
@@ -36,6 +46,112 @@ pub struct FollowedCreator {
 impl PgCreatorFollows {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Read only: replace four separate HTTP projections with one consistent
+    /// PostgreSQL snapshot, without caching a session or changing POST guards.
+    /// Each predicate mirrors the previous book-follow, B-owned authoring and
+    /// creator-follow lookups. Never use this snapshot to authorize mutations.
+    pub async fn book_page_follow_state(
+        &self,
+        reader_user_id: i64,
+        book_id: i64,
+    ) -> Result<BookPageFollowState, CreatorFollowError> {
+        if reader_user_id <= 0 || book_id <= 0 {
+            return Err(CreatorFollowError::Invalid);
+        }
+        let row = sqlx::query(
+            "WITH creator AS MATERIALIZED (
+                SELECT b.owner_user_id FROM books AS b
+                WHERE b.id=$2 AND b.owner_user_id IS NOT NULL
+                  AND b.visibility='public' AND b.visibility_status='active'
+                  AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND EXISTS (
+                      SELECT 1 FROM book_members AS m WHERE m.book_id=b.id
+                        AND m.user_id=b.owner_user_id AND m.role='owner' AND m.is_active
+                  )
+             )
+             SELECT
+               EXISTS (SELECT 1 FROM reader_book_follows AS f
+                       WHERE f.user_id=$1 AND f.book_id=$2) AS following_book,
+               EXISTS (SELECT 1 FROM books AS b
+                       WHERE b.id=$2 AND b.owner_user_id=$1
+                         AND NOT b.is_deleted AND NOT b.admin_hold) AS is_owner,
+               (SELECT owner_user_id FROM creator) AS creator_user_id,
+               EXISTS (SELECT 1 FROM creator_follow_periods AS p
+                       JOIN creator AS c ON c.owner_user_id=p.creator_user_id
+                       WHERE p.follower_user_id=$1 AND p.ended_at IS NULL)
+                     AS following_creator",
+        )
+        .bind(reader_user_id)
+        .bind(book_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(BookPageFollowState {
+            following_book: row.try_get("following_book")?,
+            is_owner: row.try_get("is_owner")?,
+            creator_user_id: row.try_get("creator_user_id")?,
+            following_creator: row.try_get("following_creator")?,
+        })
+    }
+
+    /// One live A-session lookup and all B-owned display predicates in a
+    /// single SQL statement. Unlike a previously verified HTTP actor, this
+    /// query observes revocation/expiry as of the follow-controls snapshot.
+    /// POST handlers still independently enforce live authority and CSRF.
+    pub async fn book_page_follow_state_for_session(
+        &self,
+        session_digest: &[u8; 32],
+        book_id: i64,
+    ) -> Result<Option<(i64, BookPageFollowState)>, CreatorFollowError> {
+        if book_id <= 0 {
+            return Err(CreatorFollowError::Invalid);
+        }
+        let row = sqlx::query(
+            "WITH viewer AS MATERIALIZED (
+                SELECT u.id FROM sessions AS s
+                JOIN users AS u ON u.id=s.user_id
+                WHERE s.token_hash=$1::bytea AND s.revoked_at IS NULL
+                  AND s.expires_at>now() AND u.account_state='active'
+             ), creator AS MATERIALIZED (
+                SELECT b.owner_user_id FROM books AS b
+                WHERE b.id=$2 AND b.owner_user_id IS NOT NULL
+                  AND b.visibility='public' AND b.visibility_status='active'
+                  AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND EXISTS (
+                      SELECT 1 FROM book_members AS m WHERE m.book_id=b.id
+                        AND m.user_id=b.owner_user_id AND m.role='owner' AND m.is_active
+                  )
+             )
+             SELECT viewer.id AS reader_user_id,
+               EXISTS (SELECT 1 FROM reader_book_follows AS f
+                       WHERE f.user_id=viewer.id AND f.book_id=$2) AS following_book,
+               EXISTS (SELECT 1 FROM books AS b
+                       WHERE b.id=$2 AND b.owner_user_id=viewer.id
+                         AND NOT b.is_deleted AND NOT b.admin_hold) AS is_owner,
+               (SELECT owner_user_id FROM creator) AS creator_user_id,
+               EXISTS (SELECT 1 FROM creator_follow_periods AS p
+                       JOIN creator AS c ON c.owner_user_id=p.creator_user_id
+                       WHERE p.follower_user_id=viewer.id AND p.ended_at IS NULL)
+                     AS following_creator
+             FROM viewer",
+        )
+        .bind(session_digest.as_slice())
+        .bind(book_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| {
+            Ok((
+                row.try_get("reader_user_id")?,
+                BookPageFollowState {
+                    following_book: row.try_get("following_book")?,
+                    is_owner: row.try_get("is_owner")?,
+                    creator_user_id: row.try_get("creator_user_id")?,
+                    following_creator: row.try_get("following_creator")?,
+                },
+            ))
+        })
+        .transpose()
     }
 
     pub async fn creator_for_public_book(

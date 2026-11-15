@@ -86,7 +86,7 @@ async fn read_state_post(
 
 async fn followed_page(app: &Router, cookies: &str) -> String {
     let request = Request::builder()
-        .uri("/me/library")
+        .uri("/me/library?view=updates")
         .header(header::COOKIE, cookies)
         .body(Body::empty())
         .expect("request");
@@ -478,7 +478,7 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     loop {
         let (status, html) = author_chapter_page(&app, public, &one, after.as_deref()).await;
         assert_eq!(status, StatusCode::OK);
-        let count = html.matches("<li>№").count();
+        let count = html.matches("<li class=\"author-chapter-row\">").count();
         assert!(count > 0 && count <= 100, "bounded author page");
         seen += count;
         pages += 1;
@@ -804,6 +804,9 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     );
     pool.close().await;
 }
+
+#[path = "book_follow_http_pg/s018_email_proof_http_pg.rs"]
+mod s018_email_proof;
 
 #[path = "book_follow_http_pg/s014_profile_follow.rs"]
 mod s014_profile_follow;

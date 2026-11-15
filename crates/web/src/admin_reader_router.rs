@@ -1,8 +1,8 @@
 //! Site-administrator current unsealed reading in normal PG/auth modes.
 //! This does not depend on a private G adapter or enable paid checkout.
 use super::{
-    auth, auth_cookies, book_follow_page, make_router_with_paid_checkout, paid_grants_http, ril,
-    ReaderModes,
+    auth, auth_cookies, book_follow_page, header_nav, make_router_with_paid_checkout,
+    paid_grants_http, ril, ReaderModes,
 };
 use axum::Router;
 use std::sync::Arc;
@@ -22,6 +22,18 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
     enable_cover_uploads: bool,
 ) -> Router {
     let auth_reader = reader.clone();
+    let navigation_accounts = accounts.clone();
+    let navigation_cookies = auth_cookies::CookiePolicy {
+        secure,
+        origin: public_origin.clone(),
+    };
+    let flow = crate::recommendation_http::visits::Context::new(
+        accounts.clone(),
+        auth_cookies::CookiePolicy {
+            secure,
+            origin: public_origin.clone(),
+        },
+    );
     let follows =
         book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone());
     let admin = paid_grants_http::administrator_only_router(
@@ -41,20 +53,20 @@ pub(super) fn authenticated_postgres_reader_without_paid_g(
         ),
         _ => auth::router(accounts, auth_reader, secure, public_origin),
     };
-    ril::instrument(
-        make_router_with_paid_checkout(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_objects,
-            Some(follows),
-            ReaderModes {
-                paid_browser: false,
-                admin_reader: true,
-            },
-        )
-        .merge(owner_auth)
-        .merge(admin),
+    let app = make_router_with_paid_checkout(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        Some(reader),
+        true,
+        cover_objects,
+        Some(follows),
+        ReaderModes {
+            paid_browser: false,
+            admin_reader: true,
+        },
     )
+    .merge(owner_auth)
+    .merge(admin);
+    let app = header_nav::instrument(app, navigation_accounts, navigation_cookies);
+    ril::instrument(crate::recommendation_http::visits::instrument(app, flow))
 }

@@ -75,6 +75,12 @@ AUDITED_G09_ADMIN = {
     ("GET", "/admin/storage/g09", "page", "admin_g09"),
     ("POST", "/admin/storage/g09/{direction}/{scope}/{action}", "command", "admin_g09"),
 }
+AUDITED_SURPRISE_ADMIN = {
+    ("GET", "/admin/surprises", "page", "admin_surprises"),
+    ("POST", "/admin/surprises/policy", "policy", "admin_surprises"),
+    ("POST", "/admin/surprises/create", "create", "admin_surprises"),
+    ("POST", "/admin/surprises/{id}/state", "set_state", "admin_surprises"),
+}
 AUDITED_PAYOUT_ADMIN = {
     ("GET", "/admin/finance/payouts", "queue", "admin_payout"),
     ("POST", "/admin/finance/payouts/{id}/reject", "reject", "admin_payout"),
@@ -150,6 +156,22 @@ def check_repository(root: Path = ROOT) -> list[str]:
                             and key in AUDITED_REFUND_ADMIN)
             allow_g09 = (row["source"] == "crates/web/src/g09_operator.rs"
                          and key in AUDITED_G09_ADMIN)
+            allow_editorial = (row["source"] == "crates/web/src/editorial_http/mod.rs"
+                               and key in {("GET", "/admin/promotion/editorial", "admin::page", "admin_editorial"),
+                                           ("POST", "/admin/promotion/editorial", "admin::submit", "admin_editorial")})
+            # Only these two handler names have the independently reviewed
+            # live administrator and session-bound CSRF/CAS proof in RIL-08.
+            allow_ratio_admin = (
+                row["source"] == "crates/web/src/recommendation_http/mod.rs"
+                and key in {
+                    ("GET", "/admin/recommendations", "admin::shares_page", "administrator"),
+                    ("POST", "/admin/recommendations", "admin::shares_submit", "administrator"),
+                }
+            )
+            allow_observations = (row["source"] == "crates/web/src/flow_exposure/mod.rs"
+                                  and key == ("GET", "/admin/audience/exposure", "report::page", "administrator"))
+            allow_surprise = (row["source"] == "crates/web/src/auth/surprise_admin.rs"
+                              and key in AUDITED_SURPRISE_ADMIN)
             allow_payout = (row["source"] == "crates/web/src/auth/admin_creator_payouts.rs"
                             and key in AUDITED_PAYOUT_ADMIN)
             allow_s049 = (row["source"] == "crates/web/src/auth/book_shares.rs"
@@ -170,13 +192,22 @@ def check_repository(root: Path = ROOT) -> list[str]:
                     ("GET", "/admin/audience", "page", "administrator"),
                     ("GET", "/admin/audience/books", "books::page", "administrator"),
                     ("GET", "/admin/audience/groups", "groups::page", "administrator"),
+                    ("GET", "/admin/audience/returns", "returns::page", "administrator"),
+                    ("GET", "/admin/audience/visits", "visits::page", "administrator"),
+                    ("GET", "/admin/audience/funnel", "funnel::page", "administrator"),
+                    ("GET", "/admin/audience/reading", "canonical::page", "administrator"),
+                    ("GET", "/admin/audience/signals", "signals::page", "administrator"),
+                    ("GET", "/admin/audience/pages", "public_pages::page", "administrator"),
+                    ("GET", "/admin/audience/seo", "seo::page", "administrator"),
+                    ("POST", "/admin/audience/seo/refresh", "seo::refresh", "administrator"),
                 }
             )
             allow_free_appeal = (row["source"] == "crates/web/src/auth/book_shares.rs"
                                  and key in AUDITED_S049_FREE_COMMENT_APPEALS)
             if not (allow_mail or allow_support or allow_refund or allow_payout or allow_s049 or allow_book
                     or allow_appeal or allow_paid or allow_paid_appeal or allow_free
-                    or allow_audience or allow_free_appeal or allow_g09):
+                    or allow_audience or allow_free_appeal or allow_g09 or allow_surprise or allow_observations or allow_editorial
+                    or allow_ratio_admin):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

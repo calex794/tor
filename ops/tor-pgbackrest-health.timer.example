@@ -1,0 +1,11 @@
+[Unit]
+Description=TOR PostgreSQL 18 WAL archive health poll (manual install only)
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=tor-pgbackrest-health.service
+
+# Deliberately no [Install]: never auto-enable this example.

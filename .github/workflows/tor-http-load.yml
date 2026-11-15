@@ -4,6 +4,8 @@ on:
     paths:
       - .github/workflows/tor-http-load.yml
       - tests/load/**
+      - tools/perf01_report.py
+      - tests/architecture/test_perf01_report.py
       - crates/search/src/repositories/catalog.rs
       - migrations/202610300021_public_catalog_exact_projection.sql
       # Workflow wiring is checked by unconditional Repository rules.
@@ -113,6 +115,10 @@ jobs:
           PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
             | tee "$RUNNER_TEMP/tor-load/catalog-10k-sql.txt"
+          # PERF-04b: same public FTS SQL, two planner strategies, 10k only.
+          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/perf04_search_plan_ab.sql \
+            | tee "$RUNNER_TEMP/tor-load/perf04-fts-10k-ab.txt"
       - name: Build optimised TOR web
         run: cargo build --release -p tor-web
       - name: Run local server and benchmark
@@ -165,6 +171,100 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
+      - name: PERF-02g concurrent Book GET with numeric SQLx pool timings
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3089
+          TOR_AUTH_ENABLED: '1'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+          TOR_CI_PERF02_POOL_TIMING: '1'
+        run: |
+          set -euo pipefail
+          [[ "$DATABASE_URL" == */tor_ci && "$PGHOST" == 127.0.0.1 ]] ||
+            { echo "PERF-02 refuses non-disposable PostgreSQL"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/tor-load/perf02-book"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/perf02-book/server.log" 2>&1 &
+          server_pid=$!
+          monitors=()
+          cleanup() {
+            for pid in "${monitors[@]}"; do kill "$pid" 2>/dev/null || true; done
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          [[ "$ready" == 1 ]] || { tail -n 80 "$RUNNER_TEMP/tor-load/perf02-book/server.log"; exit 1; }
+          pidstat -h -u -r -d -C 'tor-web|k6|postgres' 1 \
+            > "$RUNNER_TEMP/tor-load/perf02-book/pidstat.txt" 2>&1 &
+          monitors+=("$!")
+          (
+            while kill -0 "$server_pid" 2>/dev/null; do
+              printf '%s\t' "$(date -u +%FT%TZ)"
+              psql -X -A -t -q -c "
+                SELECT coalesce(state,'unknown') || '/' ||
+                       coalesce(wait_event_type,'cpu-or-none') || '/' ||
+                       coalesce(wait_event,'none') || ':' || count(*)
+                  FROM pg_stat_activity
+                 WHERE datname='tor_ci' AND usename='tor_app'
+                 GROUP BY state,wait_event_type,wait_event
+                 ORDER BY state,wait_event_type,wait_event
+              " | tr '\n' ';'
+              printf '\n'
+              sleep 2
+            done
+          ) > "$RUNNER_TEMP/tor-load/perf02-book/pg-activity.tsv" 2>&1 &
+          monitors+=("$!")
+          printf 'target_rps\toutcome\n' > "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+          baseline_failed=0
+          for rate in 20 50 100 200; do
+            echo "::group::PERF-02f Book guest+reader target $rate req/s"
+            printf '%s\t%s\tstart\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
+            if PERF02_BOOK_RPS="$rate" k6 run \
+              --summary-export "$RUNNER_TEMP/tor-load/perf02-book/summary-$rate.json" \
+              tests/load/perf02_book_detail.js 2>&1 \
+                | tee "$RUNNER_TEMP/tor-load/perf02-book/k6-$rate.log"; then
+              outcome=PASS
+            else
+              outcome=FAIL
+              if (( rate == 20 )); then baseline_failed=1; fi
+            fi
+            printf '%s\t%s\tfinish\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
+            printf '%s\t%s\n' "$rate" "$outcome" \
+              >> "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+            echo "::endgroup::"
+          done
+          # A passing k6 stage without measured SQLx acquisitions is a failure,
+          # not zero pool wait. Print only numeric aggregates; raw samples stay
+          # within the existing short-retention isolated artifact.
+          python3 tools/perf02_pool_evidence.py \
+            --root "$RUNNER_TEMP/tor-load/perf02-book" \
+            --json "$RUNNER_TEMP/tor-load/perf02-book/pool-evidence.json" \
+            | tee "$RUNNER_TEMP/tor-load/perf02-book/pool-evidence.log"
+          {
+            echo '## PERF-02g: concurrent real Book detail and pool checkout time'
+            echo 'Same release binary and PG18 fixture, one pool with max 3 connections.'
+            echo '| Total target GET/s (50% live session) | k6 result |'
+            echo '|---:|---|'
+            awk -F '\t' 'NR>1 {printf "| %s | %s |\n", $1, $2}' \
+              "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
+            echo
+            echo 'The paired guest/reader latency distributions and p50/p95/p99,'
+            echo 'process CPU, and PostgreSQL activity are preserved in the artifact.'
+            echo 'SQLx acquire metrics record successful connection checkout duration (queue + liveness/setup), not pure waiting or PostgreSQL CPU.'
+            echo '1-in-16 numeric Book sampling includes a few setup Book GETs; per-stage p95 is diagnostic.'
+            echo 'The stage-level numeric JSON is in perf02-book/pool-evidence.json.'
+            echo 'Higher-rate failures are capacity observations; only 20 req/s gates CI.'
+            echo 'No VPS, production database, personal account or paid mutation.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if (( baseline_failed != 0 )); then exit 1; fi
       - name: Measure multi-page reader journeys (isolated smoke)
         if: ${{ github.event_name == 'pull_request' }}
         env:
@@ -202,7 +302,12 @@ jobs:
           bash tests/load/perf252_seed_writers_ci.sh
           ./target/release/tor-web > "$RUNNER_TEMP/tor-load/progress/server.log" 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          monitor_pid=''
+          cleanup() {
+            if [[ -n "$monitor_pid" ]]; then kill "$monitor_pid" 2>/dev/null || true; fi
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
           ready=0
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
@@ -212,8 +317,43 @@ jobs:
           if [[ "$ready" != 1 ]]; then cat "$RUNNER_TEMP/tor-load/progress/server.log"; exit 1; fi
           python3 tests/load/perf252_seed_buyers_ci.py |
             tee "$RUNNER_TEMP/tor-load/progress/paid-fixture.txt"
+          pidstat -h -u -r -d -C 'tor-web|k6|postgres' 1 \
+            > "$RUNNER_TEMP/tor-load/progress/pidstat.txt" 2>&1 &
+          monitor_pid=$!
+          printf 'journeys_per_second\toutcome\n' > "$RUNNER_TEMP/tor-load/progress/results.tsv"
+          # Baseline: 25/s for 60s; paid fixture also allows one endpoint iteration.
           k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
-            tests/load/tor_authenticated_progress.js | tee "$RUNNER_TEMP/tor-load/progress/k6.log"
+            tests/load/tor_authenticated_progress.js |
+            tee "$RUNNER_TEMP/tor-load/progress/k6.log"
+          # Keep PERF-01's existing supplemental evidence paths intact.
+          cp "$RUNNER_TEMP/tor-load/progress/summary.json" \
+            "$RUNNER_TEMP/tor-load/progress/summary-25.json"
+          cp "$RUNNER_TEMP/tor-load/progress/k6.log" \
+            "$RUNNER_TEMP/tor-load/progress/k6-25.log"
+          printf '25\tPASS\n' >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
+          # PERF-02h: extra capacity probes share the *same* disposable PG18
+          # and reuse real registered readers. Each rate owns a disjoint set
+          # of seeded paid chapters, including one endpoint iteration per stage:
+          # 121 + 61 + 121 = at most 303 purchases; exhaustion stays a failure.
+          # Higher-rate failures are preserved as evidence, not release gates.
+          for rate in 50 100; do
+            echo "::group::PERF-02h mixed business journeys $rate/s"
+            if TOR_PERF252_JOURNEYS_PER_SECOND="$rate" k6 run \
+              --summary-export "$RUNNER_TEMP/tor-load/progress/summary-$rate.json" \
+              tests/load/tor_authenticated_progress.js 2>&1 |
+                tee "$RUNNER_TEMP/tor-load/progress/k6-$rate.log"; then
+              outcome=PASS
+            else
+              outcome=FAIL
+            fi
+            printf '%s\t%s\n' "$rate" "$outcome" \
+              >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
+            echo "::endgroup::"
+          done
+          python3 tools/perf02h_mixed_evidence.py \
+            --root "$RUNNER_TEMP/tor-load/progress" \
+            --json "$RUNNER_TEMP/tor-load/progress/mixed-evidence.json" \
+            | tee "$RUNNER_TEMP/tor-load/progress/mixed-evidence.log"
           saved_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND revision>0")"
           printf '%s\n' "$saved_count" | tee "$RUNNER_TEMP/tor-load/progress/saved-count.txt"
@@ -257,7 +397,7 @@ jobs:
               WHERE u.email_normalized LIKE 'perf252-paid-buyer-%@tor-ci.example'")"
           if ! [[ "$purchases" =~ ^[0-9]+$ && "$paid_entries" =~ ^[0-9]+$ &&
                   "$paid_rights" =~ ^[0-9]+$ && "$total_balances" =~ ^[0-9]+$ ]] ||
-             (( purchases < 1 || purchases > 300 || paid_entries != purchases ||
+             (( purchases < 1 || purchases > 303 || paid_entries != purchases ||
                 paid_rights != purchases || total_balances != 160000 - purchases*100 )); then
             echo "PERF252 financial invariant failed (counts/balances only)" >&2
             exit 1
@@ -267,8 +407,16 @@ jobs:
             > "$RUNNER_TEMP/tor-load/progress/financial-counts.txt"
           {
             echo '## PERF-252 concurrent 10k-book journeys'
-            echo '25 complete user journeys/s for 60s: 13 progress/comment, 10 public reading, 2 paid purchases.'
-            echo 'k6 exports p50/p95/p99 by tagged HTTP action; exact PG purchases = wallet debits = library rights.'
+            echo 'Baseline 25 user journeys/s for 60s: 13 progress/comment, 10 public reading, 2 paid purchases.'
+            echo 'PERF-02h capacity probes: 50 and 100 journeys/s for 15s each, same PG18 and pool=3.'
+            echo '| Business journeys/s | Outcome |'
+            echo '|---:|---|'
+            awk -F '\t' 'NR>1 {printf "| %s | %s |\n", $1, $2}' \
+              "$RUNNER_TEMP/tor-load/progress/results.tsv"
+            echo 'Guest Book, free-progress writes and paid checkout p50/p95/p99 are in mixed-evidence.json.'
+            echo 'Stages run consecutively with fresh sessions and disjoint paid chapter IDs; not a before/after A/B.'
+            echo 'Higher-rate failures are measurements, not release gates.'
+            echo 'Post-run database invariants: exact PG purchases = wallet debits = library rights.'
             echo "Stored comments: $comment_count; unique paid purchases: $purchases."
             echo 'Only disposable tor_ci and 127.0.0.1; no payment provider or VPS.'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -397,6 +545,18 @@ jobs:
           # Test script refuses any database other than the disposable tor_ci,
           # and the k6 harness hardcodes a localhost-only HTTP target.
           bash tests/load/catalog_dense_100k_ci.sh
+      - name: PERF-01 normalize existing k6 evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load"
+          python3 tools/perf01_report.py \
+            --root "$RUNNER_TEMP/tor-load" \
+            --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --json "$RUNNER_TEMP/tor-load/perf01-evidence.json" \
+            --markdown "$RUNNER_TEMP/tor-load/perf01-summary.md"
+          cat "$RUNNER_TEMP/tor-load/perf01-summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve isolated benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4

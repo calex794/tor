@@ -2,7 +2,9 @@
 use crate::auth_cookies::CookiePolicy;
 use axum::{
     extract::DefaultBodyLimit,
+    http::{header, HeaderValue},
     middleware,
+    response::Response,
     routing::{get, post},
     Router,
 };
@@ -16,6 +18,9 @@ mod author;
 mod decorate;
 mod organic;
 mod pages;
+pub(crate) mod shelf_card;
+pub(crate) use api::retired;
+pub(crate) mod visits;
 
 #[derive(Clone)]
 pub(crate) struct Runtime {
@@ -24,8 +29,6 @@ pub(crate) struct Runtime {
     pub(super) store: PgRecommendations,
     pub(super) publishing: PgRecommendationPolicy,
     pub(super) enabled: bool,
-    pub(super) collection: bool,
-    pub(super) organic: bool,
 }
 impl Runtime {
     pub(crate) fn new(accounts: PgAccounts, cookies: CookiePolicy) -> Self {
@@ -35,8 +38,6 @@ impl Runtime {
             accounts,
             cookies,
             enabled: std::env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() == Ok("1"),
-            collection: std::env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1"),
-            organic: std::env::var("TOR_ORGANIC_ATTRIBUTION_ENABLED").as_deref() == Ok("1"),
         }
     }
 }
@@ -58,9 +59,23 @@ pub(crate) fn routes(state: Runtime) -> Router {
             "/api/v1/me/recommendation-feedback",
             get(api::feedback_list).post(api::feedback),
         )
+        .route(
+            "/admin/recommendations",
+            get(admin::shares_page).post(admin::shares_submit),
+        )
         .route("/me/recommendations", get(pages::page))
+        .route("/me/recommendations/shelf-preview", get(admin::shelf::page))
         .route("/me/recommendations/consent", post(pages::consent))
+        .route("/me/recommendations/flow-consent", post(pages::consent))
         .route("/me/recommendations/feedback", post(pages::feedback))
+        .route(
+            "/api/v1/admin/recommendations/contextual",
+            get(admin::contextual::status).post(admin::contextual::control),
+        )
+        .route(
+            "/me/recommendations/contextual",
+            get(admin::contextual::page).post(admin::contextual::form),
+        )
         .route("/api/v1/admin/recommendations/quality", get(admin::quality))
         .route(
             "/api/v1/admin/recommendations/control",
@@ -77,7 +92,22 @@ pub(crate) fn routes(state: Runtime) -> Router {
         .route("/assets/recommendations.js", get(pages::script))
         .route("/assets/organic_discovery.js", get(organic::script))
         .layer(DefaultBodyLimit::max(32 * 1024))
+        .layer(middleware::map_response(private_robots))
         .with_state(state)
+}
+
+// Cover extractor rejections and redirects as well as successful private responses.
+// Explicit static-asset caching and public book/reader HTML keep their own policies.
+async fn private_robots(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .entry(header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    response
 }
 
 pub(crate) fn instrument(app: Router, state: Option<Runtime>) -> Router {

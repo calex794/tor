@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from ci_test_map import POSTGRES_RUNTIME_ONLY_TEST_FILES, RULES_ONLY_FILES, SUITES
+from ci_test_map import POSTGRES_RUNTIME_ONLY_TEST_FILES, READING_ANALYTICS_TEST_FILES, RULES_ONLY_FILES, SUITES
 from select_feature_tests import cargo_graph, closure, event_selection, select
 
 
@@ -22,6 +22,7 @@ class SelectionTests(unittest.TestCase):
         paths = [
             "Cargo.toml", "Cargo.lock", "crates/search/Cargo.toml", "rust-toolchain.toml",
             "crates/contracts/src/paid_delivery.rs", "crates/commerce/src/new_checkout.rs",
+            "crates/ads/src/repositories/editorial.rs",
             "crates/accounts/src/services/security.rs", "crates/books/src/repositories/postgres.rs",
             "crates/reading/src/services/progress.rs", "crates/storage/src/services/crypto.rs",
             "crates/ingest/src/services/cover_jobs.rs", "migrations/202610270999_access.sql",
@@ -43,7 +44,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_real_dependency_reaches_browser_for_recommendation_source(self):
         result = select(ROOT, ["crates/recommendations/src/services/ranking.rs"])
-        self.assertTrue({"rust", "postgres", "reader_browser", "visual", "cover_browser",
+        self.assertTrue({"rust", "postgres", "rec_browser", "reader_browser", "visual", "cover_browser",
                          "paid_e2e", "backup_recovery", "purchased_recovery"} <= enabled(result))
         self.assertIn("tor-web", result["packages"])
         self.assertNotIn("crypto", enabled(result))
@@ -52,7 +53,7 @@ class SelectionTests(unittest.TestCase):
     def test_known_postgres_integration_test_edits_do_not_start_unrelated_suites(self):
         # These test files are already run directly by the mandatory PG job;
         # selecting a file still runs the entire Rust and PostgreSQL jobs.
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 100)
         for path in (
             "crates/reading/tests/paid_tier_entitlement_pg.rs",
             "crates/web/tests/s020_age_editor_http_pg.rs",
@@ -70,6 +71,23 @@ class SelectionTests(unittest.TestCase):
             "crates/web/tests/s020_age_editor_http_pg.rs",
             "crates/web/src/auth.rs",
         ])), set(SUITES))
+
+    def test_reading_analytics_test_edit_selects_new_postgres_lane(self):
+        self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 36)
+        for path in (
+            "crates/reading/tests/audience_pg.rs",
+            "crates/search/tests/seo_pg.rs",
+            "crates/recommendations/tests/flow_visits_pg.rs",
+            "crates/web/tests/recommendation_share_admin_pg.rs",
+            "crates/web/tests/flow_funnel_http_pg.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, READING_ANALYTICS_TEST_FILES)
+                self.assertEqual(enabled(select(ROOT, [path])), {"rust", "reading_analytics"})
+        self.assertEqual(
+            enabled(select(ROOT, ["crates/search/tests/seo_pg/analytics.rs"])),
+            {"rust", "reading_analytics"},
+        )
 
     def test_only_image_test_does_not_boot_postgres_or_s3(self):
         result = select(ROOT, ["crates/ingest/tests/image_pipeline.rs"])
@@ -90,6 +108,9 @@ class SelectionTests(unittest.TestCase):
             "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
             "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
             "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
+            "tools/rec13_browser_acceptance.sh": {"rec_browser"},
+            "tools/rec13_browser.cjs": {"rec_browser"},
+            "tools/rec_shares_admin_pg_browser.cjs": {"rec_browser"},
             "tools/checkout_http_pg_smoke.py": {"postgres"},
             "tools/tor_pg_restart_smoke.sh": {"postgres"},
             "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
