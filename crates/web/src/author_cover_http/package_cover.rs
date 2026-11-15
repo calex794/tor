@@ -23,7 +23,11 @@ pub(super) async fn upload(
     let Some(token) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
-    let raw_actor = match state.accounts.active_session_user(&session_token_digest(&token)).await {
+    let raw_actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+    {
         Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
