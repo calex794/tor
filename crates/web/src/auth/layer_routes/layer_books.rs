@@ -30,8 +30,6 @@ mod offer_form;
 use offer_form::offer_form_html;
 
 use draft::{history_ids, valid_filter};
-#[cfg(test)]
-use draft::stage_choices;
 
 const PAGE_SIZE: u16 = 20;
 const GRID_PAGE_SIZE: u16 = 50;
