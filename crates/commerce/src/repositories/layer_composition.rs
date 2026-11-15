@@ -15,12 +15,19 @@ pub struct LayerBookTile {
 }
 
 #[derive(Clone, Debug)]
+pub struct LayerCoverOption {
+    pub id: i64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct LayerBookTilePage {
     pub books: Vec<LayerBookTile>,
     pub after: Option<i64>,
     pub next_after: Option<i64>,
     /// Stable current-package cover regardless of filtering or page cursor.
     pub hero_cover_id: Option<i64>,
+    pub cover_options: Vec<LayerCoverOption>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,8 +76,8 @@ impl PgLayers {
         if !(1..=50).contains(&limit) || search.chars().count() > 100 {
             return Err(LayerError::Invalid);
         }
-        let current: i64 = sqlx::query_scalar(
-            "SELECT current_version_id FROM commerce_layers
+        let (current, preferred): (i64, Option<i64>) = sqlx::query_as(
+            "SELECT current_version_id,cover_book_id FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden')",
         )
         .bind(layer.get())
@@ -79,24 +86,36 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
-        let hero_cover_id: Option<i64> = sqlx::query_scalar(
-            "SELECT b.id
+        let cover_rows = sqlx::query(
+            "SELECT b.id,b.title
              FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
              WHERE vb.layer_version_id=$1 AND b.visibility='public'
                AND b.visibility_status='active' AND NOT b.is_deleted
+               AND NOT b.admin_hold AND b.owner_user_id=$2
                AND EXISTS(
                  SELECT 1 FROM book_cover_slots s
                  JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
                  JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
                  WHERE s.book_id=b.id AND j.status='ready'
                )
-             ORDER BY b.id LIMIT 1",
+             ORDER BY b.id LIMIT 100",
         )
         .bind(current)
-        .fetch_optional(&self.pool)
+        .bind(actor.get())
+        .fetch_all(&self.pool)
         .await
         .map_err(|_| LayerError::Unavailable)?;
+        let mut cover_options = Vec::new();
+        for row in cover_rows {
+            cover_options.push(LayerCoverOption {
+                id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
+                title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
+            });
+        }
+        let hero_cover_id = preferred
+            .filter(|id| cover_options.iter().any(|book| book.id == *id))
+            .or_else(|| cover_options.first().map(|book| book.id));
         let rows = sqlx::query(
             "SELECT b.id,b.title,
                EXISTS(SELECT 1 FROM commerce_layer_version_books vb
@@ -150,6 +169,7 @@ impl PgLayers {
         }
         Ok(LayerBookTilePage {
             hero_cover_id,
+            cover_options,
             after: after.map(PositiveId::get),
             next_after: if more {
                 books.last().map(|b| b.id)
