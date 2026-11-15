@@ -151,6 +151,52 @@ fn create_attached_paid_chapter(url: &str, book: i64) -> i64 {
     chapter
 }
 
+async fn chromium_public_package(app: &Router, book: i64, layer: i64) {
+    let temporary = std::env::var("RUNNER_TEMP").expect("isolated browser test directory");
+    let fixture_path = std::path::Path::new(&temporary).join("h20-public-package.json");
+    let fixture = serde_json::json!({"book": book, "layer": layer});
+    std::fs::write(&fixture_path, fixture.to_string()).unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
+        .await
+        .expect("isolated loopback HTTP port");
+    let router = app.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .expect("live package HTTP server");
+    });
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/h_ui_20_package_browser.cjs");
+    assert!(script.is_file());
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new("timeout")
+            .args(["-k", "5s", "120s", "node"])
+            .arg(script)
+            .env("TOR_H20_REAL_BROWSER_FIXTURE", fixture_path)
+            .output()
+    })
+    .await
+    .unwrap()
+    .expect("Node and Chromium required");
+    server.abort();
+    let _ = server.await;
+    std::fs::remove_file(std::path::Path::new(&temporary).join("h20-public-package.json"))
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "H/UI-20 Chromium failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("H/UI-20 Chromium PASS: desktop and mobile")
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci and explicitly enabled package checkout"]
 async fn h_ui_20_book_and_batch_http_link_only_to_current_public_package() {
@@ -256,6 +302,8 @@ async fn h_ui_20_book_and_batch_http_link_only_to_current_public_package() {
         0,
         "the navigation must not create purchases",
     );
+
+    chromium_public_package(&app, book, layer).await;
 
     // Hiding the active package removes every public purchase link.
     pg(
