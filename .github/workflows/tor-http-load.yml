@@ -171,7 +171,7 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
-      - name: PERF-02f concurrent guest and authenticated Book GET (pool=3)
+      - name: PERF-02g concurrent Book GET with numeric SQLx pool timings
         if: ${{ github.event_name == 'pull_request' }}
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
@@ -179,6 +179,7 @@ jobs:
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3089
           TOR_AUTH_ENABLED: '1'
           TOR_PAID_CHECKOUT_ENABLED: '0'
+          TOR_CI_PERF02_POOL_TIMING: '1'
         run: |
           set -euo pipefail
           [[ "$DATABASE_URL" == */tor_ci && "$PGHOST" == 127.0.0.1 ]] ||
@@ -223,7 +224,7 @@ jobs:
           baseline_failed=0
           for rate in 20 50 100 200; do
             echo "::group::PERF-02f Book guest+reader target $rate req/s"
-            printf '%s\t%s\tstart\n' "$(date -u +%FT%TZ)" "$rate" \
+            printf '%s\t%s\tstart\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
             if PERF02_BOOK_RPS="$rate" k6 run \
               --summary-export "$RUNNER_TEMP/tor-load/perf02-book/summary-$rate.json" \
@@ -234,14 +235,21 @@ jobs:
               outcome=FAIL
               if (( rate == 20 )); then baseline_failed=1; fi
             fi
-            printf '%s\t%s\tfinish\n' "$(date -u +%FT%TZ)" "$rate" \
+            printf '%s\t%s\tfinish\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
             printf '%s\t%s\n' "$rate" "$outcome" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
             echo "::endgroup::"
           done
+          # A passing k6 stage without measured SQLx acquisitions is a failure,
+          # not zero pool wait. Print only numeric aggregates; raw samples stay
+          # within the existing short-retention isolated artifact.
+          python3 tools/perf02_pool_evidence.py \
+            --root "$RUNNER_TEMP/tor-load/perf02-book" \
+            --json "$RUNNER_TEMP/tor-load/perf02-book/pool-evidence.json" \
+            | tee "$RUNNER_TEMP/tor-load/perf02-book/pool-evidence.log"
           {
-            echo '## PERF-02f: concurrent real Book detail'
+            echo '## PERF-02g: concurrent real Book detail and pool checkout time'
             echo 'Same release binary and PG18 fixture, one pool with max 3 connections.'
             echo '| Total target GET/s (50% live session) | k6 result |'
             echo '|---:|---|'
@@ -250,7 +258,9 @@ jobs:
             echo
             echo 'The paired guest/reader latency distributions and p50/p95/p99,'
             echo 'process CPU, and PostgreSQL activity are preserved in the artifact.'
-            echo 'pg_stat_activity wait samples are NOT client SQLx pool-acquire waits.'
+            echo 'SQLx acquire metrics record successful connection checkout duration (queue + liveness/setup), not pure waiting or PostgreSQL CPU.'
+            echo '1-in-16 numeric Book sampling includes a few setup Book GETs; per-stage p95 is diagnostic.'
+            echo 'The stage-level numeric JSON is in perf02-book/pool-evidence.json.'
             echo 'Higher-rate failures are capacity observations; only 20 req/s gates CI.'
             echo 'No VPS, production database, personal account or paid mutation.'
           } >> "$GITHUB_STEP_SUMMARY"

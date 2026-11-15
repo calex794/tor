@@ -3,13 +3,16 @@
 use axum::{
     body::Body,
     extract::{MatchedPath, State},
-    http::{header::HeaderName, HeaderValue, Request, StatusCode},
+    http::{header::HeaderName, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::Response,
     Router,
 };
-use std::sync::OnceLock;
-use std::time::Instant;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    OnceLock,
+};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tor_observability::services::trace::{SqlEvidence, SqlSpan};
 use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
@@ -31,6 +34,9 @@ pub(crate) fn activate_sqlx_observation() -> bool {
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
 static RIL_PUMP_MONITOR: OnceLock<PgPumpMonitor> = OnceLock::new();
+// PERF-02g: no user-derived or request-derived identifiers are stored.
+static CI_POOL_TIMING_ON: OnceLock<bool> = OnceLock::new();
+static CI_POOL_SAMPLE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Process-local heartbeat. None means no PostgreSQL pump was started here.
 pub(crate) fn pump_health_snapshot() -> Option<PgPumpSnapshot> {
@@ -93,6 +99,21 @@ fn instrument_with_recorder(router: Router, recorder: TrafficRecorder) -> Router
         .layer(middleware::from_fn_with_state(recorder, observe))
 }
 
+// Exact registered Axum path, never a raw client URL or coarse RIL route family.
+fn is_measured_book_get(template: Option<&str>, method: &Method) -> bool {
+    template == Some("/books/{id}") && method == Method::GET
+}
+
+// A periodic 1-in-16 counter aliases with two equal-rate k6 scenarios.
+// SplitMix64 scrambles sequential completion numbers without any identity,
+// clock, random input, allocation, hashing of URLs or session data.
+fn sample_perf02_book_get(sequence: u64) -> bool {
+    let mut x = sequence.wrapping_add(0x9E3779B97F4A7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
+    (x ^ (x >> 31)) & 15 == 0
+}
+
 async fn observe(
     State(recorder): State<TrafficRecorder>,
     mut request: Request<Body>,
@@ -104,6 +125,8 @@ async fn observe(
         .get::<MatchedPath>()
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
+    // MatchedPath is a registered template, never a client-provided URL.
+    let measured_book_get = is_measured_book_get(template, request.method());
     let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
@@ -112,6 +135,37 @@ async fn observe(
     let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request), started).await;
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
+    // CI-only ~1-in-16 hash-sampled Book GETs. Never emit SQL, cookies, trace
+    // identifiers, IPs or book IDs. The successful SQLx acquire duration also
+    // includes liveness/connection setup; it is not strictly queue wait.
+    let sample_enabled = *CI_POOL_TIMING_ON.get_or_init(|| {
+        std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+            && std::env::var("TOR_CI_PERF02_POOL_TIMING").as_deref() == Ok("1")
+    });
+    if sample_enabled
+        && measured_book_get
+        && sample_perf02_book_get(CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed))
+    {
+        if let Some(measured) = sql_measurement.as_ref() {
+            let epoch_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            eprintln!(
+                concat!(
+                    "TOR_PERF02_POOL_SAMPLE epoch_ms={} status={} http_us={} ",
+                    "queries={} acquires={} acquire_total_us={} acquire_max_us={}"
+                ),
+                epoch_ms,
+                status,
+                elapsed.as_micros(),
+                measured.queries,
+                measured.pool_acquires,
+                measured.pool_acquire_elapsed_us,
+                measured.pool_acquire_max_us
+            );
+        }
+    }
     let observation = RouteObservation::new(passport, status, elapsed);
     crate::observability::record_http(passport.route_family, status, elapsed);
     // Sample only after the complete request, never independently per SQLx event.
@@ -376,6 +430,33 @@ mod tests {
         assert!(!debug.contains("SECRET"));
         assert!(!debug.contains("ABC"));
     }
+    #[test]
+    fn perf02g_hash_sampling_covers_both_alternating_load_scenarios() {
+        // Alternating guest/reader completions caused every-16th sampling
+        // to lock onto just one cohort. Verify both positions are represented.
+        let even = (0..3200_u64)
+            .filter(|sequence| sequence.is_multiple_of(2) && sample_perf02_book_get(*sequence))
+            .count();
+        let odd = (0..3200_u64)
+            .filter(|sequence| !sequence.is_multiple_of(2) && sample_perf02_book_get(*sequence))
+            .count();
+        assert!(even > 40 && even < 160, "even cohort: {even}");
+        assert!(odd > 40 && odd < 160, "odd cohort: {odd}");
+    }
+
+    #[test]
+    fn perf02g_measurement_matches_registered_book_get_not_route_family() {
+        assert_eq!(classify(Some("/books/{id}"), "GET").route_family, "/books/");
+        assert!(is_measured_book_get(Some("/books/{id}"), &Method::GET));
+        assert!(!is_measured_book_get(Some("/books/{id}"), &Method::POST));
+        assert!(!is_measured_book_get(
+            Some("/books/{id}/comments"),
+            &Method::GET
+        ));
+        assert!(!is_measured_book_get(Some("/me/books/{id}"), &Method::GET));
+        assert!(!is_measured_book_get(None, &Method::GET));
+    }
+
     #[tokio::test]
     async fn flow_02_real_html_is_recorded_but_api_and_bots_are_not() {
         use axum::response::Html;

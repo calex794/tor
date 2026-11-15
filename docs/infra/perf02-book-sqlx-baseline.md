@@ -117,3 +117,49 @@ this patch removes one separate like-count query on the same path in code.
 An actual new number must come from the CI trace artifact. There is no
 production performance claim, migration, pool increase, live DB change
 or deployment.
+
+
+## PERF-02g: successful SQLx pool acquisition duration in the same Book request
+
+The PERF-02f release k6 suite passed up to 200 GET/s with no dropped iterations
+on a disposable PostgreSQL 18 runner, but `pg_stat_activity` cannot observe
+tasks waiting in the application-side SQLx connection pool.
+
+SQLx 0.8.6 provides an opt-in numeric `sqlx::pool::acquire` tracing event
+(the upstream field is spelled `aquired_after_secs`). PERF-02g enables it
+**only** when all three are true: `GITHUB_ACTIONS=true`,
+`TOR_CI_PERF02_POOL_TIMING=1`, and the database URL ends in
+`@127.0.0.1:5432/tor_ci`. No live connections, pool size, timeouts, query
+executors, business authorization or PostgreSQL schema are changed.
+
+The existing RIL task-local subscriber now independently counts successful
+pool acquisitions, their total elapsed microseconds and worst acquisition
+duration for each HTTP request. The original SQLx query count/timing and
+bounded query-span evidence remain unchanged. Approximately one in sixteen Book
+requests is selected using SplitMix64 over a process-local sequence number, not
+fixed periodic sampling. This avoids phase-lock bias between equal-rate guest
+and authenticated k6 scenarios. Each selected request emits a numeric line
+without route IDs, SQL text,
+session cookies, IP addresses, user IDs, book IDs or trace IDs. The benchmark
+collects stage-labeled summaries of these values, along with existing k6
+guest/reader p50/p95/p99, PG activity and pidstat artifacts. The report
+also groups selected requests by observed numeric SQLx query count to expose
+cohort imbalance; query counts are not actor or authorization labels.
+
+**Important scope:** SQLx acquisition duration includes time waiting for a
+semaphore, checking idle connections, and establishing new connections. It is
+NOT pure application pool queue wait, PostgreSQL CPU, lock-wait time or a
+per-query DB execution duration. SQLx emits these events after successful
+acquisitions, not after timeouts. Stage samples include the few GETs used by
+k6 `setup()` to verify active sessions; they are diagnostic and **not** a
+paired request-level A/B study. `tools/perf02_pool_evidence.py` fails a
+nominally successful k6 stage if there are insufficient real numeric samples;
+missing acquisition evidence must never be reported as zero latency. k6
+--summary-export metrics may expose p50/p95/p99 directly or nested in values;
+the parser accepts both formats and validates the numeric statistics.
+
+Acceptance requires Repository rules, full Integration CI and isolated HTTP
+load on the current HEAD, including unit checks of the actual SQLx 0.8.6
+field name and the numeric-only report parser. Follow-up work must repeat
+representative adult/owner/pending-deletion workloads and measure wider
+competition before closing PERF-02. No deployment, new index or migration.
