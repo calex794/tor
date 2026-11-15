@@ -132,9 +132,14 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
                         let _ = counter.pool_acquire_elapsed_us.try_update(
                             Ordering::Relaxed,
                             Ordering::Relaxed,
-                            |old| old.checked_add(elapsed).filter(|v| *v <= MAX_US_PER_REQUEST),
+                            |old| {
+                                old.checked_add(elapsed)
+                                    .filter(|v| *v <= MAX_US_PER_REQUEST)
+                            },
                         );
-                        counter.pool_acquire_max_us.fetch_max(elapsed, Ordering::Relaxed);
+                        counter
+                            .pool_acquire_max_us
+                            .fetch_max(elapsed, Ordering::Relaxed);
                     });
                 }
             }
