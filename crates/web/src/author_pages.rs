@@ -174,6 +174,10 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
 
 pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
     let content = include_str!("../templates/author_new_book.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation("/me/books/new", csrf),
+        )
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
     layout("Создать книгу", "Новая книга в вашем кабинете.", &content)
@@ -203,6 +207,21 @@ pub fn create_conflict() -> Html<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_book_selects_creation_and_reuses_escaped_csrf_for_both_forms() {
+        let html = new_book("<csrf>", "<command>").0;
+        assert!(html.contains("href=\"/me/books/new\" aria-current=\"page\""));
+        assert_eq!(html.matches("aria-current=\"page\"").count(), 1);
+        assert!(!html.contains("aria-current=\"location\""));
+        assert_eq!(
+            html.matches("name=\"csrf_token\" value=\"&lt;csrf&gt;\"")
+                .count(),
+            2
+        );
+        assert!(html.contains("name=\"command_key\" value=\"&lt;command&gt;\""));
+        assert!(!html.contains("<!--ACCOUNT_NAVIGATION-->"));
+    }
 
     #[test]
     fn author_index_preserves_hostile_titles_navigation_and_the_list_limit() {

@@ -183,6 +183,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert_eq!(csrf_set.iter().count(), 1);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
     let new_html = body_of(new_page).await;
+    h_author_index_cases::editor_navigation(&new_html, "/me/books/new", "page");
     let author_csrf = csrf_token(&new_html);
     let command_key = new_html
         .split("name=\"command_key\" value=\"")
@@ -287,6 +288,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     .await;
     assert_eq!(chapter_page.status(), StatusCode::OK);
     let chapter_html = body_of(chapter_page).await;
+    h_author_index_cases::editor_navigation(&chapter_html, "/me/books", "location");
     let chapter_csrf = csrf_token(&chapter_html);
     let chapter_key = chapter_html
         .split("name=\"command_key\" value=\"")

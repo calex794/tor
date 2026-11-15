@@ -1,26 +1,43 @@
-<section class="section auth-section">
-  <div class="container">
-    <div class="auth-card author-chapter-card">
-      <p class="eyebrow">Кабинет автора</p>
-      <h1><!--CHAPTER_HEADING--></h1>
-      <p><!--CHAPTER_INFO--></p>
-      <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters" autocomplete="off">
+<section class="me-page author-workspace author-editor">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <header class="ui-page-header"><div class="ui-page-header__content">
+          <p class="ui-page-header__kicker">Кабинет автора · книга №<!--BOOK_ID--></p>
+          <h1 class="ui-page-header__title"><!--CHAPTER_HEADING--></h1>
+          <p class="ui-page-header__text"><!--CHAPTER_INFO--></p>
+      </div></header>
+      <form class="author-editor__form" method="post" action="/me/books/<!--BOOK_ID-->/chapters" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
-        <label for="chapter-number">Номер главы</label>
-        <input type="hidden" name="auto_number" value="1">
-        <input id="chapter-number" name="number" type="number" min="1" max="1000000" value="<!--NEXT_NUMBER-->" readonly required>
-        <small>Номер назначается сервером при сохранении; при одновременном добавлении глав он может измениться.</small>
-        <label for="chapter-title">Название главы</label>
-        <input id="chapter-title" name="title" type="text" maxlength="200" required>
-        <!--CHAPTER_ACCESS-->
-        <!--SCHEDULE_OPTION-->
-        <label for="chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
-        <textarea id="chapter-body" name="body" rows="14" maxlength="50000" required></textarea>
-        <button class="button" type="submit"><!--SAVE_LABEL--></button>
+        <fieldset class="author-editor__panel"><legend>Параметры главы</legend>
+          <div class="author-editor__fields">
+            <div class="author-editor__field">
+              <label for="chapter-title">Название главы</label>
+              <input class="ui-input" id="chapter-title" name="title" type="text" maxlength="200" required>
+            </div>
+            <div class="author-editor__field">
+              <label for="chapter-number">Номер главы</label>
+              <input type="hidden" name="auto_number" value="1">
+              <input class="ui-input" id="chapter-number" name="number" type="number" min="1" max="1000000" value="<!--NEXT_NUMBER-->" readonly required>
+              <small>Номер назначается сервером при сохранении; при одновременном добавлении глав он может измениться.</small>
+            </div>
+            <!--CHAPTER_ACCESS-->
+            <!--SCHEDULE_OPTION-->
+          </div>
+        </fieldset>
+        <fieldset class="author-editor__panel"><legend>Текст главы</legend>
+          <div class="author-editor__field">
+            <label for="chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
+            <textarea class="ui-textarea author-editor__body" id="chapter-body" name="body" rows="14" maxlength="50000" required></textarea>
+          </div>
+        </fieldset>
+        <div class="author-editor__actions">
+          <button class="ui-button" type="submit"><!--SAVE_LABEL--></button>
+          <a class="ui-button ui-button--ghost" href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a>
+        </div>
       </form>
-      <!--PAID_IMAGE_LINK-->
-      <p class="auth-card__footer"><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+      <div class="author-editor__related"><!--PAID_IMAGE_LINK--></div>
     </div>
   </div>
 </section>
