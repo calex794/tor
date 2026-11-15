@@ -15,6 +15,16 @@ function assert(ok, message) {
 }
 
 async function shot(page, viewport, scheme, state) {
+  assert(await page.locator('.account-sidebar').count() === 1,
+    viewport + '/' + scheme + ': cover settings lost account sidebar');
+  assert(await page.locator('.dashboard-nav a[href="/me/books"][aria-current="location"]').count() === 1,
+    viewport + '/' + scheme + ': cover settings lost author parent navigation');
+  assert(await page.locator('.dashboard-nav a[aria-current="page"]').count() === 0,
+    viewport + '/' + scheme + ': cover settings activated unrelated sidebar destination');
+  assert(await page.locator('.book-settings-tabs a[aria-current="page"]').count() === 1,
+    viewport + '/' + scheme + ': book settings must keep the active covers tab');
+  assert(await page.locator('.book-covers-form[method="post"][enctype="multipart/form-data"]').count() === 1,
+    viewport + '/' + scheme + ': real cover upload form missing');
   const frame = page.locator('.book-cover-picker__frame');
   const box = await frame.boundingBox();
   assert(box && Math.abs(box.width / box.height - 2 / 3) < 0.035,

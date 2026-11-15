@@ -207,6 +207,39 @@ fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
 }
 
 #[test]
+fn cover_settings_uses_owner_navigation_without_weakening_upload_guards() {
+    let book = OwnedBook {
+        id: 42,
+        title: "<script>cover</script>".into(),
+    };
+    let page = cover_settings(&book, "<csrf>", Some("pending"), false).0;
+    assert!(page.contains("class=\"account-sidebar\""));
+    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
+    assert!(page.contains("class=\"account-main\""));
+    assert!(page.contains("author-covers-page__breadcrumbs"));
+    assert!(page.contains("class=\"book-settings-tabs\""));
+    assert!(page.contains("aria-current=\"page\">Обложки</a>"));
+    assert!(page.contains("action=\"/me/books/42/cover\""));
+    assert!(page.contains("method=\"post\""));
+    assert!(page.contains("enctype=\"multipart/form-data\""));
+    assert!(page.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+    assert!(page.contains("type=\"file\""));
+    assert!(page.contains("name=\"cover\""));
+    assert!(page.contains("data-cover-slots-form"));
+    assert!(page.contains("data-cover-picker-input"));
+    assert!(page.contains("data-cover-picker-image"));
+    assert!(page.contains("src=\"/assets/newboo-cover-picker.js\""));
+    assert_eq!(page.matches("data-cover-picker-input").count(), 1);
+    assert_eq!(page.matches("data-cover-picker-image").count(), 1);
+    assert!(page.contains("Обложка ожидает обработки."));
+    assert!(page.contains("После загрузки файл проходит обработку и модерацию."));
+    assert!(page.contains("&lt;script&gt;cover&lt;/script&gt;"));
+    assert!(!page.contains("<script>cover</script>"));
+    assert!(!page.contains("/covers/42/main.webp"));
+}
+
+#[test]
 fn release_form_escapes_chapter_body_and_pins_version() {
     let chapter = PendingChapter {
         number: 4,
@@ -220,7 +253,63 @@ fn release_form_escapes_chapter_body_and_pins_version() {
     assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
     assert!(page.0.contains("&lt;/pre&gt;"));
     assert!(!page.0.contains("<script>bad()"));
+    assert!(page.0.contains("&lt;svg onload=1&gt;"));
+    assert!(page.0.contains("account-sidebar"));
+    assert!(page
+        .0
+        .contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(page
+        .0
+        .contains("tabindex=\"0\" aria-label=\"Текст выбранной редакции\""));
+    assert_eq!(
+        page.0
+            .matches("name=\"expected_revision\" value=\"3\"")
+            .count(),
+        2
+    );
+    assert_eq!(
+        page.0.matches("name=\"version_id\" value=\"86\"").count(),
+        2
+    );
+    assert_eq!(
+        page.0
+            .matches("name=\"csrf_token\" value=\"token\"")
+            .count(),
+        3
+    );
+    assert!(!page.0.contains("cancel-schedule"));
+    assert!(!page.0.contains("смогут читать все"));
+    for (status, label, cancellable) in [
+        ("pending", "Ожидает выпуска", true),
+        ("claimed", "Выпуск выполняется", false),
+        ("published", "Опубликовано", false),
+        ("cancelled", "Отменено", false),
+        ("stale", "Нужно проверить редакцию", true),
+        ("<script>bad()</script>", "Состояние недоступно", false),
+    ] {
+        let page = release_chapter(
+            2,
+            5,
+            &chapter,
+            "token",
+            Some(&ScheduledChapter {
+                scheduled_utc: "2030-11-15T12:00<unsafe>".into(),
+                status: status.into(),
+            }),
+        )
+        .0;
+        assert!(page.contains(label));
+        assert!(page.contains("2030-11-15T12:00&lt;unsafe&gt; UTC"));
+        assert!(!page.contains("<unsafe>"));
+        assert!(!page.contains("<script>bad()"));
+        assert_eq!(page.contains("/cancel-schedule"), cancellable);
+        assert_eq!(
+            page.matches("name=\"csrf_token\" value=\"token\"").count(),
+            if cancellable { 4 } else { 3 }
+        );
+    }
 }
+
 #[test]
 fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
     let published_book = OwnedBook {

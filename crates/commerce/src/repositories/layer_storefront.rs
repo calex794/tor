@@ -21,6 +21,7 @@ pub struct LayerStorefront {
     pub term_kind: String,
     pub public_books: Vec<StorefrontBook>,
     pub public_book_count: i64,
+    pub has_package_cover: bool,
     pub has_access: bool,
     pub has_lifetime_access: bool,
 }
@@ -50,7 +51,9 @@ pub async fn storefront(
     }
     let head = sqlx::query(
         "SELECT l.id,l.title,l.owner_user_id,l.current_version_id,
-                o.id AS offer_id,o.price_minor,o.term_kind
+                o.id AS offer_id,o.price_minor,o.term_kind,
+                EXISTS(SELECT 1 FROM commerce_layer_cover_candidates c
+                    WHERE c.layer_id=l.id AND c.status='approved') AS has_package_cover
          FROM commerce_layers l
          JOIN commerce_layer_offers o
            ON o.layer_id=l.id AND o.id=l.current_offer_id
@@ -155,6 +158,9 @@ pub async fn storefront(
             .map_err(|_| LayerError::Unavailable)?,
         public_books: books,
         public_book_count,
+        has_package_cover: head
+            .try_get("has_package_cover")
+            .map_err(|_| LayerError::Unavailable)?,
         has_access,
         has_lifetime_access,
     }))

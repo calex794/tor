@@ -69,8 +69,8 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         receipt = evaluate_ci(runs, jobs, SHA, expected)
         self.assertTrue(receipt["ci_complete"])
         self.assertEqual(receipt["verified_workflows"], 2)
-        self.assertEqual(receipt["verified_suites"], 14)
-        self.assertEqual(receipt["required_suites"], 14)
+        self.assertEqual(receipt["verified_suites"], len(SUITE_JOB_IDS))
+        self.assertEqual(receipt["required_suites"], len(SUITE_JOB_IDS))
         self.assertFalse(receipt["release_approved"])
         self.assertEqual(receipt["scope"], "CI-only, not a production or product-parity approval")
 

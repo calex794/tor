@@ -101,7 +101,7 @@ def summarize(root):
         "schema_version": 1,
         "environment": "disposable PostgreSQL 18 / tor_ci, same tor-web release process, pool max=3",
         "scope": "journeys per second; not individual HTTP requests per second",
-        "paid_chapters": "disjoint IDs across sequential runs, 300 total available",
+        "paid_chapters": "disjoint IDs across sequential runs, 303 total available (one endpoint reserve per stage)",
         "financial_gate": "verified independently against PG purchase facts, wallet entries, owned rights and remaining balances",
         "stages": stages,
     }

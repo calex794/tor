@@ -3,32 +3,48 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     routing::get,
     Router,
 };
 use serde::Deserialize;
-use std::fmt::Write;
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Write,
+};
 use tor_commerce::{
     domain::layers::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
         LayerTermKind,
     },
+    repositories::layer_covers::PgLayerCovers,
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
 use tor_contracts::paid_delivery::PositiveId;
 
+mod draft;
+mod grid;
+mod offer_form;
+
+use draft::{csv_ids, encoded_search_suffix, history_ids, valid_filter};
+use offer_form::offer_form_html;
+
 const PAGE_SIZE: u16 = 20;
+const GRID_PAGE_SIZE: u16 = 50;
 
 pub(super) fn routes() -> Router<AuthState> {
-    Router::new().route("/me/layers/{layer_id}/books", get(page).post(add))
+    Router::new().route(
+        "/me/layers/{layer_id}/books",
+        get(page).post(add).layer(DefaultBodyLimit::max(16 * 1024)),
+    )
 }
 
 pub(super) fn enabled() -> bool {
-    std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1")
+    // Enabled for authors by default; operators may explicitly disable the feature.
+    std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() != Ok("0")
 }
 
 #[derive(Default, Deserialize)]
@@ -36,15 +52,59 @@ pub(super) fn enabled() -> bool {
 pub(super) struct PickerQuery {
     after: Option<i64>,
     current_after: Option<i64>,
+    q: Option<String>,
+    filter: Option<String>,
+    history: Option<String>,
+    updated: Option<String>,
+    cover: Option<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct AddBookForm {
-    book_id: i64,
+    book_id: Option<i64>,
     csrf_token: Option<String>,
     operation: Option<String>,
     expected_version_id: Option<i64>,
+    confirm_composition: Option<String>,
+    visible_csv: Option<String>,
+    included_csv: Option<String>,
+    add_csv: Option<String>,
+    remove_csv: Option<String>,
+    active_buyers: Option<i64>,
+    lifetime_buyers: Option<i64>,
+    draft_revision: Option<i64>,
+    nav: Option<String>,
+    after: Option<i64>,
+    next_after: Option<i64>,
+    history_csv: Option<String>,
+    filter: Option<String>,
+    q: Option<String>,
+    #[serde(flatten)]
+    choices: HashMap<String, String>,
+}
+
+fn staged_changes(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
+    let visible = csv_ids(form.visible_csv.as_deref())?;
+    let included = csv_ids(form.included_csv.as_deref())?;
+    let visible_set: BTreeSet<_> = visible.iter().copied().collect();
+    let included_set: BTreeSet<_> = included.iter().copied().collect();
+    if visible.len() > usize::from(GRID_PAGE_SIZE)
+        || !included_set.is_subset(&visible_set)
+        || form.choices.len() > visible.len()
+    {
+        return None;
+    }
+    let mut selected = BTreeSet::new();
+    for (key, value) in &form.choices {
+        let id = key.strip_prefix("chosen_")?.parse::<i64>().ok()?;
+        if value != "1" || !visible_set.contains(&id) {
+            return None;
+        }
+        selected.insert(id);
+    }
+    let adds = selected.difference(&included_set).copied().collect();
+    let removes = included_set.difference(&selected).copied().collect();
+    Some((adds, removes))
 }
 
 pub(super) fn status(error: LayerError) -> StatusCode {
@@ -58,142 +118,167 @@ pub(super) fn status(error: LayerError) -> StatusCode {
     }
 }
 
-fn offer_form_html(layer: i64, offer: &LayerOwnerOfferState, csrf: &str) -> String {
-    let old = match (offer.price_minor, offer.term_kind) {
-        (Some(price), Some(kind)) => format!(
-            "Текущая оферта: {},{:02} ₽; {}.",
-            price / 100,
-            price % 100,
-            if kind == LayerTermKind::Lifetime {
-                "бессрочно"
-            } else {
-                "30 дней, ручное продление"
-            }
-        ),
-        _ => "Оферта ещё не опубликована.".to_owned(),
-    };
-    let price_value = offer.price_minor.map_or_else(String::new, |price| {
-        format!("{},{:02}", price / 100, price % 100)
-    });
-    let options = if offer.term_kind == Some(LayerTermKind::Lifetime) {
-        "<option value=\"lifetime\">Бессрочно</option>"
-    } else {
-        "<option value=\"prepaid_30d\">30 дней, только ручное продление</option>
-         <option value=\"lifetime\">Бессрочно, включая будущие книги</option>"
-    };
-    format!(
-        "<section aria-labelledby=\"layer-offer-heading\">
-         <h2 id=\"layer-offer-heading\">Цена и условия Layer</h2><p>{old}</p>
-         <p>Новая цена действует только для новых добровольных оплат.
-         Старые оплаченные сроки не меняются, автосписаний нет.
-         Для продажи нужен непустой состав и подтверждённые доли книг.</p>
-         <form method=\"post\" action=\"/me/layers/{layer}/offer\">
-         <label for=\"layer-price\">Цена в рублях</label>
-         <input id=\"layer-price\" name=\"price_rub\" type=\"text\"
-                inputmode=\"decimal\" placeholder=\"Например, 149,00\"
-                pattern=\"[0-9]+([,.][0-9]{{1,2}})?\" required
-                value=\"{price_value}\">
-         <label for=\"layer-term\">Вид доступа</label>
-         <select id=\"layer-term\" name=\"term_kind\">{options}</select>
-         <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
-         <input type=\"hidden\" name=\"expected_offer_id\" value=\"{}\">
-         <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-         <button class=\"button\" type=\"submit\">Опубликовать условия</button>
-         </form></section>",
-        offer.current_version_id,
-        offer.current_offer_id.unwrap_or(0),
-        pages::escape_html(csrf),
-    )
-}
-
-fn picker_html(
+fn picker_html_with_query(
     layer: i64,
     page: &LayerBookCandidatePage,
     current: &LayerCurrentBookPage,
     offer: &LayerOwnerOfferState,
     csrf: &str,
+    query: &str,
+    editable: bool,
 ) -> axum::response::Html<String> {
-    let mut list = String::new();
-    if page.books.is_empty() {
-        list.push_str(
-            "<p class=\"empty-state\">Подходящих книг нет. Добавить можно только книгу с одним активным участником — владельцем.</p>",
-        );
-    } else {
-        list.push_str("<ul class=\"author-book-list\">");
-        for book in &page.books {
-            write!(
-                list,
-                "<li><form method=\"post\" action=\"/me/layers/{layer}/books\">
-                 <span>{}</span>
-                 <input type=\"hidden\" name=\"book_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-                 <button class=\"button button--small\" type=\"submit\">Добавить книгу</button>
-                 </form></li>",
-                pages::escape_html(&book.title),
-                book.book_id,
-                pages::escape_html(csrf),
-            )
-            .expect("write String");
-        }
-        list.push_str("</ul>");
-    }
-    if let Some(cursor) = page.next_after {
-        write!(
-            list,
-            "<p><a class=\"text-link\" href=\"/me/layers/{layer}/books?after={cursor}\">Следующие книги</a></p>"
-        )
-        .expect("write String");
-    }
-    let mut current_list = String::from("<h2>Книги в Layer</h2>");
-    if current.books.is_empty() {
-        current_list.push_str("<p class=\"empty-state\">Книги пока не добавлены.</p>");
-    } else {
-        current_list.push_str("<ul class=\"author-book-list\">");
+    if !editable {
+        let mut current_list = String::from("<ul class=\"author-layers-page__books\">");
         for book in &current.books {
             write!(
                 current_list,
-                "<li><form method=\"post\" action=\"/me/layers/{layer}/books\">
-                 <span>{}</span>
-                 <input type=\"hidden\" name=\"book_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"operation\" value=\"remove\">
-                 <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
-                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-                 <button class=\"button button--small\" type=\"submit\">Убрать из Layer</button>
-                 </form></li>",
+                "<li><span>{}</span></li>",
                 pages::escape_html(&book.title),
-                book.book_id,
-                current.current_version_id,
-                pages::escape_html(csrf),
             )
             .expect("write String");
         }
         current_list.push_str("</ul>");
+        if current.books.is_empty() {
+            current_list = String::from("<p>Книги пока не добавлены.</p>");
+        }
+        if let Some(cursor) = current.next_after {
+            write!(
+                current_list,
+                r#"<p><a href="/me/layers/{layer}/books?current_after={cursor}">Следующие книги в пакете</a></p>"#,
+            )
+            .expect("write String");
+        }
+        let terms = match (offer.price_minor, offer.term_kind) {
+            (Some(price), Some(kind)) => format!(
+                "Последняя опубликованная цена: {},{:02} ₽; {}.",
+                price / 100,
+                price % 100,
+                if kind == LayerTermKind::Lifetime {
+                    "бессрочно"
+                } else {
+                    "30 дней"
+                },
+            ),
+            _ => "Цена ещё не опубликована.".to_owned(),
+        };
+        let hint = "<p>Пакет скрыт от новых покупок. Состав и цену нельзя менять, пока он скрыт. Название, описание и видимость можно изменить в разделе «Мои пакеты».</p>";
+        let content = include_str!("../../../templates/author_layer_books.html")
+            .replace(
+                "<!--ACCOUNT_NAVIGATION-->",
+                &pages::account_navigation("/me/layers", csrf),
+            )
+            .replace("<!--CURRENT_BOOKS-->", &current_list)
+            .replace("<!--BOOK_SEARCH-->", hint)
+            .replace("<!--AVAILABLE_BOOKS-->", "")
+            .replace(
+                "<!--OFFER_FORM-->",
+                &format!("<h2 id=\"layer-offer-heading\">Текущие условия</h2><p>{terms}</p>{hint}"),
+            );
+        return pages::private_account_layout(
+            "Скрытый пакет книг",
+            "Просмотр состава скрытого пакета без права изменения оплаченных условий.",
+            &content,
+        );
+    }
+
+    let suffix = encoded_search_suffix(query);
+    let csrf = pages::escape_html(csrf);
+    let mut current_list = String::new();
+    if current.books.is_empty() {
+        current_list.push_str("<p class=\"empty-state\">Книги пока не добавлены.</p>");
+    } else {
+        write!(
+            current_list,
+            r#"<form method="post" action="/me/layers/{layer}/books" class="author-layer-card__form">
+            <input type="hidden" name="operation" value="remove">
+            <input type="hidden" name="expected_version_id" value="{}">
+            <input type="hidden" name="csrf_token" value="{csrf}">
+            <ul class="author-layers-page__books">"#,
+            current.current_version_id,
+        ).expect("write String");
+        for book in &current.books {
+            write!(
+                current_list,
+                r#"<li><span>{}</span><button class="ui-button ui-button--ghost" type="submit"
+                   name="book_id" value="{}">Убрать</button></li>"#,
+                pages::escape_html(&book.title),
+                book.book_id,
+            )
+            .expect("write String");
+        }
+        current_list.push_str(
+            r#"</ul><label class="author-layers-page__confirm">
+                <input type="checkbox" name="confirm_composition" value="yes" required>
+                Подтверждаю изменение состава и сохранение ранее оплаченных прав
+               </label></form>"#,
+        );
     }
     if let Some(cursor) = current.next_after {
         write!(
             current_list,
-            "<p><a class=\"text-link\" href=\"/me/layers/{layer}/books?current_after={cursor}\">Следующие книги в Layer</a></p>"
-        )
-        .expect("write String");
+            r#"<p><a class="text-link" href="/me/layers/{layer}/books?current_after={cursor}{suffix}">Следующие книги в пакете</a></p>"#,
+        ).expect("write String");
     }
-    let offer_section = offer_form_html(layer, offer, csrf);
-    let content = format!(
-        "<section class=\"section auth-section\"><div class=\"container\">
-         <div class=\"auth-card author-card\">
-         <p class=\"eyebrow\">Подписка Layer</p><h1>Управление книгами</h1>
-         {current_list}
-         <p>Удаление из текущего состава не отменяет чтение, уже оплаченное подписчиками.</p>
-         {offer_section}
-         <h2>Добавить книгу</h2>
-         <p>В списке только собственные книги без других активных участников.
-         Книги с переводчиками или модераторами, даже с долей 0%, недоступны.
-         Перед добавлением состав команды проверяется повторно.</p>
-         {list}<p><a href=\"/me/books\">Мои книги</a></p>
-         </div></div></section>"
+
+    let search = format!(
+        r#"<form method="get" action="/me/layers/{layer}/books" class="author-layers-page__search">
+          <label for="package-search">Найти свою книгу по названию</label>
+          <input id="package-search" name="q" type="search" maxlength="100"
+                 value="{}" placeholder="Введите название">
+          <button class="ui-button ui-button--ghost" type="submit">Найти</button>
+          <a class="text-link" href="/me/layers/{layer}/books">Сбросить</a>
+        </form>"#,
+        pages::escape_html(query),
     );
-    pages::layout(
-        "Книги для Layer",
-        "Подбор только личных книг для подписки.",
+
+    let mut available = String::new();
+    if page.books.is_empty() {
+        available.push_str(
+            "<p class=\"empty-state\">Подходящих книг не найдено. Проверьте запрос или состав команды книги.</p>",
+        );
+    } else {
+        write!(
+            available,
+            r#"<form method="post" action="/me/layers/{layer}/books" class="author-layer-card__form">
+               <input type="hidden" name="csrf_token" value="{csrf}">
+               <ul class="author-layers-page__books">"#,
+        ).expect("write String");
+        for book in &page.books {
+            write!(
+                available,
+                r#"<li><span>{}</span><button class="ui-button ui-button--ghost" type="submit"
+                   name="book_id" value="{}">Добавить</button></li>"#,
+                pages::escape_html(&book.title),
+                book.book_id,
+            )
+            .expect("write String");
+        }
+        available.push_str(
+            r#"</ul><label class="author-layers-page__confirm">
+              <input type="checkbox" name="confirm_composition" value="yes" required>
+              Подтверждаю изменение состава и возможное расширение прав действующих покупателей
+              </label></form>"#,
+        );
+    }
+    if let Some(cursor) = page.next_after {
+        write!(
+            available,
+            r#"<p><a class="text-link" href="/me/layers/{layer}/books?after={cursor}{suffix}">Следующие книги</a></p>"#,
+        ).expect("write String");
+    }
+
+    let content = include_str!("../../../templates/author_layer_books.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &pages::account_navigation("/me/layers", &csrf),
+        )
+        .replace("<!--CURRENT_BOOKS-->", &current_list)
+        .replace("<!--BOOK_SEARCH-->", &search)
+        .replace("<!--AVAILABLE_BOOKS-->", &available)
+        .replace("<!--OFFER_FORM-->", &offer_form_html(layer, offer, &csrf));
+    pages::private_account_layout(
+        "Книги и цена пакета",
+        "Управление составом и условиями книжного пакета.",
         &content,
     )
 }
@@ -220,9 +305,37 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
-    let candidates = match service.addable_books(actor, layer, after, PAGE_SIZE).await {
-        Ok(candidates) => candidates,
+    let search = query.q.as_deref().unwrap_or("").trim();
+    let filter = query.filter.as_deref().unwrap_or("all");
+    let history = match history_ids(query.history.as_deref()) {
+        Some(history) => history,
+        None => return deny(StatusCode::BAD_REQUEST),
+    };
+    if !valid_filter(filter) {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    if search.chars().count() > 100 {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let editable = match service.owner_layer_status(actor, layer).await {
+        Ok(status) if status == "active" => true,
+        Ok(status) if status == "hidden" => false,
+        Ok(_) => return deny(StatusCode::NOT_FOUND),
         Err(error) => return deny(status(error)),
+    };
+    let candidates = if editable {
+        match service
+            .addable_books_matching(actor, layer, after, PAGE_SIZE, search)
+            .await
+        {
+            Ok(candidates) => candidates,
+            Err(error) => return deny(status(error)),
+        }
+    } else {
+        LayerBookCandidatePage {
+            books: Vec::new(),
+            next_after: None,
+        }
     };
     let current_after = match query.current_after.map(PositiveId::new).transpose() {
         Ok(after) => after,
@@ -242,11 +355,115 @@ pub(super) async fn page(
     if offer.current_version_id != current.current_version_id {
         return deny(StatusCode::CONFLICT);
     }
+    let metadata = match service.owner_layer(actor, layer).await {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
+    let draft = match service.composition_draft(actor, layer).await {
+        Ok(draft) => draft,
+        Err(LayerError::StaleOffer) => {
+            let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+            let content = format!(
+                r#"<section class="me-page author-workspace">
+                   <div class="container"><h1>Черновик пакета устарел</h1>
+                   <p>Состав пакета был изменён в другой вкладке или отдельной операцией.
+                      Старый выбор нельзя применить к новой версии автоматически.</p>
+                   <form method="post" action="/me/layers/{}/books">
+                     <input type="hidden" name="operation" value="discard_stale">
+                     <input type="hidden" name="csrf_token" value="{}">
+                     <button class="ui-button ui-button--primary" type="submit">
+                       Сбросить устаревший черновик
+                     </button>
+                   </form>
+                   <p><a href="/me/layers">Вернуться к пакетам</a></p>
+                   </div></section>"#,
+                layer.get(),
+                pages::escape_html(&csrf),
+            );
+            return private_response(
+                pages::private_account_layout(
+                    "Устаревший черновик",
+                    "Состав пакета изменился; требуется обновить выбор книг.",
+                    &content,
+                ),
+                &cookies,
+            );
+        }
+        Err(error) => return deny(status(error)),
+    };
+    if draft.version_id != offer.current_version_id {
+        return deny(StatusCode::CONFLICT);
+    }
+    let tiles = match service
+        .composition_tiles_filtered(
+            actor,
+            layer,
+            &tor_commerce::repositories::layer_composition::LayerTileQuery {
+                after,
+                search,
+                limit: GRID_PAGE_SIZE,
+                filter,
+            },
+            &draft,
+        )
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
+    let (approved, pending) = match PgLayerCovers::new(state.accounts.pool().clone())
+        .owner_view(actor, layer)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        picker_html(layer.get(), &candidates, &current, &offer, &csrf),
-        &cookies,
-    )
+    let (hero, settings, grid_markup) = grid::detail(
+        &metadata,
+        &tiles,
+        &offer,
+        grid::GridOptions {
+            csrf: &csrf,
+            query: search,
+            filter,
+            after: after.map(PositiveId::get),
+            history: &history,
+            draft: &draft,
+            editable,
+            cover: grid::GridCoverState {
+                approved: approved.is_some(),
+                pending: pending.is_some(),
+                upload_enabled: state.cover_upload_enabled,
+            },
+        },
+    );
+    let grid_markup = if query.updated.as_deref() == Some("1") {
+        format!(
+            r#"<p class="ui-alert ui-alert--success" role="status">Изменения пакета сохранены одной новой версией.</p>{grid_markup}"#
+        )
+    } else if query.cover.as_deref() == Some("queued") {
+        format!(
+            r#"<p class="ui-alert" role="status">Обложка загружена и отправлена на модерацию.</p>{grid_markup}"#
+        )
+    } else {
+        grid_markup
+    };
+    let mut html = picker_html_with_query(
+        layer.get(),
+        &candidates,
+        &current,
+        &offer,
+        &csrf,
+        search,
+        editable,
+    );
+    html.0 = html
+        .0
+        .replace("<!--PACKAGE_HERO-->", &hero)
+        .replace("<!--PACKAGE_METADATA-->", &settings)
+        .replace("<!--PACKAGE_GRID-->", &grid_markup);
+    private_response(html, &cookies)
 }
 
 pub(super) async fn add(
@@ -270,14 +487,68 @@ pub(super) async fn add(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let (Ok(actor), Ok(layer), Ok(book)) = (
-        PositiveId::new(actor),
-        PositiveId::new(raw_layer),
-        PositiveId::new(form.book_id),
-    ) else {
+    let (Ok(actor), Ok(layer)) = (PositiveId::new(actor), PositiveId::new(raw_layer)) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    if let Some(response) = draft::handle(&service, actor, layer, raw_layer, &form).await {
+        return response;
+    }
+    if form.operation.as_deref() == Some("preview") {
+        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        let Some((adds, removes)) = staged_changes(&form) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        return match service
+            .preview_composition(actor, layer, expected, &adds, &removes)
+            .await
+        {
+            Ok(preview) => private_response(
+                grid::review(
+                    layer.get(),
+                    &preview,
+                    form.csrf_token.as_deref().unwrap_or(""),
+                    0,
+                ),
+                &[],
+            ),
+            Err(error) => deny(status(error)),
+        };
+    }
+    if form.operation.as_deref() == Some("apply") {
+        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        let (Some(adds), Some(removes), Some(active), Some(lifetime)) = (
+            csv_ids(form.add_csv.as_deref()),
+            csv_ids(form.remove_csv.as_deref()),
+            form.active_buyers,
+            form.lifetime_buyers,
+        ) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        if form.confirm_composition.as_deref() != Some("yes") || !form.choices.is_empty() {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        return match service
+            .apply_composition(actor, layer, expected, &adds, &removes, (active, lifetime))
+            .await
+        {
+            Ok(_) => private_response(
+                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")),
+                &[],
+            ),
+            Err(error) => deny(status(error)),
+        };
+    }
+    let Some(Ok(book)) = form.book_id.map(PositiveId::new) else {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    if form.confirm_composition.as_deref() != Some("yes") || !form.choices.is_empty() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let result = match form.operation.as_deref() {
         None | Some("add") if form.expected_version_id.is_none() => {
             service.add_book(actor, layer, book).await
@@ -299,107 +570,15 @@ pub(super) async fn add(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tor_commerce::domain::layers::LayerBookCandidate;
-
-    fn current_empty() -> LayerCurrentBookPage {
-        LayerCurrentBookPage {
-            current_version_id: 42,
-            books: vec![],
-            next_after: None,
-        }
-    }
-
-    fn offer_empty() -> LayerOwnerOfferState {
-        LayerOwnerOfferState {
-            current_version_id: 42,
-            current_offer_id: None,
-            term_kind: None,
-            price_minor: None,
-        }
-    }
-
-    #[test]
-    fn d_05_picker_escapes_untrusted_book_titles_and_excludes_user_identity() {
-        let page = LayerBookCandidatePage {
-            books: vec![LayerBookCandidate {
-                book_id: 91,
-                title: "<script>alert('x')</script>".into(),
-            }],
-            next_after: Some(91),
-        };
-        let html = picker_html(9, &page, &current_empty(), &offer_empty(), "test_csrf").0;
-        assert!(html.contains("&lt;script&gt;"));
-        assert!(!html.contains("<script>"));
-        assert!(html.contains("name=\"book_id\" value=\"91\""));
-        assert!(html.contains("name=\"csrf_token\""));
-        assert!(html.contains("books?after=91"));
-        assert!(!html.contains("user_id"));
-        assert!(!html.contains("share_percent"));
-    }
-
-    #[test]
-    fn d_05_empty_picker_has_no_add_book_form() {
-        let html = picker_html(
-            9,
-            &LayerBookCandidatePage {
-                books: vec![],
-                next_after: None,
-            },
-            &current_empty(),
-            &offer_empty(),
-            "token",
-        )
-        .0;
-        assert!(html.contains("Подходящих книг нет"));
-        assert!(!html.contains("name=\"book_id\""));
-    }
-    #[test]
-    fn d_05_offer_form_is_cas_bound_and_never_contains_wallet_actor() {
-        let mut offer = offer_empty();
-        let html = offer_form_html(9, &offer, "<csrf>");
-        assert!(html.contains("action=\"/me/layers/9/offer\""));
-        assert!(html.contains("name=\"expected_version_id\" value=\"42\""));
-        assert!(html.contains("name=\"expected_offer_id\" value=\"0\""));
-        assert!(html.contains("&lt;csrf&gt;"));
-        assert!(!html.contains("wallet_id"));
-        assert!(!html.contains("user_id"));
-        offer.current_offer_id = Some(31);
-        offer.term_kind = Some(LayerTermKind::Lifetime);
-        offer.price_minor = Some(14999);
-        let html = offer_form_html(9, &offer, "csrf");
-        assert!(html.contains("value=\"149,99\""));
-        assert!(html.contains("name=\"expected_offer_id\" value=\"31\""));
-        assert!(!html.contains("value=\"prepaid_30d\""));
-    }
-
-    #[test]
-    fn d_05_current_layer_book_renders_version_bound_remove_form() {
-        let page = LayerCurrentBookPage {
-            current_version_id: 42,
-            books: vec![tor_commerce::domain::layers::LayerBookCandidate {
-                book_id: 91,
-                title: "<img onerror=alert(1)>".into(),
-            }],
-            next_after: Some(91),
-        };
-        let html = picker_html(
-            9,
-            &LayerBookCandidatePage {
-                books: vec![],
-                next_after: None,
-            },
-            &page,
-            &offer_empty(),
-            "test_csrf",
-        )
-        .0;
-        assert!(html.contains("name=\"operation\" value=\"remove\""));
-        assert!(html.contains("name=\"expected_version_id\" value=\"42\""));
-        assert!(html.contains("name=\"book_id\" value=\"91\""));
-        assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
-        assert!(!html.contains("<img onerror="));
-        assert!(html.contains("current_after=91"));
-    }
+fn picker_html(
+    layer: i64,
+    page: &LayerBookCandidatePage,
+    current: &LayerCurrentBookPage,
+    offer: &LayerOwnerOfferState,
+    csrf: &str,
+) -> axum::response::Html<String> {
+    picker_html_with_query(layer, page, current, offer, csrf, "", true)
 }
+
+#[cfg(test)]
+mod tests;

@@ -98,7 +98,10 @@ pub fn cover_settings(
         r#"<img class="book-cover-picker__image" alt="Предварительный просмотр выбранной обложки" data-cover-picker-image hidden>"#
             .to_owned()
     };
+    let nav_path = format!("/me/books/{}/settings/covers", book.id);
+    let navigation = crate::pages::account_navigation(&nav_path, csrf);
     let html = include_str!("../templates/author_cover_settings.html")
+        .replace("<!--ACCOUNT_NAVIGATION-->", &navigation)
         .replace("<!--BOOK_TITLE-->", &title)
         .replace("<!--BOOK_ID-->", &book.id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -363,63 +366,45 @@ pub fn release_chapter(
 ) -> Html<String> {
     let schedule_status = match schedule {
         Some(s) => format!(
-            "<p>Расписание: {} UTC · статус: {}</p>",
+            "<p class=\"author-editor__notice author-release__status\" role=\"status\">Расписание: {} UTC · {}</p>",
             escape_html(&s.scheduled_utc),
-            escape_html(&s.status)
+            match s.status.as_str() {
+                "pending" => "Ожидает выпуска",
+                "claimed" => "Выпуск выполняется",
+                "published" => "Опубликовано",
+                "cancelled" => "Отменено",
+                "stale" => "Нужно проверить редакцию",
+                _ => "Состояние недоступно",
+            }
         ),
         None => String::new(),
     };
     let cancel_form = if schedule.is_some_and(|s| s.status == "pending" || s.status == "stale") {
         format!(
-            r#"<form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
+            r#"<form class="author-release__cancel" method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
                <input type="hidden" name="csrf_token" value="{}">
-               <button class="button" type="submit">Отменить отложенный выпуск</button>
+               <div class="author-editor__actions"><button class="ui-button ui-button--ghost" type="submit">Отменить отложенный выпуск</button></div>
                </form>"#,
             escape_html(csrf)
         )
     } else {
         String::new()
     };
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container">
-        <div class="auth-card author-chapter-card">
-        <p class="eyebrow">Кабинет автора · книга №{book_id}</p>
-        <h1>Выпустить главу №{}</h1>
-        <h2>{}</h2>
-        <p>Проверяется редакция №{} (версия №{}). После выпуска эту версию смогут читать все.</p>
-        <pre class="author-release-preview">{}</pre>
-        <form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/release">
-          <input type="hidden" name="csrf_token" value="{}">
-          <input type="hidden" name="expected_revision" value="{}">
-          <input type="hidden" name="version_id" value="{}">
-          <button class="button" type="submit">Опубликовать эту главу</button>
-        </form>
-        <h3>Отложенный выпуск</h3>
-        <p>Время указывается в UTC, а не в часовом поясе браузера.</p>
-        {schedule_status}
-        <form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/schedule">
-          <input type="hidden" name="csrf_token" value="{}">
-          <input type="hidden" name="expected_revision" value="{}">
-          <input type="hidden" name="version_id" value="{}">
-          <label for="scheduled_utc">Дата и время (UTC)</label>
-          <input id="scheduled_utc" type="datetime-local" name="scheduled_utc" required>
-          <button class="button" type="submit">Запланировать или перенести выпуск</button>
-        </form>
-        {cancel_form}
-        <p><a href="/me/books/{book_id}">Вернуться к черновикам</a></p>
-        </div></div></section>"#,
-        chapter.number,
-        escape_html(&chapter.title),
-        chapter.revision,
-        chapter.version_id,
-        escape_html(&chapter.body),
-        escape_html(csrf),
-        chapter.revision,
-        chapter.version_id,
-        escape_html(csrf),
-        chapter.revision,
-        chapter.version_id,
-    );
+    let content = include_str!("../templates/author_release_chapter.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation(&format!("/me/books/{book_id}"), csrf),
+        )
+        .replace("<!--BOOK_ID-->", &book_id.to_string())
+        .replace("<!--CHAPTER_ID-->", &chapter_id.to_string())
+        .replace("<!--NUMBER-->", &chapter.number.to_string())
+        .replace("<!--REVISION-->", &chapter.revision.to_string())
+        .replace("<!--VERSION_ID-->", &chapter.version_id.to_string())
+        .replace("<!--SCHEDULE_STATUS-->", &schedule_status)
+        .replace("<!--CANCEL_FORM-->", &cancel_form)
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--TITLE-->", &escape_html(&chapter.title))
+        .replace("<!--BODY-->", &escape_html(&chapter.body));
     layout(
         "Выпустить главу",
         "Подтверждение публикации выбранной версии.",

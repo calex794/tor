@@ -1,6 +1,10 @@
 //! D-05: real PostgreSQL contract; isolated tor_ci database only.
 #[path = "layers_pg/layer_allocation.rs"]
 mod layer_allocation;
+#[path = "layers_pg/layer_composition.rs"]
+mod layer_composition;
+#[path = "layers_pg/layer_covers.rs"]
+mod layer_covers;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]

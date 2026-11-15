@@ -433,6 +433,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/sitemaps/books/{bucket}"), "GET") => Some(418),
         (Some("/admin/recommendations"), "GET") => Some(419),
         (Some("/admin/recommendations"), "POST") => Some(420),
+        (Some("/me/layers/{id}/cover"), "POST") => Some(421),
+        (Some("/layers/{layer_id}/cover/{variant}"), "GET") => Some(422),
+        (Some("/me/layers/{layer_id}/cover/{mode}"), "GET") => Some(423),
+        (Some("/moderation/layers/covers"), "GET") => Some(424),
+        (Some("/moderation/layers/covers/{id}/preview"), "GET") => Some(425),
+        (Some("/moderation/layers/covers/{id}/decision"), "POST") => Some(426),
         _ => None,
     };
     index

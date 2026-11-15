@@ -29,7 +29,7 @@ class CIRequiredGateTests(unittest.TestCase):
     def test_main_and_manual_require_complete_pack(self):
         for event in ("push", "workflow_dispatch"):
             with self.subTest(event=event):
-                self.assertEqual(verify(event, evidence())["verified"], 14)
+                self.assertEqual(verify(event, evidence())["verified"], len(SUITE_JOB_IDS))
                 with self.assertRaises(GateError):
                     verify(event, evidence({"rust"}))
 
@@ -40,6 +40,10 @@ class CIRequiredGateTests(unittest.TestCase):
         partial[SUITE_JOB_IDS["postgres"]]["result"] = "skipped"
         with self.assertRaises(GateError):
             verify("pull_request", partial)
+        browser = evidence({"rec_browser"})
+        browser[SUITE_JOB_IDS["rec_browser"]]["result"] = "skipped"
+        with self.assertRaises(GateError):
+            verify("pull_request", browser)
 
     def test_preflight_is_mandatory_even_for_docs_only(self):
         for state in ("failure", "skipped", "cancelled", None):

@@ -119,6 +119,7 @@ OWNER_CALLS = {
 
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
+    "owner_view", "owner_can_upload",
     "add_book", "remove_book_if_current", "create_once",
     "update_metadata_if_current", "offer_if_current", "delete_owned_collection",
 }
@@ -1288,6 +1289,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
             ("GET", "/moderation/books/deletions", "deletion_queue"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/deletion", "review_deletion"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/layers/covers", "queue"): "crates/web/src/auth/package_covers.rs",
+            ("GET", "/moderation/layers/covers/{id}/preview", "moderator_preview"): "crates/web/src/auth/package_covers.rs",
+            ("POST", "/moderation/layers/covers/{id}/decision", "decide"): "crates/web/src/auth/package_covers.rs",
             ("GET", "/moderation/covers", "page"): "crates/web/src/auth/moderation_covers.rs",
             ("GET", "/moderation/covers/{id}/preview", "preview"): "crates/web/src/auth/moderation_covers.rs",
             ("POST", "/moderation/covers/{id}/decision", "decide"): "crates/web/src/auth/moderation_covers.rs",
@@ -1664,6 +1668,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             operation = "list" if entry["method"] == "GET" else "create"
             scoped = bool(re.search(rf"\.{operation}\s*\(\s*actor\s*,", body)
                 and re.search(r"\bauthorized\s*\(\s*&state,", body))
+        elif (entry["source"] == "crates/web/src/auth/package_covers.rs"
+              and entry["template"].startswith("/moderation/layers/covers")):
+            # Reviewed H/UI-18: an independently verified A moderator/admin
+            # session gates every queue, image and decision request, and the
+            # repository performs a second role check inside the decision TX.
+            operation = {
+                ("GET", "/moderation/layers/covers", "queue"): ".pending_queue(40)",
+                ("GET", "/moderation/layers/covers/{id}/preview", "moderator_preview"): ".pending_by_id(candidate)",
+                ("POST", "/moderation/layers/covers/{id}/decision", "decide"): ".review(reviewer, candidate, approve, reason)",
+            }.get(admin_key)
+            scoped = bool(
+                operation and operation in evidence
+                and "session_actor(&digest)" in evidence
+                and "actor.moderator || actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence
+                and "StatusCode::UNAUTHORIZED" in evidence
+            )
         elif retired_policy:
             # No actor-bound mutation is permitted after retirement. The exact
             # route must instead prove guarded terminal 410 and no analytics IO.

@@ -321,7 +321,7 @@ jobs:
             > "$RUNNER_TEMP/tor-load/progress/pidstat.txt" 2>&1 &
           monitor_pid=$!
           printf 'journeys_per_second\toutcome\n' > "$RUNNER_TEMP/tor-load/progress/results.tsv"
-          # Baseline already accepted in PERF-252: 25/s for 60s, 120 purchases.
+          # Baseline: 25/s for 60s; paid fixture also allows one endpoint iteration.
           k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
             tests/load/tor_authenticated_progress.js |
             tee "$RUNNER_TEMP/tor-load/progress/k6.log"
@@ -333,7 +333,8 @@ jobs:
           printf '25\tPASS\n' >> "$RUNNER_TEMP/tor-load/progress/results.tsv"
           # PERF-02h: extra capacity probes share the *same* disposable PG18
           # and reuse real registered readers. Each rate owns a disjoint set
-          # of seeded paid chapters; 120 + 60 + 120 = at most 300 purchases.
+          # of seeded paid chapters, including one endpoint iteration per stage:
+          # 121 + 61 + 121 = at most 303 purchases; exhaustion stays a failure.
           # Higher-rate failures are preserved as evidence, not release gates.
           for rate in 50 100; do
             echo "::group::PERF-02h mixed business journeys $rate/s"
@@ -396,7 +397,7 @@ jobs:
               WHERE u.email_normalized LIKE 'perf252-paid-buyer-%@tor-ci.example'")"
           if ! [[ "$purchases" =~ ^[0-9]+$ && "$paid_entries" =~ ^[0-9]+$ &&
                   "$paid_rights" =~ ^[0-9]+$ && "$total_balances" =~ ^[0-9]+$ ]] ||
-             (( purchases < 1 || purchases > 300 || paid_entries != purchases ||
+             (( purchases < 1 || purchases > 303 || paid_entries != purchases ||
                 paid_rights != purchases || total_balances != 160000 - purchases*100 )); then
             echo "PERF252 financial invariant failed (counts/balances only)" >&2
             exit 1

@@ -457,6 +457,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push('\n');
         css.push_str(include_str!("../assets/account-ui.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/author-layers.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-library.css"));
         css
     });

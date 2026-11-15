@@ -178,9 +178,9 @@ and PostgreSQL 18 schema, reusing the accounts from the mandatory 25/s run:
 
 | Stage | Duration | Writer journeys/s | Public journeys/s | Paid journeys/s | Paid chapter ordinals |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Required baseline: 25 journeys/s | 60 s | 13 | 10 | 2 | 1-120 |
-| Capacity: 50 journeys/s | 15 s | 26 | 20 | 4 | 121-180 |
-| Capacity: 100 journeys/s | 15 s | 52 | 40 | 8 | 181-300 |
+| Required baseline: 25 journeys/s | 60 s | 13 | 10 | 2 | 1-121 |
+| Capacity: 50 journeys/s | 15 s | 26 | 20 | 4 | 122-182 |
+| Capacity: 100 journeys/s | 15 s | 52 | 40 | 8 | 183-303 |
 
 A *journey* contains multiple real HTTP requests and is not the same as
 one GET/s. New capacity stages log into existing readers rather than
@@ -209,3 +209,32 @@ role-specific acceptance before closing parent #888.
 
 No migrations, production traffic, working VPS/PG/S3 changes, pool resizing,
 wallet credit to real accounts, or deployment.
+
+
+## PERF-02h: duration-boundary fixture isolation
+
+The first real mixed-load run passed 25 journeys/s but reported one purchase
+failure at 50/s and two at 100/s despite zero HTTP failures or dropped
+iterations. k6 scheduled 121, 61 and 121 buyer iterations at the duration
+boundaries. The original ranges (1..120, 121..180, 181..300) therefore overlapped:
+the first purchase in the next stage was an idempotent replay, and the final
+stage also exhausted its fixture. This was not evidence of PostgreSQL saturation.
+
+Each stage now owns its nominal buyer count plus one bounded endpoint reserve:
+
+| Journeys/s | Paid editions reserved | Maximum buyer iterations |
+| ---: | --- | ---: |
+| 25 | 1..121 | 121 |
+| 50 | 122..182 | 61 |
+| 100 | 183..303 | 121 |
+
+The disposable fixture seeds 303 editions. An iteration beyond its own stage
+capacity still fails before HTTP; a replay instead of a new purchase still
+fails. No scheduled iteration is silently discarded and no failure threshold
+is relaxed. Wallet, purchase and entitlement postconditions remain exact.
+
+An executable Node/VM regression invokes the actual k6 paidReader function
+across all three sequential profiles with both nominal and extra boundary
+iterations. It reproduces the old overlap, rejects unexpected exhaustion,
+and preserves the rejection of an HTTP-200 replay as a new purchase. This
+isolated harness does not replace the real PostgreSQL/HTTP load acceptance.

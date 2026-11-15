@@ -25,13 +25,17 @@ impl PgLayers {
             .await
             .map_err(|_| LayerError::Unavailable)?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO commerce_layers(owner_user_id,title) VALUES($1,$2) RETURNING id",
+            "INSERT INTO commerce_layers(owner_user_id,title)
+             SELECT $1,$2 WHERE EXISTS (
+                 SELECT 1 FROM books WHERE owner_user_id=$1 AND NOT is_deleted
+             ) RETURNING id",
         )
         .bind(actor.get())
         .bind(title)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| LayerError::Unavailable)?;
+        .map_err(|_| LayerError::Unavailable)?
+        .ok_or(LayerError::Inaccessible)?;
         let version: i64 = sqlx::query_scalar(
             "INSERT INTO commerce_layer_versions(layer_id,version_no) VALUES($1,1) RETURNING id",
         )

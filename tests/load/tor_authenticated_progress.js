@@ -16,14 +16,15 @@ const progressLatency = new Trend('perf252_progress_save_ms', true);
 const purchaseLatency = new Trend('perf252_purchase_ms', true);
 
 // PERF-02h runs strictly sequenced profiles on ONE disposable database.
-// 25/s creates the reader accounts and paid chapters 1..120; subsequent
-// profiles log into those users, buying disjoint paid chapters up to 300.
+// Each stage reserves rate * duration purchases plus one endpoint iteration.
+// Subsequent profiles log into existing users and own disjoint paid ranges:
+// 1..121, 122..182, 183..303. Unexpected exhaustion remains a failure.
 // A journey contains multiple HTTP requests; rate is NOT raw GET/s.
 const journeysPerSecond = Number(__ENV.TOR_PERF252_JOURNEYS_PER_SECOND || '25');
 const profiles = {
-  25: { scale: 1, seconds: 60, paidOffset: 0, loginExisting: false },
-  50: { scale: 2, seconds: 15, paidOffset: 120, loginExisting: true },
-  100: { scale: 4, seconds: 15, paidOffset: 180, loginExisting: true },
+  25: { scale: 1, seconds: 60, paidOffset: 0, paidCapacity: 121, loginExisting: false },
+  50: { scale: 2, seconds: 15, paidOffset: 121, paidCapacity: 61, loginExisting: true },
+  100: { scale: 4, seconds: 15, paidOffset: 182, paidCapacity: 121, loginExisting: true },
 };
 const profile = profiles[journeysPerSecond];
 if (!profile) throw new Error('Unsupported PERF-252 mixed journey rate');
@@ -151,8 +152,9 @@ export function setup() {
 }
 export function paidReader(data) {
   // Unique across every VU, even when the scheduler reuses VUs under load.
-  const ordinal = profile.paidOffset + exec.scenario.iterationInTest + 1;
-  if (ordinal > 300) { purchaseFailures.add(1); return; }
+  const iteration = exec.scenario.iterationInTest;
+  if (iteration >= profile.paidCapacity) { purchaseFailures.add(1); return; }
+  const ordinal = profile.paidOffset + iteration + 1;
   const actor = data.buyers[(ordinal - 1) % data.buyers.length];
   const chapter = (2000000 + ordinal).toString();
   const version = (3000000 + ordinal).toString();

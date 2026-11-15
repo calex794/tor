@@ -26,6 +26,14 @@ pub fn offer_page(
     checkout_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&offer.title);
+    let package_cover = if offer.has_package_cover {
+        format!(
+            r#"<img src="/layers/{}/cover/main.webp" alt="Обложка пакета" class="layer-cover__image" width="190" height="285">"#,
+            offer.id
+        )
+    } else {
+        String::new()
+    };
     let mut list = String::new();
     if offer.public_books.is_empty() {
         list.push_str(
@@ -127,6 +135,11 @@ pub fn offer_page(
     } else {
         action.push_str("<p class=\"layer-note\" role=\"status\">Покупка сейчас отключена. Уже оплаченный доступ сохраняется.</p>");
     }
+    let lifetime_notice = if offer.term_kind == "lifetime" {
+        "<p class=\"layer-note\"><strong>Бессрочная покупка:</strong> право чтения распространяется и на будущие книги, добавленные в пакет. Изменение текущего состава не отменяет ранее полученные права.</p>"
+    } else {
+        ""
+    };
     let notice = if purchased && offer.has_access {
         "<p class=\"ui-alert ui-alert--success\" role=\"status\">Доступ к пакету сейчас действует. Его срок указан в личной библиотеке.</p>"
     } else {
@@ -138,6 +151,7 @@ pub fn offer_page(
          <h1 class=\"ui-page-header__title\">{title}</h1>
          <p class=\"ui-page-header__text\">Книги автора в одном пакете. Условия доступа указаны до оплаты.</p></div></header>
          {notice}
+         {package_cover}
          <div class=\"layers-public-layout\">
            <section class=\"layer-panel\" aria-labelledby=\"layer-books-title\">
              <h2 id=\"layer-books-title\">Состав пакета</h2>
@@ -147,6 +161,7 @@ pub fn offer_page(
            <aside class=\"layer-panel layer-storefront-offer\" aria-label=\"Условия покупки\">
              {static_price_card}
              {action}
+             {lifetime_notice}
              <p class=\"layer-note\">Оплата только из внутреннего кошелька. Автоматического продления нет.</p>
            </aside>
          </div>
@@ -249,7 +264,7 @@ mod tests {
 
     #[test]
     fn d05_offer_uses_real_newboo_components_and_escapes_untrusted_titles() {
-        let offer = LayerStorefront {
+        let mut offer = LayerStorefront {
             id: 8,
             title: "<script>alert('bad')</script>".into(),
             owner_id: 10,
@@ -265,6 +280,7 @@ mod tests {
                     has_cover: false,
                 },
             ],
+            has_package_cover: false,
             has_access: false,
             has_lifetime_access: false,
         };
@@ -284,6 +300,11 @@ mod tests {
         assert!(guest.contains("Войти и приобрести доступ"));
         assert_eq!(guest.matches("class=\"layer-offer__box").count(), 1);
         assert!(!guest.contains("csrf_token"));
+        let without_cover = offer_page(&offer, None, None, None, false, false).0;
+        assert!(!without_cover.contains("/layers/8/cover/main.webp"));
+        offer.has_package_cover = true;
+        let approved_cover = offer_page(&offer, None, None, None, false, false).0;
+        assert!(approved_cover.contains("/layers/8/cover/main.webp"));
         let disabled_guest = offer_page(&offer, None, None, None, false, false).0;
         assert!(disabled_guest.contains("Покупка временно отключена"));
         assert!(!disabled_guest.contains("Войти и приобрести доступ"));
@@ -335,6 +356,7 @@ mod tests {
             term_kind: "lifetime".into(),
             public_book_count: 1,
             public_books: Vec::new(),
+            has_package_cover: false,
             has_access: true,
             has_lifetime_access: true,
         };
@@ -364,6 +386,7 @@ mod tests {
                     has_cover: false,
                 },
             ],
+            has_package_cover: false,
             has_access: true,
             has_lifetime_access: false,
         };

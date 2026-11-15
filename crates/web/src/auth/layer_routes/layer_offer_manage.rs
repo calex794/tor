@@ -19,6 +19,8 @@ pub(super) struct OfferForm {
     expected_offer_id: i64,
     price_rub: String,
     term_kind: String,
+    confirm_pricing: Option<String>,
+    confirm_lifetime: Option<String>,
     csrf_token: Option<String>,
 }
 
@@ -96,6 +98,11 @@ pub(super) async fn publish(
         "lifetime" => true,
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
+    if form.confirm_pricing.as_deref() != Some("yes")
+        || (lifetime && form.confirm_lifetime.as_deref() != Some("yes"))
+    {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     match service
         .offer_if_current(
