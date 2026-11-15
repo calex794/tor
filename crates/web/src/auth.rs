@@ -96,6 +96,7 @@ mod notification_proof_delivery;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
+mod package_covers;
 mod password_change;
 mod password_reset;
 mod personal_books;
@@ -260,6 +261,7 @@ fn router_inner(
         .merge(surprise_http::router())
         .merge(surprise_admin::router())
         .merge(layer_routes::routes())
+        .merge(package_covers::routes())
         .merge(layer_storefront::router())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
