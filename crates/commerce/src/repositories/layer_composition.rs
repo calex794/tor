@@ -48,7 +48,7 @@ pub struct LayerTileQuery<'a> {
 }
 
 pub(super) fn validate(additions: &[i64], removals: &[i64]) -> Result<(), LayerError> {
-    if additions.len() + removals.len() > 100
+    if additions.len() + removals.len() > 200
         || additions.is_empty() && removals.is_empty()
         || additions.iter().chain(removals).any(|id| *id <= 0)
     {
