@@ -22,6 +22,13 @@ fn cover(id: i64, title: &str, has_cover: bool) -> String {
     }
 }
 
+#[derive(Default)]
+pub(super) struct GridCoverState {
+    pub approved: bool,
+    pub pending: bool,
+    pub upload_enabled: bool,
+}
+
 /// All page-navigation state comes from server-validated owner inputs.
 pub(super) struct GridOptions<'a> {
     pub csrf: &'a str,
@@ -31,6 +38,7 @@ pub(super) struct GridOptions<'a> {
     pub history: &'a [i64],
     pub draft: &'a LayerCompositionDraft,
     pub editable: bool,
+    pub cover: GridCoverState,
 }
 
 pub(super) fn detail(
@@ -47,14 +55,61 @@ pub(super) fn detail(
         history,
         draft,
         editable,
+        cover: cover_state,
     } = options;
     let title = pages::escape_html(&layer.title);
-    let hero_cover = books
-        .hero_cover_id
-        .map(|id| cover(id, "", true))
-        .unwrap_or_else(|| {
-            r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
-        });
+    let hero_cover = if cover_state.approved {
+        format!(
+            r#"<img src="/me/layers/{}/cover/approved" alt="Одобренная обложка пакета">"#,
+            layer.layer_id
+        )
+    } else {
+        books.hero_cover_id
+            .map(|id| cover(id, "", true))
+            .unwrap_or_else(|| {
+                r#"<span class="package-tile__initial" aria-hidden="true">К</span>"#.to_owned()
+            })
+    };
+    let cover_note = if cover_state.approved {
+        "Показана отдельная одобренная обложка пакета."
+    } else {
+        "Показана обложка одной из книг пакета."
+    };
+    let pending_preview = if cover_state.pending {
+        format!(
+            r#"<p>Новая обложка ожидает проверки модератора.</p>
+               <img src="/me/layers/{}/cover/preview"
+                 alt="Приватный предпросмотр ожидающей проверки обложки"
+                 loading="lazy" width="150" height="220">"#,
+            layer.layer_id,
+        )
+    } else {
+        String::new()
+    };
+    let cover_form = if cover_state.upload_enabled && !cover_state.pending
+        && layer.status != "blocked"
+    {
+        format!(
+            r#"<form method="post" action="/me/layers/{}/cover"
+                     enctype="multipart/form-data" class="package-cover-upload">
+                 <input type="hidden" name="csrf_token" value="{}">
+                 <label>Собственная обложка пакета (PNG, JPEG, WebP до 8 МиБ)
+                   <input type="file" name="cover"
+                     accept="image/png,image/jpeg,image/webp" required>
+                 </label>
+                 <button class="ui-button ui-button--ghost" type="submit">
+                   Отправить обложку на модерацию
+                 </button>
+               </form>"#,
+            layer.layer_id,
+            pages::escape_html(csrf),
+        )
+    } else if cover_state.pending {
+        "<p>Новая загрузка доступна после решения по текущей заявке.</p>".to_owned()
+    } else {
+        "<p>Загрузка отдельной обложки недоступна без подключённого хранилища S3.</p>"
+            .to_owned()
+    };
     let tariff = match (offer.price_minor, offer.term_kind) {
         (Some(price), Some(kind)) => format!(
             "{},{:02} руб. · {}",
@@ -89,7 +144,9 @@ pub(super) fn detail(
               <h1 id="package-title">{title}</h1>
               <p>{description}</p>
               <strong>{tariff}</strong>
-              <p class="package-hero__note">Показана обложка одной из книг пакета. Персональная обложка пакета пока не загружается.</p>
+              <p class="package-hero__note">{cover_note}</p>
+              {pending_preview}
+              {cover_form}
               {reader_link}
             </div>
            </section>"#,
