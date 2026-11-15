@@ -1,5 +1,6 @@
 //! S039/D-09: closed administrator payout queue and rejection-only action.
-//! No approval, wallet debit, or external settlement.
+//! Internal wallet posting is separately opt-in; no external bank settlement.
+mod posting;
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -47,6 +48,10 @@ pub(super) fn router() -> Router<AuthState> {
             "/admin/finance/payouts/{id}/reject",
             post(reject).layer(DefaultBodyLimit::max(4096)),
         )
+        .route(
+            "/admin/finance/payouts/{id}/post",
+            post(posting::submit).layer(DefaultBodyLimit::max(4096)),
+        )
 }
 
 fn status(error: PayoutAdminError) -> StatusCode {
@@ -83,7 +88,12 @@ fn shell(content: &str, cookies: &[String]) -> Response {
     response
 }
 
-fn render_request(row: &PayoutAdminRow, csrf: &str, allow_reject: bool) -> String {
+fn render_request(
+    row: &PayoutAdminRow,
+    csrf: &str,
+    allow_reject: bool,
+    allow_post: bool,
+) -> String {
     let label = if row.state == "pending" {
         "Ожидает решения (не перечислена)"
     } else if row.state == "rejected" {
@@ -119,6 +129,28 @@ fn render_request(row: &PayoutAdminRow, csrf: &str, allow_reject: bool) -> Strin
         )
         .expect("bounded rejection form");
     }
+    if allow_post && row.state == "pending" {
+        write!(
+            html,
+            r#"<form method="post" action="/admin/finance/payouts/{}/post"
+                autocomplete="off">
+              <input type="hidden" name="csrf_token" value="{}">
+              <label>Основание внутреннего списания
+                <textarea name="reason" maxlength="500" required></textarea>
+              </label>
+              <label>Текущий пароль администратора
+                <input type="password" name="current_password"
+                       autocomplete="current-password" required>
+              </label>
+              <p>Действие создаёт внутреннюю проводку и списывает средства
+              из единого кошелька. Банковский перевод не выполняется.</p>
+              <button type="submit">Создать внутреннюю проводку</button>
+              </form>"#,
+            row.id,
+            pages::escape_html(csrf),
+        )
+        .expect("bounded internal posting form");
+    }
     html.push_str("</article>");
     html
 }
@@ -145,7 +177,8 @@ async fn queue(
         Err(error) => return deny(status(error)),
     };
     let enabled = rejection_enabled();
-    let (csrf, cookies) = if enabled {
+    let can_post = posting::enabled();
+    let (csrf, cookies) = if enabled || can_post {
         state.cookies.csrf_for_page(&headers)
     } else {
         (String::new(), Vec::new())
@@ -158,7 +191,7 @@ async fn queue(
         body.push_str("<p>Заявок пока нет.</p>");
     }
     for row in &rows {
-        body.push_str(&render_request(row, &csrf, enabled));
+        body.push_str(&render_request(row, &csrf, enabled, can_post));
         if quote_enabled() && row.state == "pending" {
             write!(
                 body,
@@ -280,21 +313,30 @@ mod tests {
             state: "pending".into(),
             created_utc: "2026-11-10 00:00".into(),
         };
-        let html = render_request(&row, "csrf", true);
+        let html = render_request(&row, "csrf", true, false);
         assert!(html.contains("action=\"/admin/finance/payouts/9/reject\""));
         assert!(html.contains("name=\"csrf_token\""));
         assert!(!html.contains("name=\"amount_minor\""));
         assert!(!html.contains("Подтвердить выплату"));
         row.state = "rejected".into();
-        assert!(!render_request(&row, "csrf", true).contains("<form"));
+        assert!(!render_request(&row, "csrf", true, false).contains("<form"));
         row.state = "posted".into();
-        let posted = render_request(&row, "csrf", true);
+        let posted = render_request(&row, "csrf", true, false);
         assert!(posted.contains("Внутренняя проводка создана"));
         assert!(posted.contains("банковский перевод не подтверждён"));
         assert!(!posted.contains("<form"));
         row.state = "pending".into();
-        assert!(!render_request(&row, "csrf", false).contains("<form"));
+        assert!(!render_request(&row, "csrf", false, false).contains("<form"));
         row.created_utc = "<script>bad</script>".into();
-        assert!(!render_request(&row, "csrf", true).contains("<script>"));
+        assert!(!render_request(&row, "csrf", true, false).contains("<script>"));
+        row.created_utc = "2026-11-10 00:00".into();
+        let post_form = render_request(&row, "csrf", false, true);
+        assert!(post_form.contains("action=\"/admin/finance/payouts/9/post\""));
+        assert!(post_form.contains("name=\"current_password\""));
+        assert!(post_form.contains("name=\"csrf_token\""));
+        assert!(!post_form.contains("name=\"amount_minor\""));
+        assert!(post_form.contains("Банковский перевод не выполняется"));
+        row.state = "posted".into();
+        assert!(!render_request(&row, "csrf", false, true).contains("<form"));
     }
 }

@@ -316,6 +316,7 @@ class WorkflowWiringTests(unittest.TestCase):
             "paid_reader_browser_smoke.cjs",
             "batch_checkout_chromium_pg.cjs",
             "referral_share_browser_smoke.cjs",
+            "s039_payout_post_browser.cjs",
         )
         commands = []
         for name, body in (("required", required), ("manual", manual)):

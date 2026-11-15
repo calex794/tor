@@ -3018,6 +3018,13 @@
       "source": "crates/web/src/auth/layer_routes/layer_paid_sales.rs",
       "handler": "save",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/finance/payouts/{id}/post",
+      "source": "crates/web/src/auth/admin_creator_payouts.rs",
+      "handler": "posting::submit",
+      "policy": "admin_payout"
     }
   ]
 }
