@@ -229,6 +229,16 @@ impl LayerService {
             .await
     }
 
+    pub async fn discard_stale_composition_draft(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .discard_stale_composition_draft(actor, layer)
+            .await
+    }
+
     pub async fn apply_composition_draft(
         &self,
         actor: PositiveId,
