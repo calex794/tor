@@ -24,6 +24,7 @@ struct SaleForm {
     expected_version_id: i64,
     expected_revision: i64,
     mode: String,
+    days: Option<String>,
     confirm: String,
     csrf_token: String,
 }
@@ -53,11 +54,14 @@ fn show_page(
         let status = if book.restricted_elsewhere {
             "Платные главы зарезервированы для другого пакета.".to_owned()
         } else if book.restricted_here {
-            match &book.until_utc {
-                Some(until) => format!(
-                    "Ранний доступ до {until} UTC. После срока отдельные покупки откроются."
+            match (book.days, &book.until_utc) {
+                (Some(days), _) => format!(
+                    "Первые {days} суток от регистрации каждой главы — только через пакет. Для старых глав прямая продажа может быть открыта."
                 ),
-                None => {
+                (None, Some(until)) => format!(
+                    "Ранее установленный срок раннего доступа до {until} UTC."
+                ),
+                (None, None) => {
                     "Постоянно: новые платные главы продаются только через этот пакет.".to_owned()
                 }
             }
@@ -75,10 +79,11 @@ fn show_page(
                     <select id="sales-mode-{id}" name="mode" required>
                         <option value="" selected disabled>Выберите новый режим</option>
                         <option value="direct">Обычная продажа</option>
-                        <option value="7_days">Только пакет — первые 7 дней</option>
-                        <option value="14_days">Только пакет — первые 14 дней</option>
+                        <option value="early_days">Только пакет — N дней после регистрации каждой главы</option>
                         <option value="package_only">Только пакет — постоянно</option>
                     </select>
+                    <label for="sales-days-{id}">Дней от регистрации главы (1–365; только для режима N дней)</label>
+                    <input type="number" id="sales-days-{id}" name="days" min="1" max="365" step="1" value="{days}" required>
                     <label><input type="checkbox" name="confirm" value="yes" required>
                         Подтверждаю изменение новых продаж. Оплаченные права читателей сохраняются.
                     </label>
@@ -90,6 +95,7 @@ fn show_page(
                 id = book.id,
                 version = data.version_id,
                 revision = book.revision,
+                days = book.days.unwrap_or(7),
             )
         } else {
             "<p>Изменения недоступны, пока пакет не опубликован или книга закреплена за другим пакетом.</p>".to_owned()
@@ -122,9 +128,13 @@ fn show_page(
             <p>Режим касается <strong>только новых покупок платных глав</strong>.
                Бесплатные главы, все ранее оплаченные редакции и действующие права
                по пакетам остаются доступными по прежним правилам.</p>
-            <p>Пока выбран режим «только пакет», книгу нельзя продавать отдельными
-               главами или включать в другой пакет. Если пакет скрыть либо
-               исключить из него книгу, ограничение автоматически снимается.</p>
+            <p>Срок N дней отсчитывается от <strong>регистрации каждой главы</strong>, а не от
+               её публикации или изменения текста. Если глава опубликована после истечения
+               N дней, её можно сразу купить отдельно. В одной книге могут одновременно
+               быть открытые главы и главы, доступные только через пакет.</p>
+            <p>Пока выбран режим «только пакет», книгу нельзя включать в другой пакет.
+               Если пакет скрыть либо исключить из него книгу, ограничение снимается
+               для новых прямых покупок.</p>
             {notice}{disabled}{list}
           </div></section>"#,
     );
@@ -194,7 +204,7 @@ async fn save(
         PositiveId::new(raw_layer),
         PositiveId::new(form.book_id),
         PositiveId::new(form.expected_version_id),
-        PackagePaidMode::parse(&form.mode),
+        PackagePaidMode::parse_with_days(&form.mode, form.days.as_deref()),
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -231,6 +241,7 @@ mod tests {
                         restricted_here: true,
                         restricted_elsewhere: false,
                         until_utc: None,
+                        days: None,
                     },
                 ],
             },
