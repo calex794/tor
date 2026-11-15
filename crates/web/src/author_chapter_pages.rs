@@ -200,7 +200,11 @@ pub fn new_chapter(
             },
         )
         .replace("<!--SAVE_LABEL-->", "Сохранить главу")
-        .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link);
+        .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link)
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation(&format!("/me/books/{book_id}/chapters/new"), csrf),
+        );
     layout("Добавить главу", "Публикация главы автором", &html)
 }
 
@@ -337,7 +341,11 @@ fn edit_chapter_mode(
         )
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
-        .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
+        .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation(&format!("/me/books/{book_id}/chapters/{chapter_id}/edit"), csrf),
+        );
     layout("Редактировать главу", "Закрытый редактор черновика.", &html)
 }
 
