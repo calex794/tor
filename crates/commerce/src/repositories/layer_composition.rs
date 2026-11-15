@@ -18,6 +18,8 @@ pub struct LayerBookTile {
 pub struct LayerBookTilePage {
     pub books: Vec<LayerBookTile>,
     pub next_after: Option<i64>,
+    /// Stable current-package cover regardless of filtering or page cursor.
+    pub hero_cover_id: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,14 +78,35 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
+        let hero_cover_id: Option<i64> = sqlx::query_scalar(
+            "SELECT b.id
+             FROM commerce_layer_version_books vb
+             JOIN books b ON b.id=vb.book_id
+             WHERE vb.layer_version_id=$1 AND b.visibility='public'
+               AND b.visibility_status='active' AND NOT b.is_deleted
+               AND EXISTS(
+                 SELECT 1 FROM book_cover_slots s
+                 JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+                 JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
+                 WHERE s.book_id=b.id AND j.status='ready'
+               )
+             ORDER BY b.id LIMIT 1",
+        )
+        .bind(current)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
         let rows = sqlx::query(
             "SELECT b.id,b.title,
                EXISTS(SELECT 1 FROM commerce_layer_version_books vb
                       WHERE vb.layer_version_id=$2 AND vb.book_id=b.id) AS included,
-               EXISTS(SELECT 1 FROM book_cover_slots s
-                      JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
-                      JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
-                      WHERE s.book_id=b.id AND j.status='ready') AS has_cover
+               (b.visibility='public' AND b.visibility_status='active'
+                AND NOT b.is_deleted AND EXISTS(
+                  SELECT 1 FROM book_cover_slots s
+                  JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+                  JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
+                  WHERE s.book_id=b.id AND j.status='ready'
+                )) AS has_cover
              FROM books b
              WHERE b.owner_user_id=$1 AND b.id>$3
                AND ($4='' OR POSITION(lower($4) IN lower(b.title))>0)
@@ -125,6 +148,7 @@ impl PgLayers {
             });
         }
         Ok(LayerBookTilePage {
+            hero_cover_id,
             next_after: if more {
                 books.last().map(|b| b.id)
             } else {
