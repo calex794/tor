@@ -37,6 +37,9 @@ pub(super) async fn author_index(
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     match service.owned_layers(actor, 100).await {
+        Ok(layers) if books.is_empty() && layers.is_empty() => {
+            private_response(author_pages::index(books, &csrf), &cookies)
+        }
         Ok(layers) => private_response(
             author_pages::index_with_layers(books, &layers, &csrf),
             &cookies,
