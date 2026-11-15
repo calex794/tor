@@ -60,9 +60,16 @@ pub(super) async fn index(State(state): State<AuthState>, headers: HeaderMap) ->
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     match service.owned_layers(actor, 100).await {
         Ok(layers) => {
+            let can_create = match service.author_has_book(actor).await {
+                Ok(can_create) => can_create,
+                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+            };
+            if !can_create && layers.is_empty() {
+                return deny(StatusCode::FORBIDDEN);
+            }
             let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
             private_response(
-                author_pages::layers_index_with_forms(&layers, &csrf),
+                author_pages::layers_index_for_owner(&layers, &csrf, can_create),
                 &cookies,
             )
         }
@@ -113,27 +120,16 @@ pub(super) async fn update_metadata(
 }
 
 fn new_layer_html(csrf: &str, key: &str) -> axum::response::Html<String> {
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container">
-        <div class="auth-card author-card">
-        <p class="eyebrow">Кабинет автора</p><h1>Создать Layer</h1>
-        <p>Создаётся пустой Layer. Книги добавляются отдельно, только когда
-        в команде один активный участник — владелец.</p>
-        <form method="post" action="/me/layers/new">
-        <label for="layer-title">Название Layer</label>
-        <input id="layer-title" name="title" type="text" maxlength="120" required>
-        <input type="hidden" name="csrf_token" value="{}">
-        <input type="hidden" name="command_key" value="{}">
-        <button class="button" type="submit">Создать Layer</button>
-        </form>
-        <p><a href="/me/layers">Мои слои</a> · <a href="/me/books">Мои книги</a></p>
-        </div></div></section>"#,
-        pages::escape_html(csrf),
-        pages::escape_html(key)
-    );
-    pages::layout(
-        "Создать Layer",
-        "Создание собственного Layer без покупки.",
+    let content = include_str!("../../../templates/author_layer_new.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &pages::account_navigation("/me/layers", csrf),
+        )
+        .replace("<!--CSRF_TOKEN-->", &pages::escape_html(csrf))
+        .replace("<!--COMMAND_KEY-->", &pages::escape_html(key));
+    pages::private_account_layout(
+        "Новый пакет книг",
+        "Создание пакета собственных книг.",
         &content,
     )
 }
@@ -142,10 +138,19 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
     if !layer_books::enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => {}
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(error) => return deny(error),
+    };
+    let Ok(actor) = PositiveId::new(actor) else {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service.author_has_book(actor).await {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::FORBIDDEN),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     // Every form gets a cryptographically random, canonical 32-byte token.
@@ -180,6 +185,11 @@ pub(super) async fn create(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service.author_has_book(actor).await {
+        Ok(true) => {}
+        Ok(false) => return deny(StatusCode::FORBIDDEN),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     match service.create_once(actor, &form.title, &key).await {
         Ok(receipt) => private_response(
             Redirect::to(&format!("/me/layers/{}/books", receipt.layer_id)),

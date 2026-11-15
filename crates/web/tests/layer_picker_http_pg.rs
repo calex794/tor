@@ -155,8 +155,8 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     let page = format!("/me/layers/{layer}/books");
     let owner_cookie = format!("tor-dev-session={owner_session}; tor-dev-csrf={csrf}");
     let other_cookie = format!("tor-dev-session={outsider_session}; tor-dev-csrf={csrf}");
-    let allowed_form = format!("book_id={solo}&csrf_token={csrf}");
-    let team_form = format!("book_id={team}&csrf_token={csrf}");
+    let allowed_form = format!("book_id={solo}&confirm_composition=yes&csrf_token={csrf}");
+    let team_form = format!("book_id={team}&confirm_composition=yes&csrf_token={csrf}");
 
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -184,7 +184,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert_eq!(list_response.status(), StatusCode::OK);
     assert_eq!(list_response.headers()[header::CACHE_CONTROL], "no-store");
     let own_layers = body(list_response).await;
-    assert!(own_layers.contains("Мои слои"));
+    assert!(own_layers.contains("Мои пакеты"));
     assert!(own_layers.contains("href=\"/me/layers/new\""));
     assert!(own_layers.contains(&format!("/me/layers/{layer}/books")));
     assert!(own_layers.contains("D05 browser picker"));
@@ -254,6 +254,11 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     );
     let now = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
     assert!(now.contains("Team book"));
+    let filtered_path = format!("{page}?q=Team");
+    let filtered =
+        body(request(&app, "GET", &filtered_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(filtered.contains("Team book"));
+    assert!(!filtered.contains("Solo &lt;script&gt;"));
     pg(
         &url,
         &format!("UPDATE book_members SET is_active=TRUE WHERE book_id={team} AND user_id={collaborator}"),
@@ -289,7 +294,22 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(updated.contains("name=\"price_rub\""));
     assert!(updated.contains("name=\"expected_offer_id\" value=\"0\""));
     let price_form = format!(
-        "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&csrf_token={csrf}"
+        "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&confirm_pricing=yes&csrf_token={csrf}"
+    );
+    let lifetime_unconfirmed = price_form.replace("term_kind=prepaid_30d", "term_kind=lifetime");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &lifetime_unconfirmed
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "lifetime offer requires explicit confirmation of future-book rights"
     );
     let old_version_form = price_form.replace(
         &format!("expected_version_id={current_version}"),
@@ -413,10 +433,10 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     .parse()
     .unwrap();
     let remove = format!(
-        "operation=remove&book_id={solo}&expected_version_id={current_version}&csrf_token={csrf}"
+        "operation=remove&book_id={solo}&expected_version_id={current_version}&confirm_composition=yes&csrf_token={csrf}"
     );
     let stale = format!(
-        "operation=remove&book_id={solo}&expected_version_id={original_version}&csrf_token={csrf}"
+        "operation=remove&book_id={solo}&expected_version_id={original_version}&confirm_composition=yes&csrf_token={csrf}"
     );
     assert_eq!(
         request(&app, "POST", &page, &other_cookie, ORIGIN, &remove)
@@ -571,6 +591,33 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         ORIGIN.to_owned(),
     );
     let route = "/me/layers/new";
+    assert_eq!(
+        request(&app, "GET", route, &cookie, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "a reader without a book is not an author"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            route,
+            &cookie,
+            ORIGIN,
+            "title=Foo&command_key=invalid&csrf_token=invalid"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:d05:create-author:{nonce}','ru','Author Book','public',{owner})"
+        ),
+    );
     assert_eq!(
         request(&app, "GET", route, "", ORIGIN, "").await.status(),
         StatusCode::SEE_OTHER
@@ -751,6 +798,11 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(hidden.contains("Owner Updated"));
     assert!(hidden.contains("Скрыт"));
     assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
+    let details = format!("/me/layers/{id}/books");
+    let hidden_details = body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
+    assert!(hidden_details.contains("Пакет скрыт от новых покупок"));
+    assert!(!hidden_details.contains("name=\"price_rub\""));
+    assert!(!hidden_details.contains("name=\"book_id\""));
 
     let restore = format!(
         "title=Owner+Updated&description=Private+description&status=active&expected_revision=2&csrf_token={csrf}"

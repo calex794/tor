@@ -59,19 +59,19 @@ fn render_index(
     let layer_section = layers.map_or_else(String::new, |owned| {
         let mut section = String::from(
             "<section class=\"author-workspace__layers\" aria-labelledby=\"my-layers-heading\">\
-             <h2 id=\"my-layers-heading\">Мои Layer</h2>",
+             <h2 id=\"my-layers-heading\">Мои пакеты книг</h2>",
         );
         section.push_str(
-            "<p><a class=\"button\" href=\"/me/layers/new\">Создать слой</a> <a class=\"text-link\" href=\"/me/layers\">Все мои слои</a></p>",
+            "<p><a class=\"button\" href=\"/me/layers/new\">Создать пакет</a> <a class=\"text-link\" href=\"/me/layers\">Все мои пакеты</a></p>",
         );
         if owned.is_empty() {
-            section.push_str("<p class=\"empty-state\">Слоёв пока нет.</p>");
+            section.push_str("<p class=\"empty-state\">Пакетов пока нет.</p>");
         } else {
             section.push_str("<ul class=\"author-book-list\">");
             for layer in owned {
                 write!(
                     section,
-                    "<li><a class=\"author-book-link\" href=\"/me/layers/{}/books\">{} — выбрать книги</a></li>",
+                    "<li><a class=\"author-book-link\" href=\"/me/layers/{}/books\">{} — настроить пакет</a></li>",
                     layer.layer_id,
                     escape_html(&layer.title)
                 )
@@ -79,7 +79,7 @@ fn render_index(
             }
             section.push_str("</ul>");
             if owned.len() == 100 {
-                section.push_str("<p>Показаны последние 100 Layer.</p>");
+                section.push_str("<p>Показаны последние 100 пакетов.</p>");
             }
         }
         section.push_str("</section>");
@@ -105,71 +105,126 @@ pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
     layers_index_with_forms(layers, "")
 }
 
+#[cfg(test)]
 pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html<String> {
+    layers_index_for_owner(layers, csrf, true)
+}
+
+pub fn layers_index_for_owner(
+    layers: &[OwnedLayerSummary],
+    csrf: &str,
+    can_create: bool,
+) -> Html<String> {
     let mut list = String::new();
     if layers.is_empty() {
-        list.push_str("<p class=\"empty-state\">Слоёв пока нет. Создайте первый.</p>");
+        list.push_str(
+            "<div class=\"author-layers-page__empty\"><h3>Пакетов пока нет</h3>\
+             <p>Создайте первый пакет, чтобы объединять книги и продавать доступ к ним.</p></div>",
+        );
     } else {
-        list.push_str("<ul class=\"author-book-list\">");
+        list.push_str("<ul class=\"author-layers-page__list\">");
         for layer in layers {
-            let status_label = match layer.status.as_str() {
-                "active" => "Опубликован",
-                "hidden" => "Скрыт",
-                "blocked" => "Заблокирован",
-                _ => "Неизвестный статус",
+            let (status_label, status_class) = match layer.status.as_str() {
+                "active" => ("Опубликован", "is-active"),
+                "hidden" => ("Скрыт", "is-hidden"),
+                "blocked" => ("Заблокирован", "is-blocked"),
+                _ => ("Неизвестный статус", "is-unknown"),
             };
             write!(
-                list,
-                "<li><strong>{}</strong> — {}",
-                escape_html(&layer.title),
-                status_label,
+                &mut list,
+                r#"<li class="author-layer-card">
+<div class="author-layer-card__header">
+  <div class="author-layer-card__identity">
+    <p class="author-layer-card__eyebrow">Пакет №{id}</p>
+    <h3>{title}</h3>
+  </div>
+  <span class="author-layer-card__status {status_class}">{status_label}</span>
+</div>"#,
+                id = layer.layer_id,
+                title = escape_html(&layer.title),
             )
             .expect("write String");
+
             if layer.status == "active" || layer.status == "hidden" {
-                let option = if layer.status == "active" {
+                let visibility_options = if layer.status == "active" {
                     "<option value=\"active\" selected>Опубликован</option><option value=\"hidden\">Скрыт</option>"
                 } else {
                     "<option value=\"active\">Опубликован</option><option value=\"hidden\" selected>Скрыт</option>"
                 };
+                let books_action = if layer.status == "active" {
+                    format!(
+                        r#"<a class="ui-button ui-button--ghost" href="/me/layers/{}/books">Книги и тариф</a>"#,
+                        layer.layer_id,
+                    )
+                } else {
+                    format!(
+                        r#"<a class="ui-button ui-button--ghost" href="/me/layers/{}/books">Просмотреть состав и цену</a>"#,
+                        layer.layer_id,
+                    )
+                };
                 write!(
-                    list,
-                    "<form method=\"post\" action=\"/me/layers/{}/metadata\">\
-                     <label>Название<input name=\"title\" maxlength=\"120\" required value=\"{}\"></label>\
-                     <label>Описание<textarea name=\"description\" maxlength=\"2000\">{}</textarea></label>\
-                     <label>Видимость<select name=\"status\">{}</select></label>\
-                     <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">\
-                     <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
-                     <button class=\"button\" type=\"submit\">Сохранить</button></form>\
-                     <a href=\"/me/layers/{}/books\">Книги и тариф</a>",
-                    layer.layer_id,
-                    escape_html(&layer.title),
-                    escape_html(&layer.description),
-                    option,
-                    layer.metadata_revision,
-                    escape_html(csrf),
-                    layer.layer_id
+                    &mut list,
+                    r#"<form class="author-layer-card__form" method="post" action="/me/layers/{id}/metadata">
+  <div class="author-layer-card__fields">
+    <div class="author-layer-card__field">
+      <label for="layer-{id}-title">Название</label>
+      <input id="layer-{id}-title" name="title" maxlength="120" required value="{title}">
+    </div>
+    <div class="author-layer-card__field">
+      <label for="layer-{id}-status">Видимость</label>
+      <select id="layer-{id}-status" name="status">{visibility_options}</select>
+    </div>
+    <div class="author-layer-card__field author-layer-card__field--full">
+      <label for="layer-{id}-description">Описание</label>
+      <textarea id="layer-{id}-description" name="description" maxlength="2000" rows="3">{description}</textarea>
+    </div>
+  </div>
+  <input type="hidden" name="expected_revision" value="{revision}">
+  <input type="hidden" name="csrf_token" value="{csrf}">
+  <div class="author-layer-card__actions">
+    <button class="ui-button ui-button--primary" type="submit">Сохранить изменения</button>
+    {books_action}
+  </div>
+</form>"#,
+                    id = layer.layer_id,
+                    title = escape_html(&layer.title),
+                    description = escape_html(&layer.description),
+                    revision = layer.metadata_revision,
+                    csrf = escape_html(csrf),
+                    books_action = books_action,
                 )
                 .expect("write String");
             } else {
-                list.push_str("<p>Заблокированный слой нельзя изменить самостоятельно.</p>");
+                list.push_str(
+                    "<p class=\"author-layer-card__disabled\">Заблокированный пакет нельзя изменить самостоятельно.</p>",
+                );
             }
             list.push_str("</li>");
         }
         list.push_str("</ul>");
         if layers.len() == 100 {
-            list.push_str("<p>Показаны последние 100 слоёв.</p>");
+            list.push_str(
+                "<p class=\"author-layers-page__limit\">Показаны последние 100 пакетов.</p>",
+            );
         }
     }
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
-        <p class="eyebrow">Кабинет автора</p><h1>Мои слои</h1>
-        <p>Управляйте составом книг и условиями доступа.</p>
-        <p><a class="button" href="/me/layers/new">Создать слой</a></p>
-        {list}
-        <p><a href="/me/books">Мои книги</a> · <a href="/me">Вернуться в кабинет</a></p>
-        </div></div></section>"#
-    );
-    layout("Мои слои", "Ваши слои и их состав.", &content)
+
+    let content = include_str!("../templates/author_layers.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation("/me/layers", csrf),
+        )
+        .replace(
+            "<!--CREATE_PACKAGE_ACTION-->",
+            if can_create {
+                r#"<a class="ui-button ui-button--primary" href="/me/layers/new">Создать пакет</a>"#
+            } else {
+                "Для создания пакета сначала нужна хотя бы одна собственная книга."
+            },
+        )
+        .replace("<!--LAYER_COUNT-->", &layers.len().to_string())
+        .replace("<!--LAYER_LIST-->", &list);
+    layout("Мои пакеты", "Ваши книжные пакеты и их состав.", &content)
 }
 
 pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
@@ -268,6 +323,72 @@ mod tests {
     }
 
     #[test]
+    fn d_05_layer_editor_keeps_account_shell_forms_revision_and_blocking() {
+        let layers = [
+            OwnedLayerSummary {
+                layer_id: 91,
+                title: "<script>Не доверять</script>".into(),
+                description: "<b>Содержание</b>".into(),
+                status: "active".into(),
+                metadata_revision: 4,
+            },
+            OwnedLayerSummary {
+                layer_id: 92,
+                title: "Скрытый".into(),
+                description: "Не опубликован".into(),
+                status: "hidden".into(),
+                metadata_revision: 5,
+            },
+            OwnedLayerSummary {
+                layer_id: 93,
+                title: "Заблокированный".into(),
+                description: String::new(),
+                status: "blocked".into(),
+                metadata_revision: 6,
+            },
+        ];
+        let html = layers_index_with_forms(&layers, "<csrf>").0;
+        assert!(html.contains("class=\"account-sidebar\""));
+        assert!(html.contains("class=\"account-main\""));
+        assert!(!html.contains("<!--ACCOUNT_NAVIGATION-->"));
+        assert!(html.contains("В списке: 3"));
+        assert!(html.contains("href=\"/me/layers/new\""));
+        assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("href=\"/me/layers/92/books\""));
+        assert!(html.contains("Просмотреть состав и цену"));
+        assert!(html.contains("action=\"/me/layers/91/metadata\""));
+        assert!(html.contains("action=\"/me/layers/92/metadata\""));
+        assert!(!html.contains("action=\"/me/layers/93/metadata\""));
+        assert_eq!(
+            html.matches("method=\"post\" action=\"/me/layers/").count(),
+            2
+        );
+        assert!(html.contains("name=\"expected_revision\" value=\"4\""));
+        assert!(html.contains("name=\"expected_revision\" value=\"5\""));
+        assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+        assert_eq!(html.matches("name=\"status\"").count(), 2);
+        assert_eq!(
+            html.matches("name=\"description\" maxlength=\"2000\" rows=\"3\"")
+                .count(),
+            2
+        );
+        assert_eq!(html.matches("name=\"title\"").count(), 2);
+        assert!(html.contains("value=\"active\" selected"));
+        assert!(html.contains("value=\"hidden\" selected"));
+        assert!(html.contains("Заблокированный пакет нельзя изменить самостоятельно."));
+        assert!(html.contains("&lt;script&gt;Не доверять&lt;/script&gt;"));
+        assert!(html.contains("&lt;b&gt;Содержание&lt;/b&gt;"));
+        assert!(!html.contains("<script>Не доверять</script>"));
+        assert!(!html.contains("<b>Содержание</b>"));
+        assert!(!html.contains("wallet"));
+        assert!(!html.contains("user_id"));
+        let empty = layers_index_with_forms(&[], "csrf").0;
+        assert!(empty.contains("Пакетов пока нет"));
+        assert!(empty.contains("В списке: 0"));
+        assert!(!empty.contains("author-layer-card\""));
+    }
+
+    #[test]
     fn d_05_owner_layer_index_escapes_titles_and_hides_buyer_data() {
         let layers = vec![OwnedLayerSummary {
             layer_id: 91,
@@ -277,9 +398,10 @@ mod tests {
             metadata_revision: 2,
         }];
         let html = layers_index(&layers).0;
-        assert!(html.contains("Мои слои"));
+        assert!(html.contains("Мои пакеты"));
         assert!(html.contains("href=\"/me/layers/new\""));
         assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("Просмотреть состав и цену"));
         assert!(html.contains("Слой &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(html.contains("&lt;b&gt;Описание&lt;/b&gt;"));
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));
@@ -289,7 +411,7 @@ mod tests {
         assert!(!html.contains("user_id"));
         assert!(!html.contains("wallet"));
         let empty = layers_index(&[]).0;
-        assert!(empty.contains("Слоёв пока нет"));
+        assert!(empty.contains("Пакетов пока нет"));
         let blocked = layers_index_with_forms(
             &[OwnedLayerSummary {
                 layer_id: 92,
@@ -301,7 +423,7 @@ mod tests {
             "csrf",
         )
         .0;
-        assert!(blocked.contains("Заблокированный слой"));
+        assert!(blocked.contains("Заблокированный пакет"));
         assert!(!blocked.contains("action=\"/me/layers/92/metadata\""));
     }
 }

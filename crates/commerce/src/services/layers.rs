@@ -19,6 +19,9 @@ impl LayerService {
     pub async fn create(&self, actor: PositiveId, title: &str) -> Result<i64, LayerError> {
         self.repository.create_layer(actor, title).await
     }
+    pub async fn author_has_book(&self, actor: PositiveId) -> Result<bool, LayerError> {
+        self.repository.author_has_book(actor).await
+    }
     /// Authenticated form command. The original Layer is returned on replay.
     pub async fn create_once(
         &self,
@@ -51,6 +54,14 @@ impl LayerService {
             .await
     }
 
+    pub async fn owner_layer_status(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<String, LayerError> {
+        self.repository.owner_layer_status(actor, layer).await
+    }
+
     /// The owner's current composition with a version for CAS removal.
     pub async fn current_books(
         &self,
@@ -74,6 +85,18 @@ impl LayerService {
     ) -> Result<LayerBookCandidatePage, LayerError> {
         self.repository
             .addable_books(actor, layer, after, limit)
+            .await
+    }
+    pub async fn addable_books_matching(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+        query: &str,
+    ) -> Result<LayerBookCandidatePage, LayerError> {
+        self.repository
+            .addable_books_matching(actor, layer, after, limit, query)
             .await
     }
     pub async fn add_book(

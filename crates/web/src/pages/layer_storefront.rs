@@ -127,6 +127,11 @@ pub fn offer_page(
     } else {
         action.push_str("<p class=\"layer-note\" role=\"status\">Покупка сейчас отключена. Уже оплаченный доступ сохраняется.</p>");
     }
+    let lifetime_notice = if offer.term_kind == "lifetime" {
+        "<p class=\"layer-note\"><strong>Бессрочная покупка:</strong> право чтения распространяется и на будущие книги, добавленные в пакет. Изменение текущего состава не отменяет ранее полученные права.</p>"
+    } else {
+        ""
+    };
     let notice = if purchased && offer.has_access {
         "<p class=\"ui-alert ui-alert--success\" role=\"status\">Доступ к пакету сейчас действует. Его срок указан в личной библиотеке.</p>"
     } else {
@@ -147,6 +152,7 @@ pub fn offer_page(
            <aside class=\"layer-panel layer-storefront-offer\" aria-label=\"Условия покупки\">
              {static_price_card}
              {action}
+             {lifetime_notice}
              <p class=\"layer-note\">Оплата только из внутреннего кошелька. Автоматического продления нет.</p>
            </aside>
          </div>
