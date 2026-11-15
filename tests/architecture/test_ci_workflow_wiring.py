@@ -343,6 +343,32 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", specialist)
 
 
+    def test_reader_chromium_launch_preflight_with_dependency_fallback(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
+        manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]
+        for name, body in (("required", required), ("manual", manual)):
+            with self.subTest(workflow=name):
+                step = body.split("      - name: Install Chromium\\n", 1)[1].split(
+                    "      - name: Browse chapter, TOC, mobile layout and locked URLs\\n", 1
+                )[0]
+                self.assertIn("npm install --no-save playwright@1.56.1", step)
+                self.assertIn("npx playwright install --only-shell chromium", step)
+                self.assertIn("npx playwright install --with-deps --only-shell chromium", step)
+                self.assertIn('p.chromium.launch({headless:true})', step)
+                self.assertIn('version !== "1.56.1"', step)
+                self.assertIn("if ! chromium_probe; then", step)
+                self.assertEqual(step.count("          chromium_probe\\n"), 1)
+                self.assertLess(
+                    step.index("npx playwright install --only-shell chromium"),
+                    step.index("npx playwright install --with-deps --only-shell chromium"),
+                )
+                self.assertIn("CI_BROWSER_CHROMIUM_SETUP_SECONDS", step)
+                # A successful install alone cannot satisfy the check: browser must launch.
+                self.assertLess(
+                    step.index("npx playwright install --with-deps --only-shell chromium"),
+                    step.rindex("chromium_probe"),
+                )
+
     def test_reader_scenario_timing_preserves_manual_and_required_coverage(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
         manual = job_sections((WORKFLOWS / "tor-reader-visual.yml").read_text())["reader-browser"]
