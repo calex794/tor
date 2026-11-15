@@ -130,14 +130,19 @@ pub(super) fn detail(
     // All options come from approved public covers in the current version.
     let mut cover_options = String::new();
     for option in &books.cover_options {
-        let selected = if books.hero_cover_id == Some(option.id) {
-            " selected"
+        let checked = if books.hero_cover_id == Some(option.id) {
+            " checked"
         } else {
             ""
         };
         write!(
             cover_options,
-            r#"<option value="{}"{selected}>{}</option>"#,
+            r#"<label class="package-cover-choice__option">
+                <input type="radio" name="cover_book_id" value="{}"{checked}>
+                <img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async">
+                <span>{}</span>
+            </label>"#,
+            option.id,
             option.id,
             pages::escape_html(&option.title),
         )
@@ -148,15 +153,17 @@ pub(super) fn detail(
             metadata,
             r#"<section class="package-cover-choice" aria-labelledby="package-cover-title">
                 <h3 id="package-cover-title">Обложка пакета</h3>
-                <p>Выберите обложку среди уже одобренных обложек книг этого пакета.
-                Это отдельная настройка оформления, она не меняет оплату или состав книг.
+                <p>Выберите изображение среди уже одобренных обложек книг этого пакета.
+                Изменение оформления не меняет оплату или состав книг.
                 Загрузка собственного файла пока не реализована.</p>
                 <form method="post" action="/me/layers/{}/cover" class="author-layer-card__form">
-                  <label for="package-cover-book">Использовать обложку книги</label>
-                  <select id="package-cover-book" name="cover_book_id">{cover_options}</select>
+                  <fieldset class="package-cover-choice__grid">
+                    <legend>Использовать обложку книги</legend>
+                    {cover_options}
+                  </fieldset>
                   <input type="hidden" name="expected_revision" value="{}">
                   <input type="hidden" name="csrf_token" value="{}">
-                  <button class="ui-button ui-button--primary" type="submit">Выбрать обложку пакета</button>
+                  <button class="ui-button ui-button--primary" type="submit">Сохранить обложку пакета</button>
                 </form>
               </section>"#,
             layer.layer_id,
