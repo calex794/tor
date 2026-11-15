@@ -97,8 +97,9 @@ async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
     );
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:d05:other-author','ru','Other owner Book','public',$1)",
+         VALUES($1,'ru','Other owner Book','public',$2)",
     )
+    .bind(format!("ci:d05:other-author:{other}"))
     .bind(other)
     .execute(&pool)
     .await
