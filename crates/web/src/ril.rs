@@ -8,7 +8,10 @@ use axum::{
     response::Response,
     Router,
 };
-use std::sync::{atomic::{AtomicU64, Ordering}, OnceLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    OnceLock,
+};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tor_observability::services::trace::{SqlEvidence, SqlSpan};
 use tor_route_intelligence::{classify, RouteObservation};
