@@ -60,9 +60,16 @@ pub(super) async fn index(State(state): State<AuthState>, headers: HeaderMap) ->
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     match service.owned_layers(actor, 100).await {
         Ok(layers) => {
+            let can_create = match service.author_has_book(actor).await {
+                Ok(can_create) => can_create,
+                Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+            };
+            if !can_create && layers.is_empty() {
+                return deny(StatusCode::FORBIDDEN);
+            }
             let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
             private_response(
-                author_pages::layers_index_with_forms(&layers, &csrf),
+                author_pages::layers_index_for_owner(&layers, &csrf, can_create),
                 &cookies,
             )
         }
