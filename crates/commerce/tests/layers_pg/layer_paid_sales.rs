@@ -276,3 +276,53 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap() == false);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn h_ui_19_team_member_change_releases_sole_owner_sale_restriction() {
+    let (pool, repo, owner, collaborator, book) = setup("h19-team").await;
+    let (layer, version, _) = offer(&repo, owner, book, 250, true).await;
+    let applied = repo
+        .set_package_paid_mode(
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::PackageOnly,
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',TRUE)",
+    )
+    .bind(book)
+    .bind(collaborator)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (current, revision): (Option<i64>, i64) = sqlx::query_as(
+        "SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(current, None);
+    assert!(revision > applied);
+    assert_eq!(
+        repo.set_package_paid_mode(
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            revision,
+            PackagePaidMode::PackageOnly,
+        )
+        .await,
+        Err(LayerError::Inaccessible),
+        "sole-owner restrictions must not be restored while a translator is active",
+    );
+    pool.close().await;
+}

@@ -57,3 +57,37 @@ $$;
 CREATE TRIGGER trg_tor_reset_package_sales_after_book_transfer
 BEFORE UPDATE OF owner_user_id ON books
 FOR EACH ROW EXECUTE FUNCTION tor_reset_package_sales_after_book_transfer();
+
+-- Translators, editors and other active collaborators must not inherit an
+-- owner's sole-author selling decision. A membership edit atomically retires
+-- the restriction before the team change becomes visible to another reader.
+CREATE FUNCTION tor_reset_package_sales_after_member_change() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    affected_book BIGINT;
+BEGIN
+    affected_book := CASE WHEN TG_OP='DELETE' THEN OLD.book_id ELSE NEW.book_id END;
+    UPDATE books AS b
+       SET package_only_layer_id=NULL,
+           package_only_until=NULL,
+           package_only_revision=b.package_only_revision+1
+     WHERE b.id=affected_book
+       AND b.package_only_layer_id IS NOT NULL
+       AND (
+         NOT EXISTS (
+             SELECT 1 FROM book_members m
+             WHERE m.book_id=b.id AND m.user_id=b.owner_user_id
+               AND m.role='owner' AND m.is_active
+         )
+         OR EXISTS (
+             SELECT 1 FROM book_members m
+             WHERE m.book_id=b.id AND m.is_active
+               AND (m.user_id<>b.owner_user_id OR m.role<>'owner')
+         )
+       );
+    RETURN NULL;
+END;
+$$;
+CREATE TRIGGER trg_tor_reset_package_sales_after_member_change
+AFTER INSERT OR UPDATE OR DELETE ON book_members
+FOR EACH ROW EXECUTE FUNCTION tor_reset_package_sales_after_member_change();
