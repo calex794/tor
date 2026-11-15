@@ -161,10 +161,13 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
         )
         .await
         .unwrap();
-    assert!(checkout
-        .checkout_once(&direct_command(buyer, new_chapter, new_version, 'X'))
-        .await
-        .is_ok(), "direct purchase is restored only after owner lifts restriction");
+    assert!(
+        checkout
+            .checkout_once(&direct_command(buyer, new_chapter, new_version, 'X'))
+            .await
+            .is_ok(),
+        "direct purchase is restored only after owner lifts restriction"
+    );
     pool.close().await;
 }
 
@@ -302,13 +305,12 @@ async fn h_ui_19_team_member_change_releases_sole_owner_sale_restriction() {
     .execute(&pool)
     .await
     .unwrap();
-    let (current, revision): (Option<i64>, i64) = sqlx::query_as(
-        "SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (current, revision): (Option<i64>, i64) =
+        sqlx::query_as("SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(current, None);
     assert!(revision > applied);
     assert_eq!(
