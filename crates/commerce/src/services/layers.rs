@@ -199,7 +199,9 @@ impl LayerService {
         layer: PositiveId,
         update: &LayerStagePage,
     ) -> Result<(LayerSelectionDraft, LayerBookTilePage), LayerError> {
-        self.repository.stage_selection_page(actor, layer, update).await
+        self.repository
+            .stage_selection_page(actor, layer, update)
+            .await
     }
 
     pub async fn clear_selection_draft(
