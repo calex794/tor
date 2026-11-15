@@ -728,9 +728,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert_eq!((versions, books), (1, 0));
     let authors_book: i64 = pg(
         &url,
-        &format!(
-            "SELECT id FROM books WHERE source_identity='ci:d05:create-author:{nonce}'"
-        ),
+        &format!("SELECT id FROM books WHERE source_identity='ci:d05:create-author:{nonce}'"),
     )
     .parse()
     .unwrap();
@@ -757,7 +755,9 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         pg(
             &url,
             &format!("SELECT current_version_id FROM commerce_layers WHERE id={id}")
-        ).parse::<i64>().unwrap(),
+        )
+        .parse::<i64>()
+        .unwrap(),
         current_version,
         "preview must not change composition",
     );
@@ -767,7 +767,8 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     let wrong_count = apply.replace("active_buyers=0", "active_buyers=1");
     assert_eq!(
         request(&app, "POST", &destination, &cookie, ORIGIN, &wrong_count)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::CONFLICT,
     );
     let applied = request(&app, "POST", &destination, &cookie, ORIGIN, &apply).await;
