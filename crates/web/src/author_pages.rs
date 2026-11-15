@@ -59,19 +59,19 @@ fn render_index(
     let layer_section = layers.map_or_else(String::new, |owned| {
         let mut section = String::from(
             "<section class=\"author-workspace__layers\" aria-labelledby=\"my-layers-heading\">\
-             <h2 id=\"my-layers-heading\">Мои Layer</h2>",
+             <h2 id=\"my-layers-heading\">Мои пакеты книг</h2>",
         );
         section.push_str(
-            "<p><a class=\"button\" href=\"/me/layers/new\">Создать слой</a> <a class=\"text-link\" href=\"/me/layers\">Все мои слои</a></p>",
+            "<p><a class=\"button\" href=\"/me/layers/new\">Создать пакет</a> <a class=\"text-link\" href=\"/me/layers\">Все мои пакеты</a></p>",
         );
         if owned.is_empty() {
-            section.push_str("<p class=\"empty-state\">Слоёв пока нет.</p>");
+            section.push_str("<p class=\"empty-state\">Пакетов пока нет.</p>");
         } else {
             section.push_str("<ul class=\"author-book-list\">");
             for layer in owned {
                 write!(
                     section,
-                    "<li><a class=\"author-book-link\" href=\"/me/layers/{}/books\">{} — выбрать книги</a></li>",
+                    "<li><a class=\"author-book-link\" href=\"/me/layers/{}/books\">{} — настроить пакет</a></li>",
                     layer.layer_id,
                     escape_html(&layer.title)
                 )
@@ -79,7 +79,7 @@ fn render_index(
             }
             section.push_str("</ul>");
             if owned.len() == 100 {
-                section.push_str("<p>Показаны последние 100 Layer.</p>");
+                section.push_str("<p>Показаны последние 100 пакетов.</p>");
             }
         }
         section.push_str("</section>");
@@ -109,8 +109,8 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
     let mut list = String::new();
     if layers.is_empty() {
         list.push_str(
-            "<div class=\"author-layers-page__empty\"><h3>Слоёв пока нет</h3>\
-             <p>Создайте первый слой, чтобы объединять книги и управлять условиями доступа.</p></div>",
+            "<div class=\"author-layers-page__empty\"><h3>Пакетов пока нет</h3>\
+             <p>Создайте первый пакет, чтобы объединять книги и продавать доступ к ним.</p></div>",
         );
     } else {
         list.push_str("<ul class=\"author-layers-page__list\">");
@@ -126,7 +126,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                 r#"<li class="author-layer-card">
 <div class="author-layer-card__header">
   <div class="author-layer-card__identity">
-    <p class="author-layer-card__eyebrow">Слой №{id}</p>
+    <p class="author-layer-card__eyebrow">Пакет №{id}</p>
     <h3>{title}</h3>
   </div>
   <span class="author-layer-card__status {status_class}">{status_label}</span>
@@ -149,7 +149,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                     )
                 } else {
                     String::from(
-                        r#"<span class="author-layer-card__disabled">Для скрытого слоя управление книгами и тарифом пока недоступно.</span>"#,
+                        r#"<span class="author-layer-card__disabled">Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации.</span>"#,
                     )
                 };
                 write!(
@@ -186,7 +186,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                 .expect("write String");
             } else {
                 list.push_str(
-                    "<p class=\"author-layer-card__disabled\">Заблокированный слой нельзя изменить самостоятельно.</p>",
+                    "<p class=\"author-layer-card__disabled\">Заблокированный пакет нельзя изменить самостоятельно.</p>",
                 );
             }
             list.push_str("</li>");
@@ -194,7 +194,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
         list.push_str("</ul>");
         if layers.len() == 100 {
             list.push_str(
-                "<p class=\"author-layers-page__limit\">Показаны последние 100 слоёв.</p>",
+                "<p class=\"author-layers-page__limit\">Показаны последние 100 пакетов.</p>",
             );
         }
     }
@@ -206,7 +206,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
         )
         .replace("<!--LAYER_COUNT-->", &layers.len().to_string())
         .replace("<!--LAYER_LIST-->", &list);
-    layout("Мои слои", "Ваши слои и их состав.", &content)
+    layout("Мои пакеты", "Ваши книжные пакеты и их состав.", &content)
 }
 
 pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
@@ -337,7 +337,7 @@ mod tests {
         assert!(html.contains("href=\"/me/layers/new\""));
         assert!(html.contains("href=\"/me/layers/91/books\""));
         assert!(!html.contains("href=\"/me/layers/92/books\""));
-        assert!(html.contains("Для скрытого слоя управление книгами и тарифом пока недоступно."));
+        assert!(html.contains("Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации."));
         assert!(html.contains("action=\"/me/layers/91/metadata\""));
         assert!(html.contains("action=\"/me/layers/92/metadata\""));
         assert!(!html.contains("action=\"/me/layers/93/metadata\""));
@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(html.matches("name=\"title\"").count(), 2);
         assert!(html.contains("value=\"active\" selected"));
         assert!(html.contains("value=\"hidden\" selected"));
-        assert!(html.contains("Заблокированный слой нельзя изменить самостоятельно."));
+        assert!(html.contains("Заблокированный пакет нельзя изменить самостоятельно."));
         assert!(html.contains("&lt;script&gt;Не доверять&lt;/script&gt;"));
         assert!(html.contains("&lt;b&gt;Содержание&lt;/b&gt;"));
         assert!(!html.contains("<script>Не доверять</script>"));
@@ -365,7 +365,7 @@ mod tests {
         assert!(!html.contains("wallet"));
         assert!(!html.contains("user_id"));
         let empty = layers_index_with_forms(&[], "csrf").0;
-        assert!(empty.contains("Слоёв пока нет"));
+        assert!(empty.contains("Пакетов пока нет"));
         assert!(empty.contains("В списке: 0"));
         assert!(!empty.contains("author-layer-card\""));
     }
@@ -380,10 +380,10 @@ mod tests {
             metadata_revision: 2,
         }];
         let html = layers_index(&layers).0;
-        assert!(html.contains("Мои слои"));
+        assert!(html.contains("Мои пакеты"));
         assert!(html.contains("href=\"/me/layers/new\""));
         assert!(!html.contains("href=\"/me/layers/91/books\""));
-        assert!(html.contains("Для скрытого слоя управление книгами и тарифом пока недоступно."));
+        assert!(html.contains("Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации."));
         assert!(html.contains("Слой &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(html.contains("&lt;b&gt;Описание&lt;/b&gt;"));
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));
@@ -393,7 +393,7 @@ mod tests {
         assert!(!html.contains("user_id"));
         assert!(!html.contains("wallet"));
         let empty = layers_index(&[]).0;
-        assert!(empty.contains("Слоёв пока нет"));
+        assert!(empty.contains("Пакетов пока нет"));
         let blocked = layers_index_with_forms(
             &[OwnedLayerSummary {
                 layer_id: 92,
@@ -405,7 +405,7 @@ mod tests {
             "csrf",
         )
         .0;
-        assert!(blocked.contains("Заблокированный слой"));
+        assert!(blocked.contains("Заблокированный пакет"));
         assert!(!blocked.contains("action=\"/me/layers/92/metadata\""));
     }
 }
