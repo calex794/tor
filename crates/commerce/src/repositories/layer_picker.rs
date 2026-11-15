@@ -46,6 +46,23 @@ impl PgLayers {
             .collect()
     }
 
+    /// Owner-private state; hidden packages are viewable, not saleable.
+    pub async fn owner_layer_status(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<String, LayerError> {
+        sqlx::query_scalar(
+            "SELECT status FROM commerce_layers WHERE id=$1 AND owner_user_id=$2",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?
+        .ok_or(LayerError::Inaccessible)
+    }
+
     /// Read only the owner's immutable current version. This is advisory:
     /// remove_book_if_current() revalidates the version under the Layer lock.
     pub async fn current_books(
@@ -60,7 +77,7 @@ impl PgLayers {
         }
         let version: i64 = sqlx::query_scalar(
             "SELECT current_version_id FROM commerce_layers
-             WHERE id=$1 AND owner_user_id=$2 AND status='active'",
+             WHERE id=$1 AND owner_user_id=$2 AND status IN ('active','hidden')",
         )
         .bind(layer.get())
         .bind(actor.get())
