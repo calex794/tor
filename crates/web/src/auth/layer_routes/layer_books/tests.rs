@@ -226,6 +226,8 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
     assert!(!hero.contains("<script>Пакет</script>"));
     assert!(metadata.contains("expected_revision"));
     assert!(metadata.contains("action=\"/me/layers/9/cover\""));
+    assert!(metadata.contains("type=\"radio\" name=\"cover_book_id\""));
+    assert!(metadata.contains("/covers/91/card.webp"));
     assert!(metadata.contains("&lt;script&gt;Кавер&lt;/script&gt;"));
     assert!(!metadata.contains("<script>Кавер</script>"));
     assert!(grid.contains("/covers/91/card.webp"));
