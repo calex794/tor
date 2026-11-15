@@ -221,16 +221,18 @@ pub(super) fn detail(
              <button class="ui-button ui-button--ghost" type="submit"
                      name="operation" value="clear">Очистить сохранённый черновик</button>
            </form>"#,
-        id=layer.layer_id,
-        version=offer.current_version_id,
-        draft_revision=draft.revision,
-        page_after=books.after.map_or_else(String::new, |value| value.to_string()),
-        query=pages::escape_html(query),
-        visible=visible.join(","),
-        included=included.join(","),
-        csrf=pages::escape_html(csrf),
-        saved_add=draft.additions.len(),
-        saved_remove=draft.removals.len(),
+        id = layer.layer_id,
+        version = offer.current_version_id,
+        draft_revision = draft.revision,
+        page_after = books
+            .after
+            .map_or_else(String::new, |value| value.to_string()),
+        query = pages::escape_html(query),
+        visible = visible.join(","),
+        included = included.join(","),
+        csrf = pages::escape_html(csrf),
+        saved_add = draft.additions.len(),
+        saved_remove = draft.removals.len(),
     );
     (hero, metadata, grid)
 }
