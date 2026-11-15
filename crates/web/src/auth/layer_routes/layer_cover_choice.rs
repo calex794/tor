@@ -28,7 +28,7 @@ pub(super) fn routes() -> Router<AuthState> {
     )
 }
 
-pub(super) async fn choose(
+async fn choose(
     State(state): State<AuthState>,
     Path(raw_layer): Path<i64>,
     headers: HeaderMap,
