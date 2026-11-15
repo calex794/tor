@@ -6,12 +6,12 @@ const path = require('node:path');
 
 const templates = path.join(__dirname, '../crates/web/templates');
 const fixtures = [
-  ['book', 'author_new_book.html', '#book-title', '#book-description'],
-  ['chapter', 'author_new_chapter.html', '#chapter-title', '#chapter-body'],
+  ['book', 'author_new_book.html', '#book-title', '#book-description', '.author-create-actions__buttons .ui-button--primary'],
+  ['chapter', 'author_new_chapter.html', '#chapter-title', '#chapter-body', '.auth-form .button'],
 ];
 
-async function inspect(page, input, textarea) {
-  return page.evaluate(([input, textarea]) => {
+async function inspect(page, input, textarea, action) {
+  return page.evaluate(([input, textarea, action]) => {
     const style = selector => {
       const node = document.querySelector(selector);
       if (!node) return null;
@@ -29,13 +29,13 @@ async function inspect(page, input, textarea) {
     };
     return {
       input: style(input), textarea: style(textarea), select: style('select'),
-      button: style('.auth-form .button'), footer: style('.site-footer__link'),
+      button: style(action), footer: style('.site-footer__link'),
       surface: token('--bg-surface'), text: token('--text-main'),
       border: token('--border-dark'), muted: token('--text-muted'),
       action: token('--action-primary-bg'), actionText: token('--action-primary-text'),
       scroll: document.documentElement.scrollWidth, width: innerWidth,
     };
-  }, [input, textarea]);
+  }, [input, textarea, action]);
 }
 
 function contrast(a, b) {
@@ -57,15 +57,16 @@ async function checkSharedControls(browser, base, out) {
       try {
         const page = await context.newPage();
         await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
-        for (const [name, file, input, textarea] of fixtures) {
+        for (const [name, file, input, textarea, action] of fixtures) {
           const markup = fs.readFileSync(path.join(templates, file), 'utf8')
             .replace('<!--CHAPTER_HEADING-->', 'Новая бесплатная глава')
             .replace('<!--CHAPTER_INFO-->', 'Сохранение главы в существующей книге.')
             .replace('<!--SAVE_LABEL-->', 'Сохранить главу')
             .replaceAll('<!--BOOK_ID-->', '42').replace('<!--NEXT_NUMBER-->', '1');
           await page.locator('#main').evaluate((main, html) => { main.innerHTML = html; }, markup);
-          const state = await inspect(page, input, textarea);
+          const state = await inspect(page, input, textarea, action);
           const label = `${name}/${width}/${colorScheme}`;
+          assert.ok(state.button, label + ': primary action is missing');
           for (const field of ['input', 'textarea', 'select']) {
             // The chapter template has no select until access controls are enabled.
             if (name === 'chapter' && field === 'select') continue;
