@@ -19,6 +19,7 @@ use tor_commerce::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
         LayerTermKind,
     },
+    repositories::layer_covers::PgLayerCovers,
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
@@ -28,7 +29,7 @@ mod draft;
 mod grid;
 mod offer_form;
 
-use draft::{history_ids, valid_filter};
+use draft::{csv_ids, encoded_search_suffix, history_ids, valid_filter};
 use offer_form::offer_form_html;
 
 const PAGE_SIZE: u16 = 20;
@@ -55,6 +56,7 @@ pub(super) struct PickerQuery {
     filter: Option<String>,
     history: Option<String>,
     updated: Option<String>,
+    cover: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -79,24 +81,6 @@ pub(super) struct AddBookForm {
     q: Option<String>,
     #[serde(flatten)]
     choices: HashMap<String, String>,
-}
-
-fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
-    let raw = raw?;
-    if raw.len() > 1400 {
-        return None;
-    }
-    if raw.is_empty() {
-        return Some(Vec::new());
-    }
-    let ids = raw
-        .split(',')
-        .map(|value| value.parse::<i64>().ok().filter(|id| *id > 0))
-        .collect::<Option<Vec<_>>>()?;
-    if ids.len() > 100 || ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
-        return None;
-    }
-    Some(ids)
 }
 
 fn staged_changes(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
@@ -132,21 +116,6 @@ pub(super) fn status(error: LayerError) -> StatusCode {
             StatusCode::CONFLICT
         }
     }
-}
-
-fn encoded_search_suffix(query: &str) -> String {
-    if query.is_empty() {
-        return String::new();
-    }
-    let mut encoded = String::new();
-    for byte in query.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            write!(encoded, "%{byte:02X}").expect("write String");
-        }
-    }
-    format!("&amp;q={encoded}")
 }
 
 fn picker_html_with_query(
@@ -442,6 +411,13 @@ pub(super) async fn page(
         Ok(value) => value,
         Err(error) => return deny(status(error)),
     };
+    let (approved, pending) = match PgLayerCovers::new(state.accounts.pool().clone())
+        .owner_view(actor, layer)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let (hero, settings, grid_markup) = grid::detail(
         &metadata,
@@ -455,11 +431,20 @@ pub(super) async fn page(
             history: &history,
             draft: &draft,
             editable,
+            cover: grid::GridCoverState {
+                approved: approved.is_some(),
+                pending: pending.is_some(),
+                upload_enabled: state.cover_upload_enabled,
+            },
         },
     );
     let grid_markup = if query.updated.as_deref() == Some("1") {
         format!(
             r#"<p class="ui-alert ui-alert--success" role="status">Изменения пакета сохранены одной новой версией.</p>{grid_markup}"#
+        )
+    } else if query.cover.as_deref() == Some("queued") {
+        format!(
+            r#"<p class="ui-alert" role="status">Обложка загружена и отправлена на модерацию.</p>{grid_markup}"#
         )
     } else {
         grid_markup

@@ -2962,6 +2962,48 @@
       "source": "crates/web/src/lib.rs",
       "handler": "seo_http::sitemap_books",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{layer_id}/cover/{variant}",
+      "source": "crates/web/src/auth/package_covers.rs",
+      "handler": "public_cover",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/{layer_id}/cover/{mode}",
+      "source": "crates/web/src/auth/package_covers.rs",
+      "handler": "owner_preview",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/layers/covers",
+      "source": "crates/web/src/auth/package_covers.rs",
+      "handler": "queue",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/moderation/layers/covers/{id}/preview",
+      "source": "crates/web/src/auth/package_covers.rs",
+      "handler": "moderator_preview",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/moderation/layers/covers/{id}/decision",
+      "source": "crates/web/src/auth/package_covers.rs",
+      "handler": "decide",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{id}/cover",
+      "source": "crates/web/src/author_cover_http.rs",
+      "handler": "package_cover::upload",
+      "policy": "owner"
     }
   ]
 }

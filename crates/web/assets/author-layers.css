@@ -270,3 +270,10 @@
   .author-layers-page__header > .ui-button { width:100%; }
   .author-layer-card__actions .ui-button { flex:1 1 100%; }
 }
+
+.package-cover-upload { display:grid; gap:10px; margin:12px 0; padding:12px 14px;
+  border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-secondary); }
+.package-cover-upload label { display:grid; gap:8px; min-width:0; }
+.package-cover-upload input[type=file] { max-width:100%; }
+.package-cover-upload .ui-button { justify-self:start; }
+.package-hero__copy img[src*="/cover/preview"] { display:block; object-fit:cover; border-radius:var(--radius-md); }
