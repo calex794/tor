@@ -91,6 +91,10 @@ export function setup() {
     if (registered.status !== 303 || !session) {
       throw new Error('PERF-02 disposable account registration failed: ' + registered.status);
     }
+    // k6 keeps the latest registration cookie in the setup VU jar.
+    // An explicit Cookie header on top of it can trigger TOR's
+    // duplicate-cookie rejection. Start each probe with an empty jar.
+    http.cookieJar().clear(BASE);
     // Check that this is a real authenticated Book request, not a guest 200.
     const authenticated = http.get(BASE + '/books/1', {
       headers: { Cookie: session }, timeout: '10s',
@@ -101,6 +105,7 @@ export function setup() {
       throw new Error('PERF-02 session did not render authenticated book controls');
     }
     sessions.push(session);
+    http.cookieJar().clear(BASE);
   }
   // Session cookies stay within k6 setup/VU memory; no bearer reaches artifacts.
   return { sessions };
