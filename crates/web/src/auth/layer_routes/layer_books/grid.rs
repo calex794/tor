@@ -9,9 +9,7 @@ use tor_commerce::{
 
 fn cover(id: i64, title: &str, has_cover: bool) -> String {
     if has_cover {
-        format!(
-            r#"<img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async">"#
-        )
+        format!(r#"<img src="/covers/{id}/card.webp" alt="" loading="lazy" decoding="async">"#)
     } else {
         let initial = title.chars().next().unwrap_or('К').to_string();
         format!(
@@ -30,7 +28,9 @@ pub(super) fn detail(
     editable: bool,
 ) -> (String, String, String) {
     let title = pages::escape_html(&layer.title);
-    let hero_cover = books.books.iter()
+    let hero_cover = books
+        .books
+        .iter()
         .find(|book| book.included && book.has_cover)
         .or_else(|| books.books.iter().find(|book| book.included))
         .map(|book| cover(book.id, &book.title, book.has_cover))
@@ -41,8 +41,11 @@ pub(super) fn detail(
         (Some(price), Some(kind)) => format!(
             "{} руб. · {}",
             format!("{},{:02}", price / 100, price % 100),
-            if kind == LayerTermKind::Lifetime { "бессрочно + будущие книги" }
-            else { "30 дней без автопродления" },
+            if kind == LayerTermKind::Lifetime {
+                "бессрочно + будущие книги"
+            } else {
+                "30 дней без автопродления"
+            },
         ),
         _ => "Цена ещё не опубликована".to_owned(),
     };
@@ -63,16 +66,26 @@ pub(super) fn detail(
               <a class="text-link" href="/layers/{id}">Посмотреть страницу для читателей</a>
             </div>
            </section>"#,
-        id=layer.layer_id,
-        description=if layer.description.trim().is_empty() {
+        id = layer.layer_id,
+        description = if layer.description.trim().is_empty() {
             "Добавьте описание: какие книги входят в комплект и для кого он создан.".to_owned()
-        } else { pages::escape_html(&layer.description) },
+        } else {
+            pages::escape_html(&layer.description)
+        },
     );
     let metadata = if layer.status == "blocked" {
         "<p>Пакет заблокирован; оформление не редактируется.</p>".to_owned()
     } else {
-        let active = if layer.status == "active" { " selected" } else { "" };
-        let hidden = if layer.status == "hidden" { " selected" } else { "" };
+        let active = if layer.status == "active" {
+            " selected"
+        } else {
+            ""
+        };
+        let hidden = if layer.status == "hidden" {
+            " selected"
+        } else {
+            ""
+        };
         format!(
             r#"<details class="package-section__edit">
               <summary>Редактировать название, описание и видимость</summary>
@@ -99,10 +112,10 @@ pub(super) fn detail(
                 <button class="ui-button ui-button--primary" type="submit">Сохранить оформление</button>
               </form>
             </details>"#,
-            id=layer.layer_id,
-            description=pages::escape_html(&layer.description),
-            revision=layer.metadata_revision,
-            csrf=pages::escape_html(csrf),
+            id = layer.layer_id,
+            description = pages::escape_html(&layer.description),
+            revision = layer.metadata_revision,
+            csrf = pages::escape_html(csrf),
         )
     };
 
@@ -119,9 +132,15 @@ pub(super) fn detail(
     let mut included = Vec::new();
     for book in &books.books {
         visible.push(book.id.to_string());
-        if book.included { included.push(book.id.to_string()); }
+        if book.included {
+            included.push(book.id.to_string());
+        }
         let checked = if book.included { " checked" } else { "" };
-        let marker = if book.included { "В пакете" } else { "Добавить" };
+        let marker = if book.included {
+            "В пакете"
+        } else {
+            "Добавить"
+        };
         write!(
             tiles,
             r#"<label class="package-tile">
@@ -131,9 +150,9 @@ pub(super) fn detail(
                 <span class="package-tile__title">{name}</span>
                 <span class="package-tile__marker">{marker}</span>
                </label>"#,
-            id=book.id,
-            cover=cover(book.id, &book.title, book.has_cover),
-            name=pages::escape_html(&book.title),
+            id = book.id,
+            cover = cover(book.id, &book.title, book.has_cover),
+            name = pages::escape_html(&book.title),
         )
         .expect("write tile");
     }
@@ -175,12 +194,12 @@ pub(super) fn detail(
              </div>
            </form>
            <nav class="package-grid__pagination" aria-label="Страницы книг">{navigation}</nav>"#,
-        id=layer.layer_id,
-        query=pages::escape_html(query),
-        version=offer.current_version_id,
-        visible=visible.join(","),
-        included=included.join(","),
-        csrf=pages::escape_html(csrf),
+        id = layer.layer_id,
+        query = pages::escape_html(query),
+        version = offer.current_version_id,
+        visible = visible.join(","),
+        included = included.join(","),
+        csrf = pages::escape_html(csrf),
     );
     (hero, metadata, grid)
 }
@@ -198,12 +217,24 @@ pub(super) fn review(
     for book in &preview.removals {
         write!(removes, "<li>{}</li>", pages::escape_html(&book.title)).expect("remove title");
     }
-    if adds.is_empty() { adds.push_str("<li>Новых книг нет</li>"); }
-    if removes.is_empty() { removes.push_str("<li>Ничего не удаляется</li>"); }
-    let added_csv = preview.additions.iter()
-        .map(|b| b.id.to_string()).collect::<Vec<_>>().join(",");
-    let removed_csv = preview.removals.iter()
-        .map(|b| b.id.to_string()).collect::<Vec<_>>().join(",");
+    if adds.is_empty() {
+        adds.push_str("<li>Новых книг нет</li>");
+    }
+    if removes.is_empty() {
+        removes.push_str("<li>Ничего не удаляется</li>");
+    }
+    let added_csv = preview
+        .additions
+        .iter()
+        .map(|b| b.id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let removed_csv = preview
+        .removals
+        .iter()
+        .map(|b| b.id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let contents = format!(
         r#"<section class="me-page author-workspace author-layers-page">
            <div class="container account-layout">
