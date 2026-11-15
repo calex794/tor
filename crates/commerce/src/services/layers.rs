@@ -4,7 +4,10 @@ use crate::{
         LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
         LayerError, LayerOfferQuote, LayerOwnerOfferState, LayerReceipt, OwnedLayerSummary,
     },
-    repositories::{layer_composition::{LayerBookTilePage, LayerChangePreview}, layers::PgLayers},
+    repositories::{
+        layer_composition::{LayerBookTilePage, LayerChangePreview},
+        layers::PgLayers,
+    },
 };
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -193,8 +196,13 @@ impl LayerService {
     ) -> Result<i64, LayerError> {
         self.repository
             .apply_composition(
-                actor, layer, version, additions, removals,
-                expected_active_buyers, expected_lifetime_buyers,
+                actor,
+                layer,
+                version,
+                additions,
+                removals,
+                expected_active_buyers,
+                expected_lifetime_buyers,
             )
             .await
     }
