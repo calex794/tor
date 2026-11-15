@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 428);
+    assert_eq!(unique.len(), 430);
 }
 
 #[path = "tests/route_guardrails.rs"]
@@ -461,16 +461,6 @@ fn s039_admin_quote_is_private_read_without_an_http_post() {
 }
 
 #[test]
-fn s039_admin_post_is_exact_internal_wallet_write() {
-    let post = classify(Some("/admin/finance/payouts/{id}/post"), "POST");
-    assert!(post.route_known);
-    assert_eq!(post.traffic_surface, TrafficSurface::Admin);
-    assert_eq!(post.product_area, ProductArea::Admin);
-    assert_eq!(post.cost_class, CostClass::Write);
-    assert!(!classify(Some("/admin/finance/payouts/{id}/post"), "GET").route_known);
-}
-
-#[test]
 fn audience_books_is_an_exact_read_only_administrator_route() {
     let route = classify(Some("/admin/audience/books"), "GET");
     assert!(route.route_known);
@@ -596,4 +586,14 @@ fn search_analytics_has_only_two_exact_private_routes() {
     ] {
         assert!(!classify(Some(path), method).route_known);
     }
+}
+
+#[test]
+fn s039_admin_post_is_exact_internal_wallet_write() {
+    let post = classify(Some("/admin/finance/payouts/{id}/post"), "POST");
+    assert!(post.route_known);
+    assert_eq!(post.traffic_surface, TrafficSurface::Admin);
+    assert_eq!(post.product_area, ProductArea::Admin);
+    assert_eq!(post.cost_class, CostClass::Write);
+    assert!(!classify(Some("/admin/finance/payouts/{id}/post"), "GET").route_known);
 }

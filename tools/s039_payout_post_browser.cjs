@@ -102,7 +102,9 @@ async function device(browser, label, width, height) {
     assert.equal((await post({ ...data, csrf_token: 'invalid' })).status(), 403);
     assert.equal((await post({ ...data, amount_minor: '1' })).status(), 422);
     // Use the author's own valid CSRF so this denial tests role, not cookie mismatch.
-    const ownerCsrf = await authorPage.locator('input[name="csrf_token"]').inputValue();
+    const ownerCsrf = await authorPage.locator(
+      'form[action="/me/finance"] input[name="csrf_token"]'
+    ).inputValue();
     assert.equal((await authorContext.request.post(base + action, {
       form: { ...data, csrf_token: ownerCsrf }, headers: { origin: base },
     })).status(), 404);

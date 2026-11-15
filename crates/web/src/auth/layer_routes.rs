@@ -13,12 +13,14 @@ use tor_contracts::paid_delivery::PositiveId;
 mod layer_books;
 mod layer_create;
 mod layer_offer_manage;
+mod layer_paid_sales;
 
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .merge(layer_books::routes())
         .merge(layer_create::routes())
         .merge(layer_offer_manage::routes())
+        .merge(layer_paid_sales::routes())
 }
 
 pub(super) async fn author_index(

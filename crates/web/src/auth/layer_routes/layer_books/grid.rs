@@ -148,6 +148,9 @@ pub(super) fn detail(
               {pending_preview}
               {cover_form}
               {reader_link}
+              <p><a class="text-link" href="/me/layers/{id}/sales">
+                 Настроить ранний или эксклюзивный доступ к платным главам
+              </a></p>
             </div>
            </section>"#,
         id = layer.layer_id,

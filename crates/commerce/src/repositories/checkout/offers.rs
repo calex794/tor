@@ -39,7 +39,8 @@ impl PgCheckout {
              WHERE c.id=$1 AND c.visibility='public' AND c.access_level='paid'
                AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.package_only_layer_id IS NULL OR (b.package_only_until IS NOT NULL AND b.package_only_until<=now()))",
         )
         .bind(chapter_id)
         .fetch_optional(&self.pool)
