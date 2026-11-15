@@ -169,6 +169,8 @@ pub fn new_chapter(
     } else {
         String::new()
     };
+    let nav_path = format!("/me/books/{book_id}/chapters/new");
+    let navigation = crate::pages::account_navigation(&nav_path, csrf);
     let html = include_str!("../templates/author_new_chapter.html")
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -203,7 +205,7 @@ pub fn new_chapter(
         .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link)
         .replace(
             "<!--ACCOUNT_NAVIGATION-->",
-            &crate::pages::account_navigation(&format!("/me/books/{book_id}/chapters/new"), csrf),
+            &navigation,
         );
     layout("Добавить главу", "Публикация главы автором", &html)
 }
@@ -313,6 +315,8 @@ fn edit_chapter_mode(
     } else {
         escape_html(&chapter.title)
     };
+    let nav_path = format!("/me/books/{book_id}/chapters/{chapter_id}/edit");
+    let navigation = crate::pages::account_navigation(&nav_path, csrf);
     let html = include_str!("../templates/author_edit_chapter.html")
         .replace(
             "<!--EDIT_EYEBROW-->",
@@ -344,7 +348,7 @@ fn edit_chapter_mode(
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
         .replace(
             "<!--ACCOUNT_NAVIGATION-->",
-            &crate::pages::account_navigation(&format!("/me/books/{book_id}/chapters/{chapter_id}/edit"), csrf),
+            &navigation,
         );
     layout("Редактировать главу", "Закрытый редактор черновика.", &html)
 }
