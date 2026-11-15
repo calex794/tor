@@ -10,7 +10,10 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use std::{collections::{BTreeSet, HashMap}, fmt::Write};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Write,
+};
 use tor_commerce::{
     domain::layers::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
@@ -68,7 +71,8 @@ fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
     if raw.is_empty() {
         return Some(Vec::new());
     }
-    let ids = raw.split(',')
+    let ids = raw
+        .split(',')
         .map(|value| value.parse::<i64>().ok().filter(|id| *id > 0))
         .collect::<Option<Vec<_>>>()?;
     if ids.len() > 100 || ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
@@ -438,9 +442,16 @@ pub(super) async fn page(
     let (hero, settings, grid_markup) =
         grid::detail(&metadata, &tiles, &offer, &csrf, search, editable);
     let mut html = picker_html_with_query(
-        layer.get(), &candidates, &current, &offer, &csrf, search, editable,
+        layer.get(),
+        &candidates,
+        &current,
+        &offer,
+        &csrf,
+        search,
+        editable,
     );
-    html.0 = html.0
+    html.0 = html
+        .0
         .replace("<!--PACKAGE_HERO-->", &hero)
         .replace("<!--PACKAGE_METADATA-->", &settings)
         .replace("<!--PACKAGE_GRID-->", &grid_markup);
@@ -480,10 +491,15 @@ pub(super) async fn add(
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         };
         return match service
-            .preview_composition(actor, layer, expected, &adds, &removes).await
+            .preview_composition(actor, layer, expected, &adds, &removes)
+            .await
         {
             Ok(preview) => private_response(
-                grid::review(layer.get(), &preview, form.csrf_token.as_deref().unwrap_or("")),
+                grid::review(
+                    layer.get(),
+                    &preview,
+                    form.csrf_token.as_deref().unwrap_or(""),
+                ),
                 &[],
             ),
             Err(error) => deny(status(error)),
@@ -509,7 +525,8 @@ pub(super) async fn add(
             .await
         {
             Ok(_) => private_response(
-                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")), &[],
+                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")),
+                &[],
             ),
             Err(error) => deny(status(error)),
         };
