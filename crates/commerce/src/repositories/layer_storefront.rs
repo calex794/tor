@@ -236,8 +236,12 @@ pub async fn exclusive_package_link(
     row.map(|r| {
         Ok(ExclusivePackageLink {
             layer_id: r.try_get("layer_id").map_err(|_| LayerError::Unavailable)?,
-            title: r.try_get("layer_title").map_err(|_| LayerError::Unavailable)?,
-            until_utc: r.try_get("until_utc").map_err(|_| LayerError::Unavailable)?,
+            title: r
+                .try_get("layer_title")
+                .map_err(|_| LayerError::Unavailable)?,
+            until_utc: r
+                .try_get("until_utc")
+                .map_err(|_| LayerError::Unavailable)?,
         })
     })
     .transpose()
