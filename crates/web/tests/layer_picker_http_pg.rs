@@ -735,9 +735,12 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert_eq!(index.headers()[header::CACHE_CONTROL], "no-store");
     let index_html = body(index).await;
     let metadata_route = format!("/me/layers/{id}/metadata");
-    assert!(index_html.contains(&format!("action=\"{metadata_route}\"")));
-    assert!(index_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
-    assert!(index_html.contains("name=\"expected_revision\" value=\"1\""));
+    assert!(index_html.contains(&destination));
+    assert!(!index_html.contains(&format!("action=\"{metadata_route}\"")));
+    let detail_html = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
+    assert!(detail_html.contains(&format!("action=\"{metadata_route}\"")));
+    assert!(detail_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
+    assert!(detail_html.contains("name=\"expected_revision\" value=\"1\""));
 
     let update = format!(
         "title=Owner+Updated&description=Private+description&status=hidden&expected_revision=1&csrf_token={csrf}"
@@ -781,7 +784,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
 
     let saved = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &update).await;
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
-    assert_eq!(saved.headers()[header::LOCATION], "/me/layers");
+    assert_eq!(saved.headers()[header::LOCATION], destination);
     assert_eq!(
         pg(
             &url,
@@ -797,7 +800,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     let hidden = body(request(&app, "GET", "/me/layers", &cookie, ORIGIN, "").await).await;
     assert!(hidden.contains("Owner Updated"));
     assert!(hidden.contains("Скрыт"));
-    assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
+    assert!(!hidden.contains(&format!("action=\"{metadata_route}\"")));
     let details = format!("/me/layers/{id}/books");
     let hidden_details = body(request(&app, "GET", &details, &cookie, ORIGIN, "").await).await;
     assert!(hidden_details.contains("Пакет скрыт от новых покупок"));
