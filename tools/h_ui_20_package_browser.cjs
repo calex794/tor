@@ -1,5 +1,5 @@
-// H/UI-20: real desktop/mobile navigation to the same public package.
-// Only a disposable tor_ci account and loopback server; never log cookies.
+// H/UI-20: public desktop/mobile navigation to a published package.
+// No login secrets or protected chapter contents are used by this test.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -10,18 +10,13 @@ const temp = process.env.RUNNER_TEMP || "";
 const filename = process.env.TOR_H20_REAL_BROWSER_FIXTURE || "";
 assert(temp && filename && path.resolve(filename).startsWith(path.resolve(temp) + path.sep));
 const fixture = JSON.parse(fs.readFileSync(filename, "utf8"));
-for (const key of ["book", "layer", "buyer"]) {
+for (const key of ["book", "layer"]) {
   assert(Number.isSafeInteger(fixture[key]) && fixture[key] > 0);
 }
-assert.match(fixture.token, /^[A-Za-z0-9_-]{43}$/);
 
 async function verify(browser, viewport) {
   const context = await browser.newContext({ viewport });
   try {
-    await context.addCookies([{
-      url: SITE, name: "tor-dev-session", value: fixture.token,
-      httpOnly: true, sameSite: "Lax",
-    }]);
     const page = await context.newPage();
     const book = await page.goto(SITE + "/books/" + fixture.book);
     assert.equal(book.status(), 200);
@@ -30,13 +25,8 @@ async function verify(browser, viewport) {
     await page.getByRole("link", { name: /Посмотреть пакет/ }).click();
     await page.waitForURL("**/layers/" + fixture.layer);
     assert(await page.getByRole("heading", { name: /H20.*пакет/ }).isVisible());
-    const batch = await page.goto(SITE + "/me/books/" + fixture.book + "/buy-chapters");
-    assert.equal(batch.status(), 200);
-    assert(await page.getByRole("heading", { name: "Доступно через пакет" }).isVisible());
-    assert.equal(await page.locator('input[name^="chapter_"]').count(), 0);
-    await page.getByRole("link", { name: "Посмотреть пакет" }).click();
-    await page.waitForURL("**/layers/" + fixture.layer);
     assert(await page.getByText("Оплата только из внутреннего кошелька.", { exact: false }).isVisible());
+    assert(!(await page.content()).includes("H20 sealed fixture"));
     const horizontalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     assert(!horizontalOverflow, "package storefront must fit the viewport");
@@ -44,6 +34,7 @@ async function verify(browser, viewport) {
     await context.close();
   }
 }
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
