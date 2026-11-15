@@ -224,7 +224,7 @@ jobs:
           baseline_failed=0
           for rate in 20 50 100 200; do
             echo "::group::PERF-02f Book guest+reader target $rate req/s"
-            printf '%s\t%s\tstart\n' "$(date -u +%FT%TZ)" "$rate" \
+            printf '%s\t%s\tstart\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
             if PERF02_BOOK_RPS="$rate" k6 run \
               --summary-export "$RUNNER_TEMP/tor-load/perf02-book/summary-$rate.json" \
@@ -235,7 +235,7 @@ jobs:
               outcome=FAIL
               if (( rate == 20 )); then baseline_failed=1; fi
             fi
-            printf '%s\t%s\tfinish\n' "$(date -u +%FT%TZ)" "$rate" \
+            printf '%s\t%s\tfinish\n' "$(date -u +%FT%T.%3NZ)" "$rate" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/stages.tsv"
             printf '%s\t%s\n' "$rate" "$outcome" \
               >> "$RUNNER_TEMP/tor-load/perf02-book/results.tsv"
