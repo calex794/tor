@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
-const { inspectImportRelease } = require('./author_import_release_visual.cjs');
+const { inspectChapterRelease } = require('./author_release_visual.cjs');
 
 const base = 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
@@ -348,7 +348,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       assert(beforeTime && beforeTime.status() === 404,
         viewport + ': scheduled free chapter exposed before due time');
       await page.goto(scheduledDraftUrl);
-      await inspectImportRelease(page, viewport, width, height, 'release', out);
+      await inspectChapterRelease(page, viewport, width, height, out);
       const scheduledUtc = new Date(Date.now() + 60 * 60 * 1000)
         .toISOString().slice(0, 16);
       await page.getByLabel('Дата и время (UTC)').fill(scheduledUtc);

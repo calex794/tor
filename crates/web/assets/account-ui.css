@@ -329,34 +329,161 @@
   .author-editor__actions .ui-button { width:100%; }
 }
 
-/* File import and release confirmation use the same owner workspace. */
-.author-import .author-editor__panel h2,
+
+/* H/UI-13: author chapter import, reusing the account shell and existing JS contract. */
+.author-import-page__breadcrumbs {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  margin:0 0 18px; color:var(--text-muted); font-size:12px;
+}
+.author-import-page__breadcrumbs a {
+  color:var(--primary-color); text-decoration:none; font-weight:750;
+}
+.author-import-page__breadcrumbs a:hover { text-decoration:underline; }
+.author-import-page .author-import-page__header {
+  display:flex; flex-wrap:wrap; align-items:flex-start;
+  justify-content:space-between; gap:14px; margin-bottom:24px;
+}
+.author-import-page__header .ui-page-header__content {
+  min-width:0; flex:1 1 360px;
+}
+.author-import-page__header .ui-page-header__title { overflow-wrap:anywhere; }
+.author-import-page__header .ui-page-header__text {
+  max-width:740px; line-height:1.6;
+}
+.author-import-page__header > .ui-button {
+  min-height:44px;
+}
+.author-import-page__steps {
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px; margin:0 0 20px; padding:0; list-style:none;
+}
+.author-import-page__steps li {
+  display:flex; align-items:center; min-width:0; gap:10px;
+  padding:12px 14px; border:1px solid var(--border-color);
+  border-radius:var(--radius-md); background:var(--bg-secondary);
+}
+.author-import-page__steps li > span {
+  display:grid; flex:0 0 27px; width:27px; height:27px;
+  place-items:center; border-radius:50%; color:var(--primary-color);
+  background:var(--bg-surface); font-size:12px; font-weight:800;
+}
+.author-import-page__steps li > strong {
+  min-width:0; color:var(--text-main); font-size:13px; line-height:1.4;
+}
+.author-import-page__workspace { display:grid; gap:18px; min-width:0; }
+.author-import-page__panel {
+  min-width:0; padding:clamp(18px,2.5vw,26px);
+  border:1px solid var(--border-color); border-radius:var(--radius-lg);
+  background:var(--bg-surface);
+}
+.author-import-page__panel-heading { margin-bottom:14px; }
+.author-import-page__kicker {
+  margin:0 0 6px; color:var(--text-muted); font-size:11px;
+  letter-spacing:.08em; font-weight:800; text-transform:uppercase;
+}
+.author-import-page__panel h2,
+.author-import-page__confirm h2 {
+  margin:0; color:var(--text-main); font-size:20px; line-height:1.35;
+}
+.author-import-page__help,
+.author-import-page__confirm > p:not(.author-import-page__kicker) {
+  max-width:760px; margin:0 0 19px; color:var(--text-secondary);
+  font-size:13px; line-height:1.7;
+}
+.author-import-page__fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.author-import-page__field { display:grid; align-content:start; gap:9px; min-width:0; }
+.author-import-page__field label,
+.author-import-page__editor label {
+  color:var(--text-main); font-size:13px; font-weight:750; line-height:1.5;
+}
+.author-import-page__field input,
+.author-import-page__field select,
+.author-import-page__editor textarea {
+  width:100%; min-width:0; min-height:44px; padding:10px 12px;
+  border:1px solid var(--border-dark); border-radius:var(--radius-sm);
+  background:var(--bg-surface); color:var(--text-main);
+  font:inherit; font-size:16px; line-height:1.5;
+}
+.author-import-page__field input[type="file"] {
+  max-width:100%; padding:8px; overflow-wrap:anywhere;
+}
+.author-import-page__field input[type="file"]::file-selector-button {
+  min-height:34px; margin-right:10px; padding:5px 10px;
+  border:1px solid var(--border-color); border-radius:var(--radius-sm);
+  color:var(--text-main); background:var(--bg-secondary); cursor:pointer;
+}
+.author-import-page__field :is(input,select):focus-visible,
+.author-import-page__editor textarea:focus-visible {
+  outline:3px solid var(--focus-ring-color); outline-offset:2px;
+  border-color:var(--primary-color);
+}
+.author-import-page__editor {
+  margin-top:18px; border:1px solid var(--border-color);
+  border-radius:var(--radius-md); background:var(--bg-secondary);
+}
+.author-import-page__editor summary {
+  padding:15px 17px; cursor:pointer;
+  color:var(--text-main); font-size:13px; font-weight:750; line-height:1.5;
+}
+.author-import-page__editor summary:focus-visible {
+  outline:3px solid var(--focus-ring-color); outline-offset:-3px;
+}
+.author-import-page__editor-content {
+  display:grid; gap:9px; padding:0 17px 17px;
+}
+.author-import-page__editor textarea {
+  min-height:280px; resize:vertical; white-space:pre-wrap;
+}
+.author-import-page__editor-content p {
+  margin:0; color:var(--text-muted); font-size:12px; line-height:1.6;
+}
+.author-import-page__panel-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+.author-import-page .ui-button { min-height:44px; }
+.author-import-page .ui-button:disabled { opacity:.55; cursor:not-allowed; }
+.author-import-page__status {
+  margin:0 0 13px; padding:13px 15px;
+  border:1px solid var(--border-color); border-radius:var(--radius-md);
+  color:var(--text-secondary); background:var(--bg-secondary);
+  font-size:13px; line-height:1.6; overflow-wrap:anywhere;
+}
+.author-import-page__results { display:grid; gap:10px; margin:0; padding-left:26px; min-width:0; }
+.author-import-page__results:empty { display:none; }
+.author-import-page__results li {
+  min-width:0; padding:10px 12px;
+  border:1px solid var(--border-color); border-radius:var(--radius-md);
+  overflow-wrap:anywhere;
+}
+.author-import-page__results li strong { font-size:14px; line-height:1.5; }
+.author-import-page__results li p {
+  margin:6px 0 0; color:var(--text-muted); font-size:12px;
+  line-height:1.5; overflow-wrap:anywhere;
+}
+.author-import-page__confirm {
+  padding:clamp(18px,2.5vw,26px); border:1px solid var(--border-color);
+  border-radius:var(--radius-lg); background:var(--bg-secondary);
+}
+.author-import-page__confirm h2 { margin-bottom:12px; }
+.author-import-page__confirm-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.author-import-page #chapter-import-cancel[hidden] { display:none; }
+@media (max-width:700px) {
+  .author-import-page__steps { grid-template-columns:minmax(0,1fr); }
+  .author-import-page__fields { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:620px) {
+  .author-import-page__header > .ui-button { width:100%; }
+  .author-import-page__panel,
+  .author-import-page__confirm { padding:18px 15px; }
+  .author-import-page__confirm-actions .ui-button,
+  .author-import-page__panel-actions .ui-button { flex:1 1 100%; }
+  .author-import-page__steps { gap:6px; }
+  .author-import-page__steps li { padding:10px 12px; }
+}
+
+/* Release confirmation shares owner navigation, controls and surface tokens. */
 .author-release .author-editor__panel h2 {
   margin:0 0 18px; color:var(--text-main); font-size:20px;
   line-height:1.35; overflow-wrap:anywhere;
 }
-.author-import input[type="file"] { max-width:100%; min-height:44px; padding:10px; }
-.author-import input[type="file"]::file-selector-button {
-  margin-right:10px; padding:7px 10px; border:1px solid var(--border-color);
-  border-radius:var(--radius-sm); background:var(--bg-secondary); color:var(--text-main);
-  font:inherit; cursor:pointer;
-}
-.author-import__details { margin-top:18px; border-top:1px solid var(--border-color); }
-.author-import__details summary {
-  padding:14px 0; color:var(--text-main); font-size:14px; font-weight:650;
-  line-height:1.5; cursor:pointer; overflow-wrap:anywhere;
-}
-.author-import__details p { margin:0; color:var(--text-secondary); font-size:13px; line-height:1.7; }
-.author-import #chapter-import-results {
-  max-height:45vh; margin:18px 0 0; padding:12px 18px 12px 36px;
-  overflow:auto; overflow-wrap:anywhere; overscroll-behavior:contain;
-  border:1px solid var(--border-color); border-radius:var(--radius-md);
-  background:var(--bg-secondary); color:var(--text-main);
-}
-.author-import #chapter-import-results:empty { display:none; }
-.author-import #chapter-import-results li { padding:10px 0; font-size:14px; line-height:1.5; }
-.author-import #chapter-import-results p { margin:6px 0 0; color:var(--text-secondary); font-size:13px; }
-.author-import [hidden] { display:none!important; }
 .author-release__options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
 .author-release__schedule { display:grid; gap:16px; }
 .author-release__cancel { margin-top:14px; }
@@ -368,8 +495,6 @@
   background:var(--bg-secondary); color:var(--text-main);
   font:15px/1.75 var(--font-family, sans-serif);
 }
-.author-import summary:focus-visible,
-.author-import #chapter-import-results:focus-visible,
 .author-release .author-release-preview:focus-visible {
   outline:2px solid var(--primary-color); outline-offset:3px;
 }

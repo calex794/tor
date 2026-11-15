@@ -278,28 +278,6 @@ fn release_form_escapes_chapter_body_and_pins_version() {
 }
 
 #[test]
-fn import_page_preserves_confirmation_gates_and_uses_owner_navigation() {
-    let page = import_chapters(42, "csrf\"<token>", "command\"<key>").0;
-    assert!(page.contains("account-sidebar"));
-    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
-    assert!(page.contains("id=\"chapter-import\" data-book-id=\"42\""));
-    assert!(page
-        .contains("id=\"chapter-import-csrf\" type=\"hidden\" value=\"csrf&quot;&lt;token&gt;\""));
-    assert!(page.contains("name=\"csrf_token\" value=\"csrf&quot;&lt;token&gt;\""));
-    assert!(page.contains("value=\"command&quot;&lt;key&gt;\""));
-    assert!(page.contains("type=\"button\" disabled>Подтвердить и создать главы"));
-    assert!(page.contains("type=\"button\" disabled>Проверить главы"));
-    assert!(page.contains("type=\"button\" hidden>Отменить импорт"));
-    assert!(page.contains("maxlength=\"700000\""));
-    assert!(page.contains("role=\"status\" aria-live=\"polite\""));
-    assert!(
-        page.contains("ничего не публикуется автоматически")
-            || page.contains("Ничего не публикуется автоматически")
-    );
-    assert!(!page.contains("auth-card"));
-    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
-}
-#[test]
 fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
     let published_book = OwnedBook {
         id: 42,
@@ -485,4 +463,52 @@ fn author_book_published_state_does_not_show_draft_checklist() {
     assert!(!html.contains("href=\"/me/books/42/chapters/import\""));
     assert!(html.contains("Читатели ждут продолжения"));
     assert!(html.contains("href=\"/books/42\""));
+}
+
+#[test]
+fn chapter_import_preserves_owner_shell_preview_and_explicit_confirmation() {
+    let page = import_chapters(42, "<csrf>", "<command>").0;
+    assert!(page.contains("class=\"account-sidebar\""));
+    assert!(page.contains("href=\"/me/books\" aria-current=\"location\""));
+    assert!(!page.contains("aria-current=\"page\""));
+    assert!(!page.contains("<!--ACCOUNT_NAVIGATION-->"));
+    assert!(page.contains("id=\"chapter-import\""));
+    assert!(page.contains("data-book-id=\"42\""));
+    assert!(page.contains("id=\"chapter-import-csrf\" type=\"hidden\" value=\"&lt;csrf&gt;\""));
+    assert!(
+        page.contains("id=\"chapter-import-command\" type=\"hidden\" value=\"&lt;command&gt;\"")
+    );
+    for id in [
+        "chapter-import-file",
+        "chapter-import-encoding",
+        "chapter-import-text",
+        "chapter-import-preview",
+        "chapter-import-status",
+        "chapter-import-results",
+        "chapter-import-confirm",
+        "chapter-import-cancel",
+    ] {
+        assert!(
+            page.contains(&format!("id=\"{id}\"")),
+            "missing importer ID: {id}"
+        );
+    }
+    assert_eq!(page.matches("id=\"chapter-import-file\"").count(), 1);
+    assert_eq!(page.matches("id=\"chapter-import-confirm\"").count(), 1);
+    assert!(page.contains("id=\"chapter-import-preview\" class=\"ui-button ui-button--ghost\" type=\"button\" disabled"));
+    assert!(
+        page.contains("id=\"chapter-import-confirm\" class=\"ui-button\" type=\"button\" disabled")
+    );
+    assert!(page.contains(
+        "id=\"chapter-import-cancel\" class=\"ui-button ui-button--ghost\" type=\"button\" hidden"
+    ));
+    assert!(page.contains("role=\"status\" aria-live=\"polite\""));
+    assert!(page.contains("src=\"/assets/newboo-chapter-import.js\""));
+    let file_step = page.find("id=\"author-import-file-heading\"").unwrap();
+    let preview_step = page.find("id=\"author-import-preview-heading\"").unwrap();
+    let confirm_step = page.find("id=\"author-import-confirm-heading\"").unwrap();
+    assert!(file_step < preview_step && preview_step < confirm_step);
+    assert!(page.contains("Исправить текст и ошибочные границы глав перед импортом"));
+    assert!(page.contains("Новые главы будут записаны в черновик книги"));
+    assert!(!page.contains("action=\"/me/books/42/publish\""));
 }
