@@ -114,9 +114,7 @@ pub(super) async fn update_metadata(
         )
         .await
     {
-        Ok(()) => private_response(
-            Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[],
-        ),
+        Ok(()) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
         Err(error) => deny(layer_books::status(error)),
     }
 }
