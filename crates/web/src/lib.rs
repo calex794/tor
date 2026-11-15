@@ -65,8 +65,8 @@ pub mod g09_operator;
 mod observability;
 mod operator_overview;
 mod operator_traces;
-mod pages;
 mod package_purchase_link;
+mod pages;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
@@ -285,10 +285,11 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            let html = match package_purchase_link::attach(&state, &headers, catalog, id, html).await {
-                Ok(html) => html,
-                Err(status) => return book_error(&state, status).await,
-            };
+            let html =
+                match package_purchase_link::attach(&state, &headers, catalog, id, html).await {
+                    Ok(html) => html,
+                    Err(status) => return book_error(&state, status).await,
+                };
             let html = match book_related_public::attach(catalog, book.id, count, html).await {
                 Ok(html) => html,
                 Err(status) => return book_error(&state, status).await,
