@@ -336,7 +336,7 @@ async fn native_management_authority_three_real_placements_and_optional_failure(
     assert_eq!(enabled.status(), StatusCode::SEE_OTHER);
     let homepage = html(call(&app, "GET", "/", "", ORIGIN, "").await).await;
     assert!(homepage.contains("data-promo-strip"));
-    assert!(homepage.contains("aria-label=\\"Специальное предложение\\""));
+    assert!(homepage.contains("aria-label=\"Специальное предложение\""));
     assert!(homepage.contains("&lt;script&gt;safe&lt;/script&gt;"));
     assert!(!homepage.contains("book-related-grid"));
     let paused_strip = call(
