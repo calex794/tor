@@ -19,6 +19,9 @@ impl LayerService {
     pub async fn create(&self, actor: PositiveId, title: &str) -> Result<i64, LayerError> {
         self.repository.create_layer(actor, title).await
     }
+    pub async fn author_has_book(&self, actor: PositiveId) -> Result<bool, LayerError> {
+        self.repository.author_has_book(actor).await
+    }
     /// Authenticated form command. The original Layer is returned on replay.
     pub async fn create_once(
         &self,
