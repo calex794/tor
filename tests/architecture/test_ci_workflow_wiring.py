@@ -121,6 +121,17 @@ class WorkflowWiringTests(unittest.TestCase):
                 job = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
                 self.assertEqual(job.count(command), 1)
 
+    def test_package_only_paid_checkout_pg_guards_are_run_in_both_workflows(self):
+        commands = (
+            "cargo test -p tor-commerce --test layers_pg h_ui_19_ -- --ignored --test-threads=1",
+            "cargo test -p tor-commerce --test batch_checkout_pg h_ui_19_ -- --ignored --test-threads=1",
+        )
+        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(workflow=filename):
+                job = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
+                for command in commands:
+                    self.assertEqual(job.count(command), 1)
+
     def test_reading_analytics_isolated_exact_35_test_targets(self):
         self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 35)
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
