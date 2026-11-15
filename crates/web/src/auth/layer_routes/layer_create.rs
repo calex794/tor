@@ -113,27 +113,16 @@ pub(super) async fn update_metadata(
 }
 
 fn new_layer_html(csrf: &str, key: &str) -> axum::response::Html<String> {
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container">
-        <div class="auth-card author-card">
-        <p class="eyebrow">Кабинет автора</p><h1>Создать Layer</h1>
-        <p>Создаётся пустой Layer. Книги добавляются отдельно, только когда
-        в команде один активный участник — владелец.</p>
-        <form method="post" action="/me/layers/new">
-        <label for="layer-title">Название Layer</label>
-        <input id="layer-title" name="title" type="text" maxlength="120" required>
-        <input type="hidden" name="csrf_token" value="{}">
-        <input type="hidden" name="command_key" value="{}">
-        <button class="button" type="submit">Создать Layer</button>
-        </form>
-        <p><a href="/me/layers">Мои слои</a> · <a href="/me/books">Мои книги</a></p>
-        </div></div></section>"#,
-        pages::escape_html(csrf),
-        pages::escape_html(key)
-    );
-    pages::layout(
-        "Создать Layer",
-        "Создание собственного Layer без покупки.",
+    let content = include_str!("../../../templates/author_layer_new.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &pages::account_navigation("/me/layers", csrf),
+        )
+        .replace("<!--CSRF_TOKEN-->", &pages::escape_html(csrf))
+        .replace("<!--COMMAND_KEY-->", &pages::escape_html(key));
+    pages::private_account_layout(
+        "Новый пакет книг",
+        "Создание пакета собственных книг.",
         &content,
     )
 }
