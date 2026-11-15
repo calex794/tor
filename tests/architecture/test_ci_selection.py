@@ -159,7 +159,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(enabled(select(ROOT, paths)), set(SUITES))
 
     def test_rules_only_scope_never_restricts_main_or_manual(self):
-        for event in ("push", "workflow_dispatch", "merge_group"):
+        for event in ("push", "workflow_dispatch", "schedule", "merge_group"):
             r = event_selection(ROOT, event, {}, "a" * 40)
             self.assertEqual(enabled(r), set(SUITES))
 
@@ -178,7 +178,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(enabled(select(root, ["README.md"])), set(SUITES))
 
     def test_manual_main_or_unknown_event_always_full(self):
-        for event in ("workflow_dispatch", "push", "merge_group", ""):
+        for event in ("workflow_dispatch", "push", "schedule", "merge_group", ""):
             result = event_selection(ROOT, event, {}, "a" * 40)
             self.assertEqual(enabled(result), set(SUITES))
 

@@ -27,7 +27,7 @@ def evidence(selected=None, selector_result="success"):
 
 class CIRequiredGateTests(unittest.TestCase):
     def test_main_and_manual_require_complete_pack(self):
-        for event in ("push", "workflow_dispatch"):
+        for event in ("push", "workflow_dispatch", "schedule"):
             with self.subTest(event=event):
                 self.assertEqual(verify(event, evidence())["verified"], len(SUITE_JOB_IDS))
                 with self.assertRaises(GateError):

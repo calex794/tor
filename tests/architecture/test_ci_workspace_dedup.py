@@ -20,7 +20,7 @@ class WorkspaceDedupTests(unittest.TestCase):
                 self.assertEqual(postgres.count(command), 1)
         self.assertIn(
             "      - name: Standalone manual workspace baseline\n"
-            "        if: ${{ github.event_name == 'workflow_dispatch' }}\n"
+            "        if: ${{ github.event_name == 'workflow_dispatch' && matrix.shard == 'foundation' }}\n"
             "        run: |\n"
             "          cargo fmt --all -- --check\n"
             "          cargo test --workspace --all-targets\n"
