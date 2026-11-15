@@ -3,7 +3,7 @@
 use axum::{
     body::Body,
     extract::{MatchedPath, State},
-    http::{header::HeaderName, HeaderValue, Request, StatusCode},
+    http::{header::HeaderName, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::Response,
     Router,
@@ -110,6 +110,8 @@ async fn observe(
         .get::<MatchedPath>()
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
+    // MatchedPath is a registered template, never a client-provided URL.
+    let measured_book_get = template == Some("/books/{id}") && request.method() == Method::GET;
     let flow_request = flow::FlowRequest::new(template, request.method(), request.headers());
     request.extensions_mut().insert(passport);
     let trace_id = crate::observability::new_trace_id();
@@ -126,7 +128,7 @@ async fn observe(
             && std::env::var("TOR_CI_PERF02_POOL_TIMING").as_deref() == Ok("1")
     });
     if sample_enabled
-        && passport.route_family == "books"
+        && measured_book_get
         && CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed).is_multiple_of(16)
     {
         if let Some(measured) = sql_measurement.as_ref() {
