@@ -28,7 +28,10 @@ pub(super) fn routes() -> Router<AuthState> {
         .route("/layers/{layer_id}/cover/{variant}", get(public_cover))
         .route("/me/layers/{layer_id}/cover/{mode}", get(owner_preview))
         .route("/moderation/layers/covers", get(queue))
-        .route("/moderation/layers/covers/{id}/preview", get(moderator_preview))
+        .route(
+            "/moderation/layers/covers/{id}/preview",
+            get(moderator_preview),
+        )
         .route("/moderation/layers/covers/{id}/decision", post(decide))
 }
 
@@ -159,12 +162,16 @@ async fn owner_preview(
         Ok(image) => image,
         Err(error) => return deny(error),
     };
-    let unchanged = repo.owner_view(owner, layer).await.ok()
+    let unchanged = repo
+        .owner_view(owner, layer)
+        .await
+        .ok()
         .and_then(|(approved, pending)| match mode.as_str() {
             "preview" => pending,
             _ => approved,
         })
-        .as_ref() == Some(&candidate);
+        .as_ref()
+        == Some(&candidate);
     if !unchanged {
         return deny(StatusCode::NOT_FOUND);
     }
@@ -258,8 +265,7 @@ async fn decide(
     headers: HeaderMap,
     Form(form): Form<ReviewForm>,
 ) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -298,9 +304,7 @@ async fn decide(
         Err(tor_commerce::domain::layers::LayerError::Invalid) => {
             deny(StatusCode::UNPROCESSABLE_ENTITY)
         }
-        Err(tor_commerce::domain::layers::LayerError::StaleOffer) => {
-            deny(StatusCode::CONFLICT)
-        }
+        Err(tor_commerce::domain::layers::LayerError::StaleOffer) => deny(StatusCode::CONFLICT),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
