@@ -151,13 +151,19 @@ impl PgLayers {
             return Err(LayerError::StaleOffer);
         }
         let row = sqlx::query(
-            "SELECT b.package_only_layer_id,b.package_only_until,
-                    b.package_only_revision,b.admin_hold,b.is_deleted
+            "SELECT b.package_only_layer_id,
+                    (b.package_only_layer_id IS NOT NULL AND
+                     b.package_only_layer_id<>$3 AND
+                     (b.package_only_until IS NULL OR b.package_only_until>now()))
+                        AS active_elsewhere,
+                    b.package_only_revision,b.admin_hold,b.is_deleted,
+                    b.visibility,b.visibility_status
              FROM books b WHERE b.id=$1 AND b.owner_user_id=$2
              FOR UPDATE OF b",
         )
         .bind(book.get())
         .bind(owner.get())
+        .bind(layer.get())
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?
@@ -171,17 +177,9 @@ impl PgLayers {
         let current_layer: Option<i64> = row
             .try_get("package_only_layer_id")
             .map_err(|_| LayerError::Unavailable)?;
-        let active_other: bool = sqlx::query_scalar(
-            "SELECT $1::BIGINT IS NOT NULL AND $1<>$2 AND
-               ($3::TIMESTAMPTZ IS NULL OR $3>now())",
-        )
-        .bind(current_layer)
-        .bind(layer.get())
-        .bind(row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("package_only_until")
-            .map_err(|_| LayerError::Unavailable)?)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| LayerError::Unavailable)?;
+        let active_other: bool = row
+            .try_get("active_elsewhere")
+            .map_err(|_| LayerError::Unavailable)?;
         if active_other {
             return Err(LayerError::Inaccessible);
         }
@@ -200,7 +198,11 @@ impl PgLayers {
         if mode.is_restricted() {
             let blocked: bool = row.try_get("admin_hold").map_err(|_| LayerError::Unavailable)?;
             let deleted: bool = row.try_get("is_deleted").map_err(|_| LayerError::Unavailable)?;
-            if blocked || deleted {
+            let visibility: String = row.try_get("visibility").map_err(|_| LayerError::Unavailable)?;
+            let status: String = row
+                .try_get("visibility_status")
+                .map_err(|_| LayerError::Unavailable)?;
+            if blocked || deleted || visibility != "public" || status != "active" {
                 return Err(LayerError::Inaccessible);
             }
             let sole_owner: bool = sqlx::query_scalar(

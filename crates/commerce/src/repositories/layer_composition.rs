@@ -263,11 +263,14 @@ impl PgLayers {
                                 AND (m.user_id<>$2 OR m.role<>'owner'))
                AND NOT EXISTS(SELECT 1 FROM commerce_layer_version_books vb
                               WHERE vb.layer_version_id=$3 AND vb.book_id=b.id)
+               AND (b.package_only_layer_id IS NULL OR b.package_only_layer_id=$4
+                    OR (b.package_only_until IS NOT NULL AND b.package_only_until<=now()))
              ORDER BY b.id",
         )
         .bind(additions)
         .bind(actor.get())
         .bind(current)
+        .bind(layer.get())
         .fetch_all(&mut **tx)
         .await
         .map_err(|_| LayerError::Unavailable)?;
