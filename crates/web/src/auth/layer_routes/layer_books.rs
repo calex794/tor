@@ -10,7 +10,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use std::fmt::Write;
+use std::{collections::{BTreeSet, HashMap}, fmt::Write};
 use tor_commerce::{
     domain::layers::{
         LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
@@ -21,7 +21,10 @@ use tor_commerce::{
 };
 use tor_contracts::paid_delivery::PositiveId;
 
+mod grid;
+
 const PAGE_SIZE: u16 = 20;
+const GRID_PAGE_SIZE: u16 = 50;
 
 pub(super) fn routes() -> Router<AuthState> {
     Router::new().route("/me/layers/{layer_id}/books", get(page).post(add))
@@ -41,13 +44,61 @@ pub(super) struct PickerQuery {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct AddBookForm {
-    book_id: i64,
+    book_id: Option<i64>,
     csrf_token: Option<String>,
     operation: Option<String>,
     expected_version_id: Option<i64>,
     confirm_composition: Option<String>,
+    visible_csv: Option<String>,
+    included_csv: Option<String>,
+    add_csv: Option<String>,
+    remove_csv: Option<String>,
+    active_buyers: Option<i64>,
+    lifetime_buyers: Option<i64>,
+    #[serde(flatten)]
+    choices: HashMap<String, String>,
+}
+
+fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
+    let raw = raw?;
+    if raw.len() > 1400 {
+        return None;
+    }
+    if raw.is_empty() {
+        return Some(Vec::new());
+    }
+    let ids = raw.split(',')
+        .map(|value| value.parse::<i64>().ok().filter(|id| *id > 0))
+        .collect::<Option<Vec<_>>>()?;
+    if ids.len() > 100 || ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
+        return None;
+    }
+    Some(ids)
+}
+
+fn staged_changes(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
+    let visible = csv_ids(form.visible_csv.as_deref())?;
+    let included = csv_ids(form.included_csv.as_deref())?;
+    let visible_set: BTreeSet<_> = visible.iter().copied().collect();
+    let included_set: BTreeSet<_> = included.iter().copied().collect();
+    if visible.len() > usize::from(GRID_PAGE_SIZE)
+        || !included_set.is_subset(&visible_set)
+        || form.choices.len() > visible.len()
+    {
+        return None;
+    }
+    let mut selected = BTreeSet::new();
+    for (key, value) in &form.choices {
+        let id = key.strip_prefix("chosen_")?.parse::<i64>().ok()?;
+        if value != "1" || !visible_set.contains(&id) {
+            return None;
+        }
+        selected.insert(id);
+    }
+    let adds = selected.difference(&included_set).copied().collect();
+    let removes = included_set.difference(&selected).copied().collect();
+    Some((adds, removes))
 }
 
 pub(super) fn status(error: LayerError) -> StatusCode {
@@ -372,19 +423,28 @@ pub(super) async fn page(
     if offer.current_version_id != current.current_version_id {
         return deny(StatusCode::CONFLICT);
     }
+    let metadata = match service.owner_layer(actor, layer).await {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
+    let tiles = match service
+        .composition_tiles(actor, layer, after, search, GRID_PAGE_SIZE)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        picker_html_with_query(
-            layer.get(),
-            &candidates,
-            &current,
-            &offer,
-            &csrf,
-            search,
-            editable,
-        ),
-        &cookies,
-    )
+    let (hero, settings, grid_markup) =
+        grid::detail(&metadata, &tiles, &offer, &csrf, search, editable);
+    let mut html = picker_html_with_query(
+        layer.get(), &candidates, &current, &offer, &csrf, search, editable,
+    );
+    html.0 = html.0
+        .replace("<!--PACKAGE_HERO-->", &hero)
+        .replace("<!--PACKAGE_METADATA-->", &settings)
+        .replace("<!--PACKAGE_GRID-->", &grid_markup);
+    private_response(html, &cookies)
 }
 
 pub(super) async fn add(
@@ -408,17 +468,58 @@ pub(super) async fn add(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let (Ok(actor), Ok(layer), Ok(book)) = (
-        PositiveId::new(actor),
-        PositiveId::new(raw_layer),
-        PositiveId::new(form.book_id),
-    ) else {
+    let (Ok(actor), Ok(layer)) = (PositiveId::new(actor), PositiveId::new(raw_layer)) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
-    if form.confirm_composition.as_deref() != Some("yes") {
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    if form.operation.as_deref() == Some("preview") {
+        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        let Some((adds, removes)) = staged_changes(&form) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        return match service
+            .preview_composition(actor, layer, expected, &adds, &removes).await
+        {
+            Ok(preview) => private_response(
+                grid::review(layer.get(), &preview, form.csrf_token.as_deref().unwrap_or("")),
+                &[],
+            ),
+            Err(error) => deny(status(error)),
+        };
+    }
+    if form.operation.as_deref() == Some("apply") {
+        let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        let (Some(adds), Some(removes), Some(active), Some(lifetime)) = (
+            csv_ids(form.add_csv.as_deref()),
+            csv_ids(form.remove_csv.as_deref()),
+            form.active_buyers,
+            form.lifetime_buyers,
+        ) else {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        };
+        if form.confirm_composition.as_deref() != Some("yes") || !form.choices.is_empty() {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        return match service
+            .apply_composition(actor, layer, expected, &adds, &removes, active, lifetime)
+            .await
+        {
+            Ok(_) => private_response(
+                Redirect::to(&format!("/me/layers/{raw_layer}/books?updated=1")), &[],
+            ),
+            Err(error) => deny(status(error)),
+        };
+    }
+    let Some(Ok(book)) = form.book_id.map(PositiveId::new) else {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    if form.confirm_composition.as_deref() != Some("yes") || !form.choices.is_empty() {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     let result = match form.operation.as_deref() {
         None | Some("add") if form.expected_version_id.is_none() => {
             service.add_book(actor, layer, book).await
