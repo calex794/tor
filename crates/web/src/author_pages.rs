@@ -106,6 +106,14 @@ pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
 }
 
 pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html<String> {
+    layers_index_for_owner(layers, csrf, true)
+}
+
+pub fn layers_index_for_owner(
+    layers: &[OwnedLayerSummary],
+    csrf: &str,
+    can_create: bool,
+) -> Html<String> {
     let mut list = String::new();
     if layers.is_empty() {
         list.push_str(
@@ -204,6 +212,14 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
         .replace(
             "<!--ACCOUNT_NAVIGATION-->",
             &crate::pages::account_navigation("/me/layers", csrf),
+        )
+        .replace(
+            "<!--CREATE_PACKAGE_ACTION-->",
+            if can_create {
+                r#"<a class="ui-button ui-button--primary" href="/me/layers/new">Создать пакет</a>"#
+            } else {
+                "Для создания пакета сначала нужна хотя бы одна собственная книга."
+            },
         )
         .replace("<!--LAYER_COUNT-->", &layers.len().to_string())
         .replace("<!--LAYER_LIST-->", &list);
