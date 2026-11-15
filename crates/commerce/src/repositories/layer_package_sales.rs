@@ -344,7 +344,10 @@ mod tests {
             Some(PackagePaidMode::EarlyDays(365))
         );
         for invalid in ["", "0", "-1", "366", "1.5", "NaN", " 7"] {
-            assert_eq!(PackagePaidMode::parse_with_days("early_days", Some(invalid)), None);
+            assert_eq!(
+                PackagePaidMode::parse_with_days("early_days", Some(invalid)),
+                None
+            );
         }
         assert_eq!(PackagePaidMode::parse_with_days("early_days", None), None);
     }
