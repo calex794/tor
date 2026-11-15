@@ -2,6 +2,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 
 const { inspectChapterRelease } = require('./author_release_visual.cjs');
@@ -12,6 +13,14 @@ fs.mkdirSync(out, { recursive: true });
 
 function assert(ok, reason) {
   if (!ok) throw new Error(reason);
+}
+
+// Report checkpoints without changing browser assertions, waits, or fixtures.
+const timingScenario = 'tools/author_chapter_visual_smoke.cjs';
+function reportPhase(phase, viewport, started) {
+  const finished = performance.now();
+  console.log(`CI_BROWSER_PHASE_SECONDS scenario=${timingScenario} phase=${phase} viewport=${viewport} seconds=${((finished - started) / 1000).toFixed(3)}`);
+  return finished;
 }
 
 async function inspect(page, viewport, name) {
@@ -149,6 +158,8 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
   const browser = await chromium.launch({ headless: true });
   try {
     for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      const viewportStarted = performance.now();
+      let phaseStarted = viewportStarted;
       const context = await browser.newContext({ viewport: { width, height } });
       const page = await context.newPage();
       await page.goto(base + '/register');
@@ -161,6 +172,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       await page.locator('#main').getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
       await inspectBookIndex(page, viewport, width, height, 0);
+      phaseStarted = reportPhase('registration_and_navigation', viewport, phaseStarted);
       await page.locator('.account-main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
       const emptyTitle = page.getByLabel('Название книги');
@@ -279,6 +291,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       assert(await page.getByText('Обновлённая версия:').isVisible(),
         viewport + ': published chapter text missing');
       await inspect(page, viewport, 'reader');
+      phaseStarted = reportPhase('draft_and_initial_publication', viewport, phaseStarted);
 
       // BKR-96: one Save on an already public book immediately publishes
       // the new free chapter, without a second release confirmation.
@@ -409,6 +422,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
       // S001/S002/S006/S007: follow the same book across three independent
       // browser identities. A working author session must not substitute for
       // a guest's discovery or a reader's durable personal progress.
+      phaseStarted = reportPhase('new_free_chapters_and_scheduling', viewport, phaseStarted);
       const guestContext = await browser.newContext({ viewport: { width, height } });
       const readerContext = await browser.newContext({ viewport: { width, height } });
       try {
@@ -478,6 +492,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
         assert(await guest.getByText('Нравится: 0').isVisible(),
           viewport + ': S010 public counter not updated after unlike');
 
+        phaseStarted = reportPhase('guest_discovery_and_reader_likes', viewport, phaseStarted);
         // E-05 / S014: an account-follow is independent of saving a Book.
         // Exercise the real user action and private author-follow listing.
         await reader.goto(base + '/books/' + bookId);
@@ -612,6 +627,7 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
           viewport + ': re-adding bookmark changed saved reading position');
         await inspect(reader, viewport, 'bookmark-restored');
 
+        phaseStarted = reportPhase('creator_follow_and_reading_progress', viewport, phaseStarted);
         // E-12/S047-S048: a real reader selection becomes a version-pinned
         // issue. The author edits the chapter separately and closes the task.
         const issueReader = await reader.goto(base + '/read/' + chapterId);
@@ -704,11 +720,14 @@ async function inspectBookWorkspace(page, viewport, width, height, state, count)
         assert(anonymousQueue && new URL(guest.url()).pathname === '/login',
           viewport + ': E-12 guest gained access to private author issues');
         await inspect(page, viewport, 'text-issue-fixed');
+        phaseStarted = reportPhase('chapter_correction_issues', viewport, phaseStarted);
       } finally {
         await guestContext.close();
         await readerContext.close();
       }
       await context.close();
+      reportPhase('context_cleanup', viewport, phaseStarted);
+      console.log(`CI_BROWSER_PHASE_SECONDS scenario=${timingScenario} phase=viewport_total viewport=${viewport} seconds=${((performance.now() - viewportStarted) / 1000).toFixed(3)}`);
     }
     console.log('TOR H/S001/S002/S006/S007 browser PASS: 390/1440 author release, guest discovery, distinct reader bookmark and resumed progress');
   } finally {
