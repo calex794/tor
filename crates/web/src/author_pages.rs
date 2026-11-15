@@ -142,6 +142,16 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                 } else {
                     "<option value=\"active\">Опубликован</option><option value=\"hidden\" selected>Скрыт</option>"
                 };
+                let books_action = if layer.status == "active" {
+                    format!(
+                        r#"<a class="ui-button ui-button--ghost" href="/me/layers/{}/books">Книги и тариф</a>"#,
+                        layer.layer_id,
+                    )
+                } else {
+                    String::from(
+                        r#"<span class="author-layer-card__disabled">Для скрытого слоя управление книгами и тарифом пока недоступно.</span>"#,
+                    )
+                };
                 write!(
                     &mut list,
                     r#"<form class="author-layer-card__form" method="post" action="/me/layers/{id}/metadata">
@@ -163,7 +173,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
   <input type="hidden" name="csrf_token" value="{csrf}">
   <div class="author-layer-card__actions">
     <button class="ui-button ui-button--primary" type="submit">Сохранить изменения</button>
-    <a class="ui-button ui-button--ghost" href="/me/layers/{id}/books">Книги и тариф</a>
+    {books_action}
   </div>
 </form>"#,
                     id = layer.layer_id,
@@ -171,6 +181,7 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                     description = escape_html(&layer.description),
                     revision = layer.metadata_revision,
                     csrf = escape_html(csrf),
+                    books_action = books_action,
                 )
                 .expect("write String");
             } else {
@@ -325,7 +336,8 @@ mod tests {
         assert!(html.contains("В списке: 3"));
         assert!(html.contains("href=\"/me/layers/new\""));
         assert!(html.contains("href=\"/me/layers/91/books\""));
-        assert!(html.contains("href=\"/me/layers/92/books\""));
+        assert!(!html.contains("href=\"/me/layers/92/books\""));
+        assert!(html.contains("Для скрытого слоя управление книгами и тарифом пока недоступно."));
         assert!(html.contains("action=\"/me/layers/91/metadata\""));
         assert!(html.contains("action=\"/me/layers/92/metadata\""));
         assert!(!html.contains("action=\"/me/layers/93/metadata\""));
@@ -370,7 +382,8 @@ mod tests {
         let html = layers_index(&layers).0;
         assert!(html.contains("Мои слои"));
         assert!(html.contains("href=\"/me/layers/new\""));
-        assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(!html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("Для скрытого слоя управление книгами и тарифом пока недоступно."));
         assert!(html.contains("Слой &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(html.contains("&lt;b&gt;Описание&lt;/b&gt;"));
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));
