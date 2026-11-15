@@ -116,12 +116,20 @@ impl PgLayers {
             books.push(LayerBookTile {
                 id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
                 title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
-                has_cover: row.try_get("has_cover").map_err(|_| LayerError::Unavailable)?,
-                included: row.try_get("included").map_err(|_| LayerError::Unavailable)?,
+                has_cover: row
+                    .try_get("has_cover")
+                    .map_err(|_| LayerError::Unavailable)?,
+                included: row
+                    .try_get("included")
+                    .map_err(|_| LayerError::Unavailable)?,
             });
         }
         Ok(LayerBookTilePage {
-            next_after: if more { books.last().map(|b| b.id) } else { None },
+            next_after: if more {
+                books.last().map(|b| b.id)
+            } else {
+                None
+            },
             books,
         })
     }
@@ -235,7 +243,11 @@ impl PgLayers {
         removals: &[i64],
     ) -> Result<LayerChangePreview, LayerError> {
         validate(additions, removals)?;
-        let mut tx = self.pool.begin().await.map_err(|_| LayerError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         self.inspect_change(&mut tx, actor, layer, version, additions, removals)
             .await
     }
@@ -256,7 +268,11 @@ impl PgLayers {
         if expected_active_buyers < 0 || expected_lifetime_buyers < 0 {
             return Err(LayerError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| LayerError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         let locked: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status='active' FOR UPDATE",
