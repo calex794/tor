@@ -26,6 +26,8 @@ use tor_ingest::{
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 
+mod package_cover;
+
 const MAX_MULTIPART_BYTES: usize = MAX_SOURCE_BYTES + 64 * 1024;
 
 #[derive(Clone)]
@@ -56,6 +58,7 @@ pub(crate) fn router(
     };
     Router::new()
         .route("/me/books/{id}/cover", post(upload_cover))
+        .route("/me/layers/{id}/cover", post(package_cover::upload))
         .layer(DefaultBodyLimit::max(MAX_MULTIPART_BYTES))
         .with_state(state)
 }
