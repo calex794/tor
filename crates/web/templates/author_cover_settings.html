@@ -1,9 +1,20 @@
 <!-- Adapted from NEwBOO backend/app/web/templates/books/settings.html covers tab. -->
-<section class="book-settings-page">
-  <div class="book-settings-shell">
+<section class="me-page author-workspace author-covers-page">
+  <div class="container account-layout">
+    <!--ACCOUNT_NAVIGATION-->
+    <div class="account-main">
+      <nav class="author-covers-page__breadcrumbs" aria-label="Путь к обложке книги">
+        <a href="/me/books">Мои книги</a>
+        <span aria-hidden="true">/</span>
+        <a href="/me/books/<!--BOOK_ID-->">Книга №<!--BOOK_ID--></a>
+        <span aria-hidden="true">/</span>
+        <span>Обложки</span>
+      </nav>
+      <div class="book-settings-page author-covers-page__surface">
+        <div class="book-settings-shell">
     <header class="ui-page-header book-settings-header">
       <div class="ui-page-header__content">
-        <p class="ui-page-header__kicker">Управление книгой</p>
+        <p class="ui-page-header__kicker">Кабинет автора · оформление книги</p>
         <h1 class="ui-page-header__title">Обложки книги</h1>
         <p class="ui-page-header__text"><!--BOOK_TITLE--></p>
       </div>
@@ -24,11 +35,12 @@
     >
       <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
       <div class="book-settings-card__head">
-        <h2>Обложки</h2>
-        <p>Выберите карточку, укажите изображение и нажмите кнопку загрузки.</p>
+        <h2>Обложка произведения</h2>
+        <p>Выберите изображение и нажмите «Загрузить обложку».</p>
         <p>Поддерживается одна основная обложка. Форматы: JPG, PNG и WebP, до 8 МиБ.</p>
       </div>
-      <p class="book-covers-status" role="status"><!--COVER_STATUS--></p>
+      <p class="book-covers-status" role="status" aria-live="polite"><!--COVER_STATUS--></p>
+      <p class="author-covers-page__note">После загрузки файл проходит обработку и модерацию. Новая обложка появится у читателей только после одобрения.</p>
       <div class="book-covers-grid book-covers-grid--single">
         <label class="book-cover-picker" data-cover-picker>
           <input
@@ -62,6 +74,9 @@
         <button type="submit" class="ui-button ui-button--primary">Загрузить обложку</button>
       </div>
     </form>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 <script src="/assets/newboo-cover-picker.js" defer></script>
