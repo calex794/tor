@@ -69,10 +69,12 @@ pub fn chapter_purchase_problem(chapter_id: i64, message: &str) -> Html<String> 
 
 pub fn package_only_notice(
     book_id: i64,
-    link: &tor_commerce::repositories::layer_storefront::ExclusivePackageLink,
+    layer_id: i64,
+    layer_title: &str,
+    until_utc: Option<&str>,
 ) -> Html<String> {
-    let title = escape_html(&link.title);
-    let deadline = link.until_utc.as_ref().map_or_else(
+    let title = escape_html(layer_title);
+    let deadline = until_utc.map_or_else(
         || "Прямая покупка новых платных глав недоступна, пока автор не изменит условия.".to_owned(),
         |until| format!("До {} UTC новые платные главы продаются только в пакете.", escape_html(until)),
     );
@@ -86,7 +88,7 @@ pub fn package_only_notice(
              <a class=\"button\" href=\"/layers/{}\">Посмотреть пакет</a>
              <p><a href=\"/books/{book_id}#chapters\">Вернуться к книге</a> · <a href=\"/me/purchases\">Мои покупки</a></p>
              </div></div></section>",
-            link.layer_id
+            layer_id
         ),
     )
 }
@@ -95,16 +97,10 @@ pub fn package_only_notice(
 #[cfg(test)]
 mod package_notice_tests {
     use super::*;
-    use tor_commerce::repositories::layer_storefront::ExclusivePackageLink;
 
     #[test]
     fn package_notice_escapes_title_and_exposes_only_public_destination() {
-        let link = ExclusivePackageLink {
-            layer_id: 19,
-            title: "<script>unsafe</script>".to_owned(),
-            until_utc: Some("22.11.2026 12:00".to_owned()),
-        };
-        let page = package_only_notice(41, &link).0;
+        let page = package_only_notice(41, 19, "<script>unsafe</script>", Some("22.11.2026 12:00")).0;
         assert!(page.contains("Доступно через пакет"));
         assert!(page.contains("href=\"/layers/19\""));
         assert!(page.contains("href=\"/books/41#chapters\""));
