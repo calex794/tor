@@ -161,3 +161,51 @@ BEGIN
     END IF;
 END
 $shadow_smoke$;
+
+-- PROMO-P1a: both anonymous proof and aggregated-hour constraints must accept
+-- a home strip; unsupported placements remain fail-closed. This smoke runs
+-- against fresh and upgrade PostgreSQL 18 databases.
+DO $promo_home_slot$
+DECLARE
+    violated text;
+BEGIN
+    INSERT INTO flow_observation_proofs
+        (digest, book_id, surface, campaign_id, campaign_revision, slot)
+    VALUES (decode(repeat('ac',32),'hex'), 987654321, 'home', 987, 1,
+            'home_promo_strip');
+
+    INSERT INTO flow_observation_hourly
+        (bucket, book_id, surface, campaign_id, slot, opportunities)
+    VALUES (date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+            987654321, 'home', 987, 'home_promo_strip', 1);
+
+    BEGIN
+        INSERT INTO flow_observation_proofs
+            (digest, book_id, surface, campaign_id, campaign_revision, slot)
+        VALUES (decode(repeat('ad',32),'hex'), 987654321, 'home', 987, 1,
+                'unapproved_home_slot');
+        RAISE EXCEPTION 'Unsupported observation proof slot was accepted';
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS violated = CONSTRAINT_NAME;
+        IF violated <> 'flow_observation_proofs_slot_check' THEN
+            RAISE EXCEPTION 'Wrong proof constraint: %', violated;
+        END IF;
+    END;
+
+    BEGIN
+        INSERT INTO flow_observation_hourly
+            (bucket, book_id, surface, campaign_id, slot, opportunities)
+        VALUES (date_trunc('hour',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+                987654321, 'home', 987, 'unapproved_home_slot', 1);
+        RAISE EXCEPTION 'Unsupported observation aggregate slot was accepted';
+    EXCEPTION WHEN check_violation THEN
+        GET STACKED DIAGNOSTICS violated = CONSTRAINT_NAME;
+        IF violated <> 'flow_observation_hourly_slot_check' THEN
+            RAISE EXCEPTION 'Wrong aggregate constraint: %', violated;
+        END IF;
+    END;
+
+    DELETE FROM flow_observation_proofs WHERE book_id = 987654321;
+    DELETE FROM flow_observation_hourly WHERE book_id = 987654321;
+END
+$promo_home_slot$;
