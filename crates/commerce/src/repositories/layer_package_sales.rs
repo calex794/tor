@@ -11,6 +11,8 @@ pub enum PackagePaidMode {
     Direct,
     First7Days,
     First14Days,
+    /// N full days after each individual chapter registration.
+    EarlyDays(i16),
     PackageOnly,
 }
 
@@ -25,12 +27,33 @@ impl PackagePaidMode {
         }
     }
 
-    fn days(self) -> Option<i64> {
+    /// Older 7/14 modes remain book-wide until explicitly reconfigured.
+    fn legacy_book_days(self) -> Option<i64> {
         match self {
             Self::First7Days => Some(7),
             Self::First14Days => Some(14),
-            Self::Direct | Self::PackageOnly => None,
+            _ => None,
         }
+    }
+
+    fn chapter_days(self) -> Option<i16> {
+        match self {
+            Self::EarlyDays(days) => Some(days),
+            _ => None,
+        }
+    }
+
+    /// Strict HTTP input: the owner may choose any whole number from 1 to 365.
+    pub fn parse_with_days(mode: &str, days: Option<&str>) -> Option<Self> {
+        if mode == "early_days" {
+            let raw = days?;
+            if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            let count: i16 = raw.parse().ok()?;
+            return (1..=365).contains(&count).then_some(Self::EarlyDays(count));
+        }
+        Self::parse(mode)
     }
 
     fn is_restricted(self) -> bool {
@@ -46,6 +69,7 @@ pub struct PackageSaleBook {
     pub restricted_here: bool,
     pub restricted_elsewhere: bool,
     pub until_utc: Option<String>,
+    pub days: Option<i16>,
 }
 
 #[derive(Debug)]
@@ -89,7 +113,9 @@ impl PgLayers {
                     AS restricted_elsewhere,
                 CASE WHEN b.package_only_layer_id=$2 AND b.package_only_until>now()
                   THEN to_char(b.package_only_until AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI')
-                  ELSE NULL END AS until_utc
+                  ELSE NULL END AS until_utc,
+                CASE WHEN b.package_only_layer_id=$2
+                  THEN b.package_only_days ELSE NULL END AS days
              FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
              WHERE vb.layer_version_id=$1
@@ -117,6 +143,7 @@ impl PgLayers {
                 until_utc: row
                     .try_get("until_utc")
                     .map_err(|_| LayerError::Unavailable)?,
+                days: row.try_get("days").map_err(|_| LayerError::Unavailable)?,
             });
         }
         Ok(PackageSalePage {
@@ -264,6 +291,7 @@ impl PgLayers {
                    WHEN $2::BOOLEAN AND $4::BIGINT IS NOT NULL
                    THEN transaction_timestamp()+($4 * INTERVAL '1 day')
                    ELSE NULL END,
+                 package_only_days=CASE WHEN $2::BOOLEAN THEN $6::SMALLINT ELSE NULL END,
                  package_only_revision=package_only_revision+1
              WHERE id=$1 AND package_only_revision=$5
              RETURNING package_only_revision",
@@ -271,8 +299,9 @@ impl PgLayers {
         .bind(book.get())
         .bind(mode.is_restricted())
         .bind(layer.get())
-        .bind(mode.days())
+        .bind(mode.legacy_book_days())
         .bind(expected_revision)
+        .bind(mode.chapter_days())
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?
@@ -306,5 +335,17 @@ mod tests {
         for invalid in ["", "Forever", "99_days", "DIRECT", " package_only", "all"] {
             assert_eq!(PackagePaidMode::parse(invalid), None);
         }
+        assert_eq!(
+            PackagePaidMode::parse_with_days("early_days", Some("1")),
+            Some(PackagePaidMode::EarlyDays(1))
+        );
+        assert_eq!(
+            PackagePaidMode::parse_with_days("early_days", Some("365")),
+            Some(PackagePaidMode::EarlyDays(365))
+        );
+        for invalid in ["", "0", "-1", "366", "1.5", "NaN", " 7"] {
+            assert_eq!(PackagePaidMode::parse_with_days("early_days", Some(invalid)), None);
+        }
+        assert_eq!(PackagePaidMode::parse_with_days("early_days", None), None);
     }
 }
