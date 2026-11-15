@@ -120,7 +120,8 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
                <p>{registration_reviewer}
                  · <a href="/moderation/books/{id}/registration-history">
                  Системная история регистрации</a>
-                 · <a href="/moderation/books/{id}/history">Все решения модерации</a></p>
+                 · <a href="/moderation/books/{id}/history">Все решения модерации</a>
+                 · <a href="/moderation/books/{id}/cover-history">Снять обложку / история</a></p>
                <form method="post" action="/moderation/books/{id}/hold">
                <input type="hidden" name="csrf_token" value="{csrf}">
                <input type="hidden" name="expected_hold" value="{held}">

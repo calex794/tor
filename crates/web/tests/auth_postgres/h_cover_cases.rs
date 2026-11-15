@@ -479,4 +479,138 @@ pub(super) async fn upload_and_show(
     assert!(body_of(settings)
         .await
         .contains(&format!("src=\"/covers/{book_id}/main.webp\"")));
+
+    // MOD-COVER: a site moderator can remove an already approved cover,
+    // without unpublishing its Book or deleting immutable private objects.
+    let remove_path = format!("/moderation/books/{book_id}/cover-withdraw");
+    let history_path = format!("/moderation/books/{book_id}/cover-history");
+    let private_history = send(
+        app,
+        request("GET", &history_path, "", &reviewer_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(private_history.status(), StatusCode::OK);
+    let history_body = body_of(private_history).await;
+    assert!(history_body.contains("Снять действующую обложку"));
+    assert!(history_body.contains("expected_slot_revision"));
+    assert_eq!(
+        send(
+            app,
+            request(
+                "POST",
+                &remove_path,
+                &format!("csrf_token={csrf}&expected_slot_revision=1&reason=Policy"),
+                cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Book owner is not a site moderator"
+    );
+    assert_eq!(
+        send(
+            app,
+            request(
+                "POST",
+                &remove_path,
+                &format!("csrf_token={reviewer_csrf}&expected_slot_revision=1&reason="),
+                &reviewer_cookie,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let confirmation = send(
+        app,
+        request(
+            "POST",
+            &remove_path,
+            &format!("csrf_token={reviewer_csrf}&expected_slot_revision=1&reason=Policy"),
+            &reviewer_cookie,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(confirmation.status(), StatusCode::OK);
+    assert!(body_of(confirmation)
+        .await
+        .contains("Снять действующую обложку"));
+    assert_eq!(
+        slots.current_slot(book_id).await.unwrap(),
+        Some((candidate.job_id, 1))
+    );
+    let confirmed = format!(
+        "csrf_token={reviewer_csrf}&expected_slot_revision=1&action=withdraw&reason=Policy&confirmed=yes"
+    );
+    assert_eq!(
+        send(
+            app,
+            request("POST", &remove_path, &confirmed, &reviewer_cookie, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        slots.current_slot(book_id).await.unwrap(),
+        Some((candidate.job_id, 2))
+    );
+    assert_eq!(
+        reviews
+            .current_active(&reviewer_digest, book_id)
+            .await
+            .unwrap(),
+        None
+    );
+    for kind in ["card.webp", "main.webp"] {
+        assert_eq!(
+            send(
+                app,
+                request("GET", &format!("/covers/{book_id}/{kind}"), "", "", ORIGIN)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let public_after = send(
+        app,
+        request("GET", &format!("/books/{book_id}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(public_after.status(), StatusCode::OK);
+    assert!(!body_of(public_after)
+        .await
+        .contains(&format!(r#"src="/covers/{book_id}/main.webp""#)));
+    let history_after = body_of(
+        send(
+            app,
+            request("GET", &history_path, "", &reviewer_cookie, ORIGIN),
+        )
+        .await,
+    )
+    .await;
+    assert!(history_after.contains("withdrawn"));
+    assert!(history_after.contains("Действующая обложка отсутствует"));
+    assert_eq!(
+        send(
+            app,
+            request("POST", &remove_path, &confirmed, &reviewer_cookie, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "stale/duplicate moderator withdrawal cannot revoke a later cover"
+    );
+    let all_reviews = reviews
+        .private_history(&reviewer_digest, book_id)
+        .await
+        .unwrap();
+    assert_eq!(all_reviews.len(), 2);
+    assert!(all_reviews.iter().any(|item| item.outcome == "approved"));
+    assert!(all_reviews.iter().any(|item| item.outcome == "withdrawn"));
 }

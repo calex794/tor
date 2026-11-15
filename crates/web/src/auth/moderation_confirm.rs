@@ -26,7 +26,8 @@ pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
         || (intent.kind != "cover" && intent.revision <= 0)
         || intent.revision < 0
         || intent.reason.len() > 2000
-        || (intent.action == "reject" && intent.reason.trim().is_empty())
+        || ((intent.action == "reject" || intent.kind == "cover_withdraw")
+            && intent.reason.trim().is_empty())
     {
         return private_response(StatusCode::BAD_REQUEST, &[]);
     }
@@ -41,6 +42,13 @@ pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
         "cover" => (
             "обложке",
             format!("/moderation/covers/{}/decision", intent.subject_id),
+            "expected_slot_revision",
+            "action",
+            "/moderation/covers",
+        ),
+        "cover_withdraw" => (
+            "снятию обложки",
+            format!("/moderation/books/{}/cover-withdraw", intent.subject_id),
             "expected_slot_revision",
             "action",
             "/moderation/covers",
@@ -67,6 +75,10 @@ pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
             "Одобрить обложку",
             "Новая обложка заменит опубликованную только после успешного решения.",
         ),
+        ("cover_withdraw", "withdraw") => (
+            "Снять действующую обложку",
+            "Обложка исчезнет с публичных страниц и будет заменена заглушкой. Книга останется опубликованной.",
+        ),
         ("cover", "reject") => (
             "Отклонить обложку",
             "Новая обложка будет отклонена; предыдущая останется опубликованной.",
@@ -83,7 +95,7 @@ pub(super) fn confirmation_page(intent: ReviewIntent<'_>) -> Response {
     };
     let reason = pages::escape_html(intent.reason);
     let csrf = pages::escape_html(intent.csrf);
-    let reason_display = if intent.action == "reject" {
+    let reason_display = if intent.action == "reject" || intent.kind == "cover_withdraw" {
         format!("<p><strong>Причина отказа:</strong> {reason}</p>")
     } else {
         String::new()
