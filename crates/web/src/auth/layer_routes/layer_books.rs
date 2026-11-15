@@ -189,7 +189,11 @@ fn picker_html_with_query(
                 "Последняя опубликованная цена: {},{:02} ₽; {}.",
                 price / 100,
                 price % 100,
-                if kind == LayerTermKind::Lifetime { "бессрочно" } else { "30 дней" },
+                if kind == LayerTermKind::Lifetime {
+                    "бессрочно"
+                } else {
+                    "30 дней"
+                },
             ),
             _ => "Цена ещё не опубликована.".to_owned(),
         };
@@ -235,7 +239,8 @@ fn picker_html_with_query(
                    name="book_id" value="{}">Убрать</button></li>"#,
                 pages::escape_html(&book.title),
                 book.book_id,
-            ).expect("write String");
+            )
+            .expect("write String");
         }
         current_list.push_str(
             r#"</ul><label class="author-layers-page__confirm">
@@ -281,7 +286,8 @@ fn picker_html_with_query(
                    name="book_id" value="{}">Добавить</button></li>"#,
                 pages::escape_html(&book.title),
                 book.book_id,
-            ).expect("write String");
+            )
+            .expect("write String");
         }
         available.push_str(
             r#"</ul><label class="author-layers-page__confirm">
@@ -379,7 +385,15 @@ pub(super) async fn page(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        picker_html_with_query(layer.get(), &candidates, &current, &offer, &csrf, search, editable),
+        picker_html_with_query(
+            layer.get(),
+            &candidates,
+            &current,
+            &offer,
+            &csrf,
+            search,
+            editable,
+        ),
         &cookies,
     )
 }
