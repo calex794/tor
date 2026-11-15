@@ -108,67 +108,93 @@ pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
 pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html<String> {
     let mut list = String::new();
     if layers.is_empty() {
-        list.push_str("<p class=\"empty-state\">Слоёв пока нет. Создайте первый.</p>");
+        list.push_str(
+            "<div class=\"author-layers-page__empty\"><h3>Слоёв пока нет</h3>\
+             <p>Создайте первый слой, чтобы объединять книги и управлять условиями доступа.</p></div>",
+        );
     } else {
-        list.push_str("<ul class=\"author-book-list\">");
+        list.push_str("<ul class=\"author-layers-page__list\">");
         for layer in layers {
-            let status_label = match layer.status.as_str() {
-                "active" => "Опубликован",
-                "hidden" => "Скрыт",
-                "blocked" => "Заблокирован",
-                _ => "Неизвестный статус",
+            let (status_label, status_class) = match layer.status.as_str() {
+                "active" => ("Опубликован", "is-active"),
+                "hidden" => ("Скрыт", "is-hidden"),
+                "blocked" => ("Заблокирован", "is-blocked"),
+                _ => ("Неизвестный статус", "is-unknown"),
             };
             write!(
-                list,
-                "<li><strong>{}</strong> — {}",
-                escape_html(&layer.title),
-                status_label,
+                &mut list,
+                r#"<li class="author-layer-card">
+<div class="author-layer-card__header">
+  <div class="author-layer-card__identity">
+    <p class="author-layer-card__eyebrow">Слой №{id}</p>
+    <h3>{title}</h3>
+  </div>
+  <span class="author-layer-card__status {status_class}">{status_label}</span>
+</div>"#,
+                id = layer.layer_id,
+                title = escape_html(&layer.title),
             )
             .expect("write String");
+
             if layer.status == "active" || layer.status == "hidden" {
-                let option = if layer.status == "active" {
+                let visibility_options = if layer.status == "active" {
                     "<option value=\"active\" selected>Опубликован</option><option value=\"hidden\">Скрыт</option>"
                 } else {
                     "<option value=\"active\">Опубликован</option><option value=\"hidden\" selected>Скрыт</option>"
                 };
                 write!(
-                    list,
-                    "<form method=\"post\" action=\"/me/layers/{}/metadata\">\
-                     <label>Название<input name=\"title\" maxlength=\"120\" required value=\"{}\"></label>\
-                     <label>Описание<textarea name=\"description\" maxlength=\"2000\">{}</textarea></label>\
-                     <label>Видимость<select name=\"status\">{}</select></label>\
-                     <input type=\"hidden\" name=\"expected_revision\" value=\"{}\">\
-                     <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
-                     <button class=\"button\" type=\"submit\">Сохранить</button></form>\
-                     <a href=\"/me/layers/{}/books\">Книги и тариф</a>",
-                    layer.layer_id,
-                    escape_html(&layer.title),
-                    escape_html(&layer.description),
-                    option,
-                    layer.metadata_revision,
-                    escape_html(csrf),
-                    layer.layer_id
+                    &mut list,
+                    r#"<form class="author-layer-card__form" method="post" action="/me/layers/{id}/metadata">
+  <div class="author-layer-card__fields">
+    <div class="author-layer-card__field">
+      <label for="layer-{id}-title">Название</label>
+      <input id="layer-{id}-title" name="title" maxlength="120" required value="{title}">
+    </div>
+    <div class="author-layer-card__field">
+      <label for="layer-{id}-status">Видимость</label>
+      <select id="layer-{id}-status" name="status">{visibility_options}</select>
+    </div>
+    <div class="author-layer-card__field author-layer-card__field--full">
+      <label for="layer-{id}-description">Описание</label>
+      <textarea id="layer-{id}-description" name="description" maxlength="2000" rows="3">{description}</textarea>
+    </div>
+  </div>
+  <input type="hidden" name="expected_revision" value="{revision}">
+  <input type="hidden" name="csrf_token" value="{csrf}">
+  <div class="author-layer-card__actions">
+    <button class="ui-button ui-button--primary" type="submit">Сохранить изменения</button>
+    <a class="ui-button ui-button--ghost" href="/me/layers/{id}/books">Книги и тариф</a>
+  </div>
+</form>"#,
+                    id = layer.layer_id,
+                    title = escape_html(&layer.title),
+                    description = escape_html(&layer.description),
+                    revision = layer.metadata_revision,
+                    csrf = escape_html(csrf),
                 )
                 .expect("write String");
             } else {
-                list.push_str("<p>Заблокированный слой нельзя изменить самостоятельно.</p>");
+                list.push_str(
+                    "<p class=\"author-layer-card__disabled\">Заблокированный слой нельзя изменить самостоятельно.</p>",
+                );
             }
             list.push_str("</li>");
         }
         list.push_str("</ul>");
         if layers.len() == 100 {
-            list.push_str("<p>Показаны последние 100 слоёв.</p>");
+            list.push_str(
+                "<p class=\"author-layers-page__limit\">Показаны последние 100 слоёв.</p>",
+            );
         }
     }
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
-        <p class="eyebrow">Кабинет автора</p><h1>Мои слои</h1>
-        <p>Управляйте составом книг и условиями доступа.</p>
-        <p><a class="button" href="/me/layers/new">Создать слой</a></p>
-        {list}
-        <p><a href="/me/books">Мои книги</a> · <a href="/me">Вернуться в кабинет</a></p>
-        </div></div></section>"#
-    );
+
+    let content = include_str!("../templates/author_layers.html")
+        .replace(
+            "<!--ACCOUNT_NAVIGATION-->",
+            &crate::pages::account_navigation("/me/layers", csrf),
+        )
+        .replace("<!--LAYER_COUNT-->", &layers.len().to_string())
+        .replace("<!--LAYER_LIST-->", &list);
     layout("Мои слои", "Ваши слои и их состав.", &content)
 }
 
