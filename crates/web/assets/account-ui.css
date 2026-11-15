@@ -479,6 +479,76 @@
   .author-import-page__steps li { padding:10px 12px; }
 }
 
+
+/* H/UI-14: one real cover slot inside the shared author workspace. */
+.author-covers-page__breadcrumbs {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  margin:0 0 18px; color:var(--text-muted); font-size:12px;
+}
+.author-covers-page__breadcrumbs a {
+  color:var(--primary-color); text-decoration:none; font-weight:750;
+}
+.author-covers-page__breadcrumbs a:hover { text-decoration:underline; }
+.author-covers-page .book-settings-page {
+  padding:0; min-width:0;
+}
+.author-covers-page .book-settings-shell { width:100%; }
+.author-covers-page .book-settings-header {
+  display:flex; flex-wrap:wrap; align-items:flex-start;
+  justify-content:space-between; gap:14px; margin:0 0 20px;
+}
+.author-covers-page .book-settings-header .ui-page-header__content {
+  flex:1 1 360px; min-width:0;
+}
+.author-covers-page .book-settings-header .ui-page-header__title {
+  overflow-wrap:anywhere;
+}
+.author-covers-page .book-settings-header .ui-page-header__text {
+  max-width:760px; overflow-wrap:anywhere;
+}
+.author-covers-page .book-settings-card {
+  padding:clamp(18px,2.6vw,28px);
+}
+.author-covers-page .book-settings-tabs { flex-wrap:wrap; }
+.author-covers-page .book-settings-tabs a { min-height:44px; }
+.author-covers-page .book-settings-card__head h2 {
+  font-size:21px;
+}
+.author-covers-page .book-settings-card__head p + p { margin-top:8px; }
+.author-covers-page .book-covers-status {
+  margin:0 0 12px; padding:12px 15px;
+  border:1px solid var(--border-color);
+  border-radius:var(--radius-md); background:var(--bg-secondary);
+  color:var(--text-main); font-size:13px; line-height:1.55;
+}
+.author-covers-page__note {
+  max-width:710px; margin:0 0 19px;
+  color:var(--text-muted); font-size:13px; line-height:1.6;
+}
+.author-covers-page .book-covers-grid--single {
+  grid-template-columns:minmax(0,240px);
+}
+.author-covers-page .book-covers-form .book-covers-actions {
+  display:flex; justify-content:flex-start; margin-top:22px;
+}
+.author-covers-page .book-covers-form .book-covers-actions .ui-button {
+  min-height:44px;
+}
+@media (max-width:640px) {
+  .author-covers-page .book-settings-page { padding:0; }
+  .author-covers-page .book-settings-header .ui-page-header__actions {
+    width:100%;
+  }
+  .author-covers-page .book-settings-header .ui-button { width:100%; }
+  .author-covers-page .book-settings-card { padding:18px 15px; }
+  .author-covers-page .book-covers-grid--single {
+    grid-template-columns:minmax(0,1fr); max-width:250px;
+  }
+  .author-covers-page .book-covers-form .book-covers-actions .ui-button {
+    width:100%;
+  }
+}
+
 /* Release confirmation shares owner navigation, controls and surface tokens. */
 .author-release .author-editor__panel h2 {
   margin:0 0 18px; color:var(--text-main); font-size:20px;
