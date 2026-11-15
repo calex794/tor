@@ -524,7 +524,7 @@ pub(super) async fn add(
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         }
         return match service
-            .apply_composition(actor, layer, expected, &adds, &removes, active, lifetime)
+            .apply_composition(actor, layer, expected, &adds, &removes, (active, lifetime))
             .await
         {
             Ok(_) => private_response(
