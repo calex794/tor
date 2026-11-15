@@ -38,7 +38,7 @@ fn shell(title: &str, book_id: i64, contents: &str) -> axum::response::Html<Stri
 }
 
 async fn package_alternative(state: &AuthState, book_id: i64, actor: i64) -> Option<Response> {
-    if !state.layer_pages_enabled {
+    if !state.layer_checkout_enabled {
         return None;
     }
     let link = tor_commerce::repositories::layer_storefront::exclusive_package_link(
