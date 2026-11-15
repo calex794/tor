@@ -3004,6 +3004,20 @@
       "source": "crates/web/src/author_cover_http.rs",
       "handler": "package_cover::upload",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/{layer_id}/sales",
+      "source": "crates/web/src/auth/layer_routes/layer_paid_sales.rs",
+      "handler": "page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/sales",
+      "source": "crates/web/src/auth/layer_routes/layer_paid_sales.rs",
+      "handler": "save",
+      "policy": "owner"
     }
   ]
 }

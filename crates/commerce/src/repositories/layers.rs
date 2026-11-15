@@ -85,6 +85,8 @@ impl PgLayers {
             "SELECT b.id FROM books b
              WHERE b.id=$1 AND b.owner_user_id=$2 AND NOT b.admin_hold
                AND NOT b.is_deleted
+               AND (b.package_only_layer_id IS NULL OR b.package_only_layer_id=$3
+                    OR (b.package_only_until IS NOT NULL AND b.package_only_until<=now()))
                AND EXISTS(
                  SELECT 1 FROM book_members m WHERE m.book_id=b.id
                    AND m.user_id=$2 AND m.is_active AND m.role='owner'
@@ -97,6 +99,7 @@ impl PgLayers {
         )
         .bind(book.get())
         .bind(actor.get())
+        .bind(layer.get())
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?;
@@ -353,6 +356,27 @@ impl PgLayers {
         // S031 v1 refuses any sale whose complete composition cannot be
         // displayed by the bounded, immutable quote page.
         if !(1..=100).contains(&book_count) {
+            return Err(LayerError::Inaccessible);
+        }
+        // Fail closed if another package would sell a Book that is
+        // exclusively assigned to a different currently published package.
+        // No previous term or historic edition is modified.
+        let other_exclusive: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM commerce_layer_version_books vb
+                JOIN books b ON b.id=vb.book_id
+                WHERE vb.layer_version_id=$1
+                  AND b.package_only_layer_id IS NOT NULL
+                  AND b.package_only_layer_id<>$2
+                  AND (b.package_only_until IS NULL OR b.package_only_until>now())
+            )",
+        )
+        .bind(cmd.version.get())
+        .bind(cmd.layer.get())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        if other_exclusive {
             return Err(LayerError::Inaccessible);
         }
         // The first subscription and every renewal take a Book SHARE lock

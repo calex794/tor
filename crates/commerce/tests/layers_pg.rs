@@ -11,6 +11,8 @@ mod layer_create;
 mod layer_delivery;
 #[path = "layers_pg/layer_offer.rs"]
 mod layer_offer;
+#[path = "layers_pg/layer_paid_sales.rs"]
+mod layer_paid_sales;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
 #[path = "layers_pg/layer_toc.rs"]
