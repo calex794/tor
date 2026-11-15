@@ -52,15 +52,13 @@ impl PgLayers {
         actor: PositiveId,
         layer: PositiveId,
     ) -> Result<String, LayerError> {
-        sqlx::query_scalar(
-            "SELECT status FROM commerce_layers WHERE id=$1 AND owner_user_id=$2",
-        )
-        .bind(layer.get())
-        .bind(actor.get())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| LayerError::Unavailable)?
-        .ok_or(LayerError::Inaccessible)
+        sqlx::query_scalar("SELECT status FROM commerce_layers WHERE id=$1 AND owner_user_id=$2")
+            .bind(layer.get())
+            .bind(actor.get())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|_| LayerError::Unavailable)?
+            .ok_or(LayerError::Inaccessible)
     }
 
     /// Read only the owner's immutable current version. This is advisory:
@@ -130,7 +128,8 @@ impl PgLayers {
         after: Option<PositiveId>,
         limit: u16,
     ) -> Result<LayerBookCandidatePage, LayerError> {
-        self.addable_books_matching(actor, layer, after, limit, "").await
+        self.addable_books_matching(actor, layer, after, limit, "")
+            .await
     }
 
     /// Search is server-side and scoped to owned, eligible Books. The
