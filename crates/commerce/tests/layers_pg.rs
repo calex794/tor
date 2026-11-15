@@ -13,10 +13,10 @@ mod layer_delivery;
 mod layer_offer;
 #[path = "layers_pg/layer_paid_sales.rs"]
 mod layer_paid_sales;
-#[path = "layers_pg/layer_sales_link.rs"]
-mod layer_sales_link;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
+#[path = "layers_pg/layer_sales_link.rs"]
+mod layer_sales_link;
 #[path = "layers_pg/layer_toc.rs"]
 mod layer_toc;
 #[path = "layers_pg/layer_wallet_evidence.rs"]
