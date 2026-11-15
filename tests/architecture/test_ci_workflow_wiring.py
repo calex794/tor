@@ -84,6 +84,32 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotEqual(manual, expected)
                 self.assertEqual(sections[job_id], expected)
 
+    def test_100k_contextual_scale_owns_only_one_isolated_pg_lane(self):
+        # Every test still runs, but the heavy scale case is removed only
+        # from the sequential runtime lane, not from required CI coverage.
+        test_name = "contextual_scale::model_page_is_bounded_with_100k_books_and_reader_requests"
+        pkg = "cargo test -p tor-recommendations --test catalog_feed_pg"
+        runtime = pkg + " -- --ignored --test-threads=1 --skip " + test_name
+        isolated = pkg + " " + test_name + " -- --ignored --exact --test-threads=1"
+        for name in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            with self.subTest(runtime=name):
+                pg = job_sections((WORKFLOWS / name).read_text())["postgres-runtime"]
+                self.assertIn(runtime, pg)
+                self.assertEqual(pg.count(pkg), 1)
+        for name in (CI_WORKFLOW, "tor-pg-rec-browser.yml"):
+            with self.subTest(isolated=name):
+                pg = job_sections((WORKFLOWS / name).read_text())["pg-rec-browser"]
+                self.assertIn(isolated, pg)
+                self.assertEqual(pg.count(pkg), 1)
+        self.assertEqual(
+            TEST_SUITES["crates/recommendations/tests/catalog_feed_pg.rs"],
+            {"rust", "postgres", "rec_browser"},
+        )
+        self.assertEqual(
+            TEST_SUITES["crates/recommendations/tests/catalog_feed_pg/contextual_scale.rs"],
+            {"rust", "rec_browser"},
+        )
+
     def test_exact_postgres_test_file_selection_matches_real_job_invocations(self):
         # A new job invoking a mapped test must update the authority map and
         # trigger full CI rather than silently skipping the new consumer.
