@@ -20,7 +20,7 @@ pub(super) async fn attach(
         None => None,
     };
     let package = tor_commerce::repositories::layer_storefront::exclusive_package_link(
-        catalog.pool(),
+        &catalog.pool(),
         book_id,
         None,
         viewer,
