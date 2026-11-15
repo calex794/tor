@@ -122,7 +122,10 @@ def k6_latency(root, rate):
         data = json.loads(read_file(path))
         metrics = data["metrics"]
         def view(name):
-            values = metrics[name]["values"]
+            metric = metrics[name]
+            # k6 --summary-export writes trend stats directly under the metric.
+            # Older/custom exporters may wrap the same numbers in "values".
+            values = metric.get("values", metric)
             p50, p95, p99 = (values["med"], values["p(95)"], values["p(99)"])
             if not all(isinstance(x, (int, float)) and
                        not isinstance(x, bool) and math.isfinite(x) and x >= 0
@@ -146,8 +149,8 @@ def summarize(root):
     stages = []
     for rate in ALLOWED_RATES:
         begin, end = windows[rate]
-        # One sampled line per 16 complete Book GETs. Setup Book probes are
-        # included; this diagnostic is not a pure workload-only histogram.
+        # Approximately one in sixteen Book GETs are hash-sampled. Requests
+        # from the fixture setup can also appear within the stage boundary.
         rows = [x for x in samples if begin <= x["epoch_ms"] <= end]
         valid = [x for x in rows if x["acquires"] > 0]
         if outcomes[rate] == "PASS" and (len(rows) < 4 or len(valid) < 4):
@@ -162,12 +165,26 @@ def summarize(root):
             if outcomes[rate] == "PASS":
                 raise
             latency = None  # failed higher-rate setup is never zero latency
+        # A sampling cadence synchronized with alternating k6 scenarios can
+        # accidentally select only guests or only readers. Preserve the
+        # numerical SQLx-query-count distribution to expose this bias without
+        # recording user/session identities or guessing their roles.
+        cohorts = {}
+        for query_count in sorted({v["queries"] for v in valid}):
+            subset = [v for v in valid if v["queries"] == query_count]
+            cohorts[str(query_count)] = {
+                "samples": len(subset),
+                "acquire_max_us_p95": percentile(
+                    [v["acquire_max_us"] for v in subset], 0.95
+                ),
+            }
         stages.append({
             "target_get_per_s": rate,
             "k6_outcome": outcomes[rate],
             "k6_latency": latency,
             "sampled_book_requests": len(rows),
             "with_successful_acquire": len(valid),
+            "by_observed_sqlx_query_count": cohorts,
             "acquires_per_request_p95": p95("acquires"),
             "acquire_total_us_p95": p95("acquire_total_us"),
             "acquire_max_us_p95": p95("acquire_max_us"),
@@ -176,7 +193,7 @@ def summarize(root):
     return {
         "schema_version": 1,
         "environment": "isolated GitHub runner, PostgreSQL 18 / tor_ci, SQLx pool max=3",
-        "sampling": "Every 16th Book request, includes setup Book probes",
+        "sampling": "Pseudo-random ~1/16 Book GETs; setup probes may be included",
         "measurement": "Successful SQLx Pool::acquire total checkout duration; not pure queue wait",
         "stages": stages,
     }
