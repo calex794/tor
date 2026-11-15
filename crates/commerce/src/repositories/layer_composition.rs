@@ -39,7 +39,7 @@ pub struct LayerChangePreview {
     pub lifetime_buyers: i64,
 }
 
-fn validate(additions: &[i64], removals: &[i64]) -> Result<(), LayerError> {
+pub(super) fn validate(additions: &[i64], removals: &[i64]) -> Result<(), LayerError> {
     if additions.len() + removals.len() > 100
         || additions.is_empty() && removals.is_empty()
         || additions.iter().chain(removals).any(|id| *id <= 0)
@@ -64,8 +64,26 @@ impl PgLayers {
         search: &str,
         limit: u16,
     ) -> Result<LayerBookTilePage, LayerError> {
+        self.composition_tiles_filtered(actor, layer, after, search, limit, "all", &[], &[])
+            .await
+    }
+
+    pub async fn composition_tiles_filtered(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        search: &str,
+        limit: u16,
+        filter: &str,
+        additions: &[i64],
+        removals: &[i64],
+    ) -> Result<LayerBookTilePage, LayerError> {
         let search = search.trim();
-        if !(1..=50).contains(&limit) || search.chars().count() > 100 {
+        if !(1..=50).contains(&limit)
+            || search.chars().count() > 100
+            || !matches!(filter, "all" | "included" | "available")
+        {
             return Err(LayerError::Invalid);
         }
         let current: i64 = sqlx::query_scalar(
@@ -111,6 +129,25 @@ impl PgLayers {
              WHERE b.owner_user_id=$1 AND b.id>$3
                AND ($4='' OR POSITION(lower($4) IN lower(b.title))>0)
                AND (
+                 $6='all'
+                 OR (
+                   $6='included' AND (
+                     (EXISTS(SELECT 1 FROM commerce_layer_version_books vb
+                             WHERE vb.layer_version_id=$2 AND vb.book_id=b.id)
+                      AND NOT (b.id=ANY($7::bigint[])))
+                     OR b.id=ANY($8::bigint[])
+                   )
+                 )
+                 OR (
+                   $6='available' AND NOT (
+                     (EXISTS(SELECT 1 FROM commerce_layer_version_books vb
+                             WHERE vb.layer_version_id=$2 AND vb.book_id=b.id)
+                      AND NOT (b.id=ANY($7::bigint[])))
+                     OR b.id=ANY($8::bigint[])
+                   )
+                 )
+               )
+               AND (
                  EXISTS(SELECT 1 FROM commerce_layer_version_books vb
                         WHERE vb.layer_version_id=$2 AND vb.book_id=b.id)
                  OR (
@@ -130,6 +167,9 @@ impl PgLayers {
         .bind(after.map_or(0, PositiveId::get))
         .bind(search)
         .bind(i64::from(limit) + 1)
+        .bind(filter)
+        .bind(removals)
+        .bind(additions)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| LayerError::Unavailable)?;
@@ -160,7 +200,7 @@ impl PgLayers {
 
     /// The transaction sees a current immutable version; the apply method
     /// additionally holds the package lock for conflict-free publication.
-    async fn inspect_change(
+    pub(super) async fn inspect_change(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         actor: PositiveId,
