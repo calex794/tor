@@ -205,9 +205,12 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
             },
         ],
         next_after: None,
+        hero_cover_id: Some(91),
     };
     let (hero, metadata, grid) = grid::detail(&layer, &tiles, &offer_empty(), "csrf", "", true);
     assert!(hero.contains("&lt;script&gt;Пакет&lt;/script&gt;"));
+    assert!(hero.contains("/covers/91/card.webp"));
+    assert!(!hero.contains("href=\"/layers/9\""));
     assert!(!hero.contains("<script>Пакет</script>"));
     assert!(metadata.contains("expected_revision"));
     assert!(grid.contains("/covers/91/card.webp"));
