@@ -1,5 +1,5 @@
 //! Read-only public Book purchase alternative; no money paths.
-use super::{auth_cookies, pages, AppState};
+use super::{pages, AppState};
 use axum::{http::{HeaderMap, StatusCode}, response::Html};
 
 pub(super) async fn attach(
