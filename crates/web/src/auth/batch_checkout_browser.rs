@@ -37,6 +37,24 @@ fn shell(title: &str, book_id: i64, contents: &str) -> axum::response::Html<Stri
     )
 }
 
+async fn package_alternative(state: &AuthState, book_id: i64, actor: i64) -> Option<Response> {
+    if !state.layer_pages_enabled { return None; }
+    let link = tor_commerce::repositories::layer_storefront::exclusive_package_link(
+        state.accounts.pool(), book_id, None, Some(actor),
+    ).await.ok().flatten()?;
+    Some(private_response(
+        shell(
+            "Главы доступны через пакет", book_id,
+            &format!(
+                "<h2>Доступно через пакет</h2><p>Новые платные главы сейчас нельзя купить напрямую.</p>
+                 <p>Пакет: <strong>{}</strong>. Условия и стоимость указаны на странице пакета.</p>
+                 <a class=\"ui-button ui-button--primary\" href=\"/layers/{}\">Посмотреть пакет</a>",
+                pages::escape_html(&link.title), link.layer_id
+            ),
+        ), &[],
+    ))
+}
+
 fn select_page(
     book_id: i64,
     title: &str,
@@ -270,6 +288,11 @@ pub(super) async fn page(
         Ok(offers) => offers,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if offers.is_empty() {
+        if let Some(alternative) = package_alternative(&state, book_id, actor).await {
+            return alternative;
+        }
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(select_page(book_id, &book.title, &csrf, &offers), &cookies)
 }
@@ -319,6 +342,9 @@ pub(super) async fn submit(
                 })
                 .collect::<Option<Vec<_>>>();
             let Some(picked) = picked else {
+                if let Some(alternative) = package_alternative(&state, book_id, actor).await {
+                    return alternative;
+                }
                 return failure(
                     book_id,
                     BatchCheckoutError::Checkout(CheckoutError::StaleOffer),
@@ -379,7 +405,14 @@ pub(super) async fn submit(
                         &[],
                     )
                 }
-                Err(error) => failure(book_id, error),
+                Err(error) => {
+                    if error == BatchCheckoutError::Checkout(CheckoutError::Inaccessible) {
+                        if let Some(alternative) = package_alternative(&state, book_id, actor).await {
+                            return alternative;
+                        }
+                    }
+                    failure(book_id, error)
+                },
             }
         }
         _ => deny(StatusCode::UNPROCESSABLE_ENTITY),
