@@ -78,9 +78,11 @@ impl PgLayers {
             .map_err(|_| LayerError::Unavailable)?;
         let rows = sqlx::query(
             "SELECT b.id,b.title,b.package_only_revision,
-                (b.package_only_layer_id=$2 AND
-                 (b.package_only_until IS NULL OR b.package_only_until>now()))
-                    AS restricted_here,
+                COALESCE(
+                  b.package_only_layer_id=$2 AND
+                  (b.package_only_until IS NULL OR b.package_only_until>now()),
+                  FALSE
+                ) AS restricted_here,
                 (b.package_only_layer_id IS NOT NULL AND
                  b.package_only_layer_id<>$2 AND
                  (b.package_only_until IS NULL OR b.package_only_until>now()))

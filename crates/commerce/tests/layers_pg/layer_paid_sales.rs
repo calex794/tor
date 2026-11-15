@@ -282,7 +282,7 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn h_ui_19_team_member_change_releases_sole_owner_sale_restriction() {
+async fn h_ui_19_layer_membership_guard_preserves_sales_and_removal_clears_them() {
     let (pool, repo, owner, collaborator, book) = setup("h19-team").await;
     let (layer, version, _) = offer(&repo, owner, book, 250, true).await;
     let applied = repo
@@ -296,15 +296,30 @@ async fn h_ui_19_team_member_change_releases_sole_owner_sale_restriction() {
         )
         .await
         .unwrap();
-    sqlx::query(
+    // B09 takes precedence: while a Book belongs to an active Layer,
+    // membership changes are forbidden before the H19 cleanup hook can run.
+    let change = sqlx::query(
         "INSERT INTO book_members(book_id,user_id,role,is_active)
          VALUES($1,$2,'translator',TRUE)",
     )
     .bind(book)
     .bind(collaborator)
     .execute(&pool)
-    .await
-    .unwrap();
+    .await;
+    assert!(change.is_err(), "B09 must reject a translator joining a locked Book");
+    let (current, revision): (Option<i64>, i64) =
+        sqlx::query_as("SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(current, Some(layer), "rejected member edit must not alter sales");
+    assert_eq!(revision, applied);
+    // Once the book is removed from the live package, the H19 trigger lifts
+    // the sales restriction; B09's historical membership policy stays intact.
+    repo.remove_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
     let (current, revision): (Option<i64>, i64) =
         sqlx::query_as("SELECT package_only_layer_id,package_only_revision FROM books WHERE id=$1")
             .bind(book)
@@ -315,16 +330,12 @@ async fn h_ui_19_team_member_change_releases_sole_owner_sale_restriction() {
     assert!(revision > applied);
     assert_eq!(
         repo.set_package_paid_mode(
-            id(owner),
-            id(layer),
-            id(book),
-            id(version),
-            revision,
+            id(owner), id(layer), id(book), id(version), revision,
             PackagePaidMode::PackageOnly,
         )
         .await,
-        Err(LayerError::Inaccessible),
-        "sole-owner restrictions must not be restored while a translator is active",
+        Err(LayerError::StaleOffer),
+        "removed book cannot regain a stale exclusive restriction",
     );
     pool.close().await;
 }
