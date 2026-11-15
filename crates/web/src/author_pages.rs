@@ -294,6 +294,64 @@ mod tests {
     }
 
     #[test]
+    fn d_05_layer_editor_keeps_account_shell_forms_revision_and_blocking() {
+        let layers = [
+            OwnedLayerSummary {
+                layer_id: 91,
+                title: "<script>Не доверять</script>".into(),
+                description: "<b>Содержание</b>".into(),
+                status: "active".into(),
+                metadata_revision: 4,
+            },
+            OwnedLayerSummary {
+                layer_id: 92,
+                title: "Скрытый".into(),
+                description: "Не опубликован".into(),
+                status: "hidden".into(),
+                metadata_revision: 5,
+            },
+            OwnedLayerSummary {
+                layer_id: 93,
+                title: "Заблокированный".into(),
+                description: String::new(),
+                status: "blocked".into(),
+                metadata_revision: 6,
+            },
+        ];
+        let html = layers_index_with_forms(&layers, "<csrf>").0;
+        assert!(html.contains("class=\"account-sidebar\""));
+        assert!(html.contains("class=\"account-main\""));
+        assert!(!html.contains("<!--ACCOUNT_NAVIGATION-->"));
+        assert!(html.contains("В списке: 3"));
+        assert!(html.contains("href=\"/me/layers/new\""));
+        assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("href=\"/me/layers/92/books\""));
+        assert!(html.contains("action=\"/me/layers/91/metadata\""));
+        assert!(html.contains("action=\"/me/layers/92/metadata\""));
+        assert!(!html.contains("action=\"/me/layers/93/metadata\""));
+        assert_eq!(html.matches("method=\"post\" action=\"/me/layers/").count(), 2);
+        assert!(html.contains("name=\"expected_revision\" value=\"4\""));
+        assert!(html.contains("name=\"expected_revision\" value=\"5\""));
+        assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
+        assert_eq!(html.matches("name=\"status\"").count(), 2);
+        assert_eq!(html.matches("name=\"description\"").count(), 2);
+        assert_eq!(html.matches("name=\"title\"").count(), 2);
+        assert!(html.contains("value=\"active\" selected"));
+        assert!(html.contains("value=\"hidden\" selected"));
+        assert!(html.contains("Заблокированный слой нельзя изменить самостоятельно."));
+        assert!(html.contains("&lt;script&gt;Не доверять&lt;/script&gt;"));
+        assert!(html.contains("&lt;b&gt;Содержание&lt;/b&gt;"));
+        assert!(!html.contains("<script>Не доверять</script>"));
+        assert!(!html.contains("<b>Содержание</b>"));
+        assert!(!html.contains("wallet"));
+        assert!(!html.contains("user_id"));
+        let empty = layers_index_with_forms(&[], "csrf").0;
+        assert!(empty.contains("Слоёв пока нет"));
+        assert!(empty.contains("В списке: 0"));
+        assert!(!empty.contains("author-layer-card\""));
+    }
+
+    #[test]
     fn d_05_owner_layer_index_escapes_titles_and_hides_buyer_data() {
         let layers = vec![OwnedLayerSummary {
             layer_id: 91,
