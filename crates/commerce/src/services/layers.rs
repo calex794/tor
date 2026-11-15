@@ -5,7 +5,7 @@ use crate::{
         LayerError, LayerOfferQuote, LayerOwnerOfferState, LayerReceipt, OwnedLayerSummary,
     },
     repositories::{
-        layer_composition::{LayerBookTilePage, LayerChangePreview},
+        layer_composition::{LayerBookTilePage, LayerChangePreview, LayerTileQuery},
         layer_composition_drafts::LayerCompositionDraft,
         layers::PgLayers,
     },
@@ -184,20 +184,14 @@ impl LayerService {
         &self,
         actor: PositiveId,
         layer: PositiveId,
-        after: Option<PositiveId>,
-        search: &str,
-        limit: u16,
-        filter: &str,
+        query: &LayerTileQuery<'_>,
         draft: &LayerCompositionDraft,
     ) -> Result<LayerBookTilePage, LayerError> {
         self.repository
             .composition_tiles_filtered(
                 actor,
                 layer,
-                after,
-                search,
-                limit,
-                filter,
+                query,
                 &draft.additions,
                 &draft.removals,
             )
