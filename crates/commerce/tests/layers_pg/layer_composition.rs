@@ -209,7 +209,14 @@ async fn h_ui_17_persists_pages_and_applies_one_paid_safe_revision() {
         "an older browser tab must not overwrite this draft",
     );
     let second = repo
-        .stage_composition_page(id(owner), id(layer), id(version), first.revision, &[b], &[b])
+        .stage_composition_page(
+            id(owner),
+            id(layer),
+            id(version),
+            first.revision,
+            &[b],
+            &[b],
+        )
         .await
         .unwrap();
     assert_eq!(second.additions, vec![a, b]);
@@ -239,13 +246,12 @@ async fn h_ui_17_persists_pages_and_applies_one_paid_safe_revision() {
         .await,
         Err(LayerError::Inaccessible),
     );
-    let count_before: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1",
-    )
-    .bind(layer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1")
+            .bind(layer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(repo.can_read_book(id(buyer), id(old_book)).await.unwrap());
     assert!(!repo.can_read_book(id(buyer), id(a)).await.unwrap());
     let snapshot = repo
@@ -273,13 +279,12 @@ async fn h_ui_17_persists_pages_and_applies_one_paid_safe_revision() {
         .apply_composition_draft(id(owner), id(layer), id(version), second.revision, (1, 1))
         .await
         .unwrap();
-    let count_after: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1",
-    )
-    .bind(layer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1")
+            .bind(layer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count_after, count_before + 1);
     let selected: Vec<i64> = sqlx::query_scalar(
         "SELECT book_id FROM commerce_layer_version_books
