@@ -148,8 +148,9 @@ pub fn layers_index_with_forms(layers: &[OwnedLayerSummary], csrf: &str) -> Html
                         layer.layer_id,
                     )
                 } else {
-                    String::from(
-                        r#"<span class="author-layer-card__disabled">Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации.</span>"#,
+                    format!(
+                        r#"<a class="ui-button ui-button--ghost" href="/me/layers/{}/books">Просмотреть состав и цену</a>"#,
+                        layer.layer_id,
                     )
                 };
                 write!(
@@ -336,8 +337,8 @@ mod tests {
         assert!(html.contains("В списке: 3"));
         assert!(html.contains("href=\"/me/layers/new\""));
         assert!(html.contains("href=\"/me/layers/91/books\""));
-        assert!(!html.contains("href=\"/me/layers/92/books\""));
-        assert!(html.contains("Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации."));
+        assert!(html.contains("href=\"/me/layers/92/books\""));
+        assert!(html.contains("Просмотреть состав и цену"));
         assert!(html.contains("action=\"/me/layers/91/metadata\""));
         assert!(html.contains("action=\"/me/layers/92/metadata\""));
         assert!(!html.contains("action=\"/me/layers/93/metadata\""));
@@ -382,8 +383,8 @@ mod tests {
         let html = layers_index(&layers).0;
         assert!(html.contains("Мои пакеты"));
         assert!(html.contains("href=\"/me/layers/new\""));
-        assert!(!html.contains("href=\"/me/layers/91/books\""));
-        assert!(html.contains("Скрытый пакет: редактируйте оформление здесь; изменение состава и цены недоступно до публикации."));
+        assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("Просмотреть состав и цену"));
         assert!(html.contains("Слой &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(html.contains("&lt;b&gt;Описание&lt;/b&gt;"));
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));
