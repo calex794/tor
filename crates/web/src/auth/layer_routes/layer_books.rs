@@ -447,13 +447,15 @@ pub(super) async fn page(
         &metadata,
         &tiles,
         &offer,
-        &csrf,
-        search,
-        filter,
-        after.map(PositiveId::get),
-        &history,
-        &draft,
-        editable,
+        grid::GridOptions {
+            csrf: &csrf,
+            query: search,
+            filter,
+            after: after.map(PositiveId::get),
+            history: &history,
+            draft: &draft,
+            editable,
+        },
     );
     let grid_markup = if query.updated.as_deref() == Some("1") {
         format!(
