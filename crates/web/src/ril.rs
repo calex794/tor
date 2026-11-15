@@ -127,7 +127,7 @@ async fn observe(
     });
     if sample_enabled
         && passport.route_family == "books"
-        && CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed) % 16 == 0
+        && CI_POOL_SAMPLE_COUNTER.fetch_add(1, Ordering::Relaxed).is_multiple_of(16)
     {
         if let Some(measured) = sql_measurement.as_ref() {
             let epoch_ms = SystemTime::now()
