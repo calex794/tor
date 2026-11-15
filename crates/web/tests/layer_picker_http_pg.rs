@@ -155,8 +155,8 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     let page = format!("/me/layers/{layer}/books");
     let owner_cookie = format!("tor-dev-session={owner_session}; tor-dev-csrf={csrf}");
     let other_cookie = format!("tor-dev-session={outsider_session}; tor-dev-csrf={csrf}");
-    let allowed_form = format!("book_id={solo}&csrf_token={csrf}");
-    let team_form = format!("book_id={team}&csrf_token={csrf}");
+    let allowed_form = format!("book_id={solo}&confirm_composition=yes&csrf_token={csrf}");
+    let team_form = format!("book_id={team}&confirm_composition=yes&csrf_token={csrf}");
 
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -184,7 +184,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert_eq!(list_response.status(), StatusCode::OK);
     assert_eq!(list_response.headers()[header::CACHE_CONTROL], "no-store");
     let own_layers = body(list_response).await;
-    assert!(own_layers.contains("Мои слои"));
+    assert!(own_layers.contains("Мои пакеты"));
     assert!(own_layers.contains("href=\"/me/layers/new\""));
     assert!(own_layers.contains(&format!("/me/layers/{layer}/books")));
     assert!(own_layers.contains("D05 browser picker"));
@@ -289,7 +289,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(updated.contains("name=\"price_rub\""));
     assert!(updated.contains("name=\"expected_offer_id\" value=\"0\""));
     let price_form = format!(
-        "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&csrf_token={csrf}"
+        "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&confirm_pricing=yes&csrf_token={csrf}"
     );
     let old_version_form = price_form.replace(
         &format!("expected_version_id={current_version}"),
@@ -413,10 +413,10 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     .parse()
     .unwrap();
     let remove = format!(
-        "operation=remove&book_id={solo}&expected_version_id={current_version}&csrf_token={csrf}"
+        "operation=remove&book_id={solo}&expected_version_id={current_version}&confirm_composition=yes&csrf_token={csrf}"
     );
     let stale = format!(
-        "operation=remove&book_id={solo}&expected_version_id={original_version}&csrf_token={csrf}"
+        "operation=remove&book_id={solo}&expected_version_id={original_version}&confirm_composition=yes&csrf_token={csrf}"
     );
     assert_eq!(
         request(&app, "POST", &page, &other_cookie, ORIGIN, &remove)
