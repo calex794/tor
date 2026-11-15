@@ -54,6 +54,7 @@ pub(super) struct PickerQuery {
     q: Option<String>,
     filter: Option<String>,
     history: Option<String>,
+    updated: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -444,6 +445,13 @@ pub(super) async fn page(
         &draft,
         editable,
     );
+    let grid_markup = if query.updated.as_deref() == Some("1") {
+        format!(
+            r#"<p class="ui-alert ui-alert--success" role="status">Изменения пакета сохранены одной новой версией.</p>{grid_markup}"#
+        )
+    } else {
+        grid_markup
+    };
     let mut html = picker_html_with_query(
         layer.get(),
         &candidates,
