@@ -28,11 +28,13 @@ class FlowCanonicalReading(unittest.TestCase):
     def test_required_existing_targets_execute_real_new_paths(self):
         for file,needle in [('crates/reading/tests/audience_pg.rs','audience_pg/canonical.rs'),('crates/web/tests/audience_http_pg.rs','canonical::check'),('tools/audience_pg_browser.cjs','await canonical.check')]:
             self.assertIn(needle,read(file))
-        for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-runtime.yml']:
+        for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-reading-analytics.yml']:
             text=read(file)
             for needle in ['cargo test -p tor-reading --test audience_pg',
                            'cargo test -p tor-web --test audience_http_pg']:
                 self.assertIn(needle,text)
+        for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-runtime.yml']:
+            text=read(file)
             self.assertNotIn('TOR_REC_REUSE_PLAYWRIGHT=1 bash tools/rec13_browser_acceptance.sh',text)
         for file in ['.github/workflows/tor-integration.yml','.github/workflows/tor-pg-rec-browser.yml']:
             text=read(file)
