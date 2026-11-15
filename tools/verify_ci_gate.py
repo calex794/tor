@@ -14,7 +14,7 @@ class GateError(ValueError):
 
 
 def verify(event_name: str, needs: dict) -> dict:
-    if event_name not in {"pull_request", "push", "workflow_dispatch"}:
+    if event_name not in {"pull_request", "push", "workflow_dispatch", "schedule"}:
         raise GateError("unsupported workflow event")
     required_dependencies = {"select", "preflight", *SUITE_JOB_IDS.values()}
     if not isinstance(needs, dict) or set(needs) != required_dependencies:

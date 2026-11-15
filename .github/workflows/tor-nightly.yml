@@ -1,0 +1,15 @@
+name: TOR nightly full acceptance
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tor-nightly-full
+  cancel-in-progress: false
+jobs:
+  full-acceptance:
+    uses: ./.github/workflows/tor-integration.yml
+    permissions:
+      contents: read

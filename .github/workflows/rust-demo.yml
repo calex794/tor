@@ -15,6 +15,10 @@ jobs:
     needs: select
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [tests, release]
     timeout-minutes: 25
     env:
       CARGO_INCREMENTAL: '0'
@@ -29,12 +33,16 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Architecture boundaries
+        if: ${{ matrix.lane == 'tests' }}
         run: python3 tools/check_feature_layout.py
       - name: Rust formatting
+        if: ${{ matrix.lane == 'tests' }}
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
+        if: ${{ matrix.lane == 'tests' }}
         run: cargo test --workspace --all-targets
       - name: Repeat trace writer crash recovery with CPU contention
+        if: ${{ matrix.lane == 'tests' }}
         run: |
           python3 -c 'while True: pass' &
           load_pid=$!
@@ -46,15 +54,18 @@ jobs:
               -- --exact --test-threads=1
           done
       - name: Rust lints
+        if: ${{ matrix.lane == 'tests' }}
         run: cargo clippy --workspace --all-targets -- -D warnings
       # The short S3 cover job owns this lint if its suite is selected.
       # Fall back to Rust when cover_s3 is not selected alongside PostgreSQL.
       - name: Combined S3 feature Clippy (PG selected without cover_s3)
-        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}
+        if: ${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 && matrix.lane == 'tests' }}
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Build release outside VPS
+        if: ${{ matrix.lane == 'release' }}
         run: cargo build --release -p tor-web
       - name: Real HTTP smoke (loopback only)
+        if: ${{ matrix.lane == 'release' }}
         run: |
           TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 ./target/release/tor-web > "$RUNNER_TEMP/tor-demo.log" 2>&1 &
           pid=$!
@@ -70,6 +81,7 @@ jobs:
           if grep -q 'Закрытый черновик' "$RUNNER_TEMP/tor-books.json"; then exit 1; fi
           ! curl --fail --silent http://127.0.0.1:3099/books/3
       - name: Upload server binary
+        if: ${{ matrix.lane == 'release' }}
         uses: actions/upload-artifact@v4
         with:
           name: tor-demo-${{ github.sha }}

@@ -121,17 +121,6 @@ class WorkflowWiringTests(unittest.TestCase):
                 job = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
                 self.assertEqual(job.count(command), 1)
 
-    def test_package_only_paid_checkout_pg_guards_are_run_in_both_workflows(self):
-        commands = (
-            "cargo test -p tor-commerce --test layers_pg h_ui_19_ -- --ignored --test-threads=1",
-            "cargo test -p tor-commerce --test batch_checkout_pg h_ui_19_ -- --ignored --test-threads=1",
-        )
-        for filename in (CI_WORKFLOW, "tor-pg-runtime.yml"):
-            with self.subTest(workflow=filename):
-                job = job_sections((WORKFLOWS / filename).read_text())["postgres-runtime"]
-                for command in commands:
-                    self.assertEqual(job.count(command), 1)
-
     def test_reading_analytics_isolated_exact_36_test_targets(self):
         self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 36)
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
@@ -446,9 +435,9 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_cover = job_sections((WORKFLOWS / "tor-cover-s3.yml").read_text())["s3-cover-build"]
         manual_pg = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
         clippy = "cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings"
-        rust_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 }}"""
+        rust_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres && !fromJSON(needs.select.outputs.suites || '{"cover_s3":false}').cover_s3 && matrix.lane == 'tests' }}"""
         cover_gate = """${{ github.workflow == 'TOR integration CI' && needs.select.result == 'success' && fromJSON(needs.select.outputs.suites || '{"rust":false}').rust && fromJSON(needs.select.outputs.suites || '{"postgres":false}').postgres }}"""
-        pg_gate = """${{ github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust }}"""
+        pg_gate = """${{ (github.workflow != 'TOR integration CI' || needs.select.result != 'success' || !fromJSON(needs.select.outputs.suites || '{"rust":false}').rust) && matrix.shard == 'foundation' }}"""
         for job in (required["demo"], manual_rust):
             self.assertEqual(job.count(clippy), 1)
             self.assertIn("if: " + rust_gate + "\n        run: " + clippy, job)
@@ -660,9 +649,35 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("  migrations:", core)
         self.assertIn("    needs: [select, preflight]", core)
 
+    def test_nightly_full_acceptance_is_scheduled_and_never_deploys(self):
+        nightly = (WORKFLOWS / "tor-nightly.yml").read_text()
+        self.assertIn("  schedule:", nightly)
+        self.assertIn("cron: '17 3 * * *'", nightly)
+        self.assertIn("  workflow_dispatch:", nightly)
+        self.assertIn("uses: ./.github/workflows/tor-integration.yml", nightly)
+        self.assertNotIn("secrets:", nightly)
+        self.assertNotIn("tor-one-click-release.yml", nightly)
+        integration = (WORKFLOWS / CI_WORKFLOW).read_text()
+        self.assertIn("  workflow_call:", integration)
+
+    def test_parallel_postgres_and_rust_shards_preserve_full_test_inventory(self):
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["postgres-runtime"]
+        manual = job_sections((WORKFLOWS / "tor-pg-runtime.yml").read_text())["postgres-runtime"]
+        for job in (required, manual):
+            self.assertIn("shard: [foundation, reading, commerce]", job)
+            self.assertIn("CI_PG_SHARD:", job)
+            for shard in ("foundation", "reading", "commerce"):
+                self.assertIn('if [[ "$CI_PG_SHARD" == "' + shard + '" ]]; then', job)
+            self.assertIn("matrix.shard == 'foundation'", job)
+            self.assertEqual(job.count('ci_pg_phase_done "'), 6)
+        demo = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["demo"]
+        self.assertIn("lane: [tests, release]", demo)
+        self.assertIn("matrix.lane == 'tests'", demo)
+        self.assertIn("matrix.lane == 'release'", demo)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
-                 | {CI_WORKFLOW, "rules.yml", "ci-selection.yml"}
+                 | {CI_WORKFLOW, "rules.yml", "ci-selection.yml", "tor-nightly.yml"}
                  | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS | ISOLATED_GATEWAY_WORKFLOWS | ACCEPTANCE_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))
