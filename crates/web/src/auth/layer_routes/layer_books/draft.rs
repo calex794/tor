@@ -52,14 +52,17 @@ fn draft_redirect(
     } else {
         format!(
             "&history={}",
-            history.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+            history
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
         )
     };
     Redirect::to(&format!(
         "/me/layers/{layer}/books?filter={filter}{cursor_suffix}{history_suffix}{search_suffix}"
     ))
 }
-
 
 pub(super) async fn handle(
     service: &LayerService,
@@ -86,10 +89,7 @@ async fn handle_draft(
 ) -> Response {
     if form.operation.as_deref() == Some("discard_stale") {
         return match service.discard_stale_composition_draft(actor, layer).await {
-            Ok(()) => private_response(
-                Redirect::to(&format!("/me/layers/{raw_layer}/books")),
-                &[],
-            ),
+            Ok(()) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
             Err(error) => deny(status(error)),
         };
     }
@@ -110,10 +110,9 @@ async fn handle_draft(
                 .discard_composition_draft(actor, layer, revision)
                 .await
             {
-                Ok(()) => private_response(
-                    Redirect::to(&format!("/me/layers/{raw_layer}/books")),
-                    &[],
-                ),
+                Ok(()) => {
+                    private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[])
+                }
                 Err(error) => deny(status(error)),
             };
         }
@@ -129,13 +128,7 @@ async fn handle_draft(
         };
         if nav == "review" {
             return match service
-                .preview_composition(
-                    actor,
-                    layer,
-                    expected,
-                    &draft.additions,
-                    &draft.removals,
-                )
+                .preview_composition(actor, layer, expected, &draft.additions, &draft.removals)
                 .await
             {
                 Ok(preview) => private_response(
@@ -234,4 +227,3 @@ async fn handle_draft(
 
     deny(StatusCode::UNPROCESSABLE_ENTITY)
 }
-
