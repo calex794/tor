@@ -457,8 +457,22 @@ class WorkflowWiringTests(unittest.TestCase):
         ):
             with self.subTest(phase=phase):
                 self.assertIn(phase, script)
-        self.assertIn("await require('./mail_browser_pg.cjs')", script)
-        self.assertIn("await require('./support_browser_pg.cjs')", script)
+        # Reader viewports and spoiler checks remain serial. Complete,
+        # fixture-isolated mail/support journeys run concurrently, and both
+        # failures must propagate after the shared Chromium has finished.
+        self.assertIn("await require('./comment_spoilers_browser.cjs')(browser, base, out);", script)
+        self.assertIn("['mail_browser', './mail_browser_pg.cjs']", script)
+        self.assertIn("['support_browser', './support_browser_pg.cjs']", script)
+        self.assertEqual(script.count("const results = await Promise.allSettled(auxiliary.map"), 1)
+        self.assertIn("await require(modulePath)(browser, base, out);", script)
+        self.assertIn("reportPhase(name, 'all', started);", script)
+        self.assertIn("reportPhase('auxiliary_parallel_total', 'all', auxiliaryStarted);", script)
+        self.assertIn("const failures = results.filter(result => result.status === 'rejected');", script)
+        self.assertIn("throw new AggregateError(failures.map(result => result.reason)", script)
+        self.assertLess(
+            script.index("await require('./comment_spoilers_browser.cjs')"),
+            script.index("const results = await Promise.allSettled(auxiliary.map"),
+        )
 
         mail = (ROOT / "tools/mail_browser_pg.cjs").read_text()
         self.assertIn("CI_BROWSER_MAIL_PHASE_SECONDS scenario=", mail)

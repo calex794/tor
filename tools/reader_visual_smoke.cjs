@@ -788,15 +788,32 @@ async function inspect(page, name, where) {
       await context.close();
       reportPhase('login_and_errors', name, checkpoint);
     }
-    let auxiliaryStarted = performance.now();
+    const spoilersStarted = performance.now();
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
-    reportPhase('comment_spoilers', 'all', auxiliaryStarted);
-    auxiliaryStarted = performance.now();
-    await require('./mail_browser_pg.cjs')(browser, base, out);
-    reportPhase('mail_browser', 'all', auxiliaryStarted);
-    auxiliaryStarted = performance.now();
-    await require('./support_browser_pg.cjs')(browser, base, out);
-    reportPhase('support_browser', 'all', auxiliaryStarted);
+    reportPhase('comment_spoilers', 'all', spoilersStarted);
+    // The mail and support suites use distinct accounts, browser contexts and
+    // screenshot paths. Run the complete journeys concurrently while keeping
+    // all assertions and DB fixtures intact. Wait for both suites to settle
+    // before closing their shared Chromium, even when one suite fails.
+    const auxiliary = [
+      ['mail_browser', './mail_browser_pg.cjs'],
+      ['support_browser', './support_browser_pg.cjs'],
+    ];
+    const auxiliaryStarted = performance.now();
+    const results = await Promise.allSettled(auxiliary.map(async ([name, modulePath]) => {
+      const started = performance.now();
+      try {
+        await require(modulePath)(browser, base, out);
+      } finally {
+        reportPhase(name, 'all', started);
+      }
+    }));
+    reportPhase('auxiliary_parallel_total', 'all', auxiliaryStarted);
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length) {
+      throw new AggregateError(failures.map(result => result.reason),
+        'Mail/support browser acceptance failed');
+    }
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     const closeStarted = performance.now();
