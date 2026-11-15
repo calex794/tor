@@ -559,13 +559,21 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
     def test_flow_visits_reaches_real_pg_and_browser_in_required_ci(self):
-        for workflow in ("tor-integration.yml", "tor-pg-runtime.yml", "rec-feedback-acceptance.yml"):
+        # Required CI and the manual analytics lane both exercise the exact
+        # FLOW visits targets. The old sequential PG lane must not duplicate them.
+        commands = (
+            "cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1",
+            "cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1",
+        )
+        for workflow in ("tor-integration.yml", "tor-pg-reading-analytics.yml",
+                         "rec-feedback-acceptance.yml"):
             text = (WORKFLOWS / workflow).read_text()
-            for command in (
-                "cargo test -p tor-recommendations --test flow_visits_pg -- --ignored --test-threads=1",
-                "cargo test -p tor-web --test flow_visits_http_pg -- --ignored --test-threads=1",
-            ):
-                self.assertIn(command, text, workflow)
+            for command in commands:
+                with self.subTest(workflow=workflow, command=command):
+                    self.assertIn(command, text)
+        runtime = (WORKFLOWS / "tor-pg-runtime.yml").read_text()
+        for command in commands:
+            self.assertNotIn(command, runtime)
         browser = (ROOT / "tools/rec13_browser_acceptance.sh").read_text()
         self.assertIn("TOR_FLOW_VISITS_ENABLED=1", browser)
         self.assertIn("node tools/flow_visits_pg_browser.cjs", browser)

@@ -36,10 +36,19 @@ class FlowExplicitChoices(unittest.TestCase):
         self.assertIn("audience_intent_pg_helpers.cjs", browser)
         self.assertIn("intents.choices(readerPage,book,csrf,true)", browser)
         self.assertIn("audience-intents-${width}.png", browser)
-        for file in [".github/workflows/tor-integration.yml", ".github/workflows/tor-pg-runtime.yml"]:
+        commands = (
+            "cargo test -p tor-reading --test audience_pg",
+            "cargo test -p tor-web --test audience_http_pg",
+        )
+        for file in (".github/workflows/tor-integration.yml",
+                     ".github/workflows/tor-pg-reading-analytics.yml"):
             ci = read(file)
-            for required in ["cargo test -p tor-reading --test audience_pg", "cargo test -p tor-web --test audience_http_pg"]:
-                self.assertIn(required, ci)
+            for required in commands:
+                with self.subTest(workflow=file, command=required):
+                    self.assertIn(required, ci)
+        sequential = read(".github/workflows/tor-pg-runtime.yml")
+        for required in commands:
+            self.assertNotIn(required, sequential)
 
 if __name__ == "__main__":
     unittest.main()
