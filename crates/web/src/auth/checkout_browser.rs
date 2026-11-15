@@ -61,7 +61,7 @@ fn browser_error(chapter_id: i64, status: StatusCode, message: &str) -> Response
 /// Render an alternative only after the same public age and chapter guards
 /// as the package storefront. Keep hidden and missing chapters indistinguishable.
 async fn package_alternative(state: &AuthState, chapter_id: i64, actor: i64) -> Option<Response> {
-    if !state.layer_pages_enabled {
+    if !state.layer_checkout_enabled {
         return None;
     }
     let (book_id, link) = tor_commerce::repositories::layer_storefront::exclusive_package_for_chapter(
