@@ -73,6 +73,7 @@ fn show_page(
                     <input type="hidden" name="expected_revision" value="{revision}">
                     <label for="sales-mode-{id}">Условия новых покупок</label>
                     <select id="sales-mode-{id}" name="mode" required>
+                        <option value="" selected disabled>Выберите новый режим</option>
                         <option value="direct">Обычная продажа</option>
                         <option value="7_days">Только пакет — первые 7 дней</option>
                         <option value="14_days">Только пакет — первые 14 дней</option>
