@@ -385,7 +385,6 @@ impl PgLayerCovers {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[test]
     fn package_cover_key_cannot_be_browser_supplied_raw_path() {
         let prefix = "staging/covers/variants/packages/";
