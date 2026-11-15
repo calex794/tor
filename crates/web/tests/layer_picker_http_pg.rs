@@ -742,7 +742,7 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     assert!(grid.contains("class=\"package-grid\""));
     assert!(grid.contains(&format!("name=\"chosen_{authors_book}\"")));
     let staged = format!(
-        "operation=preview&expected_version_id={current_version}&visible_csv={authors_book}&included_csv=&chosen_{authors_book}=1&csrf_token={csrf}"
+        "operation=preview&expected_version_id={current_version}&draft_revision=0&page_after=&page_query=&visible_csv={authors_book}&included_csv=&chosen_{authors_book}=1&csrf_token={csrf}"
     );
     let review = request(&app, "POST", &destination, &cookie, ORIGIN, &staged).await;
     assert_eq!(review.status(), StatusCode::OK);
@@ -761,8 +761,22 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         current_version,
         "preview must not change composition",
     );
+    // Save selection and search on another page; the original check stays.
+    let search = format!(
+        "operation=search&expected_version_id={current_version}&draft_revision=1&page_after=&page_query=&next_search=not-a-book&visible_csv={authors_book}&included_csv=&chosen_{authors_book}=1&csrf_token={csrf}"
+    );
+    let changed_search = request(&app, "POST", &destination, &cookie, ORIGIN, &search).await;
+    assert_eq!(changed_search.status(), StatusCode::SEE_OTHER);
+    let search_location = changed_search.headers()[header::LOCATION].to_str().unwrap();
+    assert!(search_location.contains("q=not-a-book"));
+    let searched = body(request(&app, "GET", search_location, &cookie, ORIGIN, "").await).await;
+    assert!(searched.contains("Черновик:"));
+    assert!(searched.contains("добавить 1, убрать 0"));
+    let restored_grid = body(request(&app, "GET", &destination, &cookie, ORIGIN, "").await).await;
+    assert!(restored_grid.contains("draft_revision\" value=\"2\""));
+    assert!(restored_grid.contains(&format!("name=\"chosen_{authors_book}\" value=\"1\" checked")));
     let apply = format!(
-        "operation=apply&expected_version_id={current_version}&add_csv={authors_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
+        "operation=apply&expected_version_id={current_version}&draft_revision=2&add_csv={authors_book}&remove_csv=&active_buyers=0&lifetime_buyers=0&confirm_composition=yes&csrf_token={csrf}"
     );
     let wrong_count = apply.replace("active_buyers=0", "active_buyers=1");
     assert_eq!(
