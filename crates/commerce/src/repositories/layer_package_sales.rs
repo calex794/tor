@@ -73,7 +73,9 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
-        let version: i64 = l.try_get("current_version_id").map_err(|_| LayerError::Unavailable)?;
+        let version: i64 = l
+            .try_get("current_version_id")
+            .map_err(|_| LayerError::Unavailable)?;
         let rows = sqlx::query(
             "SELECT b.id,b.title,b.package_only_revision,
                 (b.package_only_layer_id=$2 AND
@@ -110,7 +112,9 @@ impl PgLayers {
                 restricted_elsewhere: row
                     .try_get("restricted_elsewhere")
                     .map_err(|_| LayerError::Unavailable)?,
-                until_utc: row.try_get("until_utc").map_err(|_| LayerError::Unavailable)?,
+                until_utc: row
+                    .try_get("until_utc")
+                    .map_err(|_| LayerError::Unavailable)?,
             });
         }
         Ok(PackageSalePage {
@@ -135,7 +139,11 @@ impl PgLayers {
         if expected_revision < 0 {
             return Err(LayerError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| LayerError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| LayerError::Unavailable)?;
         let version: i64 = sqlx::query_scalar(
             "SELECT current_version_id FROM commerce_layers
              WHERE id=$1 AND owner_user_id=$2 AND status='active'
@@ -196,9 +204,15 @@ impl PgLayers {
             return Err(LayerError::StaleOffer);
         }
         if mode.is_restricted() {
-            let blocked: bool = row.try_get("admin_hold").map_err(|_| LayerError::Unavailable)?;
-            let deleted: bool = row.try_get("is_deleted").map_err(|_| LayerError::Unavailable)?;
-            let visibility: String = row.try_get("visibility").map_err(|_| LayerError::Unavailable)?;
+            let blocked: bool = row
+                .try_get("admin_hold")
+                .map_err(|_| LayerError::Unavailable)?;
+            let deleted: bool = row
+                .try_get("is_deleted")
+                .map_err(|_| LayerError::Unavailable)?;
+            let visibility: String = row
+                .try_get("visibility")
+                .map_err(|_| LayerError::Unavailable)?;
             let status: String = row
                 .try_get("visibility_status")
                 .map_err(|_| LayerError::Unavailable)?;
@@ -274,10 +288,22 @@ mod tests {
     use super::PackagePaidMode;
     #[test]
     fn package_paid_mode_allowlist_is_exact() {
-        assert_eq!(PackagePaidMode::parse("direct"), Some(PackagePaidMode::Direct));
-        assert_eq!(PackagePaidMode::parse("7_days"), Some(PackagePaidMode::First7Days));
-        assert_eq!(PackagePaidMode::parse("14_days"), Some(PackagePaidMode::First14Days));
-        assert_eq!(PackagePaidMode::parse("package_only"), Some(PackagePaidMode::PackageOnly));
+        assert_eq!(
+            PackagePaidMode::parse("direct"),
+            Some(PackagePaidMode::Direct)
+        );
+        assert_eq!(
+            PackagePaidMode::parse("7_days"),
+            Some(PackagePaidMode::First7Days)
+        );
+        assert_eq!(
+            PackagePaidMode::parse("14_days"),
+            Some(PackagePaidMode::First14Days)
+        );
+        assert_eq!(
+            PackagePaidMode::parse("package_only"),
+            Some(PackagePaidMode::PackageOnly)
+        );
         for invalid in ["", "Forever", "99_days", "DIRECT", " package_only", "all"] {
             assert_eq!(PackagePaidMode::parse(invalid), None);
         }

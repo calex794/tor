@@ -54,8 +54,12 @@ fn show_page(
             "Платные главы зарезервированы для другого пакета.".to_owned()
         } else if book.restricted_here {
             match &book.until_utc {
-                Some(until) => format!("Ранний доступ до {until} UTC. После срока отдельные покупки откроются."),
-                None => "Постоянно: новые платные главы продаются только через этот пакет.".to_owned(),
+                Some(until) => format!(
+                    "Ранний доступ до {until} UTC. После срока отдельные покупки откроются."
+                ),
+                None => {
+                    "Постоянно: новые платные главы продаются только через этот пакет.".to_owned()
+                }
             }
         } else {
             "Прямая продажа платных глав доступна.".to_owned()
@@ -156,7 +160,12 @@ async fn page(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        show_page(raw_layer, &data, &csrf, query.updated.as_deref()==Some("1")),
+        show_page(
+            raw_layer,
+            &data,
+            &csrf,
+            query.updated.as_deref() == Some("1"),
+        ),
         &cookies,
     )
 }
@@ -175,8 +184,7 @@ async fn save(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(error) => return deny(error),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -193,14 +201,7 @@ async fn save(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
     match PgLayers::new(state.accounts.pool().clone())
-        .set_package_paid_mode(
-            actor,
-            layer,
-            book,
-            version,
-            form.expected_revision,
-            mode,
-        )
+        .set_package_paid_mode(actor, layer, book, version, form.expected_revision, mode)
         .await
     {
         Ok(_) => private_response(
@@ -221,18 +222,21 @@ mod tests {
             &PackageSalePage {
                 version_id: 9,
                 editable: true,
-                books: vec![tor_commerce::repositories::layer_package_sales::PackageSaleBook {
-                    id: 41,
-                    title: "<script>x</script>".into(),
-                    revision: 2,
-                    restricted_here: true,
-                    restricted_elsewhere: false,
-                    until_utc: None,
-                }],
+                books: vec![
+                    tor_commerce::repositories::layer_package_sales::PackageSaleBook {
+                        id: 41,
+                        title: "<script>x</script>".into(),
+                        revision: 2,
+                        restricted_here: true,
+                        restricted_elsewhere: false,
+                        until_utc: None,
+                    },
+                ],
             },
             "safe-token",
             false,
-        ).0;
+        )
+        .0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>x</script>"));
         assert!(html.contains("name=\"expected_revision\" value=\"2\""));

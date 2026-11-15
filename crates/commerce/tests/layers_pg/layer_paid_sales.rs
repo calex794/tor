@@ -3,10 +3,7 @@
 use super::*;
 use tor_commerce::{
     domain::money::{CheckoutError, MoneyMinor, PurchaseCommand, WalletId},
-    repositories::{
-        checkout::PgCheckout,
-        layer_package_sales::PackagePaidMode,
-    },
+    repositories::{checkout::PgCheckout, layer_package_sales::PackagePaidMode},
 };
 use tor_contracts::paid_delivery::ChapterVersionRef;
 
@@ -37,12 +34,7 @@ async fn paid(pool: &PgPool, book: i64, chapter_no: i32) -> (i64, i64) {
     (chapter, version)
 }
 
-fn direct_command(
-    buyer: i64,
-    chapter: i64,
-    version: i64,
-    key: char,
-) -> PurchaseCommand {
+fn direct_command(buyer: i64, chapter: i64, version: i64, key: char) -> PurchaseCommand {
     PurchaseCommand::new(
         id(buyer),
         WalletId::new(buyer).unwrap(),
@@ -51,9 +43,10 @@ fn direct_command(
             version_id: id(version),
         },
         MoneyMinor::new(75).unwrap(),
-        tor_commerce::domain::money::IdempotencyKey::parse(
-            &format!("{}8", key.to_string().repeat(42)),
-        )
+        tor_commerce::domain::money::IdempotencyKey::parse(&format!(
+            "{}8",
+            key.to_string().repeat(42)
+        ))
         .unwrap(),
     )
     .unwrap()
@@ -69,14 +62,16 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
     let checkout = PgCheckout::new(pool.clone());
     let original = direct_command(buyer, old_chapter, old_version, 'Y');
     let receipt = checkout.checkout_once(&original).await.unwrap();
-    let before: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let page = layer_repo.package_sale_page(id(owner), id(layer)).await.unwrap();
+    let before: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let page = layer_repo
+        .package_sale_page(id(owner), id(layer))
+        .await
+        .unwrap();
     let revision = page.books[0].revision;
     assert!(!page.books[0].restricted_here);
     let updated = layer_repo
@@ -91,11 +86,22 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
         .await
         .unwrap();
     assert!(updated > revision);
-    let exclusive_page = layer_repo.package_sale_page(id(owner), id(layer)).await.unwrap();
+    let exclusive_page = layer_repo
+        .package_sale_page(id(owner), id(layer))
+        .await
+        .unwrap();
     assert!(exclusive_page.books[0].restricted_here);
     assert_eq!(exclusive_page.books[0].until_utc, None);
-    assert!(checkout.published_chapter_offer(new_chapter).await.unwrap().is_none());
-    assert!(checkout.selectable_batch_offers(buyer, book).await.unwrap().is_empty());
+    assert!(checkout
+        .published_chapter_offer(new_chapter)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(checkout
+        .selectable_batch_offers(buyer, book)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(
         checkout
             .checkout_once(&direct_command(buyer, new_chapter, new_version, 'Z'))
@@ -116,23 +122,34 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
     .await
     .unwrap();
     assert!(has_rights);
-    assert!(layer_repo
-        .buy(&cmd(buyer, layer, offer_id, version, 250, 'H'))
-        .await
-        .is_ok(), "the designated package still sells its own book");
+    assert!(
+        layer_repo
+            .buy(&cmd(buyer, layer, offer_id, version, 250, 'H'))
+            .await
+            .is_ok(),
+        "the designated package still sells its own book"
+    );
     assert!(layer_repo.can_read_book(id(buyer), id(book)).await.unwrap());
-    let after: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(after, before - 250, "only the package purchase debited the wallet");
+    let after: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        after,
+        before - 250,
+        "only the package purchase debited the wallet"
+    );
     assert_eq!(
         layer_repo
             .set_package_paid_mode(
-                id(owner), id(layer), id(book), id(version), revision, PackagePaidMode::Direct,
+                id(owner),
+                id(layer),
+                id(book),
+                id(version),
+                revision,
+                PackagePaidMode::Direct,
             )
             .await,
         Err(LayerError::StaleOffer),
@@ -140,11 +157,20 @@ async fn h_ui_19_paid_sales_fail_closed_without_revoking_purchases() {
     );
     layer_repo
         .set_package_paid_mode(
-            id(owner), id(layer), id(book), id(version), updated, PackagePaidMode::Direct,
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            updated,
+            PackagePaidMode::Direct,
         )
         .await
         .unwrap();
-    assert!(checkout.published_chapter_offer(new_chapter).await.unwrap().is_some());
+    assert!(checkout
+        .published_chapter_offer(new_chapter)
+        .await
+        .unwrap()
+        .is_some());
     pool.close().await;
 }
 
@@ -157,24 +183,41 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
     let version_other = repo.add_book(id(owner), id(other), id(book)).await.unwrap();
     assert_eq!(
         repo.set_package_paid_mode(
-            id(owner), id(layer), id(book), id(version), 0, PackagePaidMode::PackageOnly,
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::PackageOnly,
         )
         .await,
         Err(LayerError::Invalid),
         "a book present in another package is not uniquely exclusive",
     );
     // Removing the conflicting book from the other package permits exclusivity.
-    repo.remove_book(id(owner), id(other), id(book)).await.unwrap();
+    repo.remove_book(id(owner), id(other), id(book))
+        .await
+        .unwrap();
     assert_eq!(
         repo.set_package_paid_mode(
-            id(buyer), id(layer), id(book), id(version), 0, PackagePaidMode::PackageOnly,
+            id(buyer),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::PackageOnly,
         )
         .await,
         Err(LayerError::Inaccessible),
     );
     let new_revision = repo
         .set_package_paid_mode(
-            id(owner), id(layer), id(book), id(version), 0, PackagePaidMode::First7Days,
+            id(owner),
+            id(layer),
+            id(book),
+            id(version),
+            0,
+            PackagePaidMode::First7Days,
         )
         .await
         .unwrap();
@@ -186,7 +229,11 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
     );
     assert_eq!(
         repo.set_package_paid_mode(
-            id(owner), id(layer), id(book), id(version_other), new_revision,
+            id(owner),
+            id(layer),
+            id(book),
+            id(version_other),
+            new_revision,
             PackagePaidMode::PackageOnly,
         )
         .await,
@@ -202,20 +249,35 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!repo.package_sale_page(id(owner), id(layer)).await.unwrap().books[0].restricted_here);
+    assert!(
+        !repo
+            .package_sale_page(id(owner), id(layer))
+            .await
+            .unwrap()
+            .books[0]
+            .restricted_here
+    );
     repo.set_package_paid_mode(
-        id(owner), id(layer), id(book), id(version), new_revision, PackagePaidMode::PackageOnly,
-    ).await.unwrap();
-    // A normal composition edit removes the book and automatically clears the
-    // restriction. Historical versions and previous purchases are untouched.
-    repo.remove_book(id(owner), id(layer), id(book)).await.unwrap();
-    let current: Option<i64> = sqlx::query_scalar(
-        "SELECT package_only_layer_id FROM books WHERE id=$1",
+        id(owner),
+        id(layer),
+        id(book),
+        id(version),
+        new_revision,
+        PackagePaidMode::PackageOnly,
     )
-    .bind(book)
-    .fetch_one(&pool)
     .await
     .unwrap();
+    // A normal composition edit removes the book and automatically clears the
+    // restriction. Historical versions and previous purchases are untouched.
+    repo.remove_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
+    let current: Option<i64> =
+        sqlx::query_scalar("SELECT package_only_layer_id FROM books WHERE id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(current, None);
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap() == false);
     pool.close().await;
