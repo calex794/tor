@@ -276,7 +276,7 @@ async fn h_ui_19_exclusivity_cannot_strand_books_or_cross_packages() {
             .await
             .unwrap();
     assert_eq!(current, None);
-    assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap() == false);
+    assert!(!repo.can_read_book(id(buyer), id(book)).await.unwrap());
     pool.close().await;
 }
 
