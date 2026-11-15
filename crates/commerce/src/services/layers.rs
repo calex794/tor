@@ -194,14 +194,7 @@ impl LayerService {
         expected_buyers: (i64, i64),
     ) -> Result<i64, LayerError> {
         self.repository
-            .apply_composition(
-                actor,
-                layer,
-                version,
-                additions,
-                removals,
-                expected_buyers,
-            )
+            .apply_composition(actor, layer, version, additions, removals, expected_buyers)
             .await
     }
 
