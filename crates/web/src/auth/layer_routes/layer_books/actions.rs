@@ -58,8 +58,9 @@ pub(super) async fn handle_selection(
         if staged_changes(&form).is_none() {
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         }
-        let page_after = match form.page_after.filter(|value| *value != 0)
-            .map(PositiveId::new).transpose()
+        let page_after = match form.page_after.as_deref().filter(|value| !value.is_empty())
+            .map(|value| value.parse::<i64>().map_err(|_| ()))
+            .transpose().and_then(|number| number.map(PositiveId::new).transpose().map_err(|_| ()))
         {
             Ok(value) => value,
             Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
