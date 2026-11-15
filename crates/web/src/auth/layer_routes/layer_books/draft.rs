@@ -1,8 +1,44 @@
 //! Script-free package draft navigation and confirmation.
 use super::*;
 
+pub(super) fn csv_ids(raw: Option<&str>) -> Option<Vec<i64>> {
+    let raw = raw?;
+    if raw.len() > 1400 {
+        return None;
+    }
+    if raw.is_empty() {
+        return Some(Vec::new());
+    }
+    let ids = raw
+        .split(',')
+        .map(|value| value.parse::<i64>().ok().filter(|id| *id > 0))
+        .collect::<Option<Vec<_>>>()?;
+    if ids.len() > 100 || ids.iter().copied().collect::<BTreeSet<_>>().len() != ids.len() {
+        return None;
+    }
+    Some(ids)
+}
+
+
+pub(super) fn encoded_search_suffix(query: &str) -> String {
+    if query.is_empty() {
+        return String::new();
+    }
+    let mut encoded = String::new();
+    for byte in query.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            write!(encoded, "%{byte:02X}").expect("write String");
+        }
+    }
+    format!("&amp;q={encoded}")
+}
+
+
+
 pub(super) fn stage_choices(form: &AddBookForm) -> Option<(Vec<i64>, Vec<i64>)> {
-    let visible = super::csv_ids(form.visible_csv.as_deref())?;
+    let visible = csv_ids(form.visible_csv.as_deref())?;
     if visible.len() > usize::from(super::GRID_PAGE_SIZE) || form.choices.len() > visible.len() {
         return None;
     }
@@ -45,7 +81,7 @@ fn draft_redirect(
     after: Option<i64>,
     history: &[i64],
 ) -> Redirect {
-    let search_suffix = super::encoded_search_suffix(search).replace("&amp;", "&");
+    let search_suffix = encoded_search_suffix(search).replace("&amp;", "&");
     let cursor_suffix = after.map_or_else(String::new, |id| format!("&after={id}"));
     let history_suffix = if history.is_empty() {
         String::new()
