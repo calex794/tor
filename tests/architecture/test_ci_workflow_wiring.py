@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, SUITES,
+    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, POSTGRES_RUNTIME_ONLY_TEST_FILES, READING_ANALYTICS_TEST_FILES, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -110,6 +110,38 @@ class WorkflowWiringTests(unittest.TestCase):
             {"rust", "rec_browser"},
         )
 
+
+    def test_reading_analytics_isolated_exact_35_test_targets(self):
+        self.assertEqual(len(READING_ANALYTICS_TEST_FILES), 35)
+        required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())
+        manual = job_sections((WORKFLOWS / "tor-pg-reading-analytics.yml").read_text())
+        for body in (required["pg-reading-analytics"], manual["pg-reading-analytics"]):
+            self.assertIn("image: postgres:18", body)
+            self.assertIn("LEGACY_ANALYTICS_DATABASE_URL:", body)
+            self.assertIn("LEGACY_ANALYTICS_MIGRATOR_URL:", body)
+            self.assertIn("COLLECTION_RETIREMENT_UPGRADE_DATABASE_URL:", body)
+            self.assertIn("COLLECTION_RETIREMENT_STARTUP_MIGRATOR_URL:", body)
+            self.assertIn("legacy_analytics_baseline_pg", body)
+            self.assertIn("collection_retirement_startup_baseline_pg", body)
+            self.assertIn("collection_retirement_installed_upgrade_pg", body)
+            self.assertIn("run: git diff --exit-code", body)
+            for path in READING_ANALYTICS_TEST_FILES:
+                package = "tor-" + Path(path).parts[1]
+                target = Path(path).stem
+                invocation = (f"cargo test -p {package} --test {target} "
+                              "-- --ignored --test-threads=1")
+                with self.subTest(path=path):
+                    self.assertEqual(body.count(invocation), 1)
+                    self.assertEqual(TEST_SUITES[path], {"rust", "reading_analytics"})
+        for name in (CI_WORKFLOW, "tor-pg-runtime.yml"):
+            runtime = job_sections((WORKFLOWS / name).read_text())["postgres-runtime"]
+            self.assertIn("cargo test -p tor-reading --test library_postgres", runtime)
+            for path in READING_ANALYTICS_TEST_FILES:
+                package = "tor-" + Path(path).parts[1]
+                target = Path(path).stem
+                self.assertNotIn(f"cargo test -p {package} --test {target} ", runtime)
+
+
     def test_exact_postgres_test_file_selection_matches_real_job_invocations(self):
         # A new job invoking a mapped test must update the authority map and
         # trigger full CI rather than silently skipping the new consumer.
@@ -119,7 +151,7 @@ class WorkflowWiringTests(unittest.TestCase):
         manual_pg = standalone["postgres-runtime"]
         other_jobs = "\n".join(body for job, body in combined.items()
                                if job != "postgres-runtime")
-        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 103)
+        self.assertEqual(len(POSTGRES_RUNTIME_ONLY_TEST_FILES), 101)
         for path in sorted(POSTGRES_RUNTIME_ONLY_TEST_FILES):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
