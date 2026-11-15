@@ -37,6 +37,7 @@ pub(super) fn enabled() -> bool {
 pub(super) struct PickerQuery {
     after: Option<i64>,
     current_after: Option<i64>,
+    q: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -46,6 +47,7 @@ pub(super) struct AddBookForm {
     csrf_token: Option<String>,
     operation: Option<String>,
     expected_version_id: Option<i64>,
+    confirm_composition: Option<String>,
 }
 
 pub(super) fn status(error: LayerError) -> StatusCode {
@@ -263,7 +265,14 @@ pub(super) async fn page(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
-    let candidates = match service.addable_books(actor, layer, after, PAGE_SIZE).await {
+    let search = query.q.as_deref().unwrap_or("").trim();
+    if search.chars().count() > 100 {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let candidates = match service
+        .addable_books_matching(actor, layer, after, PAGE_SIZE, search)
+        .await
+    {
         Ok(candidates) => candidates,
         Err(error) => return deny(status(error)),
     };
@@ -287,7 +296,7 @@ pub(super) async fn page(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        picker_html(layer.get(), &candidates, &current, &offer, &csrf),
+        picker_html_with_query(layer.get(), &candidates, &current, &offer, &csrf, search),
         &cookies,
     )
 }
@@ -320,6 +329,9 @@ pub(super) async fn add(
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
+    if form.confirm_composition.as_deref() != Some("yes") {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     let result = match form.operation.as_deref() {
         None | Some("add") if form.expected_version_id.is_none() => {
