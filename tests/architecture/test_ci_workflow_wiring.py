@@ -340,8 +340,32 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn("actions/upload-artifact@v4", browser)
         specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
         self.assertIn("run: bash tools/rec13_browser_acceptance.sh", specialist)
-        self.assertNotIn("TOR_REC_REUSE_PLAYWRIGHT=1", specialist)
+        self.assertIn("TOR_REC_REUSE_PLAYWRIGHT: '1'", specialist)
 
+    def test_rec_specialist_chromium_reuse_keeps_launch_and_fallback(self):
+        specialist = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        install = specialist.split(
+            "      - name: Chromium for native fresh-schema HTML quality\n", 1
+        )[1].split(
+            "      - name: Native HTML quality on the fresh schema\n", 1
+        )[0]
+        self.assertIn("npm install --no-save playwright@1.56.1", install)
+        self.assertIn("npx playwright install --only-shell chromium", install)
+        self.assertIn("npx playwright install --with-deps --only-shell chromium", install)
+        self.assertIn("p.chromium.launch({headless:true})", install)
+        self.assertIn("if ! rec_chromium_probe; then", install)
+        self.assertIn("CI_REC_CHROMIUM_SETUP_SECONDS", install)
+        self.assertLess(
+            install.index("npx playwright install --only-shell chromium"),
+            install.index("npx playwright install --with-deps --only-shell chromium"),
+        )
+        self.assertLess(
+            install.index("npx playwright install --with-deps --only-shell chromium"),
+            install.rindex("rec_chromium_probe"),
+        )
+        browser_step = specialist.split("      - name: Browser acceptance\n", 1)[1]
+        self.assertIn("TOR_REC_REUSE_PLAYWRIGHT: '1'", browser_step)
+        self.assertIn("run: bash tools/rec13_browser_acceptance.sh", browser_step)
 
     def test_reader_chromium_launch_preflight_with_dependency_fallback(self):
         required = job_sections((WORKFLOWS / CI_WORKFLOW).read_text())["reader-browser"]
