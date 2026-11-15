@@ -180,7 +180,7 @@ fn composition_grid_delta_is_limited_to_visible_books() {
 fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
     use tor_commerce::{
         domain::layers::OwnedLayerSummary,
-        repositories::layer_composition::{LayerBookTile, LayerBookTilePage},
+        repositories::layer_composition::{LayerBookTile, LayerBookTilePage, LayerCoverOption},
     };
     let layer = OwnedLayerSummary {
         layer_id: 9,
@@ -206,6 +206,10 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
         ],
         next_after: None,
         hero_cover_id: Some(91),
+        cover_options: vec![LayerCoverOption {
+            id: 91,
+            title: "<script>Кавер</script>".into(),
+        }],
         after: None,
     };
     let draft = tor_commerce::repositories::layer_drafts::LayerSelectionDraft {
@@ -221,6 +225,9 @@ fn grid_has_book_covers_and_does_not_trust_titles_or_share_ids() {
     assert!(!hero.contains("href=\"/layers/9\""));
     assert!(!hero.contains("<script>Пакет</script>"));
     assert!(metadata.contains("expected_revision"));
+    assert!(metadata.contains("action=\"/me/layers/9/cover\""));
+    assert!(metadata.contains("&lt;script&gt;Кавер&lt;/script&gt;"));
+    assert!(!metadata.contains("<script>Кавер</script>"));
     assert!(grid.contains("/covers/91/card.webp"));
     assert!(grid.contains("chosen_91"));
     assert!(grid.contains("chosen_92"));
