@@ -158,7 +158,9 @@ pub async fn storefront(
             .map_err(|_| LayerError::Unavailable)?,
         public_books: books,
         public_book_count,
-        has_package_cover: head.try_get("has_package_cover").map_err(|_| LayerError::Unavailable)?,
+        has_package_cover: head
+            .try_get("has_package_cover")
+            .map_err(|_| LayerError::Unavailable)?,
         has_access,
         has_lifetime_access,
     }))
