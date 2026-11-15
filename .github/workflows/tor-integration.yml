@@ -1095,7 +1095,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reader-shots"
-          TOR_AUTH_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
+          TOR_AUTH_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 TOR_EDITORIAL_PROMOTION_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 30); do
@@ -1130,6 +1130,8 @@ jobs:
           node --check tools/referral_share_browser_smoke.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/batch_checkout_chromium_pg.cjs
           TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/referral_share_browser_smoke.cjs
+          node --check tools/editorial_pg_browser.cjs
+          TOR_EDITORIAL_BASE=http://127.0.0.1:3098 TOR_EDITORIAL_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/editorial_pg_browser.cjs
           node --check tools/s039_payout_post_browser.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" ci_timed_browser tools/s039_payout_post_browser.cjs
       - name: S059 real SQL delay, operator diagnostics and writer recovery

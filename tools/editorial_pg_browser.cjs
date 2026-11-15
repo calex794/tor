@@ -1,5 +1,5 @@
 "use strict";
-// Native administration, the three approved live slots, and shared observation integration.
+// Native administration, four live editorial slots, and shared observation integration.
 const {chromium}=require('playwright');
 const {execFileSync}=require('node:child_process');
 const assert=require('node:assert/strict');
@@ -131,13 +131,54 @@ async function observedCard(page,card,campaign,before,response,events){
   await page.goto(base+PAGE);const editable=page.locator(`[data-editorial-management="${campaigns[0]}"]`);await editable.getByText('Изменить расписание и приоритет',{exact:true}).click();
   const edit=editable.locator('form').filter({has:page.locator('input[name="action"][value="update"]')});await edit.getByLabel('Приоритет (0–100)').fill('25');await submit(page,edit);await action(page,campaigns[0],'activate');
   sql(`UPDATE books SET admin_hold=true WHERE id=${promoted}`);await publicPage.goto(base+`/reader/${chapter}`);assert.equal(await publicPage.locator('.editorial-promotion').count(),0);assert.match(await publicPage.locator('#chapter-text').innerText(),/EDITORIAL FREE CHAPTER TEXT/);
-  sql(`UPDATE books SET admin_hold=false WHERE id=${promoted}`);await action(page,campaigns[0],'end');
+  sql(`UPDATE books SET admin_hold=false WHERE id=${promoted}`);
+  // PROMO-P1a: the same native admin form can control the fourth placement.
+  // It replaces the original home shelf while active, without adding an overlay.
+  await page.goto(base+PAGE);
+  const stripForm=page.locator('[data-editorial-create]');
+  await stripForm.getByLabel('ID книги',{exact:true}).fill(String(promoted));
+  await stripForm.locator('select[name="slot"]').selectOption('home_promo_strip');
+  await stripForm.getByLabel('Начало, UTC RFC3339',{exact:true}).fill(start);
+  await stripForm.getByLabel('Окончание, UTC RFC3339',{exact:true}).fill(end);
+  await stripForm.getByLabel('Приоритет (0–100)',{exact:true}).fill('90');
+  await submit(page,stripForm);
+  const stripCampaign=Number(new URL(page.url()).searchParams.get('changed'));
+  assert.ok(stripCampaign>0);
+  const stripManagement=page.locator(`[data-editorial-management="${stripCampaign}"]`);
+  await stripManagement.getByText('Предпросмотр карточки',{exact:true}).click();
+  assert.equal(await stripManagement.locator('[data-flow-proof]').count(),0);
+  await action(page,stripCampaign,'activate');
+  for(const width of [390,1440]){
+    await publicPage.bringToFront();
+    await publicPage.setViewportSize({width,height:900});
+    const beforeView=expectObservations?sums(stripCampaign)[2]:0;
+    const response=await publicPage.goto(base+'/');
+    assert.equal(response.status(),200);
+    const strip=publicPage.locator('[data-promo-strip]');
+    assert.equal(await strip.count(),1,'The home promo strip should render only once');
+    assert.equal(await publicPage.locator('.editorial-promotion').count(),1,'No duplicate editorial home shelf');
+    assert.equal(await publicPage.locator(`[data-editorial-campaign="${campaigns[0]}"]`).count(),0);
+    assert.equal(await strip.getAttribute('aria-label'),'Специальное предложение');
+    assert.equal(await strip.locator('script').count(),0);
+    assert.match(await strip.innerText(),/<script>safe<\/script>/);
+    assert.equal(await publicPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    if(expectObservations)await observedCard(publicPage,strip,stripCampaign,beforeView,response,publicEvents);
+    await strip.screenshot({path:path.join(shots,`editorial-home-strip-${width}.png`)});
+  }
+  await publicPage.locator('[data-promo-strip] a[data-flow-link]').click();
+  await publicPage.waitForURL(base+`/books/${promoted}`);
+  if(expectObservations)await poll(()=>assert.ok(sums(stripCampaign)[3]>=1));
+  await action(page,stripCampaign,'pause');
+  await publicPage.goto(base+'/');
+  assert.equal(await publicPage.locator('[data-promo-strip]').count(),0,'Paused promo strip remains visible');
+  assert.equal(await publicPage.locator(`[data-editorial-campaign="${campaigns[0]}"]`).count(),1,'The original home shelf should return');
+  await action(page,campaigns[0],'end');
   await page.goto(base+PAGE);assert.equal(await page.locator(`[data-editorial-state="${campaigns[0]}"]`).count(),0);
   sql(`UPDATE account_roles SET is_active=false WHERE user_id=${actor} AND role='administrator'`);await privateResponse(await page.goto(base+PAGE),403);
   assert.equal(sql('SELECT (SELECT count(*) FROM reader_wallet_entries)||\'|\'||(SELECT count(*) FROM reader_chapter_completions)||\'|\'||(SELECT count(*) FROM rec_subjects)'),baseline);
   assert.ok((await guest.cookies()).length===0);assert.ok((await admin.cookies()).every(c=>['tor-dev-session','tor-dev-csrf'].includes(c.name)));
   await guest.close();await admin.close();
-  console.log(`PASS editorial native no-JS create/activate/pause/update/end; three real slots;390/1440;live safety;shared observations=${expectObservations}`);
+  console.log(`PASS editorial native no-JS create/activate/pause/update/end; four real slots;390/1440;live safety;shared observations=${expectObservations}`);
  } finally {
   const fixtureBooks=[promoted,host].filter(Boolean);
   if(fixtureBooks.length)sql(`UPDATE books SET admin_hold=true WHERE id IN (${fixtureBooks.join(',')})`);

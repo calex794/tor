@@ -54,7 +54,7 @@ impl<'a> Editorial<'a> {
     ) -> Result<Vec<EditorialCard>, EditorialError> {
         if viewer.is_some_and(|viewer| viewer.user_id <= 0)
             || host.is_some_and(|id| id <= 0)
-            || (slot != PromotionSlot::HomeFeatured && host.is_none())
+            || (!slot.supports_root() && host.is_none())
         {
             return Err(EditorialError::Invalid);
         }

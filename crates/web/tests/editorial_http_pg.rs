@@ -299,6 +299,60 @@ async fn native_management_authority_three_real_placements_and_optional_failure(
             StatusCode::CONFLICT
         );
     }
+    // PROMO-P1a: the fourth Book-only placement uses the same native
+    // administration and selects exactly one home strip, never an extra shelf.
+    let create_page = html(call(&app, "GET", PAGE, &cookie, ORIGIN, "").await).await;
+    assert!(create_page.contains("home_promo_strip"));
+    let strip_body = form(&[
+        ("csrf_token", csrf.clone()),
+        ("command_key", hidden(&create_page, "command_key")),
+        ("action", "create".into()),
+        ("expected_revision", "0".into()),
+        ("book_id", promoted.to_string()),
+        ("slot", "home_promo_strip".into()),
+        ("starts_at", start.into()),
+        ("ends_at", end.into()),
+        ("priority", "90".into()),
+    ]);
+    let created = call(&app, "POST", PAGE, &cookie, ORIGIN, &strip_body).await;
+    assert_eq!(created.status(), StatusCode::SEE_OTHER);
+    let strip_id: i64 = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .split("?changed=")
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let enabled = call(
+        &app,
+        "POST",
+        PAGE,
+        &cookie,
+        ORIGIN,
+        &state_form(&csrf, strip_id, 1, "activate"),
+    )
+    .await;
+    assert_eq!(enabled.status(), StatusCode::SEE_OTHER);
+    let homepage = html(call(&app, "GET", "/", "", ORIGIN, "").await).await;
+    assert!(homepage.contains("data-promo-strip"));
+    assert!(homepage.contains("aria-label=\"Специальное предложение\""));
+    assert!(homepage.contains("&lt;script&gt;safe&lt;/script&gt;"));
+    assert!(!homepage.contains("book-related-grid"));
+    let paused_strip = call(
+        &app,
+        "POST",
+        PAGE,
+        &cookie,
+        ORIGIN,
+        &state_form(&csrf, strip_id, 2, "pause"),
+    )
+    .await;
+    assert_eq!(paused_strip.status(), StatusCode::SEE_OTHER);
+    let home_fallback = html(call(&app, "GET", "/", "", ORIGIN, "").await).await;
+    assert!(!home_fallback.contains("data-promo-strip"));
+    assert!(home_fallback.contains("editorial-promotion"));
+
     for route in [
         "/".to_owned(),
         format!("/books/{host}"),
@@ -391,6 +445,13 @@ async fn native_management_authority_three_real_placements_and_optional_failure(
         let page = html(response).await;
         assert!(page.contains("FREE HOST TEXT"));
         assert!(!page.contains("editorial-promotion"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let started = Instant::now();
+        let response = call(&app, "GET", "/", "", ORIGIN, "").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let home = html(response).await;
+        assert!(!home.contains("data-promo-strip"));
+        assert!(!home.contains("editorial-promotion"));
         assert!(started.elapsed() < Duration::from_secs(2));
         let response = call(&app, "GET", PAGE, &cookie, ORIGIN, "").await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);

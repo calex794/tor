@@ -8,6 +8,7 @@ use tor_contracts::exposure::PromotionSlot;
 
 fn slot_label(slot: PromotionSlot) -> &'static str {
     match slot {
+        PromotionSlot::HomePromoStrip => "Промополоса главной",
         PromotionSlot::HomeFeatured => "Главная",
         PromotionSlot::BookDetailRelated => "Карточка книги",
         PromotionSlot::ChapterEndFree => "После бесплатной главы",
