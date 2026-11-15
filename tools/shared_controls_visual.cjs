@@ -29,7 +29,7 @@ async function inspect(page, input, textarea) {
     };
     return {
       input: style(input), textarea: style(textarea), select: style('select'),
-      button: style('.auth-form .button'), footer: style('.site-footer__link'),
+      button: style('.author-editor__form button[type="submit"]'), footer: style('.site-footer__link'),
       surface: token('--bg-surface'), text: token('--text-main'),
       border: token('--border-dark'), muted: token('--text-muted'),
       action: token('--action-primary-bg'), actionText: token('--action-primary-text'),
@@ -59,6 +59,8 @@ async function checkSharedControls(browser, base, out) {
         await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
         for (const [name, file, input, textarea] of fixtures) {
           const markup = fs.readFileSync(path.join(templates, file), 'utf8')
+            .replace('<!--ACCOUNT_NAVIGATION-->',
+              fs.readFileSync(path.join(templates, 'account_nav.html'), 'utf8'))
             .replace('<!--CHAPTER_HEADING-->', 'Новая бесплатная глава')
             .replace('<!--CHAPTER_INFO-->', 'Сохранение главы в существующей книге.')
             .replace('<!--SAVE_LABEL-->', 'Сохранить главу')
@@ -89,6 +91,8 @@ async function checkSharedControls(browser, base, out) {
           }
           if (out && [390, 1440].includes(width)) {
             await page.locator(input).focus();
+            await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
             await page.screenshot({ path: path.join(out,
               `shared-controls-${name}-${width}-${colorScheme}.png`), fullPage: true });
           }
