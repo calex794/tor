@@ -68,9 +68,18 @@ async fn concurrency_replay_unknown_cooldown_and_recovery_are_durable() {
     let f = fixture().await;
     let store = PgFlowSignals::new(f.pool.clone());
     let (a, b) = tokio::join!(store.claim_round(1), store.claim_round(1));
-    let leases = [a.unwrap(), b.unwrap()];
-    assert_eq!(leases.iter().filter(|l| l.is_some()).count(), 1);
-    let lease = leases.into_iter().flatten().next().unwrap();
+    // The loser may observe the committed lease (None) or hit the documented
+    // bounded lock deadline (Unavailable). Both must fail closed; one wins.
+    let mut owners = Vec::new();
+    for candidate in [a, b] {
+        match candidate {
+            Ok(Some(lease)) => owners.push(lease),
+            Ok(None) | Err(SignalError::Unavailable) => {}
+            Err(error) => panic!("unexpected lease error: {error:?}"),
+        }
+    }
+    assert_eq!(owners.len(), 1, "exactly one contender must own the lease");
+    let lease = owners.pop().unwrap();
     let active = observations(Some(50), "source-a");
     store.record_round(lease, &active).await.unwrap();
     store.record_round(lease, &active).await.unwrap();
