@@ -198,18 +198,11 @@ mod tests {
 
     #[async_trait]
     impl FreeChapterStore for AmbiguousStore {
-        async fn put_immutable(
-            &self,
-            _: &FreeChapterObject,
-            _: &[u8],
-        ) -> Result<(), StorageError> {
+        async fn put_immutable(&self, _: &FreeChapterObject, _: &[u8]) -> Result<(), StorageError> {
             Err(StorageError::Unavailable)
         }
 
-        async fn get_verified(
-            &self,
-            _: &FreeChapterObject,
-        ) -> Result<Vec<u8>, StorageError> {
+        async fn get_verified(&self, _: &FreeChapterObject) -> Result<Vec<u8>, StorageError> {
             self.stored
                 .lock()
                 .unwrap()
