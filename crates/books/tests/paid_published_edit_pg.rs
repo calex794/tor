@@ -267,12 +267,12 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     );
     let migrator = PgPool::connect(&migrator_url).await.unwrap();
     sqlx::query(
-        "CREATE FUNCTION ci_s022_fail_v2_commit() RETURNS trigger AS $
-         BEGIN
-           RAISE EXCEPTION 'S022 injected deferred commit rejection'
-             USING ERRCODE = '40001';
-         END
-         $ LANGUAGE plpgsql",
+        "CREATE FUNCTION ci_s022_fail_v2_commit() RETURNS trigger AS
+         'BEGIN
+            RAISE EXCEPTION ''S022 injected deferred commit rejection''
+              USING ERRCODE = ''40001'';
+          END'
+         LANGUAGE plpgsql",
     )
     .execute(&migrator)
     .await
