@@ -563,8 +563,21 @@ def run_experiment(conn, client, url):
     case("no-text-when-postgres-unavailable", lambda: must_reject(
         read_with_dead_pg, exception=psycopg.Error))
 
+    # The upload interrupted in batch-v2 was *reused* by the successful retry.
+    # It is not an orphan. For actual GC evidence leave a separate, never
+    # retried private upload with two immutable S3 objects and no PG receipt.
+    abandoned = [("book-a/abandoned", "unpublished-abandoned-v1", 1, None,
+                  b"private storage object not acknowledged by PostgreSQL")]
+    abandoned_fp, abandoned_epoch = reserve(
+        conn, "abandoned-forever", "gone-worker", abandoned)
+    case("unrecovered-upload-produces-private-orphans", lambda: must_reject(
+        lambda: upload_and_verify(
+            conn, client, "abandoned-forever", "gone-worker",
+            abandoned_epoch, abandoned_fp, abandoned, crash_after_put=True),
+        exception=SimulatedCrash))
+    assert get_current_id(conn, "book-a/abandoned") is None
     report = audit_orphans(conn, client)
-    assert report["orphan_objects"] >= 2, "must detect unpublished private orphans"
+    assert report["orphan_objects"] >= 2, "must detect unreferenced private pack + manifest"
     assert count(conn, "purchased_pins") == 1
     assert count(conn, "editions") == 5
     assert read_authorized(conn, client, "book-a/ch-1",
