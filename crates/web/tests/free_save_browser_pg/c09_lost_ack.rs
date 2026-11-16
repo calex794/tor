@@ -91,16 +91,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
     // A stale retry must fail with 409, never increment the revision or mint
     // completion/outbox events. The client resolves ambiguity by reloading
     // the saved state, not by assuming the lost response means rollback.
-    let (status, _) = send(
-        app,
-        "PUT",
-        sync_put,
-        json,
-        Some(reader_token),
-        csrf,
-        ORIGIN,
-    )
-    .await;
+    let (status, _) = send(app, "PUT", sync_put, json, Some(reader_token), csrf, ORIGIN).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(
         pg(
