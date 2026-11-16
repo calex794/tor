@@ -7,6 +7,7 @@ on:
       - 'tools/tor_store_bench.py'
       - 'tools/tor_store_seekable.py'
       - 'tools/tor_store_delivery_model.py'
+      - 'tools/tor_store_concurrency_bench.py'
       - 'tools/tor_store_corpus_profiles.json'
   workflow_dispatch:
     inputs:
@@ -85,7 +86,8 @@ jobs:
           fi
       - name: Test deterministic generator without private source material
         run: |
-          python -m py_compile tools/tor_store_bench.py tools/tor_store_seekable.py tools/tor_store_delivery_model.py
+          python -m py_compile tools/tor_store_bench.py tools/tor_store_seekable.py tools/tor_store_delivery_model.py tools/tor_store_concurrency_bench.py
+          python tools/tor_store_concurrency_bench.py --self-test
           python tools/tor_store_delivery_model.py --self-test
           python tools/tor_store_seekable.py --self-test
           python tools/tor_store_bench.py --self-test
@@ -106,6 +108,14 @@ jobs:
           python tools/tor_store_delivery_model.py \
             --input "$RUNNER_TEMP/tor-store-benchmark-results.json" \
             --output "$RUNNER_TEMP/tor-store-delivery-results.json"
+      - name: Concurrent Single vs PACK100 vs Seekable PUT at 1/8/32 workers
+        env:
+          TOR_BENCH_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_BENCH_S3_USER: tor-store-ci-user
+          TOR_BENCH_S3_PASS: tor-store-ci-only-password
+        run: |
+          python tools/tor_store_concurrency_bench.py --chapters 4000 --repeats 2 \
+            --output "$RUNNER_TEMP/tor-store-concurrency-results.json"
       - name: Upload numeric benchmark report (no source text)
         if: always()
         uses: actions/upload-artifact@v4
@@ -114,6 +124,7 @@ jobs:
           path: |
             ${{ runner.temp }}/tor-store-benchmark-results.json
             ${{ runner.temp }}/tor-store-delivery-results.json
+            ${{ runner.temp }}/tor-store-concurrency-results.json
           if-no-files-found: ignore
           retention-days: 14
       - name: MinIO diagnostics on failure
