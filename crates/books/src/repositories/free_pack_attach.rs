@@ -12,7 +12,7 @@ use tor_contracts::drop_pack::PackPlacementReceipt;
 
 #[derive(Clone)]
 pub struct PgFreePackCatalog {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 
 impl PgFreePackCatalog {

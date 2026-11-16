@@ -7,6 +7,7 @@ pub mod cover_review;
 pub mod cover_slots;
 pub mod cover_source_cleanup;
 pub mod free_pack_attach;
+pub mod free_pack_jobs;
 pub mod free_s3_publish;
 pub mod personal_books;
 pub mod recommendation_policy;

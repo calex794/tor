@@ -37,6 +37,10 @@ const MARKDOWN: &str =
 #[path = "free_author_s3_pg/traffic.rs"]
 mod traffic;
 
+// Run the DROP full PACK proof+PG acceptance in the existing MinIO CI lane.
+#[path = "drop_r4b1_pg_minio.rs"]
+mod drop_r4b1_pg_minio;
+
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:"));
     assert!(url.contains("@127.0.0.1:5432/") && url.ends_with("/tor_ci"));

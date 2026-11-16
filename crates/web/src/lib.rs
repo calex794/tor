@@ -63,6 +63,8 @@ pub mod cover_worker;
 #[cfg(feature = "s3-free")]
 pub mod free_author_publish;
 #[cfg(feature = "s3-free")]
+pub mod free_pack_worker;
+#[cfg(feature = "s3-free")]
 pub mod free_reader_http;
 #[cfg(feature = "s3-free")]
 mod free_s3_router;
@@ -187,13 +189,11 @@ struct TocItem {
     title: String,
     access_level: &'static str,
 }
-
 #[derive(Serialize)]
 struct TocResponse {
     items: Vec<TocItem>,
     next_cursor: Option<String>,
 }
-
 fn reading_status(error: ReadingError) -> StatusCode {
     match error {
         ReadingError::InvalidPage => StatusCode::BAD_REQUEST,

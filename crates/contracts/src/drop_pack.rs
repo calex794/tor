@@ -5,7 +5,7 @@
 //! NOT a cryptographic attestation and MUST NOT be accepted from an HTTP actor.
 //! B authorizes all editions and fences the job before storing candidates.
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PackPlacementTarget {
     pub bucket: String,
     pub pack_key: String,
@@ -17,7 +17,7 @@ pub struct PackPlacementTarget {
     pub seek_table_start: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PackPlacementFrame {
     pub chapter_id: i64,
     pub version_id: i64,
@@ -27,7 +27,7 @@ pub struct PackPlacementFrame {
     pub frame_bytes: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PackPlacementReceipt {
     pub target: PackPlacementTarget,
     /// Ordered physical frames; MUST be compared to a preapproved B inventory.
