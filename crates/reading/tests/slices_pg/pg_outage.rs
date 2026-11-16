@@ -35,7 +35,10 @@ async fn c_09_closed_pool_preserves_last_acknowledged_progress_and_recovers() {
 
     let failure = offline.save_free(user, 101, 201, later, 1).await;
     assert_eq!(failure, Err(SyncError::Unavailable));
-    assert_eq!(offline.free_state(user, 101).await, Err(SyncError::Unavailable));
+    assert_eq!(
+        offline.free_state(user, 101).await,
+        Err(SyncError::Unavailable)
+    );
 
     // Query through an independent live connection. A failed save is not a
     // successful revision and cannot erase the last durable reader cursor.
@@ -55,13 +58,12 @@ async fn c_09_closed_pool_preserves_last_acknowledged_progress_and_recovers() {
     assert_eq!(final_state.receipt.revision, 2);
     assert_eq!(final_state.place, later);
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM reader_book_positions WHERE user_id=$1",
-    )
-    .bind(user)
-    .fetch_one(&witness)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM reader_book_positions WHERE user_id=$1")
+            .bind(user)
+            .fetch_one(&witness)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(user)
