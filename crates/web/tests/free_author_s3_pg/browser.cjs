@@ -69,19 +69,44 @@ let stage = 'launch';
       let signalFirstS3;
       const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
       const s3Requests = new Map(), networkErrors = [];
-      let canceledGets = 0;
-      // Capture source-byte transfers with Chromium's Network.dataReceived,
-      // not Playwright Request.sizes(): sizes may throw after fast navigation
-      // has disposed the previous document, even for a completed S3 GET.
-      // CDP metadata does not retrieve or log the private response body.
+      let canceledGets = 0, cdReceived = 0, cdFinished = 0, pwFinished = 0, pwUninspectable = 0;
+      const provedUrls = new Set();
+      const matchesChapterGet = (href, method) => {
+        if (method !== 'GET') return false;
+        const url = new URL(href);
+        return url.origin === config.storage_origin &&
+          url.pathname.startsWith('/tor-s349-new-free-ci/private/free-chapters/' + config.chapter + '/');
+      };
+      const acceptCompletedGet = (url, bytes) => {
+        if (bytes <= 0 || provedUrls.has(url)) return;
+        provedUrls.add(url);
+        directGets++;
+        storageBytes += bytes;
+        signalFirstS3();
+      };
+      // Instrument two independent byte-counted Network witnesses. Chromium
+      // CDP dataReceived is preferred; Playwright request.sizes() is the
+      // fallback when a fast or cached resource lacks CDP completion data.
+      // A disposed Playwright request is ignored, never counted as proof.
+      page.on('requestfinished', request => {
+        if (!matchesChapterGet(request.url(), request.method())) return;
+        pwFinished++;
+        void Promise.all([request.response(), request.sizes()])
+          .then(([response, size]) => {
+            if (response && response.status() === 200 &&
+                size.responseBodySize > 0) {
+              acceptCompletedGet(request.url(), size.responseBodySize);
+            }
+          })
+          .catch(() => { pwUninspectable++; });
+      });
       const cdp = await context.newCDPSession(page);
       await cdp.send('Network.enable');
       cdp.on('Network.requestWillBeSent', event => {
-        if (event.request.method !== 'GET') return;
-        const url = new URL(event.request.url);
-        if (url.origin !== config.storage_origin ||
-            !url.pathname.startsWith('/tor-s349-new-free-ci/private/free-chapters/' + config.chapter + '/')) return;
-        s3Requests.set(event.requestId, { status: null, bodyBytes: 0 });
+        if (!matchesChapterGet(event.request.url, event.request.method)) return;
+        s3Requests.set(event.requestId, {
+          url: event.request.url, status: null, bodyBytes: 0,
+        });
       });
       cdp.on('Network.responseReceived', event => {
         const record = s3Requests.get(event.requestId);
@@ -89,19 +114,24 @@ let stage = 'launch';
       });
       cdp.on('Network.dataReceived', event => {
         const record = s3Requests.get(event.requestId);
-        if (record) record.bodyBytes += event.dataLength;
+        if (record) {
+          record.bodyBytes += event.dataLength;
+          cdReceived++;
+        }
       });
       cdp.on('Network.loadingFinished', event => {
         const record = s3Requests.get(event.requestId);
         if (!record) return;
+        cdFinished++;
         s3Requests.delete(event.requestId);
-        if (record.status === 200 && record.bodyBytes > 0) {
-          directGets++;
-          storageBytes += record.bodyBytes;
+        if (record.status === 200) {
+          // Require actual byte data, using independent Playwright sizes if
+          // Chromium did not provide dataReceived for this short response.
+          acceptCompletedGet(record.url, record.bodyBytes);
         } else {
-          networkErrors.push('S3 GET status=' + record.status + ' bytes=' + record.bodyBytes);
+          networkErrors.push('S3 GET status=' + record.status);
+          signalFirstS3();
         }
-        signalFirstS3();
       });
       cdp.on('Network.loadingFailed', event => {
         if (!s3Requests.delete(event.requestId)) return;
@@ -258,7 +288,10 @@ let stage = 'launch';
           firstS3Finished,
           new Promise((_, reject) => {
             networkTimeout = setTimeout(() => reject(new Error(
-              'real S3 GET never finished for ' + stage)), 15000);
+              'real S3 GET never finished for ' + stage +
+              ' [cdp_finished=' + cdFinished + ' cdp_data=' + cdReceived +
+              ' pw_finished=' + pwFinished + ' pw_uninspectable=' + pwUninspectable +
+              ' pending=' + s3Requests.size + ' aborted=' + canceledGets + ']')), 15000);
           }),
         ]);
       } finally {
