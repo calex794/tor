@@ -55,11 +55,20 @@ pub(super) async fn admin_reader(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let s3_origin = s3_origin.unwrap_or("");
+    let free_origin = if cfg!(feature = "s3-free") {
+        std::env::var("TOR_FREE_S3_PUBLIC_ORIGIN").unwrap_or_default()
+    } else {
+        String::new()
+    };
+    if !free_origin.is_empty() && !valid_reader_s3_origin(&free_origin) {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
     let content = format!(
         r#"<section class="section reader-page reader-private reader-paid"
                      data-admin-chapter-reader data-chapter-id="{chapter}"
                      data-admin-unsealed="{unsealed}"
                      data-csrf-token="{csrf}" data-s3-origin="{origin}"
+                     data-free-s3-origin="{free_origin}"
                      aria-labelledby="admin-reader-title">
              <header class="reader-topbar">
                <a class="reader-topbar__back" href="/me/account">← Личный кабинет</a>
@@ -85,6 +94,7 @@ pub(super) async fn admin_reader(
         unsealed = unsealed,
         csrf = crate::pages::escape_html(&csrf),
         origin = crate::pages::escape_html(s3_origin),
+        free_origin = crate::pages::escape_html(&free_origin),
     );
     let html = include_str!("../../templates/reader_layout.html")
         .replace(
@@ -102,9 +112,14 @@ pub(super) async fn admin_reader(
     } else {
         format!(" {s3_origin}")
     };
+    let optional_free = if free_origin.is_empty() {
+        String::new()
+    } else {
+        format!(" {free_origin}")
+    };
     let csp = format!(
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; \
-         connect-src 'self'{optional_s3}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+         connect-src 'self'{optional_s3}{optional_free}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     let Ok(value) = HeaderValue::from_str(&csp) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);

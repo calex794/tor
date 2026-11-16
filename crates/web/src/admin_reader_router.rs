@@ -101,6 +101,7 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     } else {
         None
     };
+    let content = axum::Extension(crate::author_chapter_http::FreeContent(free.clone()));
     let owner_auth =
         auth::router_with_free_author(accounts, auth_reader, secure, public_origin, cover, free);
     ril::instrument(
@@ -117,6 +118,7 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
             },
         )
         .merge(owner_auth)
-        .merge(admin),
+        .merge(admin)
+        .layer(content),
     )
 }

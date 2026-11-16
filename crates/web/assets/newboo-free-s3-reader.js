@@ -35,6 +35,17 @@
     article.dataset.freeProgressVersion = version;
     article.dataset.freeProgressBlocks = positions.join(",");
     article.dataset.freeProgressCsrf = csrf;
+    if (article.dataset.freePrivateRevision !== undefined) {
+      const spans = [...article.querySelectorAll("span[data-md-start]")];
+      positions.forEach((value, index) => {
+        const start = Number(value.split(":")[0]);
+        const span = spans.find(node => Number(node.dataset.mdStart) >= start) || spans.at(-1);
+        if (span) {
+          const anchor = document.createElement("span"); anchor.id = "p-" + (index + 1);
+          span.before(anchor);
+        }
+      });
+    }
     if (article.dataset.freeS3Archive === "1") article.dataset.freeProgressArchive = "1";
     const script = document.createElement("script");
     script.src = article.dataset.freeS3Archive === "1"
@@ -103,6 +114,26 @@
     (/^\d{1,9}\. /.exec(line)?.[0] ? ["ol", /^\d{1,9}\. /.exec(line)[0].length] : null);
   const heading = line => /^(#{1,6}) /.exec(line);
   const special = line => heading(line) || listPrefix(line) || line.startsWith("> ") || line.startsWith("\x60\x60\x60");
+  const savedAnchor = text => {
+    if (!article.dataset.freeSavedBlock) return;
+    const block = Number(article.dataset.freeSavedBlock), offset = Number(article.dataset.freeSavedOffset);
+    const paragraphs = text.split("\n\n"), size = Math.ceil(paragraphs.length / 200), blocks = [];
+    for (let i = 0; i < paragraphs.length; i += size) blocks.push(paragraphs.slice(i, i + size).join("\n\n"));
+    if (!Number.isInteger(block) || block < 1 || block > blocks.length ||
+        !Number.isInteger(offset) || offset < 0 || offset > blocks[block - 1].length) return;
+    const target = blocks.slice(0, block - 1).reduce((sum, value) => sum + value.length + 2, 0) + offset;
+    const spans = [...article.querySelectorAll("span[data-md-start]")];
+    const span = spans.findLast(node => Number(node.dataset.mdStart) <= target) || spans[0];
+    if (!span?.firstChild || span.firstChild.nodeType !== Node.TEXT_NODE) return;
+    let local = Math.min(span.firstChild.length, Math.max(0, target - Number(span.dataset.mdStart)));
+    // A cursor in the middle of a UTF-16 pair rounds down, as the C renderer does.
+    if (local > 0 && /[\udc00-\udfff]/.test(span.firstChild.textContent[local] || "") &&
+        /[\ud800-\udbff]/.test(span.firstChild.textContent[local - 1])) local--;
+    const remainder = span.firstChild.splitText(local), tail = document.createElement("span");
+    tail.dataset.mdStart = String(Number(span.dataset.mdStart) + local); tail.append(remainder);
+    const marker = document.createElement("span"); marker.id = "saved-resume";
+    span.after(marker, tail);
+  };
   const completion = text => {
     if (article.dataset.freePrivateRevision === undefined ||
         article.dataset.freePrivateCompleted === "true" || !/^[A-Za-z0-9_-]{43}$/.test(csrf)) return;
@@ -178,6 +209,7 @@
       fragment.append(node);
     }
     article.replaceChildren(fragment);
+    savedAnchor(text);
     const panel = article.closest?.("[data-free-reader]")?.querySelector("[data-chapter-comments]");
     if (panel) {
       const paragraphs = text.split("\n\n"), size = Math.ceil(paragraphs.length / 200), positions = [];

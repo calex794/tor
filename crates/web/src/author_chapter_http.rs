@@ -21,7 +21,7 @@ mod free_editor;
 mod new_chapter_page;
 mod publisher;
 mod schedule;
-pub(crate) use publisher::{FreeChapterPublisher, PaidChapterPublisher};
+pub(crate) use publisher::{FreeChapterPublisher, FreeContent, PaidChapterPublisher};
 #[derive(Clone)]
 struct AuthorChapterState {
     accounts: PgAccounts,

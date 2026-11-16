@@ -25,6 +25,14 @@ pub async fn free_s3_progress_script() -> impl IntoResponse {
             ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../../assets/newboo-free-progress.js"),
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../../assets/newboo-free-progress.js"));
+                js.push('\n');
+                js.push_str(include_str!("../../assets/newboo-free-issues.js"));
+                js
+            });
+            JS.as_str()
+        },
     )
 }

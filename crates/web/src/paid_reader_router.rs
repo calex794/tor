@@ -240,6 +240,9 @@ fn paid_grants_router(
     } else {
         paid_grants_http::router(accounts.clone(), cookies, paid.0)
     };
+    let free_content = free_author
+        .clone()
+        .map(crate::author_chapter_http::FreeContent);
     let author_router = if browser_enabled {
         let covers = if enable_cover_uploads {
             cover_storage.clone()
@@ -322,6 +325,10 @@ fn paid_grants_router(
     )
     .merge(author_router)
     .merge(grants);
+    let app = match free_content {
+        Some(content) => app.layer(axum::Extension(content)),
+        None => app,
+    };
     let app = crate::header_nav::instrument(app, navigation_accounts, navigation_cookies);
     Ok(ril::instrument(
         crate::recommendation_http::visits::instrument(app, flow),

@@ -10,6 +10,7 @@ use tor_storage::{
     domain::provider::{valid_private_bucket, StorageError},
     services::free_chapter::{upload_and_verify, FreeChapterObject, FreeChapterStore},
 };
+mod admin;
 mod import;
 
 pub type S3FreeAuthor =
@@ -113,6 +114,14 @@ fn map_storage(error: StorageError) -> AuthorError {
 
 #[async_trait]
 impl<S: FreeChapterStore> FreeChapterPublisher for PgFreeAuthorPublisher<S> {
+    async fn administrator_grant(
+        &self,
+        chapter: i64,
+        version: i64,
+        digest: &[u8; 32],
+    ) -> Result<Option<serde_json::Value>, AuthorError> {
+        self.admin_capability(chapter, version, digest).await
+    }
     async fn import_job(
         &self,
         claim: &tor_imports::domain::ChapterImportClaim,

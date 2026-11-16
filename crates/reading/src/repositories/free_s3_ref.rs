@@ -21,6 +21,34 @@ impl PgFreeS3Ref {
         Self { pool }
     }
 
+    /// Exact historical free file for an independently authenticated site
+    /// administrator. A moderator or browser-selected role is insufficient.
+    pub async fn for_administrator(
+        &self,
+        chapter: i64,
+        version: i64,
+        digest: &[u8; 32],
+    ) -> Result<Option<FreeS3Ref>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT f.chapter_id,f.version_id,f.sha256,f.size_bytes,f.bucket
+            FROM free_chapter_storage_objects f
+            JOIN chapter_versions v ON v.chapter_id=f.chapter_id AND v.id=f.version_id
+              AND v.content_sha256=f.sha256
+            JOIN chapters c ON c.id=v.chapter_id
+            JOIN users u ON u.account_state='active'
+            JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3
+              AND s.revoked_at IS NULL AND s.expires_at>now()
+            JOIN account_roles r ON r.user_id=u.id AND r.role='administrator' AND r.is_active
+            WHERE f.chapter_id=$1 AND f.version_id=$2 LIMIT 1",
+        )
+        .bind(chapter)
+        .bind(version)
+        .bind(digest.as_slice())
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(decode).transpose()
+    }
+
     pub async fn for_saved_session(
         &self,
         chapter: i64,

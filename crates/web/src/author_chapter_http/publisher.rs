@@ -2,6 +2,9 @@
 use async_trait::async_trait;
 use tor_books::services::authoring::{AuthorError, SaveChapter};
 
+#[derive(Clone)]
+pub(crate) struct FreeContent(pub std::sync::Arc<dyn FreeChapterPublisher>);
+
 /// Only the S3-paid constructor provides this port. Ordinary author routes
 /// remain entirely unable to write private paid content.
 #[async_trait]
@@ -33,6 +36,12 @@ pub(crate) trait PaidChapterPublisher: Send + Sync {
 
 #[async_trait]
 pub(crate) trait FreeChapterPublisher: Send + Sync {
+    async fn administrator_grant(
+        &self,
+        chapter: i64,
+        version: i64,
+        digest: &[u8; 32],
+    ) -> Result<Option<serde_json::Value>, AuthorError>;
     /// Public-book Save is available only after a verified S3 PUT/GET.
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
 

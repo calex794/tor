@@ -223,12 +223,14 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "session":session,"progress":true, "width":390,
     }));
     assert_eq!(read["read"], true);
+    println!("S349_NETWORK mobile={read}");
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_chapter_completions WHERE user_id={owner} AND chapter_id={chapter}")),"1");
     let desktop = browser(
         json!({"mode":"read","origin":ORIGIN,"storage_origin":ENDPOINT,
         "chapter":chapter,"markdown":MARKDOWN,"marker":MARKER,"width":1440}),
     );
     assert_eq!(desktop["read"], true);
+    println!("S349_NETWORK desktop={desktop}");
 
     assert!(read["direct_s3_gets"].as_u64().unwrap() >= 1);
     let grant_url = format!("{ORIGIN}/api/v1/chapters/{chapter}/free-grant");
@@ -240,6 +242,11 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         http.get(&grant_url).send().await.unwrap().status().as_u16(),
         404
     );
+    pg(&url,&format!("INSERT INTO account_roles(user_id,role,is_active) VALUES({owner},'administrator',true)"));
+    let admin = browser(json!({"mode":"read","admin":true,"origin":ORIGIN,
+        "storage_origin":ENDPOINT,"chapter":chapter,"session":session,"marker":MARKER}));
+    assert_eq!(admin["read"], true);
+    println!("S349_NETWORK hidden_admin={admin}");
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
@@ -294,6 +301,24 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
         "version":version,"absent_marker":"V2_ONLY_MARKER"}),
     );
     assert_eq!(saved["read"], true);
+    println!("S349_NETWORK saved_v1={saved}");
+    let admin_history = browser(
+        json!({"mode":"read","admin":true,"history":version,"origin":ORIGIN,
+        "storage_origin":ENDPOINT,"chapter":chapter,"session":session,"marker":MARKER}),
+    );
+    println!("S349_NETWORK admin_history={admin_history}");
+    assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_admin_chapter_access_audit WHERE admin_user_id={owner} AND chapter_id={chapter}")),"3");
+    pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={owner} AND role='administrator'"));
+    assert_eq!(
+        http.get(format!("{ORIGIN}/read/admin/{chapter}"))
+            .header("cookie", format!("tor-dev-session={session}"))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        403
+    );
     let source = http
         .get(format!(
             "{grant_url}?mode=saved&version_id={version}&format=source"

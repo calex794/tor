@@ -24,7 +24,51 @@ async function adminGrant(chapter, csrf, imageId = null) {
   return response.json();
 }
 
-async function adminUnsealed(chapter, csrf) {
+// The privileged POST is audited before returning this metadata-only grant.
+// As with the public loader, fetch bytes directly and verify before rendering.
+async function freeEdition(payload, chapter, origin) {
+  requireValue(payload.schema === "tor.free-s3-grant.v1" && payload.chapter_id === chapter &&
+    /^[1-9][0-9]{0,18}$/.test(payload.version_id || "") &&
+    /^[a-f0-9]{64}$/.test(payload.sha256 || "") &&
+    Number.isInteger(payload.size_bytes) && payload.size_bytes > 0 && payload.size_bytes <= 200000 &&
+    typeof payload.url === "string" && payload.url.length <= 4096);
+  const target = new URL(payload.url), allowed = new URL(origin);
+  requireValue(target.origin === allowed.origin && target.username === "" && target.password === "" &&
+    target.hash === "" && (target.protocol === "https:" || target.protocol === "http:" &&
+      ["localhost", "127.0.0.1"].includes(target.hostname)) &&
+    target.pathname.endsWith(`/private/free-chapters/${chapter}/${payload.version_id}.md`) &&
+    target.searchParams.getAll("X-Amz-Signature").length === 1 &&
+    /^[a-f0-9]{64}$/.test(target.searchParams.get("X-Amz-Signature") || "") &&
+    /^\d+$/.test(target.searchParams.get("X-Amz-Expires") || "") &&
+    Number(target.searchParams.get("X-Amz-Expires")) <= 120);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+  let reader;
+  try {
+    const response = await fetch(target, { credentials: "omit", cache: "no-store", redirect: "error",
+      mode: "cors", referrerPolicy: "no-referrer", signal: controller.signal });
+    requireValue(response.status === 200 && !response.redirected && response.body);
+    reader = response.body.getReader(); const parts = []; let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length; requireValue(size <= payload.size_bytes); parts.push(value);
+    }
+    requireValue(size === payload.size_bytes);
+    const bytes = new Uint8Array(size); let offset = 0;
+    for (const part of parts) { bytes.set(part, offset); offset += part.length; }
+    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+      .map(b => b.toString(16).padStart(2, "0")).join("");
+    requireValue(hash === payload.sha256);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    requireValue(!text.includes("\0") && [...text].length <= 50000);
+    return { versionId: payload.version_id, text };
+  } finally {
+    clearTimeout(timer);
+    if (reader) { try { await reader.cancel(); } finally { reader.releaseLock(); } }
+  }
+}
+
+async function adminUnsealed(chapter, csrf, freeOrigin) {
   const response = await fetch(
     "/api/v1/reader/chapters/" + chapter + "/admin-unsealed", {
       method: "POST",
@@ -37,6 +81,7 @@ async function adminUnsealed(chapter, csrf) {
   );
   requireValue(response.ok && response.status === 200);
   const payload = await response.json();
+  if (payload.schema === "tor.free-s3-grant.v1") return freeEdition(payload, chapter, freeOrigin);
   requireValue(payload.schema === "tor.admin_unsealed.v1" &&
     payload.chapter_id === chapter &&
     /^[1-9][0-9]{0,18}$/.test(payload.version_id || "") &&
@@ -81,6 +126,7 @@ export async function startAdministratorReader(root) {
   const chapter = root.dataset.chapterId;
   const csrf = root.dataset.csrfToken;
   const s3Origin = root.dataset.s3Origin;
+  const freeOrigin = root.dataset.freeS3Origin;
   const unsealed = root.dataset.adminUnsealed === "true";
   const status = root.querySelector("[data-admin-status]");
   const article = root.querySelector("[data-admin-content]");
@@ -118,7 +164,7 @@ export async function startAdministratorReader(root) {
   });
 
   let { versionId, text } = unsealed
-    ? await adminUnsealed(chapter, csrf)
+    ? await adminUnsealed(chapter, csrf, freeOrigin)
     : await decryptPaidGrant(await adminGrant(chapter, csrf), chapter, s3Origin);
   if (closed) return;
 
@@ -248,7 +294,12 @@ export async function startAdministratorReader(root) {
           selectedHistorical = false;
           status.textContent = "Проверка доступа к редакции…";
           try {
-            const old = await adminHistory(chapter, csrf, chosen);
+            let old = await adminHistory(chapter, csrf, chosen);
+            if (old.schema === "tor.free-s3-grant.v1") {
+              const loaded = await freeEdition(old, chapter, freeOrigin);
+              old = { schema: "tor.admin_unsealed.v1", chapter_id: chapter,
+                version_id: loaded.versionId, body_markdown: loaded.text };
+            }
             requireValue(old.schema === "tor.admin_unsealed.v1" &&
               old.chapter_id === chapter && old.version_id === chosen &&
               typeof old.body_markdown === "string" &&

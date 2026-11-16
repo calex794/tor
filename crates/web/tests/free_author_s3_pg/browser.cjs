@@ -64,21 +64,43 @@ const { chromium } = requireRepo('playwright');
       if (config.session) await context.addCookies([{ name: 'tor-dev-session', value: config.session, url: config.origin }]);
       const page = await context.newPage();
       const checks = [];
-      let directGets = 0;
+      let directGets = 0, siteBytes = 0, storageBytes = 0;
       page.on('response', response => {
         const url = new URL(response.url());
-        if (url.origin === config.storage_origin && response.request().method() === 'GET') directGets++;
-        if (url.origin === site.origin && (url.pathname.startsWith('/reader/') || url.pathname.startsWith('/read/') || url.pathname.startsWith('/me/library/saved/') || url.pathname.includes('free-grant'))) {
+        if (url.origin === config.storage_origin && response.request().method() === 'GET') {
+          directGets++;
+          checks.push(response.body().then(bytes => { storageBytes += bytes.length; }));
+        }
+        if (url.origin === site.origin && !(response.status() >= 300 && response.status() < 400) && (url.pathname.startsWith('/reader/') || url.pathname.startsWith('/read/') || url.pathname.startsWith('/me/library/saved/') || url.pathname.includes('/admin-') || url.pathname.includes('free-grant'))) {
           checks.push(response.body().then(bytes => {
+            siteBytes += bytes.length;
             assert(!bytes.toString('utf8').includes(config.marker), 'TOR response must never carry chapter text');
           }));
         }
       });
-      const html = await page.goto(config.saved
+      const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
         ? `${config.origin}/me/library/saved/${config.chapter}` : `${config.origin}/reader/${config.chapter}`);
       assert.equal(html.status(), 200);
       assert(!(await html.text()).includes(config.marker));
-      if (config.mode === 'read') {
+      if (config.admin) {
+        const article = page.locator('[data-admin-content]');
+        await article.filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
+        if (config.history) {
+          const history = page.getByLabel('История редакций', { exact: true });
+          await history.selectOption(String(config.history));
+          await page.waitForFunction(marker => {
+            const article = document.querySelector('[data-admin-content]');
+            return article.textContent.includes('S349_NEW_BODY_ONLY_IN_S3_47b935') && !article.textContent.includes(marker);
+          }, 'V2_ONLY_MARKER');
+        }
+        const root = page.locator('[data-admin-chapter-reader]');
+        const csrf = await root.getAttribute('data-csrf-token');
+        const denied = await context.request.post(`${config.origin}/api/v1/reader/chapters/${config.chapter}/admin-unsealed`, {
+          headers: { Origin: config.origin, 'X-CSRF-Token': 'x'.repeat(43) }, maxRedirects: 0,
+        });
+        assert.equal(denied.status(), 403);
+        assert.match(csrf, /^[A-Za-z0-9_-]{43}$/);
+      } else if (config.mode === 'read') {
         await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor({ timeout: 20000 });
         const text = await page.locator('#chapter-text').innerText();
         assert(text.includes(config.markdown.split('\n\n')[0]));
@@ -105,11 +127,49 @@ const { chromium } = requireRepo('playwright');
           await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor();
           const finish = page.locator(`form[action="/read/${config.chapter}/complete"]`);
           await finish.waitFor();
+          assert.equal(await page.locator('#p-1').count(), 1, 'private resume links must target loaded source blocks');
           const [response] = await Promise.all([
             page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/complete')),
             finish.evaluate(form => form.requestSubmit()),
           ]);
           assert.equal(response.status(), 303, 'completion must use B source metadata without PG plaintext');
+          await page.goto(config.origin + '/reader/' + config.chapter);
+          await page.waitForFunction(() => {
+            const span = [...document.querySelectorAll('#chapter-text span[data-md-start]')]
+              .find(node => node.textContent.startsWith('New chapter'));
+            if (!span) return false;
+            const range = document.createRange(); range.setStart(span.firstChild, 0); range.setEnd(span.firstChild, 11);
+            const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return document.querySelector('[data-free-issue-quote]')?.value === 'New chapter' &&
+              document.querySelector('[data-chapter-comment-quote]')?.value === 'New chapter';
+          });
+          const comment = page.locator('[data-chapter-comment-form]').first();
+          assert.equal(await comment.locator('[name="anchor_block"]').inputValue(), '2');
+          await comment.locator('[name="body"]').fill('S349 anchored comment.');
+          const [commentResponse] = await Promise.all([
+            page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/comments')),
+            comment.evaluate(form => form.requestSubmit()),
+          ]);
+          assert.equal(commentResponse.status(), 303, 'S3-only anchored comments must validate the actual source');
+          await page.goto(config.origin + '/read/' + config.chapter);
+          await page.waitForFunction(() => {
+            const span = [...document.querySelectorAll('#chapter-text span[data-md-start]')]
+              .find(node => node.textContent.startsWith('New chapter'));
+            if (!span) return false;
+            const range = document.createRange(); range.setStart(span.firstChild, 0); range.setEnd(span.firstChild, 11);
+            const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return document.querySelector('#issue-quote')?.value === 'New chapter';
+          });
+          const issue = page.locator('.reader-issues form');
+          assert.equal(await issue.locator('[name="block_index"]').inputValue(), '2');
+          await issue.locator('[name="suggested_text"]').fill('Corrected chapter');
+          const [issueResponse] = await Promise.all([
+            page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/text-issues')),
+            issue.evaluate(form => form.requestSubmit()),
+          ]);
+          assert.equal(issueResponse.status(), 303, 'S3-only correction must validate the immutable source');
         }
         if (process.env.TOR_PAID_READER_SHOTS) {
           fs.mkdirSync(process.env.TOR_PAID_READER_SHOTS, { recursive: true });
@@ -122,7 +182,9 @@ const { chromium } = requireRepo('playwright');
       }
       await Promise.all(checks);
       assert(directGets >= 1, 'browser must download directly from the storage origin');
-      process.stdout.write(JSON.stringify({ checked_site_responses: checks.length, direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' }));
+      process.stdout.write(JSON.stringify({ checked_site_responses: checks.length, site_bytes: siteBytes,
+        storage_bytes: storageBytes, chapter_marker_in_site_responses: false,
+        direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' }));
       await context.close();
     }
   } finally {
