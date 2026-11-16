@@ -39,6 +39,8 @@ jobs:
         run: python3 -m unittest discover -s tools -p test_s025_cdn_staging_probe.py
       - name: S006 free reader lost-ack reconciliation (offline Node)
         run: node --test tools/s006_free_progress_reconcile.test.mjs
+      - name: S006 paid reader lost-ack reconciliation (offline Node)
+        run: node --test tools/s006_paid_progress_reconcile.test.mjs
       - name: Rust formatting
         run: cargo fmt --all -- --check
   demo:
