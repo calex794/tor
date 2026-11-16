@@ -10,7 +10,7 @@ pub(super) async fn drop_committed_layer_receipt(
     buyer_token: &str,
     csrf: &str,
     key: &str,
-) {
+) -> String {
     let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let backend = backend_listener.local_addr().unwrap();
     let backend_app = app.clone();
@@ -55,6 +55,7 @@ pub(super) async fn drop_committed_layer_receipt(
         assert!(receipt.contains("\"term_id\""), "live receipt must identify committed entitlement");
         // Do not forward any response bytes to the reader.
         downstream.shutdown().await.unwrap();
+        receipt.into_owned()
     });
     let client = tokio::spawn(async move {
         let mut downstream = tokio::net::TcpStream::connect(proxy_addr).await.unwrap();
@@ -70,6 +71,7 @@ pub(super) async fn drop_committed_layer_receipt(
         .await
         .expect("test-only proxy must terminate");
     client_result.expect("reader TCP client");
-    proxy_result.expect("server completed renewal and discarded reply");
+    let wire_receipt = proxy_result.expect("server completed renewal and discarded reply");
     backend_server.abort();
+    wire_receipt
 }
