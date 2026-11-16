@@ -262,8 +262,7 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     // a real PostgreSQL COMMIT-time rollback, not an interrupted TCP ACK.
     let migrator_url = std::env::var("MIGRATOR_URL").expect("disposable PG migrator");
     assert_eq!(
-        migrator_url,
-        "postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci",
+        migrator_url, "postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci",
         "only isolated CI schema owners may install this test trigger"
     );
     let migrator = PgPool::connect(&migrator_url).await.unwrap();
@@ -318,7 +317,10 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(unpublished_link, None, "failed COMMIT must roll back G attachment");
+    assert_eq!(
+        unpublished_link, None,
+        "failed COMMIT must roll back G attachment"
+    );
     let unpublished_object_state: String =
         sqlx::query_scalar("SELECT state FROM storage_objects WHERE id=$1::uuid")
             .bind(object_v2.as_str())
