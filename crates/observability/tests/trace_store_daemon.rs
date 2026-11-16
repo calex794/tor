@@ -134,12 +134,27 @@ fn start_test_writer(executable: &str, db: &Path, socket: &Path) -> ChildGuard {
         .stderr(Stdio::null())
         .spawn()
         .expect("start isolated trace-store process");
-    let process = ChildGuard(child);
-    assert!(
-        wait_for(|| lookup::request(socket, 0).is_ok()),
-        "standalone SQLite writer did not accept a lookup"
-    );
-    process
+    let mut process = ChildGuard(child);
+    // Under shared GitHub runner CPU pressure the OS can delay process
+    // scheduling beyond the generic 3-second polling budget. Wait for a
+    // *real* socket lookup, not mere file presence, and fail immediately
+    // if the writer exits. This does not relax any runtime ACK deadline.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let result = lookup::request(socket, 0);
+        if result.is_ok() {
+            return process;
+        }
+        let error = result.err().expect("unsuccessful lookup");
+        if let Some(status) = process.0.try_wait().expect("inspect writer process") {
+            panic!("standalone SQLite writer exited before ready: {status}, {error:?}");
+        }
+        assert!(
+            Instant::now() < deadline,
+            "standalone SQLite writer never accepted a lookup: {error:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 // The writer polls a nonblocking Unix socket; on a busy CI runner its
