@@ -40,7 +40,6 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
         return Err(StorageError::Invalid);
     }
     let resolve = || {
-        let mode = mode;
         async move {
             let result = match mode {
                 FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
