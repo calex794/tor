@@ -423,3 +423,220 @@ async fn s349_import_commits_all_editions_or_none_and_replays_once() {
     assert_eq!(count(&pool,"SELECT count(*) FROM chapter_versions v JOIN chapters c ON c.id=v.chapter_id WHERE c.book_id=$1 AND v.body_markdown IS NOT NULL",book).await,0);
     pool.close().await;
 }
+
+/// DROP-R4a: actual PG18/tor_ci verifies B's atomic candidate-attachment
+/// transaction. G's external full-S3 GET remains independently tested by R3b
+/// on the disposable MinIO lane; this fixture never touches real buckets.
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL18 /tor_ci"]
+async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchanged() {
+    use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
+    use tor_storage::services::{
+        crypto::sha256_bytes,
+        free_chapter::FreeChapterObject,
+        free_pack_proof::{verify_full_pack, PackProofTarget},
+    };
+
+    let (pool, actor, book, author) = fixture("drop-r4a", "public").await;
+    let texts = ["Первая глава, Unicode 😀", "Вторая глава, право V1 中文"];
+    let mut editions = Vec::new();
+    let mut published = Vec::new();
+    let mut pack = Vec::new();
+    let mut entries = Vec::new();
+    let mut raw_table = Vec::new();
+    for (index, text) in texts.iter().enumerate() {
+        let input = request(book, None, 0, (index + 1) as i32, (b'q' + index as u8) as char, text);
+        let ids = author.prepare_new(actor, &input).await.unwrap();
+        author
+            .attach_verified_and_publish(
+                actor,
+                book,
+                (ids.chapter_id, ids.version_id),
+                metadata(text),
+            )
+            .await
+            .unwrap();
+        let ed = FreeChapterObject::for_markdown(ids.chapter_id, ids.version_id, text).unwrap();
+        let compressed = zstd::bulk::compress(text.as_bytes(), 3).unwrap();
+        entries.push(serde_json::json!({
+            "edition_id": format!("{}:{}", ed.chapter_id(), ed.version_id()),
+            "frame": index,
+            "offset": pack.len(),
+            "encoded_bytes": compressed.len(),
+            "raw_bytes": text.len(),
+            "sha256": hex::encode(ed.sha256()),
+        }));
+        raw_table.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
+        raw_table.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        pack.extend_from_slice(&compressed);
+        published.push(ids);
+        editions.push(ed);
+    }
+    let seek_start = pack.len();
+    pack.extend_from_slice(&0x184D2A5E_u32.to_le_bytes());
+    pack.extend_from_slice(&(raw_table.len() as u32 + 9).to_le_bytes());
+    pack.extend_from_slice(&raw_table);
+    pack.extend_from_slice(&(editions.len() as u32).to_le_bytes());
+    pack.push(0);
+    pack.extend_from_slice(&0x8F92EAB1_u32.to_le_bytes());
+    let target_key = format!("private/free-packs/ci/drop-r4a-{book}.zst");
+    let manifest_key = target_key.replace(".zst", ".manifest.json");
+    let sidecar = serde_json::to_vec(&serde_json::json!({
+        "format": "tor-store-public-seekable-zstd",
+        "manifest_version": 1,
+        "zstd_seekable_version": "0.1.0",
+        "pack_sha256": hex::encode(sha256_bytes(&pack)),
+        "pack_encoded_bytes": pack.len(),
+        "seek_table_offset": seek_start,
+        "seek_table_bytes": pack.len()-seek_start,
+        "frames": editions.len(),
+        "entries": entries,
+    }))
+    .unwrap();
+    let target = PackProofTarget {
+        bucket: "tor-private-drop-r4a-ci".to_owned(),
+        pack_key: target_key,
+        manifest_key,
+        pack_sha256: sha256_bytes(&pack),
+        manifest_sha256: sha256_bytes(&sidecar),
+        pack_bytes: pack.len() as u64,
+        manifest_bytes: sidecar.len() as u64,
+        seek_table_start: seek_start as u64,
+    };
+    let proof = verify_full_pack(&target, &editions, &pack, &sidecar).unwrap();
+    let repo = PgFreePackCatalog::new(pool.clone());
+    let approved = PgFreePackCatalog::fingerprint(&target, &editions);
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_jobs
+         (actor_user_id,book_id,approved_fingerprint,expected_chapter_count,
+          status,lease_epoch,locked_until)
+         VALUES($1,$2,$3,2,'running',7,now()+interval '2 minutes') RETURNING id",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(approved.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // Wrong epoch, expired lock and book hold all deny before any G receipt.
+    assert!(matches!(
+        repo.finish_pack_job(job, 6, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET locked_until=now()-interval '1 second' WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE free_pack_jobs SET locked_until=now()+interval '2 minutes' WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(job, 7, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let empty: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_storage_generations
+         WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))",
+    )
+    .bind(editions[0].chapter_id())
+    .bind(editions[0].version_id())
+    .bind(editions[1].chapter_id())
+    .bind(editions[1].version_id())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(empty, 0, "failed attempt must leave no generation");
+
+    // Live epoch and exact approved fingerprint attach all verified members
+    // in one PostgreSQL transaction, with no reader/publication switch.
+    let (a, b) = tokio::join!(
+        repo.finish_pack_job(job, 7, &proof),
+        repo.finish_pack_job(job, 7, &proof)
+    );
+    let first = a.unwrap();
+    assert_eq!(first, b.unwrap(), "same job retry after commit is idempotent");
+    assert!(first > 0);
+    assert_eq!(
+        repo.finish_pack_job(job, 7, &proof).await.unwrap(),
+        first
+    );
+    assert!(matches!(
+        repo.finish_pack_job(job, 6, &proof).await,
+        Err(AuthorError::Conflict)
+    ));
+    let pack_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_storage_packs WHERE id=$1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pack_count, 1);
+    let attached: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_storage_generations WHERE pack_id=$1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(attached, 2);
+    let active: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM free_edition_active_storage
+         WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))",
+    )
+    .bind(editions[0].chapter_id())
+    .bind(editions[0].version_id())
+    .bind(editions[1].chapter_id())
+    .bind(editions[1].version_id())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(active, 0, "R4a attachment never activates PACK");
+    for ids in published {
+        let version: i64 = sqlx::query_scalar(
+            "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
+        )
+        .bind(ids.chapter_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(version, ids.version_id);
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT count(*) FROM free_chapter_storage_objects WHERE chapter_id=$1",
+                ids.chapter_id
+            )
+            .await,
+            1,
+            "old S349 standalone object receipt remains immutable"
+        );
+    }
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+            .bind(job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "succeeded");
+    pool.close().await;
+}
