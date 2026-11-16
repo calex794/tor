@@ -46,7 +46,8 @@ impl PackProofTarget {
         if !valid_private_bucket(&self.bucket)
             || !self.pack_key.starts_with("private/free-packs/")
             || !self.pack_key.is_ascii()
-            || self.pack_key.len() > 240
+            || !(32..=240).contains(&self.pack_key.len())
+            || !(42..=260).contains(&self.manifest_key.len())
             || self.pack_key.contains("//")
             || self.pack_key.split('/').any(|segment| {
                 segment.is_empty()
