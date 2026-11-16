@@ -87,7 +87,7 @@ def prepare_payloads(blobs):
     }
 
 
-def put_batch(client, layout, tasks, workers, repeat, seed):
+def put_batch(client, layout, tasks, workers, repeat, seed, chapter_count):
     """Time only S3 PUT operations with exactly the requested worker bound."""
     require(workers in THREAD_COUNTS and 0 <= repeat < 4, "invalid benchmark stage")
     require(tasks, "empty upload set")
@@ -118,21 +118,34 @@ def put_batch(client, layout, tasks, workers, repeat, seed):
     cpu_s = time.process_time() - cpu0
     assert len(durations) == len(tasks)
 
-    # Validate actual bytes after the timed window; sample is deterministic
-    # and includes both .zst pack objects and JSON manifests where present.
-    sample_rng = random.Random(seed ^ 0xB3403)
-    checked = sample_rng.sample(names, min(12, len(names)))
-    for key, body in checked:
+    # A verified publication cannot rely on a random sample. Read back EVERY
+    # object after timed PUT, compare full bytes and SHA-256, and measure this
+    # stage separately at the SAME concurrency. Seekable includes all manifests.
+    def verify_one(key, expected):
+        t0 = time.perf_counter()
         response = client.get_object(Bucket=BUCKET, Key=key)
         if response["ResponseMetadata"]["HTTPStatusCode"] != 200:
             raise RuntimeError("MinIO rejected verification GET")
         remote = response["Body"].read()
-        assert sha256(remote) == sha256(body), f"upload roundtrip mismatch for {layout}"
+        if len(remote) != len(expected) or sha256(remote) != sha256(expected):
+            raise AssertionError(f"full-object readback mismatch for {layout}")
+        return (time.perf_counter() - t0) * 1000
 
+    verify_durations = []
+    cpu1 = time.process_time()
+    t1 = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(verify_one, key, body) for key, body in names]
+        for future in as_completed(futures):
+            verify_durations.append(future.result())
+    verify_s = time.perf_counter() - t1
+    verify_cpu_s = time.process_time() - cpu1
+    assert len(verify_durations) == len(names)
     stored_bytes = sum(map(len, tasks))
+    total_wall_s = wall_s + verify_s
     return {
         "layout": layout, "workers": workers, "repeat": repeat,
-        "objects": len(tasks), "stored_bytes": stored_bytes,
+        "chapters": chapter_count, "objects": len(tasks), "stored_bytes": stored_bytes,
         "write_wall_seconds": round(wall_s, 4),
         "write_cpu_seconds": round(cpu_s, 4),
         "put_per_second": round(len(tasks) / wall_s, 2),
@@ -140,7 +153,12 @@ def put_batch(client, layout, tasks, workers, repeat, seed):
         "put_latency_p50_ms": pct(durations, 50),
         "put_latency_p95_ms": pct(durations, 95),
         "put_latency_p99_ms": pct(durations, 99),
-        "verified_object_samples": len(checked),
+        "verify_full_get_wall_seconds": round(verify_s, 4),
+        "verify_cpu_seconds": round(verify_cpu_s, 4),
+        "verify_full_gets": len(verify_durations),
+        "verify_get_p95_ms": pct(verify_durations, 95),
+        "write_plus_verify_seconds": round(total_wall_s, 4),
+        "verified_chapters_per_second": round(chapter_count / total_wall_s, 2),
     }
 
 
@@ -156,22 +174,24 @@ def markdown_report(result):
         f"{result['input_raw_mib']:.2f} MiB raw; {result['zstd3_mib']:.2f} MiB compressed. "
         f"Each layout has {result['repeats']} trials.",
         "",
-        "| Layout | Workers | S3 objects | Median write wall s | "
-        "Wall min/max s | Median PUT/s | Median PUT p95 ms |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Layout | Workers | S3 objects | Median PUT wall s | "
+        "Median full-GET verify s | Median PUT+verify s | "
+        "Chapters/s incl. verify | PUT p95 ms |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for layout in LAYOUTS:
         for workers in THREAD_COUNTS:
             rows = [row for row in result["runs"]
                     if row["layout"] == layout and row["workers"] == workers]
             assert len(rows) == result["repeats"]
-            median = statistics.median(r["write_wall_seconds"] for r in rows)
-            rate = statistics.median(r["put_per_second"] for r in rows)
+            write_s = statistics.median(r["write_wall_seconds"] for r in rows)
+            verify_s = statistics.median(r["verify_full_get_wall_seconds"] for r in rows)
+            total_s = statistics.median(r["write_plus_verify_seconds"] for r in rows)
+            throughput = statistics.median(r["verified_chapters_per_second"] for r in rows)
             p95 = statistics.median(r["put_latency_p95_ms"] for r in rows)
-            seconds = [r["write_wall_seconds"] for r in rows]
             out.append(
-                f"| {layout} | {workers} | {rows[0]['objects']:,} | {median:.3f} "
-                f"| {min(seconds):.3f}/{max(seconds):.3f} | {rate:.1f} | {p95:.2f} |")
+                f"| {layout} | {workers} | {rows[0]['objects']:,} | {write_s:.3f} "
+                f"| {verify_s:.3f} | {total_s:.3f} | {throughput:.1f} | {p95:.2f} |")
     out += [
         "", "### Preprocessing is NOT inside PUT wall clock",
         "",
@@ -191,11 +211,16 @@ def markdown_report(result):
         "and PG transaction, none of which are measured in this PUT wall time.",
         "- PACK100 has ~chapters/100 tasks; with 4k chapters, 40 PACK "
         "PUTs limit useful worker parallelism. Seekable adds one manifest PUT/pack.",
-        "- Timed writes exclude Zstd encode, PACK build, GET after PUT, "
-        "PostgreSQL WAL, CPU/IO wait at publication, retries, and cache/multi-region.",
+        "- Timed PUT excludes Zstd encoding and PACK building. A separate "
+        "fully-timed verification GET checks ALL stored physical objects "
+        "against prepared SHA-256 at equal concurrency. The total PUT+GET "
+        "still excludes a TOR PostgreSQL finalization transaction, "
+        "rights, retries, external WAN latency and cache/multi-region.",
         "- All task orders are seeded and shuffled, but loopback OS page caches "
         "and background runner activity can bias two repeats. "
         "Do not use ratios as production forecasts.",
+        "- Full readback validates each physical object; actual TOR edition "
+        "authorization and consistent placement/purchase mapping were NOT tested.",
         "- No real Yandex credential/bucket/VPS was used. "
         "S3 PUT semantics and prices must be measured separately in a disposable "
         "vendor bucket, with explicit budget and authorization.",
@@ -256,7 +281,8 @@ def main():
         for layout, workers in stage_order:
             result = put_batch(
                 client, layout, payloads[layout], workers, repeat,
-                seed=args.seed ^ (repeat * 65537 + workers))
+                seed=args.seed ^ (repeat * 65537 + workers),
+                chapter_count=args.chapters)
             results.append(result)
     report = {
         "profile": "DROP-B03 synthetic loopback",
