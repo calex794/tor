@@ -41,3 +41,5 @@
 - [DROP-R3a private PACK Range reader](tor-store-r3a-private-pack-range.md): inert bounded Zstd frame decoder, internal S3 Range adapter, two authorization checks, real private MinIO tests; no HTTP activation.
 - [DROP-R3b full PACK proof](tor-store-r3b-full-pack-proof.md): immutable full-object and manifest GET/sha256, exact seekable table, all editions decoded and matched against B identities; no active reader route.
 - [DROP-R4a lease-fenced PACK attachment](tor-store-r4a-fenced-attachment.md): B-owned all-or-nothing PG candidate generations after G verified proof, current lease and approved fingerprint; no active reader cutover.
+
+- [DROP-R4b1 trusted offline PACK readback](tor-store-r4b1-trusted-worker.md): immutable B job specs and epoch claims, G independent full S3 GET before B PG candidate attachment; no upload worker, reader cutover or public route.
