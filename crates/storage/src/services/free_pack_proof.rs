@@ -19,7 +19,9 @@ use crate::{
 };
 
 pub const MAX_PACK_MANIFEST_BYTES: u64 = 1024 * 1024;
-pub const MAX_PROOF_MEMBERS: usize = 100_000;
+pub const MAX_PROOF_MEMBERS: usize = 4096;
+/// Bound total Zstd CPU work even when a tiny PACK contains many repetitive chapters.
+pub const MAX_PROOF_DECODED_BYTES: u64 = 128 * 1024 * 1024;
 const SKIPPABLE_MAGIC: u32 = 0x184D2A5E;
 const SEEKABLE_MAGIC: u32 = 0x8F92EAB1;
 
@@ -131,8 +133,12 @@ pub fn verify_full_pack(
     sidecar: &[u8],
 ) -> Result<VerifiedPack, StorageError> {
     target.validate()?;
+    let decoded_budget = expected_editions
+        .iter()
+        .try_fold(0u64, |sum, edition| sum.checked_add(edition.size_bytes()));
     if expected_editions.is_empty()
         || expected_editions.len() > MAX_PROOF_MEMBERS
+        || decoded_budget.is_none_or(|total| total > MAX_PROOF_DECODED_BYTES)
         || pack.len() as u64 != target.pack_bytes
         || sidecar.len() as u64 != target.manifest_bytes
         || sha256_bytes(pack) != target.pack_sha256
