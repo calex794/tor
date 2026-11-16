@@ -78,7 +78,10 @@ pub(super) async fn drop_committed_layer_receipt(
         downstream.write_all(request.as_bytes()).await.unwrap();
         let mut received = Vec::new();
         downstream.read_to_end(&mut received).await.unwrap();
-        assert!(received.is_empty(), "reader must see zero HTTP acknowledgement bytes");
+        assert!(
+            received.is_empty(),
+            "reader must see zero HTTP acknowledgement bytes"
+        );
     });
     let (client_result, proxy_result) =
         tokio::time::timeout(std::time::Duration::from_secs(30), async {
