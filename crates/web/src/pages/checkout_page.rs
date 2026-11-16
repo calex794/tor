@@ -28,6 +28,7 @@ pub fn chapter_purchase_form(
         <button class="button" type="submit">Подтвердить покупку за {price} ₽</button>
       </form>
       <p>Покупка будет выполнена только при достаточном балансе. Внешние платежи здесь не принимаются.</p>
+      <p>Если после подтверждения пропадёт связь, не оплачивайте повторно вслепую: сначала проверьте раздел «Мои покупки».</p>
       <p><a href="/books/{book_id}#chapters">Вернуться к книге</a> ·
          <a href="/me/purchases">Мои покупки</a></p>
     </div>
@@ -56,15 +57,20 @@ pub fn chapter_purchase_problem(chapter_id: i64, message: &str) -> Html<String> 
     let body = format!(
         r#"<section class="section auth-section">
   <div class="container"><div class="auth-card reader-access-page">
-    <h1>Покупка не выполнена</h1>
+    <h1>Не удалось подтвердить покупку</h1>
     <p role="alert">{message}</p>
-    <a class="button" href="/me/chapters/{chapter_id}/buy">Открыть предложение заново</a>
-    <a href="/me/purchases">Мои покупки</a>
+    <p>Если соединение прервалось после подтверждения, покупка могла сохраниться. Сначала проверьте «Мои покупки» и только затем создавайте новую попытку.</p>
+    <a class="button" href="/me/purchases">Проверить мои покупки</a>
+    <a href="/me/chapters/{chapter_id}/buy">Открыть предложение заново</a>
   </div></div>
 </section>"#,
         message = escape_html(message),
     );
-    layout("Покупка не выполнена", "Средства не списаны.", &body)
+    layout(
+        "Проверка покупки",
+        "Неизвестный результат операции следует сверить с сохранёнными правами.",
+        &body,
+    )
 }
 
 pub fn package_only_notice(
@@ -104,6 +110,18 @@ pub fn package_only_notice(
 #[cfg(test)]
 mod package_notice_tests {
     use super::*;
+
+    #[test]
+    fn s034_unconfirmed_purchase_never_claims_funds_were_not_debited() {
+        let html = chapter_purchase_problem(17, "Покупка временно недоступна.").0;
+        assert!(html.contains("Не удалось подтвердить покупку"));
+        assert!(html.contains("Проверить мои покупки"));
+        assert!(html.contains("href=\"/me/purchases\""));
+        assert!(html.contains("href=\"/me/chapters/17/buy\""));
+        assert!(!html.contains("Средства не списаны"));
+        assert!(!html.contains("Покупка не выполнена"));
+        assert!(!html.contains("name=\"command_key\""));
+    }
 
     #[test]
     fn package_notice_escapes_title_and_exposes_only_public_destination() {
