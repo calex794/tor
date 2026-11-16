@@ -219,6 +219,44 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
         "f034f034-0003-4003-8003-000000000343",
     )
     .await;
+    // S022/R1: a failed PG connection cannot move the live paid-version
+    // pointer. The independent pool below witnesses V1 and the revision.
+    let failed_pool = PgPool::connect(&url).await.unwrap();
+    let failed_publication = PgPaidStorage::new(failed_pool.clone());
+    failed_pool.close().await;
+    assert_eq!(
+        failed_publication
+            .attach_verified_and_publish(
+                owner,
+                book,
+                pinned(chapter, v2.version_id),
+                &object_v2,
+                PaidPublication::PublishEdit {
+                    expected_current: v1,
+                    expected_revision: 1,
+                },
+            )
+            .await,
+        Err(AuthorError::Unavailable)
+    );
+    let retained: (i64, i64) = sqlx::query_as(
+        "SELECT p.version_id,c.edit_revision FROM chapter_publications p
+         JOIN chapters c ON c.id=p.chapter_id WHERE c.id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        retained, before,
+        "failed PG publication must preserve purchased V1"
+    );
+    assert!(repo
+        .encrypted_chapter(pinned(chapter, v1))
+        .await
+        .unwrap()
+        .is_some());
+
     repo.attach_verified_and_publish(
         owner,
         book,
