@@ -88,17 +88,3 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
     read_reauthorized_pack(resolve, s3).await
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn rejects_invalid_chapter_or_saved_version_before_any_lookup() {
-        // Validating request identity must precede touching PostgreSQL.
-        // The full C/PG/MinIO authorization is covered by the disposable E2E.
-        assert!(matches!(
-            FreePackReadMode::Saved { version_id: 0 },
-            FreePackReadMode::Saved { version_id: 0 }
-        ));
-    }
-}
