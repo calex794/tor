@@ -69,7 +69,8 @@ let stage = 'launch';
       let signalFirstS3;
       const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
       const s3Requests = new Map(), networkErrors = [];
-      let canceledGets = 0, cdReceived = 0, cdFinished = 0, pwFinished = 0, pwUninspectable = 0;
+      let canceledGets = 0, recoveredExactAborts = 0;
+      let cdReceived = 0, cdFinished = 0, pwFinished = 0, pwUninspectable = 0;
       const provedUrls = new Set();
       const matchesChapterGet = (href, method) => {
         if (method !== 'GET') return false;
@@ -105,12 +106,18 @@ let stage = 'launch';
       cdp.on('Network.requestWillBeSent', event => {
         if (!matchesChapterGet(event.request.url, event.request.method)) return;
         s3Requests.set(event.requestId, {
-          url: event.request.url, status: null, bodyBytes: 0,
+          url: event.request.url, status: null, bodyBytes: 0, expectedLength: null,
         });
       });
       cdp.on('Network.responseReceived', event => {
         const record = s3Requests.get(event.requestId);
-        if (record) record.status = event.response.status;
+        if (record) {
+          record.status = event.response.status;
+          const lengthHeader = Object.entries(event.response.headers || {})
+            .find(([name]) => name.toLowerCase() === 'content-length');
+          const length = lengthHeader && Number(lengthHeader[1]);
+          record.expectedLength = Number.isSafeInteger(length) && length > 0 ? length : null;
+        }
       });
       cdp.on('Network.dataReceived', event => {
         const record = s3Requests.get(event.requestId);
@@ -134,13 +141,25 @@ let stage = 'launch';
         }
       });
       cdp.on('Network.loadingFailed', event => {
-        if (!s3Requests.delete(event.requestId)) return;
+        const record = s3Requests.get(event.requestId);
+        if (!record) return;
+        s3Requests.delete(event.requestId);
         // Navigating between public/private or editor pages aborts an
         // in-flight, now-obsolete GET. This is not a transfer failure of the
         // chapter already rendered. Ignore *only* Chrome's explicit cancel;
         // the test still requires another completed HTTP 200 GET with bytes.
         if (event.errorText === 'net::ERR_ABORTED') {
           canceledGets++;
+          // The admin renderer may cancel an in-flight fetch as soon as it
+          // has consumed all source bytes. A CDP loadingFinished event is
+          // then absent despite a complete HTTP 200 body. Accept this ONLY
+          // when Network.dataReceived proves an exact, positive length
+          // matching S3's Content-Length; never accept a partial cancel.
+          if (record.status === 200 && record.expectedLength !== null
+              && record.bodyBytes === record.expectedLength) {
+            recoveredExactAborts++;
+            acceptCompletedGet(record.url, record.bodyBytes);
+          }
           return;
         }
         networkErrors.push('S3 GET failed: ' + event.errorText);
@@ -291,7 +310,8 @@ let stage = 'launch';
               'real S3 GET never finished for ' + stage +
               ' [cdp_finished=' + cdFinished + ' cdp_data=' + cdReceived +
               ' pw_finished=' + pwFinished + ' pw_uninspectable=' + pwUninspectable +
-              ' pending=' + s3Requests.size + ' aborted=' + canceledGets + ']')), 15000);
+              ' pending=' + s3Requests.size + ' aborted=' + canceledGets +
+              ' exact_aborts=' + recoveredExactAborts + ']')), 15000);
           }),
         ]);
       } finally {
