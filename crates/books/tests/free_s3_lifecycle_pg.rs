@@ -432,9 +432,7 @@ async fn s349_import_commits_all_editions_or_none_and_replays_once() {
 #[ignore = "requires disposable PostgreSQL18 /tor_ci"]
 async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchanged() {
     use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
-    use tor_contracts::drop_pack::{
-        PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget,
-    };
+    use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 
     let (pool, actor, book, author) = fixture("drop-r4a", "public").await;
     let texts = ["Первая глава, Unicode 😀", "Вторая глава, право V1 中文"];
@@ -511,13 +509,11 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
         repo.finish_pack_job(job, 7, &receipt).await,
         Err(AuthorError::Conflict)
     ));
-    sqlx::query(
-        "UPDATE free_pack_jobs SET status='cancelled',locked_until=NULL WHERE id=$1",
-    )
-    .bind(job)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE free_pack_jobs SET status='cancelled',locked_until=NULL WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(matches!(
         repo.finish_pack_job(job, 7, &receipt).await,
         Err(AuthorError::Conflict)
@@ -609,13 +605,12 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
     .unwrap();
     assert_eq!(active, 0, "R4a candidate attachment never enables PACK");
     for ids in published {
-        let published_version: i64 = sqlx::query_scalar(
-            "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-        )
-        .bind(ids.chapter_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let published_version: i64 =
+            sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+                .bind(ids.chapter_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(published_version, ids.version_id);
         assert_eq!(
             count(
@@ -627,12 +622,11 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
             1
         );
     }
-    let status: String =
-        sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
-            .bind(job)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+        .bind(job)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(status, "succeeded");
     pool.close().await;
 }
