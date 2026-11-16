@@ -36,8 +36,16 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         let mut received = vec![0; expected_wire.len()];
         socket.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected_wire.as_bytes());
-        let (status, receipt) =
-            send(&routed, "PUT", &path, &payload, Some(&token), &proxy_csrf, ORIGIN).await;
+        let (status, receipt) = send(
+            &routed,
+            "PUT",
+            &path,
+            &payload,
+            Some(&token),
+            &proxy_csrf,
+            ORIGIN,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             receipt.contains("\"revision\":2"),
