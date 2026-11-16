@@ -1,0 +1,109 @@
+name: TOR storage TRIZ benchmark (Drive-derived synthetic corpus)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tor-store-benchmark.yml'
+      - 'tools/tor_store_bench.py'
+      - 'tools/tor_store_corpus_profiles.json'
+  workflow_dispatch:
+    inputs:
+      chapters:
+        description: 'Number of synthetic chapters (30-10000)'
+        type: number
+        default: 2400
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tor-store-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pg-minio-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: tor_store_bench
+          POSTGRES_USER: tor_bench
+          POSTGRES_PASSWORD: tor-bench-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tor_bench -d tor_store_bench"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout isolated benchmark code
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install disposable benchmark dependencies
+        run: python -m pip install --disable-pip-version-check 'psycopg[binary]==3.2.10' 'boto3==1.35.99'
+      - name: Start checksum-verified private MinIO on runner loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "$(printf '%s' "$expected" | wc -c)" -eq 64
+          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-store-minio"
+          MINIO_ROOT_USER=tor-store-ci-user \
+          MINIO_ROOT_PASSWORD=tor-store-ci-only-password \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-store-minio" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-store-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/tor-store-minio.log"
+            exit 1
+          fi
+      - name: Test deterministic generator without private source material
+        run: |
+          python -m py_compile tools/tor_store_bench.py
+          python tools/tor_store_bench.py --chapters 32 --dry-run \
+            --output "$RUNNER_TEMP/tor-store-generator-check.json"
+      - name: Compare PostgreSQL 18, MinIO per chapter, and compressed packs
+        env:
+          TOR_BENCH_PG_URL: postgresql://tor_bench:tor-bench-only@127.0.0.1:5432/tor_store_bench
+          TOR_BENCH_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_BENCH_S3_USER: tor-store-ci-user
+          TOR_BENCH_S3_PASS: tor-store-ci-only-password
+          BENCH_CHAPTERS: ${{ github.event.inputs.chapters || '2400' }}
+        run: |
+          python tools/tor_store_bench.py --chapters "$BENCH_CHAPTERS" \
+            --output "$RUNNER_TEMP/tor-store-benchmark-results.json"
+      - name: Upload numeric benchmark report (no source text)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-store-benchmark-results
+          path: ${{ runner.temp }}/tor-store-benchmark-results.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: MinIO diagnostics on failure
+        if: failure()
+        run: tail -n 80 "$RUNNER_TEMP/tor-store-minio.log" || true
