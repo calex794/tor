@@ -35,3 +35,5 @@
 - [FLOW-05 anonymous card observations](flow-anonymous-observations-v1.md): trusted per-card proofs, browser viewability, explicit coverage and low observed exposure; no reader identity or billable impressions.
 
 - [S349 free S3 delivery](free-s3-delivery-v1.md): bodyless new free editions, verified publication, direct browser reading and immutable source positions.
+
+- [DROP Free S3 Single/Pack placement v1](tor-store-free-placement-v1.md): non-activating exact-edition read planner; private Range Gateway required for PACK, no signed whole-pack URLs or live migration.
