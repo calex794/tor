@@ -298,58 +298,108 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES('drop-04b-ci@tor.example','DROP finalizer CI','$argon2id$test')
          RETURNING id",
-    ).parse().unwrap();
-    let book: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+    )
+    .parse()
+    .unwrap();
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES('ci:drop:04b','ru','DROP direct finalize','draft',{actor})
          RETURNING id"
-    )).parse().unwrap();
-    let source = "# Глава 1: Первая\nНеизменяемый текст 😀\n\n# Глава 2: Вторая\nВторой диапазон 中文";
+        ),
+    )
+    .parse()
+    .unwrap();
+    let source =
+        "# Глава 1: Первая\nНеизменяемый текст 😀\n\n# Глава 2: Вторая\nВторой диапазон 中文";
     let chapters = parse_text("direct-finalize.txt", source).unwrap();
     assert_eq!(chapters.len(), 2);
     let key = "e".repeat(43);
     let input_key = format!("staging/chapters/{actor}/{book}/{key}");
     let source_hash: [u8; 32] = Sha256::digest(source.as_bytes()).into();
-    client.put_object().bucket(BUCKET).key(&input_key)
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&input_key)
         .body(ByteStream::from(source.as_bytes().to_vec()))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     let source_fingerprint = fingerprint(book, &chapters);
     let jobs = PgImportJobs::new(pool.clone());
-    let job_id = jobs.enqueue_verified(
-        actor, book, &key, &input_key, "direct-finalize.txt",
-        &source_hash, source.len() as i64, &source_fingerprint, 2
-    ).await.unwrap();
-    pg(&url, &format!(
-        "UPDATE chapter_import_jobs SET status='running',attempts=1,lease_epoch=1,
+    let job_id = jobs
+        .enqueue_verified(
+            actor,
+            book,
+            &key,
+            &input_key,
+            "direct-finalize.txt",
+            &source_hash,
+            source.len() as i64,
+            &source_fingerprint,
+            2,
+        )
+        .await
+        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "UPDATE chapter_import_jobs SET status='running',attempts=1,lease_epoch=1,
            locked_until=clock_timestamp()+interval '2 minutes' WHERE id={job_id}"
-    ));
+        ),
+    );
     let claim = ChapterImportClaim {
-        job_id, parent_trace_id: None, book_id: book, actor_id: actor,
-        command_key: key, source_key: input_key,
+        job_id,
+        parent_trace_id: None,
+        book_id: book,
+        actor_id: actor,
+        command_key: key,
+        source_key: input_key,
         source_filename: "direct-finalize.txt".into(),
-        source_sha256: source_hash.to_vec(), source_bytes: source.len() as i64,
+        source_sha256: source_hash.to_vec(),
+        source_bytes: source.len() as i64,
         approved_fingerprint: source_fingerprint.to_vec(),
-        expected_chapter_count: 2, attempts: 1, epoch: 1,
+        expected_chapter_count: 2,
+        attempts: 1,
+        epoch: 1,
     };
     let store = S3FreeChapterStore::new(client.clone(), BUCKET.into()).unwrap();
-    let author = PgFreeAuthorPublisher::new(
-        PgFreeS3Publication::new(pool.clone()), store, BUCKET.into()
-    ).unwrap();
+    let author =
+        PgFreeAuthorPublisher::new(PgFreeS3Publication::new(pool.clone()), store, BUCKET.into())
+            .unwrap();
     let writer = S3FreePackWriter::new(client.clone());
-    let receipt = author.stage_direct_pack_only(&claim, &chapters, &writer)
-        .await.unwrap();
+    let receipt = author
+        .stage_direct_pack_only(&claim, &chapters, &writer)
+        .await
+        .unwrap();
     let proof = S3PackProofStore::new(client.clone());
     let assert_no_publication = || {
-        assert_eq!(pg(&url, &format!(
-            "SELECT count(*) FROM chapters WHERE book_id={book}"
-        )), "0");
-        assert_eq!(pg(&url, &format!(
-            "SELECT count(*) FROM free_storage_packs
-             WHERE object_key='{}'", receipt.target.pack_key
-        )), "0");
-        assert_eq!(pg(&url, &format!(
-            "SELECT status FROM chapter_import_jobs WHERE id={job_id}"
-        )), "running");
+        assert_eq!(
+            pg(
+                &url,
+                &format!("SELECT count(*) FROM chapters WHERE book_id={book}")
+            ),
+            "0"
+        );
+        assert_eq!(
+            pg(
+                &url,
+                &format!(
+                    "SELECT count(*) FROM free_storage_packs
+             WHERE object_key='{}'",
+                    receipt.target.pack_key
+                )
+            ),
+            "0"
+        );
+        assert_eq!(
+            pg(
+                &url,
+                &format!("SELECT status FROM chapter_import_jobs WHERE id={job_id}")
+            ),
+            "running"
+        );
     };
 
     // An old, already superseded lease must not materialize any of the
@@ -357,30 +407,50 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
     let mut stale = claim.clone();
     stale.epoch = 2;
     assert!(matches!(
-        author.finalize_direct_pack_after_reproof(&stale, &chapters, &receipt, &proof).await,
+        author
+            .finalize_direct_pack_after_reproof(&stale, &chapters, &receipt, &proof)
+            .await,
         Err(AuthorError::Conflict)
     ));
     assert_no_publication();
 
     // A moderation hold must abort the whole transaction. The source and
     // its staged proof remain available for a later authorized retry.
-    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     assert!(matches!(
-        author.finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof).await,
+        author
+            .finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
+            .await,
         Err(AuthorError::Conflict)
     ));
     assert_no_publication();
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
 
     assert_eq!(
-        author.finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
-            .await.unwrap(), 2
+        author
+            .finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
+            .await
+            .unwrap(),
+        2
     );
-    assert_eq!(pg(&url, &format!(
-        "SELECT status||':'||saved_count FROM chapter_import_jobs WHERE id={job_id}"
-    )), "succeeded:2");
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM chapters c
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT status||':'||saved_count FROM chapter_import_jobs WHERE id={job_id}")
+        ),
+        "succeeded:2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapters c
          JOIN chapter_publications p ON p.chapter_id=c.id
          JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
          JOIN chapter_version_content_shapes sh ON sh.version_id=v.id
@@ -390,41 +460,76 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
              ON g.chapter_id=a.chapter_id AND g.version_id=a.version_id
             AND g.generation=a.generation AND g.placement_kind='pack'
          JOIN free_storage_packs pk ON pk.id=g.pack_id
-         WHERE c.book_id={book} AND pk.object_key='{}'", receipt.target.pack_key
-    )), "2");
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM free_chapter_storage_objects f
+         WHERE c.book_id={book} AND pk.object_key='{}'",
+                receipt.target.pack_key
+            )
+        ),
+        "2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM free_chapter_storage_objects f
          JOIN chapter_versions v ON v.id=f.version_id
          JOIN chapters c ON c.id=v.chapter_id WHERE c.book_id={book}"
-    )), "0", "PACK-direct must never write individual SINGLEs");
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM free_storage_packs WHERE object_key='{}'",
-        receipt.target.pack_key
-    )), "1");
+            )
+        ),
+        "0",
+        "PACK-direct must never write individual SINGLEs"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM free_storage_packs WHERE object_key='{}'",
+                receipt.target.pack_key
+            )
+        ),
+        "1"
+    );
 
     // A lost acknowledgement from the successful PG COMMIT replays without
     // duplicating a pack, generation, chapter or import batch.
     assert_eq!(
-        author.finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
-            .await.unwrap(), 2
+        author
+            .finalize_direct_pack_after_reproof(&claim, &chapters, &receipt, &proof)
+            .await
+            .unwrap(),
+        2
     );
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM chapters WHERE book_id={book}"
-    )), "2");
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM chapter_import_batches WHERE book_id={book}"
-    )), "1");
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapters WHERE book_id={book}")
+        ),
+        "2"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapter_import_batches WHERE book_id={book}")
+        ),
+        "1"
+    );
 
     let mut altered_receipt = receipt.clone();
     altered_receipt.frames[0].content_sha256[0] ^= 1;
-    assert!(author.finalize_direct_pack_after_reproof(
-        &claim, &chapters, &altered_receipt, &proof
-    ).await.is_err(), "even after success a forged receipt is never an ACK");
+    assert!(
+        author
+            .finalize_direct_pack_after_reproof(&claim, &chapters, &altered_receipt, &proof)
+            .await
+            .is_err(),
+        "even after success a forged receipt is never an ACK"
+    );
 
     // The entire book remains private. No free SINGLE grant can reveal PACK.
     let c = tor_reading::repositories::free_s3_ref::PgFreeS3Ref::new(pool.clone());
-    assert!(c.for_session(receipt.frames[0].chapter_id, None)
-        .await.unwrap().is_none());
+    assert!(c
+        .for_session(receipt.frames[0].chapter_id, None)
+        .await
+        .unwrap()
+        .is_none());
 
     // The strengthened S349 trigger still rejects an unrelated bodyless
     // free publication with NO verified placement at all.
@@ -432,13 +537,24 @@ async fn drop_04b_direct_pack_finalizer_is_atomic_replayable_and_stays_private()
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
          VALUES({book},999,'No verified bytes','draft','free',0,1) RETURNING id"
     )).parse().unwrap();
-    let missing: i64 = pg(&url, &format!(
-        "INSERT INTO chapter_versions(chapter_id,version_no,content_sha256)
+    let missing: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,content_sha256)
          VALUES({stranger},1,decode(repeat('a',64),'hex')) RETURNING id"
-    )).parse().unwrap();
-    let invalid = sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)"
-    ).bind(stranger).bind(missing).execute(&pool).await;
-    assert!(invalid.is_err(), "free bodyless chapter without SINGLE/PACK must be rejected");
+        ),
+    )
+    .parse()
+    .unwrap();
+    let invalid =
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+            .bind(stranger)
+            .bind(missing)
+            .execute(&pool)
+            .await;
+    assert!(
+        invalid.is_err(),
+        "free bodyless chapter without SINGLE/PACK must be rejected"
+    );
     pool.close().await;
 }
