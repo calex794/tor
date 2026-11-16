@@ -836,6 +836,12 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("TOR_BENCH_PG_URL", workflow)
         self.assertIn("anonymous_object_denied", bench)
         self.assertIn("signed_pack_url_exposes_other_member", bench)
+        self.assertIn("zstandard==0.23.0", workflow)
+        self.assertIn("--self-test", workflow)
+        self.assertIn("packed_groups", bench)
+        self.assertIn("single_zstd3", bench)
+        self.assertIn("pack_4mib_zstd3", bench)
+        self.assertIn("encoded frame", bench)
         self.assertIn("measured_chapters", profiles)
         for item in (workflow, bench, profiles):
             self.assertNotIn("https://drive.google.com", item)
