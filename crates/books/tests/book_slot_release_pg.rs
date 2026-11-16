@@ -107,6 +107,7 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
     due(&pool, book).await;
     let token = "n".repeat(43);
     let claim = author.claim_due_book_slot(&token).await.unwrap().unwrap();
+    assert_eq!(claim.book_id, book, "global claim picked a different book");
     assert_eq!(
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Ready(chapter))
@@ -238,6 +239,7 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
     due(&pool, book).await;
     let token = "q".repeat(43);
     let claim = author.claim_due_book_slot(&token).await.unwrap().unwrap();
+    assert_eq!(claim.book_id, book, "global claim picked a different book");
     assert_eq!(
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Ready(chapter))
@@ -294,6 +296,7 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(next.book_id, book, "global claim picked a different book");
     assert_eq!(
         author.bind_book_slot_frontier(&next, &next_token).await,
         Ok(BookSlotFrontier::Ready(chapter))
@@ -331,6 +334,7 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(retry.book_id, book, "global claim picked a different book");
     assert_eq!(retry.attempt_count, 2);
     assert_eq!(
         author.bind_book_slot_frontier(&retry, &new_token).await,
