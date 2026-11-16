@@ -126,12 +126,38 @@
   const samePlace = (a, b) => a && b &&
     a.block_id === b.block_id && a.char_offset === b.char_offset;
 
+  // A network failure or 409 does not prove a failed COMMIT. Read the
+  // authoritative cursor once; do not send the stale CAS write again.
+  const reconcile = async (attempted, beforeRevision) => {
+    try {
+      const response = await fetch(readUrl, {
+        method: "GET", credentials: "same-origin", cache: "no-store",
+        redirect: "error", headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) return false;
+      const state = await response.json();
+      const place = state.block_id == null ? null :
+        { block_id: state.block_id, char_offset: state.char_offset };
+      if (state.chapter_id !== chapterId || state.version_id !== versionId ||
+          !Number.isSafeInteger(state.revision) ||
+          state.revision <= beforeRevision ||
+          !validPlace(place) || !samePlace(place, attempted)) return false;
+      revision = state.revision;
+      saved = place;
+      announce("Место чтения подтверждено после восстановления связи.");
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const save = async () => {
     // A GET and a pagehide alone are not evidence of having read this chapter.
     if (!enabled || !hasScrolled || blocked || saving) return;
     const place = currentPlace();
     if (!validPlace(place) || samePlace(place, saved)) return;
     saving = true;
+    const beforeRevision = revision;
     try {
       const response = await fetch(endpoint, {
         method: "PUT", credentials: "same-origin", cache: "no-store",
@@ -141,7 +167,7 @@
         body: JSON.stringify({
           chapter_id: chapterId, version_id: versionId,
           block_id: place.block_id, char_offset: place.char_offset,
-          expected_revision: revision
+          expected_revision: beforeRevision
         })
       });
       if (response.ok) {
@@ -149,18 +175,23 @@
         if (result.chapter_id !== chapterId ||
             result.version_id !== versionId ||
             !Number.isSafeInteger(result.revision) ||
-            result.revision <= revision) throw new Error("invalid revision");
+            result.revision <= beforeRevision) throw new Error("invalid revision");
         revision = result.revision;
         saved = place;
-      } else {
-        blocked = true; // A stale device must not blindly overwrite a newer cursor.
+      } else if (response.status === 409 || response.status >= 500) {
+        if (await reconcile(place, beforeRevision)) return;
+        blocked = true; // Never overwrite a new cursor with stale revision.
         announce(response.status === 409
           ? "Место чтения изменилось в другой вкладке. Обновите страницу."
-          : "Не удалось сохранить место чтения. Обновите страницу и проверьте вход.");
+          : "Не удалось подтвердить сохранение. Проверьте соединение и обновите страницу.");
+      } else {
+        blocked = true;
+        announce("Не удалось сохранить место чтения. Обновите страницу и проверьте вход.");
       }
     } catch {
+      if (await reconcile(place, beforeRevision)) return;
       blocked = true;
-      announce("Место чтения не сохранено. Проверьте соединение и обновите страницу.");
+      announce("Не удалось подтвердить сохранение. Проверьте соединение и обновите страницу.");
     } finally {
       saving = false;
     }
