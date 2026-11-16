@@ -111,6 +111,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 let grantCalls = 0;
 let saved = null;
 let progressRevision = 0;
+let progressPuts = 0;
 let markedComplete = false;
 let completionPosts = 0;
 const server = http.createServer(async (req, reply) => {
@@ -196,16 +197,26 @@ const server = http.createServer(async (req, reply) => {
       assert.equal(req.headers.origin, SITE);
       assert.equal(req.headers["x-csrf-token"], csrf);
       const cursor = JSON.parse(await readBody(req));
+      progressPuts++;
       assert.equal(cursor.chapter_id, chapter);
       assert.equal(cursor.purchase_id, purchase);
       assert.equal(cursor.version_id, grant.version_id);
-      if (cursor.expected_revision !== progressRevision) {
+      // Match C's real monotonic CAS, not just the revision condition.
+      if (cursor.expected_revision !== progressRevision ||
+          (saved && (cursor.block_id < saved.block_id ||
+            (cursor.block_id === saved.block_id &&
+             cursor.char_offset <= saved.char_offset)))) {
         send(reply, 409, "", "application/json");
       } else {
         saved = cursor;
         progressRevision++;
+        // Match the actual PositionResponse returned by sync_actions.rs.
+        // A receipt lacking the exact chapter/place must not be trusted by
+        // the browser after an ambiguous COMMIT acknowledgement.
         send(reply, 200, JSON.stringify({
-          revision: progressRevision, version_id: grant.version_id,
+          chapter_id: chapter, version_id: grant.version_id,
+          block_id: cursor.block_id, char_offset: cursor.char_offset,
+          revision: progressRevision,
         }), "application/json");
       }
     } else {
@@ -833,16 +844,31 @@ async function run() {
           assert.equal(new URL(page.url()).hash, "#p-1",
             "resumed link must target the exact purchased V1 block");
         }
-        await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
+        const blockIndex = device === "desktop" ? 1 : 2;
+        const saveButton = page.getByRole("button", {
+          name: "Сохранить после фрагмента " + blockIndex
+        });
+        await saveButton.click();
         await page.getByText("Место сохранено.").waitFor();
-        const first = fixture.expected_markdown.split("\n\n")[0];
+        const savedBlock = fixture.expected_markdown.split("\n\n")[blockIndex - 1];
+        assert(savedBlock, "independent paid device needs a later text block");
         assert.deepEqual(saved, {
           chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
-          block_id: 1, char_offset: first.length,
+          block_id: blockIndex, char_offset: savedBlock.length,
           expected_revision: device === "desktop" ? 0 : 1,
         });
         assert.equal(progressRevision, device === "desktop" ? 1 : 2,
           "independent paid saves did not advance the owned cursor revision");
+        // The same saved position must be a no-op, not another CAS write or
+        // a permanent error that prevents saving a later block.
+        const putCount = progressPuts;
+        await saveButton.click();
+        assert.equal(progressPuts, putCount, "duplicate paid bookmark issued another PUT");
+        await page.getByText("Место уже сохранено здесь или дальше.").waitFor();
+        if (device === "mobile") {
+          await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
+          assert.equal(progressPuts, putCount, "older paid cursor issued a regressive PUT");
+        }
         const section = page.locator("[data-paid-completion]");
         assert(await section.isVisible(), device + ": missing completion UI");
         if (device === "desktop") {

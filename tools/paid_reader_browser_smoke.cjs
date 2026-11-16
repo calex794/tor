@@ -85,6 +85,7 @@ async function testDevice(browser, name, width, height, tamper) {
   const grant = JSON.parse(JSON.stringify(fixture.grant));
   if (tamper) grant.content.object_sha256 = "0".repeat(64);
   let grantCalls = 0, s3Calls = 0, completionGets = 0, completionPosts = 0, saved = null;
+  let progressRevision = 0, progressGets = 0, progressPuts = 0;
   await page.route("**/read/paid/103?purchase_id=501", (route) =>
     route.fulfill({
       status: 200, contentType: "text/html; charset=utf-8", body: html(),
@@ -147,12 +148,41 @@ async function testDevice(browser, name, width, height, tamper) {
           body: JSON.stringify({ status: "completed" }) });
       }
     } else if (request.method() === "PUT") {
-      saved = route.request().postDataJSON();
-      await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ revision: 1, version_id: "201" }) });
+      const cursor = route.request().postDataJSON();
+      assert.equal(cursor.chapter_id, "103");
+      assert.equal(cursor.purchase_id, "501");
+      assert.equal(cursor.version_id, "201");
+      assert.equal(cursor.expected_revision, progressRevision);
+      assert.equal(cursor.block_id, 1);
+      assert.equal(cursor.char_offset, "Глава платная А😀Б".length);
+      progressPuts++;
+      saved = cursor;
+      progressRevision++;
+      // Emulate a committed server write whose HTTP response is lost.
+      // Only the subsequent real browser GET may verify that result.
+      if (name === "desktop") {
+        await route.abort("failed");
+      } else {
+        await route.fulfill({ status: 200, contentType: "application/json",
+          body: JSON.stringify({
+            chapter_id: "103", version_id: "201",
+            block_id: saved.block_id, char_offset: saved.char_offset,
+            revision: progressRevision,
+          }) });
+      }
     } else {
+      progressGets++;
+      const query = new URLClass(request.url()).searchParams;
+      assert.equal(query.get("chapter_id"), "103");
+      assert.equal(query.get("purchase_id"), "501");
+      assert.equal(query.get("version_id"), "201");
       await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ revision: 0, version_id: "201", block_id: null }) });
+        body: JSON.stringify({
+          chapter_id: "103", version_id: "201",
+          revision: progressRevision,
+          block_id: saved?.block_id ?? null,
+          char_offset: saved?.char_offset ?? null,
+        }) });
     }
   });
   try {
@@ -173,7 +203,11 @@ async function testDevice(browser, name, width, height, tamper) {
       assert(await finish.isVisible(), name + ": missing separate completion action");
       assert.equal(completionPosts, 0, "decrypt or bookmark must not auto-complete");
       await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
-      await page.getByText("Место сохранено.").waitFor();
+      await page.getByText(name === "desktop"
+        ? "Место чтения подтверждено после восстановления связи." : "Место сохранено.").waitFor();
+      assert.equal(progressPuts, 1, name + ": lost-ACK must not blindly retry PUT");
+      assert.equal(progressGets, name === "desktop" ? 2 : 1,
+        name + ": committed progress must be checked once after lost ACK");
       assert.deepEqual(saved, {
         chapter_id: "103", purchase_id: "501", version_id: "201",
         block_id: 1, char_offset: "Глава платная А😀Б".length, expected_revision: 0,
