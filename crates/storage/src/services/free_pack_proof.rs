@@ -7,9 +7,7 @@
 
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use tor_contracts::drop_pack::{
-    PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget,
-};
+use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 
 use crate::{
     domain::provider::{valid_private_bucket, StorageError},
