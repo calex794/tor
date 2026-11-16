@@ -141,7 +141,9 @@ let stage = 'launch';
         }
       });
       cdp.on('Network.loadingFailed', event => {
-        if (!s3Requests.delete(event.requestId)) return;
+        const record = s3Requests.get(event.requestId);
+        if (!record) return;
+        s3Requests.delete(event.requestId);
         // Navigating between public/private or editor pages aborts an
         // in-flight, now-obsolete GET. This is not a transfer failure of the
         // chapter already rendered. Ignore *only* Chrome's explicit cancel;
