@@ -162,8 +162,7 @@ pub fn prepare_free_pack(
     };
     // The authoritative R3b verifier is the final format oracle, including
     // seek table framing, all identities, every decoded SHA and exact bounds.
-    let receipt = verify_full_pack(&target, &editions, &pack, &manifest)?
-        .placement_receipt();
+    let receipt = verify_full_pack(&target, &editions, &pack, &manifest)?.placement_receipt();
     Ok(PreparedFreePack {
         target,
         receipt,
@@ -199,8 +198,13 @@ mod tests {
         assert_eq!(one.receipt(), two.receipt());
         assert_eq!(one.receipt().frames.len(), 3);
         assert!(one.receipt().frames[0].frame_offset < one.receipt().frames[1].frame_offset);
-        assert!(verify_full_pack(one.target(), one.editions(), one.pack_bytes(),
-                                 one.manifest_bytes()).is_ok());
+        assert!(verify_full_pack(
+            one.target(),
+            one.editions(),
+            one.pack_bytes(),
+            one.manifest_bytes()
+        )
+        .is_ok());
     }
 
     #[test]
@@ -208,20 +212,31 @@ mod tests {
         let mut wrong = source(12, 25, "Correct FREE bytes");
         wrong.1[0] ^= 1;
         assert_eq!(
-            prepare_free_pack("tor-private-free-ci",
-                "private/free-packs/ci/drop-r4b2-invalid.zst", &[wrong]).err(),
+            prepare_free_pack(
+                "tor-private-free-ci",
+                "private/free-packs/ci/drop-r4b2-invalid.zst",
+                &[wrong]
+            )
+            .err(),
             Some(StorageError::Invalid)
         );
         let same = source(13, 26, "Repeated V1");
         assert_eq!(
-            prepare_free_pack("tor-private-free-ci",
+            prepare_free_pack(
+                "tor-private-free-ci",
                 "private/free-packs/ci/drop-r4b2-duplicate.zst",
-                &[same.clone(), same]).err(),
+                &[same.clone(), same]
+            )
+            .err(),
             Some(StorageError::Invalid)
         );
         assert_eq!(
-            prepare_free_pack("tor-private-free-ci", "public/leak.zst",
-                &[source(14, 27, "Private")]).err(),
+            prepare_free_pack(
+                "tor-private-free-ci",
+                "public/leak.zst",
+                &[source(14, 27, "Private")]
+            )
+            .err(),
             Some(StorageError::Invalid)
         );
     }
@@ -232,17 +247,25 @@ mod tests {
         let object = FreeChapterObject::for_markdown(18, 28, &text).unwrap();
         let sources: Vec<_> = (0..672)
             .map(|id| {
-                (FreeChapterObject::from_metadata(
-                    100 + id,
-                    200 + id,
-                    *object.sha256(),
-                    object.size_bytes(),
-                ).unwrap(), text.as_bytes().to_vec())
+                (
+                    FreeChapterObject::from_metadata(
+                        100 + id,
+                        200 + id,
+                        *object.sha256(),
+                        object.size_bytes(),
+                    )
+                    .unwrap(),
+                    text.as_bytes().to_vec(),
+                )
             })
             .collect();
         assert_eq!(
-            prepare_free_pack("tor-private-free-ci",
-                "private/free-packs/ci/drop-r4b2-budget.zst", &sources).err(),
+            prepare_free_pack(
+                "tor-private-free-ci",
+                "private/free-packs/ci/drop-r4b2-budget.zst",
+                &sources
+            )
+            .err(),
             Some(StorageError::Invalid)
         );
     }

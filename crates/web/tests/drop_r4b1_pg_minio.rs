@@ -17,12 +17,12 @@ use tor_books::{
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
 use tor_storage::{
+    repositories::free_pack_write_s3::S3FreePackWriter,
     repositories::{free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore},
     services::{
         free_chapter::{upload_and_verify, FreeChapterObject},
         free_pack_write::prepare_free_pack,
     },
-    repositories::free_pack_write_s3::S3FreePackWriter,
 };
 use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
@@ -235,8 +235,10 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     let sources: Vec<_> = editions
         .iter()
         .map(|(chapter, version, body)| {
-            (FreeChapterObject::for_markdown(*chapter, *version, body).unwrap(),
-             body.as_bytes().to_vec())
+            (
+                FreeChapterObject::for_markdown(*chapter, *version, body).unwrap(),
+                body.as_bytes().to_vec(),
+            )
         })
         .collect();
     let prepared = prepare_free_pack(
@@ -366,15 +368,26 @@ async fn drop_r4b2_real_s3_lost_ack_retry_and_wrong_existing_object_fail_closed(
 
     // Simulate a committed initial PACK PUT for which the client lost its ACK.
     // The writer's next PUT gets a 412, but a full verified GET recovers safely.
-    client.put_object()
-        .bucket(BUCKET).key(&prepared.target().pack_key)
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&prepared.target().pack_key)
         .if_none_match("*")
         .body(ByteStream::from(prepared.pack_bytes().to_vec()))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     let proved = writer.upload_and_verify(&prepared).await.unwrap();
     assert_eq!(proved.placement_receipt(), *prepared.receipt());
-    assert_eq!(writer.upload_and_verify(&prepared).await.unwrap().placement_receipt(),
-               *prepared.receipt(), "second retry must verify exact existing bytes");
+    assert_eq!(
+        writer
+            .upload_and_verify(&prepared)
+            .await
+            .unwrap()
+            .placement_receipt(),
+        *prepared.receipt(),
+        "second retry must verify exact existing bytes"
+    );
 
     let other = prepare_free_pack(
         BUCKET,
@@ -382,16 +395,34 @@ async fn drop_r4b2_real_s3_lost_ack_retry_and_wrong_existing_object_fail_closed(
         &sources,
     )
     .unwrap();
-    client.put_object()
-        .bucket(BUCKET).key(&other.target().pack_key)
+    client
+        .put_object()
+        .bucket(BUCKET)
+        .key(&other.target().pack_key)
         .if_none_match("*")
         .body(ByteStream::from(b"forged existing private PACK".to_vec()))
-        .send().await.unwrap();
-    assert_eq!(writer.upload_and_verify(&other).await.err(),
-               Some(tor_storage::domain::provider::StorageError::Corrupt));
-    let untouched = client.get_object().bucket(BUCKET)
-        .key(&other.target().pack_key).send().await.unwrap()
-        .body.collect().await.unwrap().into_bytes();
-    assert_eq!(untouched.as_ref(), b"forged existing private PACK",
-               "writer may never overwrite an object occupying an approved key");
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        writer.upload_and_verify(&other).await.err(),
+        Some(tor_storage::domain::provider::StorageError::Corrupt)
+    );
+    let untouched = client
+        .get_object()
+        .bucket(BUCKET)
+        .key(&other.target().pack_key)
+        .send()
+        .await
+        .unwrap()
+        .body
+        .collect()
+        .await
+        .unwrap()
+        .into_bytes();
+    assert_eq!(
+        untouched.as_ref(),
+        b"forged existing private PACK",
+        "writer may never overwrite an object occupying an approved key"
+    );
 }
