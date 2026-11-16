@@ -462,8 +462,9 @@ def summary_md(result):
               "seekable groups also count one immutable manifest object per pack. "
               "The storage RUB/month column is the charge at YEAR-END occupancy, not an "
               "average across the first year.", "",
-              "**Limitations:** no real cloud/network charges, backups, PG index/WAL "
-              "retention or manifest overhead; synthetic content is not representative "
+              "**Limitations:** no real cloud/network charges, backups, or PG index/WAL "
+              "retention; simple PACK rows exclude manifest/index overhead, but the "
+              "Seekable row includes its own table and sidecar; synthetic text is not representative "
               "for real compression ratios; fixed read order may warm local caches; "
               "pg COPY vs sequential S3 PUT is not ingestion-throughput parity; "
               "modeled tariff constants must be revalidated at decision time.", ""]
