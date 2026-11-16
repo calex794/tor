@@ -1,5 +1,6 @@
 pub mod crypto;
 pub mod free_chapter;
+pub mod free_pack_read;
 pub mod free_placement;
 pub mod gc;
 pub mod provider;
