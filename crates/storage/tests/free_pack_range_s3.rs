@@ -168,7 +168,7 @@ async fn drop_r3a_real_private_minio_range_reads_only_selected_zstd_frame() {
     let frame = proven.frames()[1].clone();
     assert_eq!(
         verifier
-            .verify_independent_full_get(&target, &[edition.clone()])
+            .verify_independent_full_get(&target, std::slice::from_ref(&edition))
             .await
             .err(),
         Some(StorageError::Corrupt),
