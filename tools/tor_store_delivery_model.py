@@ -110,9 +110,16 @@ def s3_delivery_case(*, profile, yearly_chapters, reads_per_day, cache_hit, rang
     measured = monthly_s3_cost(
         store_class=store_class, storage_gib=pack_size_gib,
         puts=put_month, gets=billed_gets, egress_gib=egress_gib)
-    single_result = monthly_s3_cost(
+    single_cached = monthly_s3_cost(
         store_class=store_class, storage_gib=single_size_gib,
         puts=single_put_month, gets=misses, egress_gib=misses *
+        mean_compressed_bytes * payload_multiplier / GIB)
+    # Current S349-style presigned Single delivery: every reader request
+    # reaches the object store. There is NO shared storage-gateway byte cache.
+    direct_reads = reads_per_day * 30
+    single_direct = monthly_s3_cost(
+        store_class=store_class, storage_gib=single_size_gib,
+        puts=single_put_month, gets=direct_reads, egress_gib=direct_reads *
         mean_compressed_bytes * payload_multiplier / GIB)
     return {
         "annual_ingest_chapters": yearly_chapters,
@@ -130,11 +137,16 @@ def s3_delivery_case(*, profile, yearly_chapters, reads_per_day, cache_hit, rang
         "single_usable_gib_at_year_end": round(single_size_gib, 3),
         "pack_physical_objects_at_year_end": pack_object_count,
         "pack": measured,
-        "single_zstd3": single_result,
+        "single_zstd3": single_direct,
+        "single_zstd3_same_cache": single_cached,
         "additional_monthly_delivery_and_ops_break_even_rub": (
-            None if single_result["total_known_rub"] is None or
+            None if single_cached["total_known_rub"] is None or
                     measured["total_known_rub"] is None else round(
-                single_result["total_known_rub"] - measured["total_known_rub"], 2)),
+                single_cached["total_known_rub"] - measured["total_known_rub"], 2)),
+        "relative_monthly_s3_savings_vs_direct_single_rub": (
+            None if single_direct["total_known_rub"] is None or
+                    measured["total_known_rub"] is None else round(
+                single_direct["total_known_rub"] - measured["total_known_rub"], 2)),
     }
 
 
@@ -261,6 +273,8 @@ def self_test():
     assert b["origin_get_per_month"] == 600_000
     assert b["pack"]["get_rub"] < a["pack"]["get_rub"]
     assert b["pack_physical_objects_at_year_end"] == 1_200_000
+    assert b["single_zstd3"]["get_rub"] == a["single_zstd3"]["get_rub"]
+    assert b["single_zstd3_same_cache"]["get_rub"] < b["single_zstd3"]["get_rub"]
     print("TOR-STORE delivery tariff/cache/GET sensitivity preflight: PASS")
 
 
@@ -301,9 +315,11 @@ def markdown_report(data):
           f"- Average Zstd3 encoded frame: {data['mean_zstd3_frame_bytes']:.1f} B. "
           f"Average raw edition: {data['mean_raw_frame_bytes']:.1f} B. "
           "Both from synthetic benchmark, not real book text.",
-          "- The direct-Single comparison assumes it already uses the same codec "
-          "and shares the same cache hit assumptions. It cannot automatically "
-          "serve every restricted edition without TOR authorization.",
+          "- Direct Single uses S349-like presigned object delivery and is modeled "
+          "WITHOUT a shared VPS byte-cache. A second single_zstd3_same_cache "
+          "baseline is also saved to JSON for a controlled same-cache comparison. "
+          "Both use the same codec and require TOR's real authorization rules; "
+          "comparing PACK+cache with direct Single blends cache and pack benefits.",
           "- A PACK read with a trusted indexed placement uses 1 S3 Range GET. "
           "A cold seek-table lookup uses 2; a manifest GET per read or shared "
           "authorization would add work not in this baseline.",
