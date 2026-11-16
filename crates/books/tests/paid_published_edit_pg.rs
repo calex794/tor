@@ -257,6 +257,103 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
         .unwrap()
         .is_some());
 
+    // S022/R1: a deferred constraint trigger makes COMMIT fail only after
+    // the V2 pointer, manifest and release event have been staged. This is
+    // a real PostgreSQL COMMIT-time rollback, not an interrupted TCP ACK.
+    let migrator_url = std::env::var("MIGRATOR_URL").expect("disposable PG migrator");
+    assert_eq!(
+        migrator_url,
+        "postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci",
+        "only isolated CI schema owners may install this test trigger"
+    );
+    let migrator = PgPool::connect(&migrator_url).await.unwrap();
+    sqlx::query(
+        "CREATE FUNCTION ci_s022_fail_v2_commit() RETURNS trigger AS $
+         BEGIN
+           RAISE EXCEPTION 'S022 injected deferred commit rejection'
+             USING ERRCODE = '40001';
+         END
+         $ LANGUAGE plpgsql",
+    )
+    .execute(&migrator)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE CONSTRAINT TRIGGER ci_s022_deferred_paid_swap
+         AFTER UPDATE ON chapter_publications
+         DEFERRABLE INITIALLY DEFERRED
+         FOR EACH ROW WHEN (OLD.version_id IS DISTINCT FROM NEW.version_id)
+         EXECUTE FUNCTION ci_s022_fail_v2_commit()",
+    )
+    .execute(&migrator)
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.attach_verified_and_publish(
+            owner,
+            book,
+            pinned(chapter, v2.version_id),
+            &object_v2,
+            PaidPublication::PublishEdit {
+                expected_current: v1,
+                expected_revision: 1,
+            },
+        )
+        .await,
+        Err(AuthorError::Unavailable),
+        "a failed COMMIT cannot partially publish a paid edition"
+    );
+    let after_failed_commit: (i64, i64) = sqlx::query_as(
+        "SELECT p.version_id,c.edit_revision FROM chapter_publications p
+         JOIN chapters c ON c.id=p.chapter_id WHERE c.id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(after_failed_commit, before);
+    let unpublished_link: Option<String> =
+        sqlx::query_scalar("SELECT storage_object_id::text FROM chapter_versions WHERE id=$1")
+            .bind(v2.version_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unpublished_link, None, "failed COMMIT must roll back G attachment");
+    let unpublished_object_state: String =
+        sqlx::query_scalar("SELECT state FROM storage_objects WHERE id=$1::uuid")
+            .bind(object_v2.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unpublished_object_state, "ready");
+    let unpublished_facts: (i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT count(*) FROM chapter_reader_manifests
+            WHERE chapter_id=$1 AND version_id=$2),
+           (SELECT count(*) FROM chapter_encrypted_release_events
+            WHERE chapter_id=$1 AND version_id=$2)",
+    )
+    .bind(chapter)
+    .bind(v2.version_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unpublished_facts, (0, 0));
+    assert!(repo
+        .encrypted_chapter(pinned(chapter, v1))
+        .await
+        .unwrap()
+        .is_some());
+    sqlx::query("DROP TRIGGER ci_s022_deferred_paid_swap ON chapter_publications")
+        .execute(&migrator)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION ci_s022_fail_v2_commit()")
+        .execute(&migrator)
+        .await
+        .unwrap();
+    migrator.close().await;
+
     repo.attach_verified_and_publish(
         owner,
         book,
