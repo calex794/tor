@@ -1,4 +1,7 @@
 //! C-09/S006: disposable PostgreSQL concurrency and immutable paid versions.
+#[path = "slices_pg/pg_outage.rs"]
+mod pg_outage;
+
 use tor_reading::{
     repositories::{PgReadingProgress, PgReadingSync},
     services::{
