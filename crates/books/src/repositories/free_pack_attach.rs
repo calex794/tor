@@ -103,7 +103,7 @@ impl PgFreePackCatalog {
         let row = sqlx::query(
             "SELECT actor_user_id,book_id,status,lease_epoch,
                     approved_fingerprint,expected_chapter_count,pack_id,
-                    COALESCE(locked_until>now(),false) AS lease_valid
+                    COALESCE(locked_until>clock_timestamp(),false) AS lease_valid
              FROM free_pack_jobs WHERE id=$1 FOR UPDATE",
         )
         .bind(job_id)
@@ -224,7 +224,7 @@ impl PgFreePackCatalog {
             "UPDATE free_pack_jobs SET status='succeeded',pack_id=$3,
                 locked_until=NULL,finished_at=now(),updated_at=now()
              WHERE id=$1 AND lease_epoch=$2 AND status='running'
-               AND locked_until>now()",
+               AND locked_until>clock_timestamp()",
         )
         .bind(job_id)
         .bind(expected_epoch)
