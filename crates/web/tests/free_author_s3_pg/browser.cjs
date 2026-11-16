@@ -5,6 +5,7 @@ const path = require('node:path');
 const { createRequire } = require('node:module');
 const requireRepo = createRequire(path.join(process.cwd(), 'package.json'));
 const { chromium } = requireRepo('playwright');
+let stage = 'launch';
 
 (async () => {
   const config = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -131,6 +132,7 @@ const { chromium } = requireRepo('playwright');
             finish.evaluate(form => form.requestSubmit()),
           ]);
           assert.equal(response.status(), 303, 'completion must use B source metadata without PG plaintext');
+          stage = 'public S3 selection tools';
           await page.goto(config.origin + '/reader/' + config.chapter);
           await page.waitForFunction(() => {
             const span = [...document.querySelectorAll('#chapter-text span[data-md-start]')]
@@ -150,6 +152,7 @@ const { chromium } = requireRepo('playwright');
             comment.evaluate(form => form.requestSubmit()),
           ]);
           assert.equal(commentResponse.status(), 303, 'S3-only anchored comments must validate the actual source');
+          stage = 'private S3 correction selection';
           await page.goto(config.origin + '/read/' + config.chapter);
           await page.waitForFunction(() => {
             const span = [...document.querySelectorAll('#chapter-text span[data-md-start]')]
@@ -189,6 +192,6 @@ const { chromium } = requireRepo('playwright');
     await browser.close();
   }
 })().catch(error => {
-  console.error('S349 real browser scenario failed:', String(error.message).replace(/https?:\/\/\S+/g, '[url]'));
+  console.error('S349 real browser scenario failed at ' + stage + ':', String(error.message).replace(/https?:\/\/\S+/g, '[url]'));
   process.exitCode = 1;
 });

@@ -44,6 +44,8 @@ async function runCase(options = {}) {
     }
   }
   const article = new Element("article");
+  const comments = new Element("section");
+  article.closest = () => options.comments ? { querySelector: () => comments } : null;
   article.dataset = {
     freeS3Chapter: "101", freeS3Version: "201", freeS3Csrf: options.csrf || "",
     ...options.dataset,
@@ -186,6 +188,14 @@ test("a saved edition requests its pin-scoped capability", async () => {
   const result = await runCase({ dataset: { freeS3Saved: "1" } });
   assert.equal(result.failed, false);
   assert.equal(result.requests[0].url, "/api/v1/chapters/101/free-grant?mode=saved&version_id=201");
+});
+
+test("guest comment anchors initialize from the registered S3 bundle after verified text", async () => {
+  const result = await runCase({ comments: true });
+  assert.equal(result.failed, false);
+  assert.equal(result.scripts.length, 1);
+  assert.equal(result.scripts[0].src, "/assets/newboo-free-progress-s3.js");
+  assert.equal(result.article.dataset.freeProgressCsrf, "");
 });
 
 for (const status of [403, 404, 503]) {

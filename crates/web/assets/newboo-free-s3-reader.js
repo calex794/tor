@@ -17,8 +17,8 @@
     notice.textContent = "Текст главы недоступен. Проверьте соединение и обновите страницу.";
     article.append(notice);
   };
-  const progress = (text) => {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(csrf)) return;
+  const progress = (text, withComments = false) => {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(csrf) && !withComments) return;
     const paragraphs = text.split("\n\n");
     const groupSize = Math.ceil(paragraphs.length / 200);
     const blocks = [];
@@ -219,11 +219,9 @@
         positions.push(start + ":" + length); start += length + 2;
       }
       panel.dataset.readerCommentBlocks = positions.join(",");
-      const script = document.createElement("script");
-      script.src = "/assets/newboo-free-comments.js"; script.defer = true; document.head.append(script);
     }
     completion(text);
-    progress(text);
+    progress(text, !!panel);
   };
   const readBounded = async (response, limit) => {
     const stream = response.body?.getReader();
