@@ -238,9 +238,7 @@ async fn a_02_committed_registration_lost_http_ack_recovers_without_duplicate() 
         "email={}&display_name=AckLostReader&password=LongSecurePassword2026&csrf_token={csrf}",
         email.replace('@', "%40")
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let wire = format!(
         "POST /register HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/x-www-form-urlencoded\r\nOrigin: {ORIGIN}\r\nCookie: {csrf_cookie}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{form}",
@@ -281,10 +279,11 @@ async fn a_02_committed_registration_lost_http_ack_recovers_without_duplicate() 
             "proxy must close TCP before sending any HTTP acknowledgement"
         );
     });
-    let (client_result, proxy_result) =
-        tokio::time::timeout(Duration::from_secs(30), async { tokio::join!(client, proxy) })
-            .await
-            .expect("injected response-loss request must terminate");
+    let (client_result, proxy_result) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(client, proxy)
+    })
+    .await
+    .expect("injected response-loss request must terminate");
     client_result.expect("TCP client");
     let lost_session = proxy_result.expect("server committed registration");
 
