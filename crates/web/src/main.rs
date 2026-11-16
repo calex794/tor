@@ -1,5 +1,6 @@
 mod auth_startup;
 mod book_schedule_worker;
+mod drop_pack_bootstrap;
 mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
@@ -22,6 +23,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
+    let drop_pack_worker_enabled = drop_pack_bootstrap::enabled(demo)?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -197,6 +199,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )> = None;
     #[cfg(feature = "s3-free")]
     let mut pending_free_import_author: Option<tor_web::free_author_publish::S3FreeAuthor> = None;
+    #[cfg(feature = "s3-free")]
+    let mut pending_drop_pack_worker = None;
+    #[cfg(not(feature = "s3-free"))]
+    let _ = drop_pack_worker_enabled;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
@@ -378,6 +384,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(feature = "s3-free")]
                 let free_author = auth_startup::configured_free_publisher(&catalog).await?;
                 #[cfg(feature = "s3-free")]
+                if drop_pack_worker_enabled {
+                    pending_drop_pack_worker =
+                        Some(drop_pack_bootstrap::configure(&catalog).await?);
+                }
+                #[cfg(feature = "s3-free")]
                 {
                     if chapter_import_worker_enabled && free_author.is_none() {
                         return Err(
@@ -531,6 +542,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         })
     });
+    #[cfg(feature = "s3-free")]
+    let _drop_pack_worker =
+        pending_drop_pack_worker.map(tor_web::free_pack_worker::runner::start_background);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         println!("TOR chapter import worker enabled");
         #[cfg(feature = "s3-free")]
