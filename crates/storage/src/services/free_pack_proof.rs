@@ -47,9 +47,12 @@ impl PackProofTarget {
             || self.pack_key.len() > 240
             || self.pack_key.contains("//")
             || self.pack_key.split('/').any(|segment| {
-                segment.is_empty() || segment == "." || segment == ".."
-                    || !segment.bytes().all(|b| b.is_ascii_alphanumeric()
-                        || matches!(b, b'-' | b'_' | b'.'))
+                segment.is_empty()
+                    || segment == "."
+                    || segment == ".."
+                    || !segment
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
             })
             || self.manifest_key != format!("{stem}.manifest.json")
             || self.pack_sha256 == [0; 32]
@@ -154,10 +157,7 @@ pub fn verify_full_pack(
         || manifest.seek_table_bytes != table_bytes as u64
         || manifest.frames != count
         || manifest.entries.len() != count
-        || target
-            .seek_table_start
-            .checked_add(table_bytes as u64)
-            != Some(target.pack_bytes)
+        || target.seek_table_start.checked_add(table_bytes as u64) != Some(target.pack_bytes)
     {
         return Err(StorageError::Corrupt);
     }
@@ -165,12 +165,15 @@ pub fn verify_full_pack(
     let table = pack.get(start..).ok_or(StorageError::Corrupt)?;
     if table.len() != table_bytes
         || read_u32(table.get(..4).ok_or(StorageError::Corrupt)?) != Some(SKIPPABLE_MAGIC)
-        || read_u32(table.get(4..8).ok_or(StorageError::Corrupt)?)
-            != Some((table_bytes - 8) as u32)
-        || read_u32(table.get(table_bytes - 9..table_bytes - 5).ok_or(StorageError::Corrupt)?)
-            != Some(count as u32)
+        || read_u32(table.get(4..8).ok_or(StorageError::Corrupt)?) != Some((table_bytes - 8) as u32)
+        || read_u32(
+            table
+                .get(table_bytes - 9..table_bytes - 5)
+                .ok_or(StorageError::Corrupt)?,
+        ) != Some(count as u32)
         || table[table_bytes - 5] != 0
-        || read_u32(table.get(table_bytes - 4..).ok_or(StorageError::Corrupt)?) != Some(SEEKABLE_MAGIC)
+        || read_u32(table.get(table_bytes - 4..).ok_or(StorageError::Corrupt)?)
+            != Some(SEEKABLE_MAGIC)
     {
         return Err(StorageError::Corrupt);
     }
@@ -197,15 +200,14 @@ pub fn verify_full_pack(
         {
             return Err(StorageError::Corrupt);
         }
-        let (compressed, decompressed) = read_table_entry(table, index)
-            .ok_or(StorageError::Corrupt)?;
-        if compressed == 0
-            || compressed != entry.encoded_bytes
-            || decompressed != entry.raw_bytes
-        {
+        let (compressed, decompressed) =
+            read_table_entry(table, index).ok_or(StorageError::Corrupt)?;
+        if compressed == 0 || compressed != entry.encoded_bytes || decompressed != entry.raw_bytes {
             return Err(StorageError::Corrupt);
         }
-        let end = offset.checked_add(compressed).ok_or(StorageError::Corrupt)?;
+        let end = offset
+            .checked_add(compressed)
+            .ok_or(StorageError::Corrupt)?;
         if end > target.seek_table_start {
             return Err(StorageError::Corrupt);
         }
@@ -224,7 +226,10 @@ pub fn verify_full_pack(
         )?;
         let start = usize::try_from(offset).map_err(|_| StorageError::Corrupt)?;
         let end_usize = usize::try_from(end).map_err(|_| StorageError::Corrupt)?;
-        decode_exact_frame(&frame, pack.get(start..end_usize).ok_or(StorageError::Corrupt)?)?;
+        decode_exact_frame(
+            &frame,
+            pack.get(start..end_usize).ok_or(StorageError::Corrupt)?,
+        )?;
         frames.push(frame);
         offset = end;
     }
