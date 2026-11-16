@@ -65,29 +65,46 @@ let stage = 'launch';
       const context = await browser.newContext({ viewport: { width: config.width || 390, height: 844 }, javaScriptEnabled: config.mode !== 'no-js' });
       if (config.session) await context.addCookies([{ name: 'tor-dev-session', value: config.session, url: config.origin }]);
       const page = await context.newPage();
-      const checks = [];
       let directGets = 0, storageBytes = 0;
       let signalFirstS3;
       const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
-      // The test's Axum boundary inspects every served reader/grant byte.
-      // Chromium Network proves the actual cross-origin downloads and sizes.
-      // Do not request retired document bodies from CDP after a navigation.
-      page.on('requestfinished', request => {
-        if (new URL(request.url()).origin !== config.storage_origin || request.method() !== 'GET') return;
-        const check = request.sizes().then(size => {
-          assert(size.responseBodySize > 0, 'the direct browser GET must transfer real bytes');
-          directGets++; storageBytes += size.responseBodySize;
-          return null;
-        }).catch(error => error);
-        checks.push(check);
-        // Content can render before Playwright emits requestfinished; wait for
-        // an actual completed S3 GET instead of sampling an empty array.
-        void check.then(() => signalFirstS3());
+      const s3Requests = new Map(), networkErrors = [];
+      // Capture source-byte transfers with Chromium's Network.dataReceived,
+      // not Playwright Request.sizes(): sizes may throw after fast navigation
+      // has disposed the previous document, even for a completed S3 GET.
+      // CDP metadata does not retrieve or log the private response body.
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Network.enable');
+      cdp.on('Network.requestWillBeSent', event => {
+        if (event.request.method !== 'GET') return;
+        const url = new URL(event.request.url);
+        if (url.origin !== config.storage_origin ||
+            !url.pathname.startsWith('/tor-s349-new-free-ci/private/free-chapters/' + config.chapter + '/')) return;
+        s3Requests.set(event.requestId, { status: null, bodyBytes: 0 });
       });
-      page.on('requestfailed', request => {
-        if (new URL(request.url()).origin !== config.storage_origin || request.method() !== 'GET') return;
-        checks.push(Promise.resolve(new Error('direct S3 GET failed: ' +
-          (request.failure()?.errorText || 'unknown'))));
+      cdp.on('Network.responseReceived', event => {
+        const record = s3Requests.get(event.requestId);
+        if (record) record.status = event.response.status;
+      });
+      cdp.on('Network.dataReceived', event => {
+        const record = s3Requests.get(event.requestId);
+        if (record) record.bodyBytes += event.dataLength;
+      });
+      cdp.on('Network.loadingFinished', event => {
+        const record = s3Requests.get(event.requestId);
+        if (!record) return;
+        s3Requests.delete(event.requestId);
+        if (record.status === 200 && record.bodyBytes > 0) {
+          directGets++;
+          storageBytes += record.bodyBytes;
+        } else {
+          networkErrors.push('S3 GET status=' + record.status + ' bytes=' + record.bodyBytes);
+        }
+        signalFirstS3();
+      });
+      cdp.on('Network.loadingFailed', event => {
+        if (!s3Requests.delete(event.requestId)) return;
+        networkErrors.push('S3 GET failed: ' + event.errorText);
         signalFirstS3();
       });
       const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
@@ -224,9 +241,8 @@ let stage = 'launch';
         await page.screenshot({ path: path.join(process.env.TOR_PAID_READER_SHOTS,
           `s349-free-${surface}-${config.width || 390}.png`), fullPage: true });
       }
-      // The DOM may update before Chromium reports Network.requestfinished,
-      // especially for the short hidden-admin S3 response. This bounded
-      // event wait preserves the security assertion without sleep-based luck.
+      // The DOM may update before Chromium emits Network.loadingFinished.
+      // Require the exact private chapter GET to finish, with real body bytes.
       let networkTimeout;
       try {
         await Promise.race([
@@ -239,9 +255,9 @@ let stage = 'launch';
       } finally {
         clearTimeout(networkTimeout);
       }
-      const outcomes = await Promise.all(checks);
-      assert(!outcomes.some(Boolean), 'browser Network sizes must be available');
-      assert(directGets >= 1, 'browser must download directly from the storage origin');
+      assert.deepEqual(networkErrors, [], 'all direct S3 GETs must finish successfully');
+      assert(directGets >= 1, 'browser must download the private chapter from the storage origin');
+      await cdp.detach();
       process.stdout.write(JSON.stringify({ storage_bytes: storageBytes,
         direct_s3_gets: directGets, corrupt_rejected: config.mode === 'corrupt', read: config.mode === 'read' || config.mode === 'no-js' }));
       await context.close();
