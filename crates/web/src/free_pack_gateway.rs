@@ -83,7 +83,8 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
                 manifest_sha256: candidate.manifest_sha256,
             };
             let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
-            let plan: FreeReadPlan = plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
+            let plan: FreeReadPlan =
+                plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
             Ok(Some(plan))
         }
     };
