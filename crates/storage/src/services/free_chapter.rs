@@ -131,8 +131,13 @@ pub async fn upload_and_verify(
     {
         return Err(StorageError::Invalid);
     }
+    // A provider can commit a conditional PUT and lose its response. An
+    // Unavailable write is therefore ambiguous, not proof of missing bytes.
+    // Recover only when an independent bounded GET verifies the exact
+    // immutable edition. A wrong object remains Corrupt; a failed GET remains
+    // Unavailable. Never publish based on the ambiguous PUT result alone.
     match store.put_immutable(object, bytes).await {
-        Ok(()) | Err(StorageError::Conflict) => {}
+        Ok(()) | Err(StorageError::Conflict | StorageError::Unavailable) => {}
         Err(error) => return Err(error),
     }
     if store.get_verified(object).await? != bytes {
@@ -183,6 +188,78 @@ mod tests {
         ) -> Result<SecretValue, StorageError> {
             Err(StorageError::Unavailable)
         }
+    }
+
+    // Simulate a network acknowledgement lost after the S3 provider accepts
+    // the write; the service must use actual bytes, not the PUT error label.
+    struct AmbiguousStore {
+        stored: Mutex<Option<Vec<u8>>>,
+    }
+
+    #[async_trait]
+    impl FreeChapterStore for AmbiguousStore {
+        async fn put_immutable(
+            &self,
+            _: &FreeChapterObject,
+            _: &[u8],
+        ) -> Result<(), StorageError> {
+            Err(StorageError::Unavailable)
+        }
+
+        async fn get_verified(
+            &self,
+            _: &FreeChapterObject,
+        ) -> Result<Vec<u8>, StorageError> {
+            self.stored
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or(StorageError::Unavailable)
+        }
+
+        async fn presign_verified(
+            &self,
+            _: &FreeChapterObject,
+            _: Duration,
+        ) -> Result<SecretValue, StorageError> {
+            Err(StorageError::Unavailable)
+        }
+    }
+
+    #[tokio::test]
+    async fn ambiguous_s3_put_requires_matching_get_before_publication() {
+        let text = "# Chapter\\n\\nExact bytes, not a PUT acknowledgement";
+        let object = FreeChapterObject::for_markdown(10, 20, text).unwrap();
+
+        let committed_without_ack = AmbiguousStore {
+            stored: Mutex::new(Some(text.as_bytes().to_vec())),
+        };
+        assert_eq!(
+            upload_and_verify(&committed_without_ack, &object, text)
+                .await
+                .unwrap()
+                .object(),
+            &object,
+            "verified retry must recover an already committed exact edition"
+        );
+
+        let wrong_edition = AmbiguousStore {
+            stored: Mutex::new(Some(b"different edition at the same key".to_vec())),
+        };
+        assert_eq!(
+            upload_and_verify(&wrong_edition, &object, text).await.err(),
+            Some(StorageError::Corrupt),
+            "unavailable PUT cannot authorize an incompatible object"
+        );
+
+        let offline = AmbiguousStore {
+            stored: Mutex::new(None),
+        };
+        assert_eq!(
+            upload_and_verify(&offline, &object, text).await.err(),
+            Some(StorageError::Unavailable),
+            "unavailable GET cannot be mistaken for a verified publication"
+        );
     }
 
     #[tokio::test]
