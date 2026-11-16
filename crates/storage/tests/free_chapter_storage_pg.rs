@@ -473,5 +473,161 @@ async fn drop_r2_pack_placement_generations_are_immutable_and_cas_fenced() {
     .execute(&pool)
     .await
     .is_err());
+    // DROP-R4a: separate promotion lease from the immutable candidate.
+    // This does not claim that synthetic S3 bytes have been verified: that
+    // proof is supplied only by the future R3b G/B integration.
+    let pack_sha = vec![5_u8; 32];
+    let manifest_sha = vec![15_u8; 32];
+    let fingerprint = vec![42_u8; 32];
+    let next_pack: i64 = sqlx::query_scalar(
+        "INSERT INTO free_storage_packs
+         (bucket,object_key,manifest_key,pack_sha256,manifest_sha256,
+          manifest_bytes,pack_bytes,seek_table_start)
+         VALUES('tor-private-free-ci',
+         'private/free-packs/ci/drop-r4a-candidate-five.zst',
+         'private/free-packs/ci/drop-r4a-candidate-five.manifest.json',
+         $1,$2,4096,16000,15000) RETURNING id",
+    )
+    .bind(&pack_sha)
+    .bind(&manifest_sha)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO free_edition_storage_generations
+         (chapter_id,version_id,generation,placement_kind,content_sha256,size_bytes,
+          pack_id,frame_offset,frame_bytes)
+         VALUES($1,$2,5,'pack',$3,$4,$5,100,700)",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .bind(&digest)
+    .bind(text.len() as i64)
+    .bind(next_pack)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_promotion_jobs(
+          chapter_id,version_id,expected_generation,next_generation,pack_id,
+          expected_content_sha256,expected_size_bytes,expected_pack_sha256,
+          expected_manifest_sha256,approved_fingerprint,lease_epoch,locked_until)
+         VALUES($1,$2,$3,5,$4,$5,$6,$7,$8,$9,8,now()+interval '1 hour')
+         RETURNING id",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .bind(current)
+    .bind(next_pack)
+    .bind(&digest)
+    .bind(text.len() as i64)
+    .bind(&pack_sha)
+    .bind(&manifest_sha)
+    .bind(&fingerprint)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    async fn finish(
+        pool: &PgPool,
+        job: i64,
+        epoch: i64,
+        fingerprint: &[u8],
+        pack_sha: &[u8],
+        manifest_sha: &[u8],
+    ) -> bool {
+        sqlx::query_scalar("SELECT finish_free_pack_promotion($1,$2,$3,$4,$5)")
+            .bind(job)
+            .bind(epoch)
+            .bind(fingerprint)
+            .bind(pack_sha)
+            .bind(manifest_sha)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    assert!(!finish(&pool, job, 7, &fingerprint, &pack_sha, &manifest_sha).await);
+    assert!(!finish(&pool, job, 8, &[31_u8; 32], &pack_sha, &manifest_sha).await);
+    assert!(!finish(&pool, job, 8, &fingerprint, &[31_u8; 32], &manifest_sha).await);
+    assert!(!finish(&pool, job, 8, &fingerprint, &pack_sha, &[31_u8; 32]).await);
+
+    // A live admin hold blocks a physical promotion, not only the reader.
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!finish(&pool, job, 8, &fingerprint, &pack_sha, &manifest_sha).await);
+    sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "UPDATE free_pack_promotion_jobs SET locked_until=now()-interval '1 second' WHERE id=$1",
+    )
+    .bind(job)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!finish(&pool, job, 8, &fingerprint, &pack_sha, &manifest_sha).await);
+    sqlx::query("UPDATE free_pack_promotion_jobs SET lease_epoch=9,locked_until=now()+interval '1 hour' WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!finish(&pool, job, 8, &fingerprint, &pack_sha, &manifest_sha).await);
+
+    let (left, right) = tokio::join!(
+        finish(&pool, job, 9, &fingerprint, &pack_sha, &manifest_sha),
+        finish(&pool, job, 9, &fingerprint, &pack_sha, &manifest_sha)
+    );
+    assert_ne!(left, right, "exactly one current lease finalizer may win");
+    assert!(!finish(&pool, job, 9, &fingerprint, &pack_sha, &manifest_sha).await);
+    let final_generation: i64 = sqlx::query_scalar(
+        "SELECT generation FROM free_edition_active_storage
+         WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(final_generation, 5);
+    let final_status: String =
+        sqlx::query_scalar("SELECT status FROM free_pack_promotion_jobs WHERE id=$1")
+            .bind(job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(final_status, "succeeded");
+    assert!(
+        sqlx::query("UPDATE free_pack_promotion_jobs SET pack_id=$2 WHERE id=$1")
+            .bind(job)
+            .bind(pack)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("UPDATE free_pack_promotion_jobs SET status='running' WHERE id=$1")
+            .bind(job)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT version_id FROM chapter_publications WHERE chapter_id=$1"
+        )
+        .bind(chapter)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        v1,
+        "physical promotion must not change the published B edition"
+    );
     pool.close().await;
 }
