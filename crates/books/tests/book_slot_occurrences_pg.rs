@@ -146,3 +146,153 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     assert_eq!(events, 0, "claiming a slot must not release any chapter");
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn s058_global_queue_skips_locked_book_then_claims_it_after_rollback() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never touch production");
+    // Coordinate global queue tests across binaries; this is not the Book
+    // lock under test, which is held by a separate transaction below.
+    let mut fixture_lock = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(580058)")
+        .execute(&mut fixture_lock)
+        .await
+        .unwrap();
+    let pool = PgPool::connect(&url).await.unwrap();
+
+    // A previous interrupted run may have left only this test's fixtures due.
+    // Clean up our own namespace, never other tests' or production schedules.
+    sqlx::query(
+        "UPDATE book_delayed_publication_settings s
+         SET enabled=FALSE FROM books b
+         WHERE b.id=s.book_id AND b.source_identity
+           LIKE 'tor-ci:s058-queue-stress:%' AND s.enabled",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('s058-queue-stress@tor-ci.example','S058 queue','$argon2id$test')
+         ON CONFLICT(email_normalized)
+         DO UPDATE SET display_name=EXCLUDED.display_name RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let author = PgAuthoring::new(pool.clone());
+    let make_book = |suffix: &str, key: u128| {
+        new_book(
+            &format!("tor-ci:s058-queue-stress:{suffix}:{nonce}"),
+            "ru",
+            &format!("S058 worker queue {suffix} {nonce}"),
+            &format!("{key:043x}"),
+        )
+        .unwrap()
+    };
+    let oldest = author
+        .create_owned_book(owner, &make_book("oldest", nonce))
+        .await
+        .unwrap();
+    let newer = author
+        .create_owned_book(owner, &make_book("newer", nonce + 1))
+        .await
+        .unwrap();
+    for book in [oldest, newer] {
+        author
+            .replace_book_delayed_schedule(owner, book, true, 1, &slots())
+            .await
+            .unwrap();
+    }
+    // A historical fixed deadline makes both test books due before the
+    // ordinary 'now - 1 second' fixtures; the ordering is deterministic.
+    for (book, timestamp) in [
+        (oldest, "2001-01-01 00:00:00+00"),
+        (newer, "2001-01-02 00:00:00+00"),
+    ] {
+        sqlx::query(
+            "UPDATE book_delayed_publication_settings
+             SET next_slot_at=$2::timestamptz WHERE book_id=$1",
+        )
+        .bind(book)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let mut hold = pool.begin().await.unwrap();
+    let locked: i64 = sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR UPDATE")
+        .bind(oldest)
+        .fetch_one(&mut *hold)
+        .await
+        .unwrap();
+    assert_eq!(locked, oldest);
+    let second_token = "s".repeat(43);
+    let second = author
+        .claim_due_book_slot(&second_token)
+        .await
+        .unwrap()
+        .expect("SKIP LOCKED must claim the other due book");
+    assert_eq!(
+        second.book_id, newer,
+        "unrelated due fixture or incorrect SKIP LOCKED order: {second:?}"
+    );
+    assert_eq!(second.attempt_count, 1);
+    assert!(author
+        .book_slot_claim_is_current(&second, &second_token)
+        .await
+        .unwrap());
+    // Releasing the first Book lock must not lose its pending slot.
+    hold.rollback().await.unwrap();
+    let first_token = "t".repeat(43);
+    let first = author
+        .claim_due_book_slot(&first_token)
+        .await
+        .unwrap()
+        .expect("the first book must be claimable immediately after unlock");
+    assert_eq!(
+        first.book_id, oldest,
+        "the previously locked Book was skipped after rollback: {first:?}"
+    );
+    assert_eq!(first.attempt_count, 1);
+    assert!(author
+        .book_slot_claim_is_current(&first, &first_token)
+        .await
+        .unwrap());
+    let (occurrences, published): (i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT count(*) FROM book_delayed_publication_occurrences
+            WHERE book_id IN ($1,$2)),
+           (SELECT count(*) FROM chapter_first_release_events e
+            JOIN chapters c ON c.id=e.chapter_id
+            WHERE c.book_id IN ($1,$2))",
+    )
+    .bind(oldest)
+    .bind(newer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(occurrences, 2, "one durable occurrence per Book");
+    assert_eq!(published, 0, "a slot claim is not a chapter publication");
+    for book in [oldest, newer] {
+        author
+            .replace_book_delayed_schedule(owner, book, false, 1, &slots())
+            .await
+            .unwrap();
+    }
+    assert!(!author
+        .book_slot_claim_is_current(&first, &first_token)
+        .await
+        .unwrap());
+    assert!(!author
+        .book_slot_claim_is_current(&second, &second_token)
+        .await
+        .unwrap());
+    pool.close().await;
+}
