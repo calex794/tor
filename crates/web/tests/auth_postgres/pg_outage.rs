@@ -21,7 +21,8 @@ async fn a_02_registration_pg_pool_outage_never_mints_session_then_recovers() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let closing_pool = catalog.pool();
     let offline_app = app_with_pool(catalog);
-    let witness = sqlx::PgPool::connect(&url).await.unwrap();
+    let witness_catalog = PgCatalog::connect(&url).await.unwrap();
+    let witness = PgAccounts::from_pool(witness_catalog.pool());
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -54,13 +55,9 @@ async fn a_02_registration_pg_pool_outage_never_mints_session_then_recovers() {
             .all(|value| !value.to_str().unwrap_or("").starts_with("tor-dev-session=")),
         "failed registration must never return a session cookie"
     );
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE email_normalized=$1",)
-            .bind(&email)
-            .fetch_one(&witness)
-            .await
-            .unwrap(),
-        0,
+    assert!(
+        witness.find_user(&email).await.unwrap().is_none(),
+        "failed registration must not persist an account"
     );
 
     // Rebuild the router with a fresh live pool: this is equivalent to a
@@ -72,20 +69,20 @@ async fn a_02_registration_pg_pool_outage_never_mints_session_then_recovers() {
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    assert!(created
-        .headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .any(|value| value.to_str().unwrap_or("").starts_with("tor-dev-session=")),);
-    let (user_id, session_count): (i64, i64) = sqlx::query_as(
-        "SELECT u.id, (SELECT count(*) FROM sessions s WHERE s.user_id=u.id)
-         FROM users u WHERE u.email_normalized=$1",
-    )
-    .bind(&email)
-    .fetch_one(&witness)
-    .await
-    .unwrap();
-    assert_eq!(session_count, 1);
+    let session = cookie(&created, "tor-dev-session=");
+    let digest = tor_accounts::services::security::session_token_digest(
+        session.split_once('=').expect("session cookie pair").1,
+    );
+    let user_id = witness
+        .find_user(&email)
+        .await
+        .unwrap()
+        .expect("registered user")
+        .id;
+    assert_eq!(witness.active_session_user(&digest).await.unwrap(), Some(user_id));
+    let sessions = witness.list_active_sessions(user_id, &digest).await.unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0].current);
 
     let repeated = send(
         &healthy_app,
@@ -94,13 +91,13 @@ async fn a_02_registration_pg_pool_outage_never_mints_session_then_recovers() {
     .await;
     assert_ne!(repeated.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions WHERE user_id=$1",)
-            .bind(user_id)
-            .fetch_one(&witness)
+        witness
+            .list_active_sessions(user_id, &digest)
             .await
-            .unwrap(),
+            .unwrap()
+            .len(),
         1,
         "a rejected duplicate must not mint a second session"
     );
-    witness.close().await;
+    witness_catalog.pool().close().await;
 }
