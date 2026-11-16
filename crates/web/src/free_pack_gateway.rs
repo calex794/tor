@@ -39,53 +39,51 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
     if chapter <= 0 || matches!(mode, FreePackReadMode::Saved { version_id } if version_id <= 0) {
         return Err(StorageError::Invalid);
     }
-    let resolve = || {
-        async move {
-            let result = match mode {
-                FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
-                FreePackReadMode::Saved { version_id } => {
-                    c.for_saved_session(chapter, version_id, session_digest)
-                        .await
-                }
-            };
-            let authorized: FreeS3Ref = match result.map_err(|_| StorageError::Unavailable)? {
-                Some(record) => record,
-                None => return Ok(None),
-            };
-            let candidate = b
-                .verified_free_range_candidate(
-                    authorized.chapter_id,
-                    authorized.version_id,
-                    authorized.sha256,
-                    authorized.size_bytes,
-                    &authorized.bucket,
-                )
-                .await
-                .map_err(|_| StorageError::Unavailable)?;
-            let Some(candidate) = candidate else {
-                return Ok(None);
-            };
-            let edition = FreeChapterObject::from_metadata(
+    let resolve = || async move {
+        let result = match mode {
+            FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
+            FreePackReadMode::Saved { version_id } => {
+                c.for_saved_session(chapter, version_id, session_digest)
+                    .await
+            }
+        };
+        let authorized: FreeS3Ref = match result.map_err(|_| StorageError::Unavailable)? {
+            Some(record) => record,
+            None => return Ok(None),
+        };
+        let candidate = b
+            .verified_free_range_candidate(
                 authorized.chapter_id,
                 authorized.version_id,
                 authorized.sha256,
                 authorized.size_bytes,
-            )?;
-            let metadata = PackMetadata {
-                bucket: candidate.bucket,
-                key: candidate.key,
-                pack_bytes: candidate.pack_bytes,
-                seek_table_start: candidate.seek_table_start,
-                frame_offset: candidate.frame_offset,
-                frame_bytes: candidate.frame_bytes,
-                pack_sha256: candidate.pack_sha256,
-                manifest_sha256: candidate.manifest_sha256,
-            };
-            let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
-            let plan: FreeReadPlan =
-                plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
-            Ok(Some(plan))
-        }
+                &authorized.bucket,
+            )
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+        let Some(candidate) = candidate else {
+            return Ok(None);
+        };
+        let edition = FreeChapterObject::from_metadata(
+            authorized.chapter_id,
+            authorized.version_id,
+            authorized.sha256,
+            authorized.size_bytes,
+        )?;
+        let metadata = PackMetadata {
+            bucket: candidate.bucket,
+            key: candidate.key,
+            pack_bytes: candidate.pack_bytes,
+            seek_table_start: candidate.seek_table_start,
+            frame_offset: candidate.frame_offset,
+            frame_bytes: candidate.frame_bytes,
+            pack_sha256: candidate.pack_sha256,
+            manifest_sha256: candidate.manifest_sha256,
+        };
+        let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
+        let plan: FreeReadPlan =
+            plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
+        Ok(Some(plan))
     };
     read_reauthorized_pack(resolve, s3).await
 }
