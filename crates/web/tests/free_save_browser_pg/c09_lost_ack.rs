@@ -36,16 +36,8 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         let mut received = vec![0; expected_wire.len()];
         socket.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected_wire.as_bytes());
-        let (status, receipt) = send(
-            &routed,
-            "PUT",
-            &path,
-            &payload,
-            Some(&token),
-            &csrf,
-            ORIGIN,
-        )
-        .await;
+        let (status, receipt) =
+            send(&routed, "PUT", &path, &payload, Some(&token), &csrf, ORIGIN).await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             receipt.contains("\"revision\":2"),
@@ -63,12 +55,12 @@ pub(super) async fn committed_cursor_survives_lost_ack(
             "client must receive zero bytes after a committed progress update"
         );
     });
-    let (client_result, proxy_result) = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        async { tokio::join!(client, proxy) },
-    )
-    .await
-    .expect("progress lost-ack transport test must finish");
+    let (client_result, proxy_result) =
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            tokio::join!(client, proxy)
+        })
+        .await
+        .expect("progress lost-ack transport test must finish");
     client_result.expect("TCP reader");
     proxy_result.expect("committed progress proxy");
 
@@ -83,16 +75,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         ),
     );
     assert_eq!(durable, "2|1|2");
-    let (status, state) = send(
-        app,
-        "GET",
-        sync_get,
-        "",
-        Some(reader_token),
-        &csrf,
-        ORIGIN,
-    )
-    .await;
+    let (status, state) = send(app, "GET", sync_get, "", Some(reader_token), &csrf, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(state.contains("\"revision\":2"));
     assert!(state.contains("\"char_offset\":2"));
