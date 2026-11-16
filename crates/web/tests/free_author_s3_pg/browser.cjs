@@ -9,6 +9,7 @@ let stage = 'launch';
 
 (async () => {
   const config = JSON.parse(fs.readFileSync(0, 'utf8'));
+  stage = `mode=${config.mode} admin=${Boolean(config.admin)} saved=${Boolean(config.saved)}`;
   const site = new URL(config.origin);
   assert.equal(site.hostname, '127.0.0.1');
   const browser = await chromium.launch({ headless: true });
@@ -66,16 +67,28 @@ let stage = 'launch';
       const page = await context.newPage();
       const checks = [];
       let directGets = 0, storageBytes = 0;
+      let signalFirstS3;
+      const firstS3Finished = new Promise(resolve => { signalFirstS3 = resolve; });
       // The test's Axum boundary inspects every served reader/grant byte.
       // Chromium Network proves the actual cross-origin downloads and sizes.
       // Do not request retired document bodies from CDP after a navigation.
       page.on('requestfinished', request => {
         if (new URL(request.url()).origin !== config.storage_origin || request.method() !== 'GET') return;
-        checks.push(request.sizes().then(size => {
+        const check = request.sizes().then(size => {
           assert(size.responseBodySize > 0, 'the direct browser GET must transfer real bytes');
           directGets++; storageBytes += size.responseBodySize;
           return null;
-        }).catch(error => error));
+        }).catch(error => error);
+        checks.push(check);
+        // Content can render before Playwright emits requestfinished; wait for
+        // an actual completed S3 GET instead of sampling an empty array.
+        void check.then(() => signalFirstS3());
+      });
+      page.on('requestfailed', request => {
+        if (new URL(request.url()).origin !== config.storage_origin || request.method() !== 'GET') return;
+        checks.push(Promise.resolve(new Error('direct S3 GET failed: ' +
+          (request.failure()?.errorText || 'unknown'))));
+        signalFirstS3();
       });
       const html = await page.goto(config.admin ? `${config.origin}/read/admin/${config.chapter}` : config.saved
         ? `${config.origin}/me/library/saved/${config.chapter}` : config.private
@@ -210,6 +223,21 @@ let stage = 'launch';
         fs.mkdirSync(process.env.TOR_PAID_READER_SHOTS, { recursive: true });
         await page.screenshot({ path: path.join(process.env.TOR_PAID_READER_SHOTS,
           `s349-free-${surface}-${config.width || 390}.png`), fullPage: true });
+      }
+      // The DOM may update before Chromium reports Network.requestfinished,
+      // especially for the short hidden-admin S3 response. This bounded
+      // event wait preserves the security assertion without sleep-based luck.
+      let networkTimeout;
+      try {
+        await Promise.race([
+          firstS3Finished,
+          new Promise((_, reject) => {
+            networkTimeout = setTimeout(() => reject(new Error(
+              'real S3 GET never finished for ' + stage)), 15000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(networkTimeout);
       }
       const outcomes = await Promise.all(checks);
       assert(!outcomes.some(Boolean), 'browser Network sizes must be available');
