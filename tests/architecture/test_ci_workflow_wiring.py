@@ -848,6 +848,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("SEEKABLE_MAGIC", seekable)
         self.assertIn("trusted_manifest_sha256", seekable)
         self.assertIn("must_reject", seekable)
+        self.assertIn("extract_cached_range", seekable)
+        self.assertIn("cached_read_range_requests", bench)
         self.assertIn("measured_chapters", profiles)
         for item in (workflow, bench, seekable, profiles):
             self.assertNotIn("https://drive.google.com", item)
