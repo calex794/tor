@@ -17,9 +17,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
     let sync_put = "/api/v1/me/progress/free";
     // Use a real HTTP listener: the proxy forwards actual TCP bytes into
     // Axum instead of calling a cloned Router directly.
-    let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let backend_addr = backend_listener.local_addr().unwrap();
     let backend_app = app.clone();
     let backend_server = tokio::spawn(async move {
