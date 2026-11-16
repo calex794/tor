@@ -1,4 +1,5 @@
-//! DROP-R4b1: trusted, offline S3 proof -> B transaction coordinator.
+//! DROP-R4: trusted, offline S3 proof -> B transaction coordinator.
+pub mod runner;
 //! No route, no background startup and no active reader cutover.
 //! The B-approved offline pack builder/writer is never exposed to HTTP actors.
 use tor_books::repositories::{free_pack_attach::PgFreePackCatalog, free_pack_jobs::PackJobClaim};
