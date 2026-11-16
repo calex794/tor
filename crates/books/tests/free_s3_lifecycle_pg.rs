@@ -557,6 +557,46 @@ async fn drop_r4a_verified_pack_is_lease_fenced_and_keeps_single_reader_unchange
         .await
         .unwrap();
 
+    // This independently approved but invalid candidate has frame #2
+    // overlapping frame #1. The R2 PG trigger fails *after* the pack and
+    // first generation insert; the enclosing B transaction must roll both
+    // writes back instead of leaving a partial physical catalog.
+    let mut overlap = receipt.clone();
+    overlap.target.pack_key = format!("private/free-packs/ci/drop-r4a-overlap-{book}.zst");
+    overlap.target.manifest_key = overlap.target.pack_key.replace(".zst", ".manifest.json");
+    overlap.frames[1].frame_offset = 100;
+    let overlap_fingerprint = PgFreePackCatalog::fingerprint(&overlap);
+    let overlap_job: i64 = sqlx::query_scalar(
+        "INSERT INTO free_pack_jobs
+         (actor_user_id,book_id,approved_fingerprint,expected_chapter_count,
+          status,lease_epoch,locked_until)
+         VALUES($1,$2,$3,2,'running',8,now()+interval '2 minutes') RETURNING id",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(overlap_fingerprint.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        repo.finish_pack_job(overlap_job, 8, &overlap).await,
+        Err(AuthorError::Conflict)
+    ));
+    let leaked: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM free_storage_packs WHERE object_key=$1")
+            .bind(&overlap.target.pack_key)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(leaked, 0, "a bad later frame must roll back the PACK insert");
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM free_pack_jobs WHERE id=$1")
+            .bind(overlap_job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "running", "no partial success after rollback");
+
     let empty: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM free_edition_storage_generations
          WHERE (chapter_id,version_id) IN (($1,$2),($3,$4))",
