@@ -205,9 +205,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-free")]
     let mut pending_drop_pack_planner = None;
     #[cfg(not(feature = "s3-free"))]
-    let _ = drop_pack_worker_enabled;
-    #[cfg(not(feature = "s3-free"))]
-    let _ = drop_pack_planner_enabled;
+    let _ = (drop_pack_worker_enabled, drop_pack_planner_enabled);
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_g09_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
