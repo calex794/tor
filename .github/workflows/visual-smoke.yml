@@ -31,7 +31,10 @@ jobs:
       - name: Install headless browser
         run: |
           npm install --no-save playwright@1.56.1
-          npx playwright install --with-deps --only-shell chromium
+          # Ubuntu 24.04 already has the runtime libraries. Optional fonts can
+          # disappear from apt mirrors and are not a browser acceptance test.
+          npx playwright install --only-shell chromium
+          node -e "require('playwright').chromium.launch({headless:true}).then(b=>b.close()).catch(e=>{console.error(e);process.exit(1)})"
       - name: Browser layout checks and screenshots
         run: |
           set -euo pipefail

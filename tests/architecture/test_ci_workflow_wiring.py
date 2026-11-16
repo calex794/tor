@@ -260,8 +260,12 @@ class WorkflowWiringTests(unittest.TestCase):
                     integration[job],
                     job_sections((WORKFLOWS / manual_file).read_text())[job],
                 ):
-                    self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                    self.assertNotIn("npx playwright install --with-deps chromium", body)
+                    if job == "visual":
+                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps", body)
+                        self.assertIn("chromium.launch({headless:true})", body)
+                    else:
+                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_cover_and_paid_e2e_use_only_headless_chromium_shell(self):
@@ -280,8 +284,9 @@ class WorkflowWiringTests(unittest.TestCase):
                         self.assertNotIn("npx playwright install --with-deps", body)
                         self.assertIn("chromium.launch({headless:true})", body)
                     else:
-                        self.assertIn("npx playwright install --with-deps --only-shell chromium", body)
-                        self.assertNotIn("npx playwright install --with-deps chromium", body)
+                        self.assertIn("npx playwright install --only-shell chromium", body)
+                        self.assertNotIn("npx playwright install --with-deps", body)
+                        self.assertIn("chromium.launch({headless:true})", body)
                     self.assertIn("npm install --no-save playwright@1.56.1", body)
 
     def test_browser_mirror_preparation_precedes_any_package_install(self):
