@@ -182,7 +182,8 @@ impl PgFreePackCatalog {
             "WITH next AS (
                SELECT j.id FROM free_pack_jobs j
                JOIN free_pack_job_specs s ON s.job_id=j.id
-               WHERE j.status='pending'
+               WHERE (j.status='pending' AND
+                     (j.locked_until IS NULL OR j.locked_until<=clock_timestamp()))
                   OR (j.status='running' AND j.locked_until<=clock_timestamp())
                ORDER BY j.created_at,j.id
                FOR UPDATE OF j SKIP LOCKED LIMIT 1
