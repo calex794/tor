@@ -270,7 +270,7 @@ def s3_benchmark(blobs, samples):
     # Exact standard Seekable Zstd 0.1.0 + immutable JSON sidecar. The
     # compressed frames are verified byte-identical to the Single Zstd3 layout,
     # so this row measures the true physical seek-table/manifest overhead.
-    from tor_store_seekable import build_pack, extract_range, sha256
+    from tor_store_seekable import build_pack, extract_range, extract_cached_range, sha256
     seek_name = "pack_100_seekable_zstd3"
     bundles, edition_locations = [], {}
     table_bytes = manifest_stored_bytes = 0
@@ -307,11 +307,11 @@ def s3_benchmark(blobs, samples):
             Bucket=bucket, Key=key + ".manifest.json")["Body"].read()
         assert sha256(remote_pack) == sha256(pack_bytes)
         assert sha256(remote_manifest) == sha256(manifest_bytes)
-        checked_bundles[key] = (remote_manifest, sha256(remote_manifest))
+        checked_bundles[key] = (remote_manifest, sha256(manifest_bytes))
     seek_verify_seconds = time.perf_counter() - t0
 
-    seek_durations = []
-    for i in samples:
+    seek_durations, cached_durations = [], []
+    for sample_number, i in enumerate(samples):
         key, total_size = edition_locations[i]
         remote_manifest, trusted_digest = checked_bundles[key]
 
@@ -322,11 +322,20 @@ def s3_benchmark(blobs, samples):
             assert response["ContentRange"].startswith(f"bytes {offset}-{offset + size - 1}/")
             return response["Body"].read()
 
-        t0 = time.perf_counter()
-        recovered = extract_range(s3_range, total_size, remote_manifest,
-                                  trusted_digest, f"edition-{i:08d}")
-        assert recovered == blobs[i - 1]
-        seek_durations.append((time.perf_counter() - t0) * 1000)
+        # Alternate cold/warm call order to limit systematic HTTP-cache bias.
+        modes = ("cold", "cached") if sample_number % 2 == 0 else ("cached", "cold")
+        for mode in modes:
+            t0 = time.perf_counter()
+            if mode == "cold":
+                recovered = extract_range(s3_range, total_size, remote_manifest,
+                                          trusted_digest, f"edition-{i:08d}")
+                seek_durations.append((time.perf_counter() - t0) * 1000)
+            else:
+                recovered = extract_cached_range(s3_range, total_size, remote_manifest,
+                                                 trusted_digest, f"edition-{i:08d}")
+                cached_durations.append((time.perf_counter() - t0) * 1000)
+            assert recovered == blobs[i - 1]
+    cached_stats = timings(cached_durations)
     report[seek_name] = {
         "objects": len(bundles) * 2,  # One pack + one versioned manifest each
         "stored_bytes": sum(len(p) + len(m) for _, p, m in bundles),
@@ -336,6 +345,10 @@ def s3_benchmark(blobs, samples):
         "seek_table_bytes": table_bytes,
         "manifest_bytes": manifest_stored_bytes,
         "read_range_requests": 2,
+        "cached_read_range_requests": 1,
+        "cached_read_p50_ms": cached_stats["read_p50_ms"],
+        "cached_read_p95_ms": cached_stats["read_p95_ms"],
+        "cached_read_p99_ms": cached_stats["read_p99_ms"],
         "codec": "zstd3", **timings(seek_durations),
     }
 
@@ -404,6 +417,20 @@ def summary_md(result):
         lines.append(f"| {name} | {row['objects']:,} | {row['stored_bytes']/2**20:.2f} "
                      f"| {row['write_seconds']:.2f} | {row['read_p50_ms']:.2f} / "
                      f"{row['read_p95_ms']:.2f} / {row.get('read_p99_ms', 0):.2f} |")
+    seek = result["minio"]["pack_100_seekable_zstd3"]
+    lines += ["", "### Standard Seekable read modes (same physical pack/manifest)", "",
+              "| Path | S3 Range GETs/read | p50 / p95 / p99 ms |",
+              "|---|---:|---:|",
+              f"| Cold (seek table + frame) | {seek['read_range_requests']} "
+              f"| {seek['read_p50_ms']:.2f} / {seek['read_p95_ms']:.2f} / "
+              f"{seek['read_p99_ms']:.2f} |",
+              f"| Trusted verified index (frame only) | {seek['cached_read_range_requests']} "
+              f"| {seek['cached_read_p50_ms']:.2f} / {seek['cached_read_p95_ms']:.2f} / "
+              f"{seek['cached_read_p99_ms']:.2f} |", "",
+              "The second path requires a trusted manifest checksum, immutable pack "
+              "identity and full verification at ingest. It does not replace TOR "
+              "authorization; each frame still has a source SHA-256 check. "
+              "Call order alternates to reduce read-cache bias.", ""]
     lines += ["", f"PostgreSQL WAL bytes: **{result['postgresql']['wal_bytes']:,}**.", "",
               "**Important:** each PACK stores independent compressed frames with an "
               "in-memory offset index. PACK payload bytes equal the respective "
