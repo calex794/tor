@@ -17,6 +17,8 @@ use tor_books::{
     services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_contracts::drop_pack::{PackPlacementFrame, PackPlacementReceipt, PackPlacementTarget};
+use tor_reading::repositories::free_s3_ref::PgFreeS3Ref;
+use tor_storage::repositories::free_pack_range_s3::S3PackFrameStore;
 use tor_storage::{
     repositories::free_pack_write_s3::S3FreePackWriter,
     repositories::{free_chapter_s3::S3FreeChapterStore, free_pack_proof_s3::S3PackProofStore},
@@ -25,11 +27,9 @@ use tor_storage::{
         free_pack_write::prepare_free_pack,
     },
 };
+use tor_web::free_pack_gateway::{read_authorized_candidate, FreePackReadMode};
 use tor_web::free_pack_planner::DropPackPlanner;
 use tor_web::free_pack_worker::runner::{DropPackWorker, PackWorkerResult};
-use tor_reading::repositories::free_s3_ref::PgFreeS3Ref;
-use tor_storage::repositories::free_pack_range_s3::S3PackFrameStore;
-use tor_web::free_pack_gateway::{read_authorized_candidate, FreePackReadMode};
 use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
 const BUCKET: &str = "tor-drop-r4b1-private-ci";
@@ -297,30 +297,61 @@ async fn drop_r4b1_real_readback_lease_and_atomic_candidate_attach() {
     let ranges = S3PackFrameStore::new(client.clone());
     for (chapter, _, body) in &editions {
         let actual = read_authorized_candidate(
-            &c, &catalog, &ranges, *chapter, None, FreePackReadMode::Published
-        ).await.unwrap();
-        assert_eq!(actual, body.as_bytes(), "exact selected UTF-8 frame, no neighbors");
+            &c,
+            &catalog,
+            &ranges,
+            *chapter,
+            None,
+            FreePackReadMode::Published,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            actual,
+            body.as_bytes(),
+            "exact selected UTF-8 frame, no neighbors"
+        );
     }
-    assert!(matches!(
-        read_authorized_candidate(
-            &c, &catalog, &ranges, editions[0].0, None,
-            FreePackReadMode::Saved { version_id: editions[0].1 }
-        ).await,
-        Err(tor_storage::domain::provider::StorageError::Invalid)
-    ), "saved historical reading requires an authenticated saved pin");
-    pg(&url, &format!(
-        "UPDATE books SET admin_hold=true WHERE id={book}"
-    ));
-    assert!(matches!(
-        read_authorized_candidate(
-            &c, &catalog, &ranges, editions[0].0, None,
-            FreePackReadMode::Published
-        ).await,
-        Err(tor_storage::domain::provider::StorageError::Invalid)
-    ), "moderation hold must reject even a valid verified candidate");
-    pg(&url, &format!(
-        "UPDATE books SET admin_hold=false WHERE id={book}"
-    ));
+    assert!(
+        matches!(
+            read_authorized_candidate(
+                &c,
+                &catalog,
+                &ranges,
+                editions[0].0,
+                None,
+                FreePackReadMode::Saved {
+                    version_id: editions[0].1
+                }
+            )
+            .await,
+            Err(tor_storage::domain::provider::StorageError::Invalid)
+        ),
+        "saved historical reading requires an authenticated saved pin"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
+    assert!(
+        matches!(
+            read_authorized_candidate(
+                &c,
+                &catalog,
+                &ranges,
+                editions[0].0,
+                None,
+                FreePackReadMode::Published
+            )
+            .await,
+            Err(tor_storage::domain::provider::StorageError::Invalid)
+        ),
+        "moderation hold must reject even a valid verified candidate"
+    );
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
     let active: i64 = pg(
         &url,
         &format!(

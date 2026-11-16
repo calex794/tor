@@ -20,7 +20,6 @@ pub enum FreePackReadMode {
     Published,
     Saved { version_id: i64 },
 }
-
 /// C performs the same live checks as the current S349 SINGLE grant, both
 /// before and after S3 Range. B returns only a succeeded, fully verified
 /// candidate whose edition hash, size and bucket exactly match C's result.
@@ -44,7 +43,8 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
         let result = match mode {
             FreePackReadMode::Published => c.for_session(chapter, session_digest).await,
             FreePackReadMode::Saved { version_id } => {
-                c.for_saved_session(chapter, version_id, session_digest).await
+                c.for_saved_session(chapter, version_id, session_digest)
+                    .await
             }
         };
         let authorized: FreeS3Ref = match result.map_err(|_| StorageError::Unavailable)? {
@@ -81,8 +81,7 @@ pub async fn read_authorized_candidate<Store: PackFrameStore>(
             manifest_sha256: candidate.manifest_sha256,
         };
         let reference = ValidatedPackReference::new(edition.clone(), metadata)?;
-        let plan: FreeReadPlan =
-            plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
+        let plan: FreeReadPlan = plan_after_acl(&edition, FreePhysicalPlacement::Pack(reference))?;
         Ok(Some(plan))
     };
     read_reauthorized_pack(resolve, s3).await
