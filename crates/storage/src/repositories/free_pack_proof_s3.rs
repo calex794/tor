@@ -32,7 +32,9 @@ impl S3PackProofStore {
         // Validate the *trusted* locator before doing any S3 network I/O.
         // A malformed key or excessive size cannot trigger a full-object GET.
         target.validate()?;
-        let pack = self.get_exact(&target.bucket, &target.pack_key, target.pack_bytes).await?;
+        let pack = self
+            .get_exact(&target.bucket, &target.pack_key, target.pack_bytes)
+            .await?;
         let manifest = self
             .get_exact(&target.bucket, &target.manifest_key, target.manifest_bytes)
             .await?;
