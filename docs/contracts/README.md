@@ -47,3 +47,5 @@
 - [DROP-R4b2 immutable PACK writer](tor-store-r4b2-immutable-writer.md): bounded standard Zstd seekable builder, private conditional S3 PUT and independent full readback before B fenced attachment; no live reader activation.
 
 - [DROP-R4b3 fenced offline runner](tor-store-r4b3-fenced-runner.md): B-authoritative SINGLE lookup, bounded off-thread pack construction, heartbeat/lease theft, retry cooldown and explicit operator opt-in, no reader cutover.
+
+- [DROP-R4c automatic PACK candidate admission](tor-store-r4c-auto-pack-planner.md): bounded B-approved FREE inventory, one active job per book, append-only membership and separate planner opt-in, no S349 reader cutover.
