@@ -719,8 +719,6 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     c09_lost_ack::committed_cursor_survives_lost_ack(
         &app,
         &url,
-        &sync_get,
-        sync_put,
         &reader_token,
         &csrf,
         &sync_body(1, 2),
