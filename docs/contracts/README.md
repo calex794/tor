@@ -53,3 +53,5 @@
 - [DROP-03/06: C-authorized private PACK Range preflight](tor-store-drop03-06-authorized-range-preflight.md): exact historical FREE edition authorization before and after bounded S3 Range, no live HTTP or PACK grant. Original DROP-04 pack-direct remains next.
 
 - [DROP-04a: direct PACK staged receipt](tor-store-drop04a-pack-direct-stage.md): approved bulk source directly to verified seekable PACK and immutable leased B stage, no SINGLE or live publication.
+
+- [DROP-04b: atomic direct PACK import finalizer](tor-store-drop04b-atomic-direct-finalizer.md): B fenced all-or-nothing immutable PACK batch materialization and preserved S349 publication guard, not live worker cutover.
