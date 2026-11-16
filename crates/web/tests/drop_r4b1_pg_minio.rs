@@ -24,8 +24,8 @@ use tor_storage::{
         free_pack_write::prepare_free_pack,
     },
 };
-use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 use tor_web::free_pack_worker::runner::{DropPackWorker, PackWorkerResult};
+use tor_web::free_pack_worker::{finalize_one_verified_pack, upload_one_approved_pack};
 
 const BUCKET: &str = "tor-drop-r4b1-private-ci";
 
@@ -438,13 +438,16 @@ struct PausedDropSingle {
 #[async_trait::async_trait]
 impl FreeChapterStore for PausedDropSingle {
     async fn put_immutable(
-        &self, _: &FreeChapterObject, _: &[u8]
+        &self,
+        _: &FreeChapterObject,
+        _: &[u8],
     ) -> Result<(), tor_storage::domain::provider::StorageError> {
         Err(tor_storage::domain::provider::StorageError::Unavailable)
     }
 
     async fn get_verified(
-        &self, _: &FreeChapterObject
+        &self,
+        _: &FreeChapterObject,
     ) -> Result<Vec<u8>, tor_storage::domain::provider::StorageError> {
         self.started.notify_one();
         self.release.notified().await;
@@ -452,9 +455,13 @@ impl FreeChapterStore for PausedDropSingle {
     }
 
     async fn presign_verified(
-        &self, _: &FreeChapterObject, _: std::time::Duration
-    ) -> Result<tor_contracts::paid_delivery::SecretValue,
-                tor_storage::domain::provider::StorageError> {
+        &self,
+        _: &FreeChapterObject,
+        _: std::time::Duration,
+    ) -> Result<
+        tor_contracts::paid_delivery::SecretValue,
+        tor_storage::domain::provider::StorageError,
+    > {
         Err(tor_storage::domain::provider::StorageError::Unavailable)
     }
 }
@@ -463,7 +470,10 @@ impl FreeChapterStore for PausedDropSingle {
 #[ignore = "requires isolated PG18 + private MinIO; no live reader cutover"]
 async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry() {
     use std::sync::Arc;
-    use tokio::{sync::Notify, time::{timeout, Duration}};
+    use tokio::{
+        sync::Notify,
+        time::{timeout, Duration},
+    };
     let url = env::var("TEST_DATABASE_URL").unwrap();
     let client = s3();
     let _ = client.create_bucket().bucket(BUCKET).send().await;
@@ -471,12 +481,19 @@ async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry(
     let actor: i64 = pg(
         &url,
         "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES('drop-r4b3-owner@ci.example','DROP worker','$argon2id$test') RETURNING id"
-    ).parse().unwrap();
-    let book: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('drop-r4b3-owner@ci.example','DROP worker','$argon2id$test') RETURNING id",
+    )
+    .parse()
+    .unwrap();
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES('ci:drop:r4b3','ru','DROP runner','public',{actor}) RETURNING id"
-    )).parse().unwrap();
+        ),
+    )
+    .parse()
+    .unwrap();
     let publisher = PgFreeS3Publication::new(pool.clone());
     let text = "Real B-owned FREE SINGLE edition for lease theft 中文😀";
     let request = save_chapter(SaveChapterRequest {
@@ -489,22 +506,30 @@ async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry(
         access: "free",
         price_amount: 0,
         command_key: &"z".repeat(43),
-    }).unwrap();
+    })
+    .unwrap();
     let pending = publisher.prepare_new(actor, &request).await.unwrap();
-    let source = FreeChapterObject::for_markdown(
-        pending.chapter_id, pending.version_id, text
-    ).unwrap();
+    let source =
+        FreeChapterObject::for_markdown(pending.chapter_id, pending.version_id, text).unwrap();
     let single = S3FreeChapterStore::new(client.clone(), BUCKET.to_owned()).unwrap();
     upload_and_verify(&single, &source, text).await.unwrap();
-    publisher.attach_verified_and_publish(
-        actor, book, (pending.chapter_id, pending.version_id),
-        (BUCKET, *source.sha256(), source.size_bytes())
-    ).await.unwrap();
+    publisher
+        .attach_verified_and_publish(
+            actor,
+            book,
+            (pending.chapter_id, pending.version_id),
+            (BUCKET, *source.sha256(), source.size_bytes()),
+        )
+        .await
+        .unwrap();
     let pair = vec![(source.clone(), text.as_bytes().to_vec())];
     let pack_key = format!("private/free-packs/ci/drop-r4b3-approved-{book}.zst");
     let prepared = prepare_free_pack(BUCKET, &pack_key, &pair).unwrap();
     let repo = PgFreePackCatalog::new(pool.clone());
-    let job = repo.schedule_pack_job(actor, book, prepared.receipt()).await.unwrap();
+    let job = repo
+        .schedule_pack_job(actor, book, prepared.receipt())
+        .await
+        .unwrap();
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let paused = PausedDropSingle {
@@ -513,62 +538,111 @@ async fn drop_r4b3_fenced_worker_lease_theft_during_source_io_and_delayed_retry(
         bytes: text.as_bytes().to_vec(),
     };
     let stale_worker = DropPackWorker::new(
-        repo.clone(), paused, S3FreePackWriter::new(client.clone()),
-        BUCKET.to_owned(), 15
-    ).unwrap();
+        repo.clone(),
+        paused,
+        S3FreePackWriter::new(client.clone()),
+        BUCKET.to_owned(),
+        15,
+    )
+    .unwrap();
     let old = tokio::spawn(async move { stale_worker.run_one().await.unwrap() });
-    timeout(Duration::from_secs(5), started.notified()).await.unwrap();
-    let old_epoch: i64 = pg(&url, &format!(
-        "SELECT lease_epoch FROM free_pack_jobs WHERE id={job}"
-    )).parse().unwrap();
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .unwrap();
+    let old_epoch: i64 = pg(
+        &url,
+        &format!("SELECT lease_epoch FROM free_pack_jobs WHERE id={job}"),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(old_epoch, 1);
     // Simulate slow external I/O after the B lease expires. Another process
     // can claim without waiting for a PG transaction held by the old worker.
-    pg(&url, &format!(
-        "UPDATE free_pack_jobs SET locked_until=clock_timestamp()-interval '1 second'
+    pg(
+        &url,
+        &format!(
+            "UPDATE free_pack_jobs SET locked_until=clock_timestamp()-interval '1 second'
          WHERE id={job}"
-    ));
+        ),
+    );
     let winner_worker = DropPackWorker::new(
-        repo.clone(), single, S3FreePackWriter::new(client.clone()),
-        BUCKET.to_owned(), 60
-    ).unwrap();
+        repo.clone(),
+        single,
+        S3FreePackWriter::new(client.clone()),
+        BUCKET.to_owned(),
+        60,
+    )
+    .unwrap();
     let winner = winner_worker.run_one().await.unwrap();
     let pack_id = match winner {
         PackWorkerResult::Completed(id) => id,
         other => panic!("expected winner to attach candidate, got {other:?}"),
     };
     release.notify_waiters();
-    assert_eq!(timeout(Duration::from_secs(8), old).await.unwrap().unwrap(),
-               PackWorkerResult::Stale);
-    assert_eq!(winner_worker.run_one().await.unwrap(), PackWorkerResult::Idle);
-    let candidate_count: i64 = pg(&url, &format!(
-        "SELECT count(*) FROM free_edition_storage_generations WHERE pack_id={pack_id}"
-    )).parse().unwrap();
-    assert_eq!(candidate_count, 1, "only the fenced winner commits the PACK");
-    let active: i64 = pg(&url, &format!(
-        "SELECT count(*) FROM free_edition_active_storage WHERE chapter_id={}",
-        source.chapter_id()
-    )).parse().unwrap();
-    assert_eq!(active, 0, "R4b3 cannot activate PACK reading or remove SINGLE");
-    let single_count: i64 = pg(&url, &format!(
-        "SELECT count(*) FROM free_chapter_storage_objects WHERE chapter_id={}",
-        source.chapter_id()
-    )).parse().unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(8), old).await.unwrap().unwrap(),
+        PackWorkerResult::Stale
+    );
+    assert_eq!(
+        winner_worker.run_one().await.unwrap(),
+        PackWorkerResult::Idle
+    );
+    let candidate_count: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM free_edition_storage_generations WHERE pack_id={pack_id}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        candidate_count, 1,
+        "only the fenced winner commits the PACK"
+    );
+    let active: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_edition_active_storage WHERE chapter_id={}",
+            source.chapter_id()
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        active, 0,
+        "R4b3 cannot activate PACK reading or remove SINGLE"
+    );
+    let single_count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM free_chapter_storage_objects WHERE chapter_id={}",
+            source.chapter_id()
+        ),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(single_count, 1);
     // A current worker can schedule a retry with a backoff; the claim SQL
     // must not immediately pick it again or allow an older epoch to fail it.
     let retry_key = format!("private/free-packs/ci/drop-r4b3-retry-{book}.zst");
     let retry_spec = prepare_free_pack(BUCKET, &retry_key, &pair).unwrap();
-    let retry_job = repo.schedule_pack_job(actor, book, retry_spec.receipt()).await.unwrap();
+    let retry_job = repo
+        .schedule_pack_job(actor, book, retry_spec.receipt())
+        .await
+        .unwrap();
     let claim = repo.claim_pack_job(60).await.unwrap().unwrap();
     assert_eq!(claim.job_id, retry_job);
     assert!(repo.settle_pack_job(&claim, true).await.unwrap());
-    assert_eq!(repo.claim_pack_job(60).await.unwrap().map(|c| c.job_id), None);
+    assert_eq!(
+        repo.claim_pack_job(60).await.unwrap().map(|c| c.job_id),
+        None
+    );
     assert!(!repo.settle_pack_job(&claim, false).await.unwrap());
-    pg(&url, &format!(
-        "UPDATE free_pack_jobs SET locked_until=clock_timestamp()-interval '1 second'
+    pg(
+        &url,
+        &format!(
+            "UPDATE free_pack_jobs SET locked_until=clock_timestamp()-interval '1 second'
          WHERE id={retry_job}"
-    ));
+        ),
+    );
     let reclaimed = repo.claim_pack_job(60).await.unwrap().unwrap();
     assert_eq!(reclaimed.job_id, retry_job);
     assert_eq!(reclaimed.epoch, claim.epoch + 1);

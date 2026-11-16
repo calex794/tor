@@ -45,7 +45,7 @@ impl PgFreePackCatalog {
                  AND j.locked_until>clock_timestamp()
                  AND u.account_state='active' AND NOT b.admin_hold AND NOT b.is_deleted
                  AND b.visibility IN ('draft','public')
-             )"
+             )",
         )
         .bind(claim.job_id)
         .bind(claim.epoch)
@@ -68,7 +68,7 @@ impl PgFreePackCatalog {
                      ON s.chapter_id=c.id AND s.version_id=v.id
                  WHERE c.id=$1 AND c.book_id=$2 AND c.access_level='free'
                    AND c.price_amount=0 AND NOT c.is_deleted AND NOT c.admin_hold
-                   AND v.content_sha256=$4 AND s.sha256=$4 AND s.size_bytes=$5"
+                   AND v.content_sha256=$4 AND s.sha256=$4 AND s.size_bytes=$5",
             )
             .bind(frame.chapter_id)
             .bind(claim.book_id)
@@ -79,11 +79,18 @@ impl PgFreePackCatalog {
             .await
             .map_err(|_| AuthorError::Unavailable)?
             .ok_or(AuthorError::Conflict)?;
-            let bucket: String = row.try_get("bucket").map_err(|_| AuthorError::Unavailable)?;
-            let key: String = row.try_get("object_key").map_err(|_| AuthorError::Unavailable)?;
+            let bucket: String = row
+                .try_get("bucket")
+                .map_err(|_| AuthorError::Unavailable)?;
+            let key: String = row
+                .try_get("object_key")
+                .map_err(|_| AuthorError::Unavailable)?;
             if bucket != claim.receipt.target.bucket
-                || key != format!("private/free-chapters/{}/{}.md",
-                                  frame.chapter_id, frame.version_id)
+                || key
+                    != format!(
+                        "private/free-chapters/{}/{}.md",
+                        frame.chapter_id, frame.version_id
+                    )
             {
                 return Err(AuthorError::Conflict);
             }
@@ -118,7 +125,7 @@ impl PgFreePackCatalog {
                finished_at=CASE WHEN $3='failed' THEN clock_timestamp()
                                 ELSE NULL END
              WHERE id=$1 AND lease_epoch=$2 AND status='running'
-               AND locked_until>clock_timestamp()"
+               AND locked_until>clock_timestamp()",
         )
         .bind(claim.job_id)
         .bind(claim.epoch)

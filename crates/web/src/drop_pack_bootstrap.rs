@@ -33,13 +33,15 @@ pub fn enabled(demo: bool) -> Result<bool, &'static str> {
 #[cfg(feature = "s3-free")]
 pub async fn configure(
     catalog: &tor_books::repositories::PgCatalog,
-) -> Result<tor_web::free_pack_worker::runner::DropPackWorker<
-    tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
->, Box<dyn Error>> {
+) -> Result<
+    tor_web::free_pack_worker::runner::DropPackWorker<
+        tor_storage::repositories::free_chapter_s3::S3FreeChapterStore,
+    >,
+    Box<dyn Error>,
+> {
     use tor_books::repositories::free_pack_attach::PgFreePackCatalog;
     use tor_storage::repositories::{
-        free_chapter_s3::S3FreeChapterStore,
-        free_pack_write_s3::S3FreePackWriter,
+        free_chapter_s3::S3FreeChapterStore, free_pack_write_s3::S3FreePackWriter,
     };
 
     let bucket = env::var("TOR_FREE_S3_BUCKET")?;

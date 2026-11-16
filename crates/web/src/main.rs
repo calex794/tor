@@ -1,6 +1,6 @@
 mod auth_startup;
-mod drop_pack_bootstrap;
 mod book_schedule_worker;
+mod drop_pack_bootstrap;
 mod g09_bootstrap;
 mod moderation_overdue_bell_worker;
 mod moderation_overdue_worker;
@@ -543,8 +543,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
     });
     #[cfg(feature = "s3-free")]
-    let _drop_pack_worker = pending_drop_pack_worker
-        .map(tor_web::free_pack_worker::runner::start_background);
+    let _drop_pack_worker =
+        pending_drop_pack_worker.map(tor_web::free_pack_worker::runner::start_background);
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         println!("TOR chapter import worker enabled");
         #[cfg(feature = "s3-free")]
