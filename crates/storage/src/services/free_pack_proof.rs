@@ -101,10 +101,15 @@ struct ManifestEntry {
 /// from an immutable S3 key before recording a verified PG generation.
 #[derive(Debug)]
 pub struct VerifiedPack {
+    target: PackProofTarget,
     frames: Vec<ValidatedPackReference>,
 }
 
 impl VerifiedPack {
+    pub fn target(&self) -> &PackProofTarget {
+        &self.target
+    }
+
     pub fn frames(&self) -> &[ValidatedPackReference] {
         &self.frames
     }
@@ -243,7 +248,10 @@ pub fn verify_full_pack(
     if offset != target.seek_table_start || seen.len() != count {
         return Err(StorageError::Corrupt);
     }
-    Ok(VerifiedPack { frames })
+    Ok(VerifiedPack {
+        target: target.clone(),
+        frames,
+    })
 }
 
 #[cfg(test)]
