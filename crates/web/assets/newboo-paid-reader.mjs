@@ -519,6 +519,38 @@ async function api(url, options) {
   return response.json();
 }
 
+// A failed HTTP response does not imply a failed PostgreSQL COMMIT.
+// Reconcile exactly once from the actor-scoped purchase/version GET, never
+// repeat a stale optimistic-CAS PUT automatically.
+export async function savePaidProgressWithReconcile(request, endpoint, lookup, command, csrf) {
+  const matches = state => state &&
+    state.chapter_id === command.chapter_id &&
+    state.version_id === command.version_id &&
+    state.block_id === command.block_id &&
+    state.char_offset === command.char_offset &&
+    Number.isSafeInteger(state.revision) &&
+    state.revision > command.expected_revision;
+  try {
+    const saved = await request(endpoint, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+      body: JSON.stringify(command),
+    });
+    if (matches(saved)) return { revision: saved.revision, recovered: false };
+  } catch {
+    // A transport error, 409 or truncated JSON can follow a successful COMMIT.
+  }
+  try {
+    const state = await request(endpoint + "?" + lookup, {
+      method: "GET", redirect: "error",
+    });
+    if (matches(state)) return { revision: state.revision, recovered: true };
+  } catch {
+    // No trusted witness: block another write instead of guessing rollback.
+  }
+  return null;
+}
+
 // H/S065: active controls for the standalone NEwBOO reader.
 // Apply only enumerated themes and bounded numbers. Preferences live only
 // in this document; encrypted chapters, keys and settings never reach storage.
@@ -844,20 +876,28 @@ export async function startPaidReader(root) {
   const showPrivateImage = privateImageLoader(
     root, chapter, versionId, purchase, csrf, s3Origin
   );
+  let progressSaving = false;
+  let progressBlocked = false;
   const blocks = renderPaidBlocks(article, text, async (blockId, charOffset) => {
+    if (progressSaving || progressBlocked) return;
+    progressSaving = true;
     try {
-      const saved = await api(url, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify({
+      const result = await savePaidProgressWithReconcile(
+        api, url, lookup.toString(), {
           chapter_id: chapter, purchase_id: purchase, version_id: versionId,
           block_id: blockId, char_offset: charOffset, expected_revision: revision,
-        }),
-      });
-      revision = saved.revision;
-      resume.textContent = "Место сохранено.";
-    } catch {
-      resume.textContent = "Не удалось сохранить место. Обновите страницу и повторите.";
+        }, csrf
+      );
+      if (result) {
+        revision = result.revision;
+        resume.textContent = result.recovered
+          ? "Место чтения подтверждено после восстановления связи." : "Место сохранено.";
+      } else {
+        progressBlocked = true;
+        resume.textContent = "Не удалось подтвердить сохранение. Обновите страницу и проверьте доступ.";
+      }
+    } finally {
+      progressSaving = false;
     }
   }, showPrivateImage);
   installPaidIssueReporter(root, article, blocks, chapter, purchase, versionId, csrf);
