@@ -28,7 +28,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
     let routed = app.clone();
     let payload = json.to_owned();
     let token = reader_token.to_owned();
-    let csrf = csrf.to_owned();
+    let proxy_csrf = csrf.to_owned();
     let path = sync_put.to_owned();
     let expected_wire = wire.clone();
     let proxy = tokio::spawn(async move {
@@ -37,7 +37,7 @@ pub(super) async fn committed_cursor_survives_lost_ack(
         socket.read_exact(&mut received).await.unwrap();
         assert_eq!(received, expected_wire.as_bytes());
         let (status, receipt) =
-            send(&routed, "PUT", &path, &payload, Some(&token), &csrf, ORIGIN).await;
+            send(&routed, "PUT", &path, &payload, Some(&token), &proxy_csrf, ORIGIN).await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             receipt.contains("\"revision\":2"),
