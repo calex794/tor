@@ -266,12 +266,86 @@ def s3_benchmark(blobs, samples):
         with urllib.request.urlopen(request, timeout=10) as response:
             cross_member_accessible = (response.status == 206 and response.read() == expected)
     assert cross_member_accessible, "unexpected presigned Range behavior"
+
+    # Exact standard Seekable Zstd 0.1.0 + immutable JSON sidecar. The
+    # compressed frames are verified byte-identical to the Single Zstd3 layout,
+    # so this row measures the true physical seek-table/manifest overhead.
+    from tor_store_seekable import build_pack, extract_range, sha256
+    seek_name = "pack_100_seekable_zstd3"
+    bundles, edition_locations = [], {}
+    table_bytes = manifest_stored_bytes = 0
+    t0 = time.perf_counter()
+    for ordinal, group in enumerate(packed_groups(compressed["zstd3"], max_items=100), 1):
+        edition_data = [(f"edition-{i + 1:08d}", blobs[i]) for i in group]
+        pack_bytes, manifest_bytes = build_pack(edition_data, level=3)
+        metadata = json.loads(manifest_bytes)
+        assert metadata["frames"] == len(group)
+        for entry, i in zip(metadata["entries"], group):
+            a, b = entry["offset"], entry["encoded_bytes"]
+            assert pack_bytes[a:a + b] == compressed["zstd3"][i]
+        key = f"{seek_name}/{ordinal:07d}"
+        bundles.append((key, pack_bytes, manifest_bytes))
+        table_bytes += metadata["seek_table_bytes"]
+        manifest_stored_bytes += len(manifest_bytes)
+        for i in group:
+            edition_locations[i + 1] = (key, len(pack_bytes))
+    build_seconds = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    for key, pack_bytes, manifest_bytes in bundles:
+        client.put_object(Bucket=bucket, Key=key, Body=pack_bytes)
+        client.put_object(Bucket=bucket, Key=key + ".manifest.json", Body=manifest_bytes)
+    seek_write_seconds = time.perf_counter() - t0
+
+    # A full verification GET at upload time is deliberately a separate
+    # measurement. Later range reads trust the catalog's checked manifest SHA.
+    t0 = time.perf_counter()
+    checked_bundles = {}
+    for key, pack_bytes, manifest_bytes in bundles:
+        remote_pack = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        remote_manifest = client.get_object(
+            Bucket=bucket, Key=key + ".manifest.json")["Body"].read()
+        assert sha256(remote_pack) == sha256(pack_bytes)
+        assert sha256(remote_manifest) == sha256(manifest_bytes)
+        checked_bundles[key] = (remote_manifest, sha256(remote_manifest))
+    seek_verify_seconds = time.perf_counter() - t0
+
+    seek_durations = []
+    for i in samples:
+        key, total_size = edition_locations[i]
+        remote_manifest, trusted_digest = checked_bundles[key]
+
+        def s3_range(offset, size):
+            response = client.get_object(Bucket=bucket, Key=key,
+                                         Range=f"bytes={offset}-{offset + size - 1}")
+            assert response["ResponseMetadata"]["HTTPStatusCode"] == 206
+            assert response["ContentRange"].startswith(f"bytes {offset}-{offset + size - 1}/")
+            return response["Body"].read()
+
+        t0 = time.perf_counter()
+        recovered = extract_range(s3_range, total_size, remote_manifest,
+                                  trusted_digest, f"edition-{i:08d}")
+        assert recovered == blobs[i - 1]
+        seek_durations.append((time.perf_counter() - t0) * 1000)
+    report[seek_name] = {
+        "objects": len(bundles) * 2,  # One pack + one versioned manifest each
+        "stored_bytes": sum(len(p) + len(m) for _, p, m in bundles),
+        "write_seconds": round(seek_write_seconds, 3),
+        "build_seconds": round(build_seconds, 3),
+        "verify_full_get_seconds": round(seek_verify_seconds, 3),
+        "seek_table_bytes": table_bytes,
+        "manifest_bytes": manifest_stored_bytes,
+        "read_range_requests": 2,
+        "codec": "zstd3", **timings(seek_durations),
+    }
+
     report["security"] = {
         "anonymous_object_denied": anonymous_denied,
         "signed_pack_url_exposes_other_member": cross_member_accessible,
     }
-    # This is a PACK payload experiment, not TOR-PACK v1: pointers are in RAM,
-    # no persisted seek table or manifest, and their storage overhead is excluded.
+    # The simple PACK rows have in-memory offsets and no seek table/manifest.
+    # The pack_100_seekable_zstd3 row uses persisted standard Seekable Zstd plus
+    # a verified immutable manifest sidecar; it is still a CI prototype, not a TOR ACL.
     return report
 
 
@@ -294,6 +368,9 @@ def cost_projection(report, measured_chapters, annual_chapters):
         else:
             per_pack = int(name.split("_")[1])
             objects = math.ceil(annual_chapters / per_pack)
+            if "_seekable_" in name:
+                # A separate immutable manifest is a second object + PUT.
+                objects *= 2
         gib = projected_payload_bytes / (1024 ** 3)
         # Assumes uniform imports across 12 months and historical modeled STANDARD
         # prices; excludes GET, egress, manifest/index, replicas and backups.
@@ -330,8 +407,10 @@ def summary_md(result):
     lines += ["", f"PostgreSQL WAL bytes: **{result['postgresql']['wal_bytes']:,}**.", "",
               "**Important:** each PACK stores independent compressed frames with an "
               "in-memory offset index. PACK payload bytes equal the respective "
-              "compressed Single payload bytes. This experiment has **no persisted "
-              "manifest/seek table**; it is NOT a complete TOR-PACK format.", "",
+              "compressed Single payload bytes. The separate **pack_100_seekable_zstd3** "
+              "row measures a real standard seek-table and JSON manifest sidecar, "
+              "including extra bytes and PUT; it makes two verified Range GETs "
+              "per sampled chapter. Neither layout is a production TOR ACL.", "",
               "### Security", 
               f"- Anonymous read denied: **{result['minio']['security']['anonymous_object_denied']}**.",
               f"- Presigned PACK URL exposes other Range: "
@@ -343,7 +422,8 @@ def summary_md(result):
                   "| Layout | Objects | GiB at year end | RUB/month at year-end size | PUT RUB/year 1 |",
                   "|---|---:|---:|---:|---:|"]
         for name in ("single_raw", "single_zlib6", "single_zstd3",
-                     "pack_100_zlib6", "pack_100_zstd3", "pack_4mib_zstd3"):
+                     "pack_100_zlib6", "pack_100_zstd3", "pack_100_seekable_zstd3",
+                     "pack_4mib_zstd3"):
             row = forecast[name]
             lines.append(f"| {name} | {row['objects']:,} | {row['estimated_gib']:.1f} "
                          f"| {row['storage_rub_per_month_at_full_size']:.0f} "
@@ -351,7 +431,8 @@ def summary_md(result):
         lines.append("")
     lines += ["**Cost model warning:** size-bounded PACK object counts use an IDEAL " 
               "lower bound of ceil(projected compressed payload / target size), "
-              "not measured production packing. Fixed-count groups use ceil(chapters / group). "
+              "not measured production packing. Fixed-count groups use ceil(chapters / group); "
+              "seekable groups also count one immutable manifest object per pack. "
               "The storage RUB/month column is the charge at YEAR-END occupancy, not an "
               "average across the first year.", "",
               "**Limitations:** no real cloud/network charges, backups, PG index/WAL "
