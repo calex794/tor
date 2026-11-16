@@ -49,3 +49,5 @@
 - [DROP-R4b3 fenced offline runner](tor-store-r4b3-fenced-runner.md): B-authoritative SINGLE lookup, bounded off-thread pack construction, heartbeat/lease theft, retry cooldown and explicit operator opt-in, no reader cutover.
 
 - [DROP-R4c automatic PACK candidate admission](tor-store-r4c-auto-pack-planner.md): bounded B-approved FREE inventory, one active job per book, append-only membership and separate planner opt-in, no S349 reader cutover.
+
+- [DROP-03/06: C-authorized private PACK Range preflight](tor-store-drop03-06-authorized-range-preflight.md): exact historical FREE edition authorization before and after bounded S3 Range, no live HTTP or PACK grant. Original DROP-04 pack-direct remains next.
