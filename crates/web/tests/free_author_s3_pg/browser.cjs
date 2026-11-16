@@ -105,6 +105,24 @@ let stage = 'launch';
         assert(text.includes(config.markdown.split('\n\n')[0]));
         if (config.absent_marker) assert(!text.includes(config.absent_marker));
         if (config.version) assert.equal(await page.locator('#chapter-text').getAttribute('data-free-s3-version'), String(config.version));
+        if (config.archived) {
+          const csrf = await page.locator('#chapter-text').getAttribute('data-free-s3-csrf');
+          const endpoint = config.origin + '/api/v1/me/progress/archived-free';
+          const current = await context.request.get(endpoint + `?chapter_id=${config.chapter}&version_id=${config.version}`);
+          assert.equal(current.status(), 200, 'the saved free V1 remains a valid archive cursor after conversion');
+          const state = await current.json();
+          const saved = await context.request.put(endpoint, {
+            headers: { Origin: config.origin, 'X-CSRF-Token': csrf },
+            data: { chapter_id: String(config.chapter), version_id: String(config.version),
+              block_id: 1, char_offset: 1, expected_revision: state.revision },
+          });
+          assert.equal(saved.status(), 200, 'only the exact pinned V1 cursor may advance');
+          await page.reload();
+          await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor();
+          await page.waitForFunction(() => document.querySelector('#chapter-text')?.dataset.freeProgressRestored === '1');
+          const notice = page.locator('[data-free-progress-notice]');
+          assert(!(await notice.isVisible()), 'a valid archive must not display a progress failure');
+        }
 
         assert.equal(await page.locator('#chapter-text script').count(), 0);
         if (config.progress) {
@@ -171,15 +189,19 @@ let stage = 'launch';
             issue.evaluate(form => form.requestSubmit()),
           ]);
           assert.equal(issueResponse.status(), 303, 'S3-only correction must validate the immutable source');
+          await page.waitForURL(url => url.pathname === '/read/' + config.chapter && url.searchParams.get('issue') === 'sent');
+          await page.locator('#chapter-text').filter({ hasText: config.marker }).waitFor();
         }
-        if (process.env.TOR_PAID_READER_SHOTS) {
-          fs.mkdirSync(process.env.TOR_PAID_READER_SHOTS, { recursive: true });
-          await page.screenshot({ path: path.join(process.env.TOR_PAID_READER_SHOTS, `s349-free-${config.width || 390}.png`), fullPage: true });
-        }
-
       } else {
         await page.locator('#chapter-text [role="alert"]').waitFor({ timeout: 20000 });
         assert(!(await page.locator('#chapter-text').innerText()).includes(config.marker));
+      }
+      if (process.env.TOR_PAID_READER_SHOTS && config.mode === 'read') {
+        const surface = config.admin ? (config.history ? 'admin-v1' : 'admin-current')
+          : config.archived ? 'archive' : config.saved ? 'saved-v1' : config.progress ? 'private' : 'public';
+        fs.mkdirSync(process.env.TOR_PAID_READER_SHOTS, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.TOR_PAID_READER_SHOTS,
+          `s349-free-${surface}-${config.width || 390}.png`), fullPage: true });
       }
       const outcomes = await Promise.all(checks);
       assert(!outcomes.some(Boolean), 'browser Network sizes must be available');

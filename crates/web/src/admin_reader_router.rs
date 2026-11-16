@@ -87,6 +87,15 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     let (secure, public_origin) = origin;
     let (cover_objects, enable_cover_uploads) = covers;
     let auth_reader = reader.clone();
+    let navigation_accounts = accounts.clone();
+    let navigation_cookies = auth_cookies::CookiePolicy {
+        secure,
+        origin: public_origin.clone(),
+    };
+    let flow = crate::recommendation_http::visits::Context::new(
+        accounts.clone(),
+        navigation_cookies.clone(),
+    );
     let follows =
         book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone());
     let admin = paid_grants_http::administrator_only_router(
@@ -104,21 +113,21 @@ pub(super) fn authenticated_postgres_reader_with_free_s3(
     let content = axum::Extension(crate::author_chapter_http::FreeContent(free.clone()));
     let owner_auth =
         auth::router_with_free_author(accounts, auth_reader, secure, public_origin, cover, free);
-    ril::instrument(
-        make_router_with_paid_checkout(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_objects,
-            Some(follows),
-            ReaderModes {
-                paid_browser: false,
-                admin_reader: true,
-            },
-        )
-        .merge(owner_auth)
-        .merge(admin)
-        .layer(content),
+    let app = make_router_with_paid_checkout(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        Some(reader),
+        true,
+        cover_objects,
+        Some(follows),
+        ReaderModes {
+            paid_browser: false,
+            admin_reader: true,
+        },
     )
+    .merge(owner_auth)
+    .merge(admin)
+    .layer(content);
+    let app = header_nav::instrument(app, navigation_accounts, navigation_cookies);
+    ril::instrument(crate::recommendation_http::visits::instrument(app, flow))
 }

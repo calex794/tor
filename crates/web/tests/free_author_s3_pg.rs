@@ -480,7 +480,7 @@ async fn s349_author_form_bodyless_pg_direct_browser_and_tamper_denial() {
     pg(&url,&format!("UPDATE books SET lifecycle_status='ordinary_deleted',ordinary_deleted_at=now(),visibility='draft' WHERE id={book}"));
     let archive = browser(
         json!({"mode":"read","saved":true,"origin":ORIGIN,"storage_origin":ENDPOINT,
-        "chapter":chapter,"session":session,"markdown":MARKDOWN,"marker":MARKER,"version":version,"absent_marker":"V2_ONLY_MARKER"}),
+        "chapter":chapter,"session":session,"markdown":MARKDOWN,"marker":MARKER,"version":version,"archived":true,"absent_marker":"V2_ONLY_MARKER"}),
     );
     println!("S349_NETWORK deleted_archive={archive}");
     pg(

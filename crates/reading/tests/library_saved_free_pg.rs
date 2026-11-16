@@ -306,6 +306,12 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
 
     // A historical V1 is allowed to advance only through its exact live pin,
     // active session and the same per-Book CAS revision as public progress.
+    // New paid editions cannot revoke the exact previously saved free V1 or its cursor.
+    sqlx::query("UPDATE chapters SET access_level='paid',price_amount=100 WHERE id=$1")
+        .bind(free1)
+        .execute(&pool)
+        .await
+        .unwrap();
     let archived_sync = PgReadingSync::new(pool.clone());
     let current = archived_sync
         .archived_free_state(user_a, free1, v1, &token_a)
@@ -403,6 +409,11 @@ async fn c_08_add_book_pins_free_versions_and_preserves_v1_without_paid_grants()
     .await
     .unwrap();
     assert_eq!(completed, 0, "scroll sync never mints a completion event");
+    sqlx::query("UPDATE chapters SET access_level='free',price_amount=0 WHERE id=$1")
+        .bind(free1)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Repointed public V2 progress is never mapped onto older saved V1.
     sqlx::query("UPDATE reader_book_positions SET version_id=$2 WHERE user_id=$1 AND book_id=$3")

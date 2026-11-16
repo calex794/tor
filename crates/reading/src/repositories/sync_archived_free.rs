@@ -51,7 +51,7 @@ impl PgReadingSync {
                      SELECT 1 FROM user_level_grants age_grant
                      WHERE age_grant.user_id=viewer.id
                        AND age_grant.level='pro_adult' AND age_grant.is_active)))
-                 AND chapter.visibility='public' AND chapter.access_level='free'
+                 AND chapter.visibility='public'
                  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                  AND (chapter.reader_released_at IS NULL
                       OR chapter.reader_released_at<=now())"#,
@@ -77,7 +77,8 @@ impl PgReadingSync {
         parse_stored(row).map(Some)
     }
 
-    /// Advance only an explicitly pinned historical free edition. This
+    /// Advance only an explicitly pinned historical free edition. The current
+    /// chapter's paid/free flag cannot change that exact historical pin. This
     /// deliberately does not mint completion, ranking, financial or outbox facts.
     /// The existing one-row-per-Book CAS remains authoritative across devices.
     pub async fn save_archived_free(
@@ -129,7 +130,7 @@ impl PgReadingSync {
                       SELECT 1 FROM user_level_grants age_grant
                       WHERE age_grant.user_id=viewer.id
                         AND age_grant.level='pro_adult' AND age_grant.is_active)))
-                 AND chapter.visibility='public' AND chapter.access_level='free'
+                 AND chapter.visibility='public'
                  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                  AND (chapter.reader_released_at IS NULL
                       OR chapter.reader_released_at<=now())
