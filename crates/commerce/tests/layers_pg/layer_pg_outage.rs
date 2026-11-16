@@ -20,7 +20,10 @@ async fn financial_snapshot(pool: &PgPool, buyer: i64) -> (i64, i64, i64, i64) {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_checkout_closed_pool_fails_without_money_or_rights_then_retries_once() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG test URL");
-    assert!(url.ends_with("/tor_ci"), "never run against a live database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never run against a live database"
+    );
     let (pool, disconnected, owner, buyer, book) = setup("checkout-pool-outage").await;
     let (layer, version, offer_id) = offer(&disconnected, owner, book, 250, false).await;
     let buy = cmd(buyer, layer, offer_id, version, 250, 'Z');
