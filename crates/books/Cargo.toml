@@ -18,3 +18,5 @@ tor-storage = { path = "../storage" }
 [dev-dependencies]
 tokio.workspace = true
 hex = "0.4"
+zstd = "0.13"
+serde_json = "1"
