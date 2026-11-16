@@ -40,10 +40,10 @@ use tor_contracts::paid_delivery::{
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
-#[path = "paid_grants_http_pg/s034_toc_window.rs"]
-mod s034_toc_window;
 #[path = "paid_grants_http_pg/s005_pg_outage.rs"]
 mod s005_pg_outage;
+#[path = "paid_grants_http_pg/s034_toc_window.rs"]
+mod s034_toc_window;
 #[path = "paid_grants_http_pg/s049_paid_comment_reports.rs"]
 mod s049_paid_comment_reports;
 #[path = "paid_grants_http_pg/s049_paid_comment_reviews.rs"]
