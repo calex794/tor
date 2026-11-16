@@ -1,4 +1,6 @@
 //! B-01/B-02: a real owner creates one draft, protected against retries.
+#[path = "authoring_pg/pg_outage.rs"]
+mod pg_outage;
 use sqlx::{PgPool, Row};
 use tor_books::{
     repositories::postgres::PgAuthoring,
