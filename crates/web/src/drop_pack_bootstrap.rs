@@ -1,5 +1,7 @@
 //! R4b3: explicit private PACK worker startup, isolated from HTTP routes.
-use std::{env, error::Error};
+use std::env;
+#[cfg(feature = "s3-free")]
+use std::error::Error;
 
 pub fn enabled(demo: bool) -> Result<bool, &'static str> {
     let setting = match env::var("TOR_DROP_PACK_WORKER_ENABLED") {
