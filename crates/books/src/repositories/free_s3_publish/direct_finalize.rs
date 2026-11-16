@@ -5,7 +5,7 @@
 //! reading and rollback acceptance have been completed.
 use super::{write_error, PgFreeS3Publication};
 use crate::services::{
-    authoring::AuthorError,
+    authoring::{valid_command_key, AuthorError},
     chapter_file_import::{fingerprint, ImportedChapter, MAX_IMPORT_CHAPTERS},
 };
 use sha2::{Digest, Sha256};
@@ -39,7 +39,7 @@ impl PgFreeS3Publication {
         } = request;
         let target = &receipt.target;
         if job_id <= 0 || epoch <= 0 || actor <= 0 || book <= 0
-            || !super::super::super::services::authoring::valid_command_key(command_key)
+            || !valid_command_key(command_key)
             || chapters.is_empty() || chapters.len() > MAX_IMPORT_CHAPTERS
             || receipt.frames.len() != chapters.len()
             || !target.pack_key.starts_with("private/free-packs/import/")
