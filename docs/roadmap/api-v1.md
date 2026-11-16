@@ -67,7 +67,8 @@
 | GET `/api/v1/chapters/{id}/offer` | `{chapter_id,version_id,price_minor,currency:"RUB",can_purchase}` | опубликованная версия, нет paid body | mismatch version/price 409 |
 | POST `/api/v1/purchases` | `{chapter_id,expected_version_id,expected_price_minor}` → `{purchase_id,version_id,balance_minor}` | **один commit** wallet debit+ledger+fact+pointer/outbox | insufficient funds 409 без побочных записей |
 | POST `/api/v1/purchases/batch` | `{items:[{chapter_id,version_id,price_minor}]}` | все линии одним PG commit, уникальные главы | одна ошибка откатывает всю покупку |
-| POST `/api/v1/purchases/{id}/refund-request` | `{reason}` → `{request_id,state:"pending"}` | только владелец, не зачисляет сразу | чужой запрос 404, повтор один тикет |
+| GET `/support`; POST `/support/messages` | обращение покупателя в поддержку | нет пользовательской вкладки `/me/refunds` и самостоятельного `refund-request` | чужой диалог недоступен |
+| GET `/admin/finance/refunds`; POST `/admin/finance/refunds/prepare`; POST `/admin/finance/refunds/approve` | проверенная переписка, точный purchase ID, основание, CSRF и отдельное подтверждение паролем | только администратор, внутренний атомарный reversal и отзыв прав; финансовые POST выключены по умолчанию | повтор без второго зачисления, чужой ID/недействующий step-up — отказ |
 | POST `/api/v1/admin/refunds/{id}/decide` | `{decision:"approve|reject",expected_revision}` | только финансовая admin роль, reversal ledger если approved | 2 concurrent admin не возвращают дважды |
 | GET `/api/v1/me/wallet` | `{currency:"RUB",balance_minor,recent_entries}` | только владелец, no-store | не отдавать чужие записи |
 | POST `/api/v1/me/payout-requests` | `{amount_minor,expected_revision}` | verified available earnings, не вывод через неподтверждённого внешнего провайдера | race и duplicate не увеличивают сумму |
