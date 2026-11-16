@@ -140,13 +140,8 @@ pub(super) async fn verify(
         .expect("grant must finish after PG outage")
         .expect("join grant task");
     assert_eq!(final_pg_outage.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(
-        final_pg_outage.headers()[header::CACHE_CONTROL],
-        "no-store"
-    );
-    let final_body = to_bytes(final_pg_outage.into_body(), 8192)
-        .await
-        .unwrap();
+    assert_eq!(final_pg_outage.headers()[header::CACHE_CONTROL], "no-store");
+    let final_body = to_bytes(final_pg_outage.into_body(), 8192).await.unwrap();
     assert!(
         !has_private_reader_material(&final_body),
         "a signed G URL must not leak when the final entitlement check fails"
