@@ -332,8 +332,6 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
     purchased_chapters_page_with_reader(page, true)
 }
 
-/// Show D-owned purchase metadata even when no S3 reader was configured.
-/// Checkout-only installations must never advertise a dead paid-reader link.
 pub fn purchased_chapters_page_with_reader(
     page: &ReadablePurchasesPage,
     reader_available: bool,
