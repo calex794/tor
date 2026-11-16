@@ -196,7 +196,6 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     );
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable loopback MinIO only"]
 async fn s005_real_s3_head_transport_failure_never_returns_presigned_grant() {
@@ -232,7 +231,10 @@ async fn s005_real_s3_head_transport_failure_never_returns_presigned_grant() {
         ObjectId::parse("f0050000-0000-4000-8000-000000000001").unwrap(),
     );
     working
-        .put_immutable(&record, b"S005 isolated S3 transport failure, not a paid chapter")
+        .put_immutable(
+            &record,
+            b"S005 isolated S3 transport failure, not a paid chapter",
+        )
         .await
         .unwrap();
     assert_eq!(working.head_verified(&record).await, Ok(true));
@@ -241,9 +243,7 @@ async fn s005_real_s3_head_transport_failure_never_returns_presigned_grant() {
     // closes before an S3 HEAD response. Real MinIO stays healthy for all
     // neighbouring acceptance tests; this is a real transport disconnect
     // through the AWS SDK, not a mocked StorageError.
-    let breaker = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap();
+    let breaker = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let unavailable_endpoint = format!("http://{}", breaker.local_addr().unwrap());
     let disconnect = tokio::spawn(async move {
         while let Ok((socket, _)) = breaker.accept().await {
