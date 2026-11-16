@@ -12,6 +12,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from checkout_lost_ack_proxy import committed_without_ack
+
 BASE = "http://127.0.0.1:3098"
 PATH = "/api/v1/purchases"
 DB = os.environ.get("TEST_DATABASE_URL", "")
@@ -59,7 +61,7 @@ class Client:
     def call(
         self, method: str, path: str, payload: object = None,
         origin: str | None = None, csrf: str | None = None,
-        key: str | None = None,
+        key: str | None = None, base_override: str | None = None,
     ) -> tuple[int, dict[str, str], str]:
         headers = {"Accept": "application/json, text/html"}
         data = None
@@ -75,7 +77,8 @@ class Client:
             headers["X-CSRF-Token"] = csrf
         if key is not None:
             headers["Idempotency-Key"] = key
-        req = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
+        req = urllib.request.Request((base_override or BASE) + path, data=data,
+                                     headers=headers, method=method)
         try:
             res = self.opener.open(req, timeout=15)
         except urllib.error.HTTPError as error:
@@ -184,18 +187,41 @@ def enabled() -> None:
             and "X-Amz-Signature" not in paywall_body,
             "Public paid paywall leaked text or private S3 credentials")
 
-    status, headers, body = buy(buyer, payload, csrf=csrf, key=key)
-    require(status == 200 and headers.get("cache-control") == "no-store", "First purchase failed")
-    require("SECRET-PAID" not in body, "Receipt leaked paid text")
-    receipt = json.loads(body)
+    # A live Axum/PG checkout commits; the proxy receives HTTP 200 but
+    # delivers zero acknowledgement bytes to the original buyer.
+    hidden = committed_without_ack(
+        lambda proxy: buyer.call("POST", PATH, payload, origin=BASE, csrf=csrf,
+                                 key=key, base_override=proxy))
+    require(hidden["cache_control"] == "no-store", "Hidden receipt must be private")
+    require(b"SECRET-PAID" not in hidden["receipt"], "Lost receipt leaked chapter text")
+    receipt = json.loads(hidden["receipt"])
     require(receipt["balance_minor"] == 425 and receipt["replayed"] is False,
-            "Initial purchase receipt incorrect")
+            "Lost-ACK purchase did not commit correctly")
     require(receipt["chapter_id"] == str(chapter)
-            and receipt["version_id"] == str(version), "Purchased version was not pinned")
+            and receipt["version_id"] == str(version), "Lost-ACK receipt did not pin V1")
     purchase_id = int(receipt["purchase_id"])
+    require(scalar("SELECT count(*) FROM chapter_purchase_facts "
+                   f"WHERE user_id={buyer_id}") == 1, "Lost-ACK purchase fact missing")
+    require(scalar("SELECT count(*) FROM reader_wallet_entries "
+                   f"WHERE user_id={buyer_id} AND kind='chapter_purchase'") == 1,
+            "Lost-ACK purchase must debit exactly once")
+    require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
+                   f"WHERE user_id={buyer_id}") == 425,
+            "Lost-ACK purchase must debit exactly the accepted price")
+    status, headers, data = buy(buyer, payload, csrf=csrf, key=key)
+    require(status == 200 and headers.get("cache-control") == "no-store",
+            "Original-key recovery after lost acknowledgement failed")
+    recovered = json.loads(data)
+    require(recovered["replayed"] is True
+            and recovered["purchase_id"] == receipt["purchase_id"]
+            and recovered["chapter_id"] == receipt["chapter_id"]
+            and recovered["version_id"] == receipt["version_id"]
+            and recovered["balance_minor"] == receipt["balance_minor"],
+            "Recovered purchase differs from first committed receipt")
     status, _, data = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and json.loads(data)["replayed"] is True
-            and json.loads(data)["purchase_id"] == str(purchase_id), "Retry not idempotent")
+            and json.loads(data)["purchase_id"] == str(purchase_id),
+            "Repeated retry must not change owned purchase")
     expect(buy(buyer, {**payload, "expected_price_minor": 176}, csrf=csrf, key=key),
            409, "Changed price on same key")
     expect(buy(buyer, payload, csrf=csrf, key="B" * 42 + "8"),
