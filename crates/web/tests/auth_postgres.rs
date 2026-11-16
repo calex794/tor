@@ -14,6 +14,8 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "auth_postgres/a02_commit_failure.rs"]
+mod a02_commit_failure;
 #[path = "auth_postgres/b04_cases.rs"]
 mod b04_cases;
 #[path = "auth_postgres/b06_cases.rs"]
