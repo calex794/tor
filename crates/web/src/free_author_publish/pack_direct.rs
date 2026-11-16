@@ -24,8 +24,11 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         chapters: &[ImportedChapter],
         writer: &S3FreePackWriter,
     ) -> Result<PackPlacementReceipt, AuthorError> {
-        if claim.job_id <= 0 || claim.epoch <= 0 || claim.actor_id <= 0
-            || claim.book_id <= 0 || chapters.is_empty()
+        if claim.job_id <= 0
+            || claim.epoch <= 0
+            || claim.actor_id <= 0
+            || claim.book_id <= 0
+            || chapters.is_empty()
             || chapters.len() > MAX_IMPORT_CHAPTERS
             || chapters.len() != claim.expected_chapter_count as usize
             || claim.approved_fingerprint.as_slice()
@@ -35,9 +38,10 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         }
         // B reserves the exact IDs and UTF-16 shapes without writing public
         // chapters. Failed/expired uploads leave only inert reservations.
-        let pending = self.repository.prepare_import(
-            claim.actor_id, claim.book_id, &claim.command_key, chapters
-        ).await?;
+        let pending = self
+            .repository
+            .prepare_import(claim.actor_id, claim.book_id, &claim.command_key, chapters)
+            .await?;
         if pending.len() != chapters.len() || pending.iter().any(|p| p.verified) {
             // Never mix a partially uploaded SINGLE import with direct PACK.
             return Err(AuthorError::Conflict);
@@ -45,35 +49,45 @@ impl<S: FreeChapterStore> PgFreeAuthorPublisher<S> {
         let mut sources = Vec::with_capacity(chapters.len());
         for (chapter, prepared) in chapters.iter().zip(pending) {
             let edition = FreeChapterObject::for_markdown(
-                prepared.chapter_id, prepared.version_id, &chapter.body
-            ).map_err(map_storage)?;
+                prepared.chapter_id,
+                prepared.version_id,
+                &chapter.body,
+            )
+            .map_err(map_storage)?;
             sources.push((edition, chapter.body.as_bytes().to_vec()));
         }
         let key = direct_pack_key(
-            claim.book_id, claim.actor_id, &claim.command_key,
+            claim.book_id,
+            claim.actor_id,
+            &claim.command_key,
             fingerprint(claim.book_id, chapters),
         );
         let bucket = self.bucket.clone();
-        let packed = tokio::task::spawn_blocking(move || {
-            prepare_free_pack(&bucket, &key, &sources)
-        }).await.map_err(|_| AuthorError::Unavailable)?
-          .map_err(map_storage)?;
-        let proof = writer.upload_and_verify(&packed)
-            .await.map_err(map_storage)?;
+        let packed =
+            tokio::task::spawn_blocking(move || prepare_free_pack(&bucket, &key, &sources))
+                .await
+                .map_err(|_| AuthorError::Unavailable)?
+                .map_err(map_storage)?;
+        let proof = writer
+            .upload_and_verify(&packed)
+            .await
+            .map_err(map_storage)?;
         let receipt = proof.placement_receipt();
         if receipt != *packed.receipt() {
             return Err(AuthorError::Conflict);
         }
-        self.repository.stage_verified_direct_pack(DirectPackStageRequest {
-            job_id: claim.job_id,
-            epoch: claim.epoch,
-            actor: claim.actor_id,
-            book: claim.book_id,
-            command_key: &claim.command_key,
-            chapters,
-            expected_bucket: &self.bucket,
-            receipt: &receipt,
-        }).await?;
+        self.repository
+            .stage_verified_direct_pack(DirectPackStageRequest {
+                job_id: claim.job_id,
+                epoch: claim.epoch,
+                actor: claim.actor_id,
+                book: claim.book_id,
+                command_key: &claim.command_key,
+                chapters,
+                expected_bucket: &self.bucket,
+                receipt: &receipt,
+            })
+            .await?;
         Ok(receipt)
     }
 }
@@ -85,8 +99,11 @@ fn direct_pack_key(book: i64, actor: i64, command_key: &str, digest: [u8; 32]) -
     hasher.update(actor.to_be_bytes());
     hasher.update(command_key.as_bytes());
     hasher.update(digest);
-    let id: String = hasher.finalize().iter()
-        .map(|byte| format!("{byte:02x}")).collect();
+    let id: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     format!("private/free-packs/import/{book}/{id}.zst")
 }
 
